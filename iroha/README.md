@@ -12,17 +12,18 @@ based on predefined configuration.
 #### Prepare Key Pairs
 
 Before deployment each Peer should generate own pair of crypthographic keys. In our example we will use `Ed25519` and 
-[ursa_key_utils](https://github.com/soramitsu/ursa_key_utils) tool.
+[iroha_crypto_cli](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_crypto_cli/README.md) tool. This tool is a recommended way to generate iroha keys.
 
 ```bash
-./ursa_key_utils
+./iroha_crypto_cli
 ```
 
 As a result you will see something like that:
 
 ```bash
-Public key: [101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]
-Private key: [113, 107, 241, 108, 182, 178, 31, 12, 5, 183, 243, 184, 83, 0, 238, 122, 77, 86, 20, 245, 144, 31, 128, 92, 166, 251, 245, 106, 167, 188, 20, 8, 101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]
+Public key (multihash): ed20bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c
+Private key: 0311152fad9308482f51ca2832fdfab18e1c74f36c6adb198e3ef0213fe42fd8bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c
+Digest function: ed25519
 ```
 
 Paste these values into `docker-compose.yml` environment variables for the first Iroha Peer:
@@ -37,13 +38,15 @@ services:
     image: iroha:debug
     environment:
       TORII_URL: iroha:1337
-      IROHA_PUBLIC_KEY: '[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]'
-      IROHA_PRIVATE_KEY: '[113, 107, 241, 108, 182, 178, 31, 12, 5, 183, 243, 184, 83, 0, 238, 122, 77, 86, 20, 245, 144, 31, 128, 92, 166, 251, 245, 106, 167, 188, 20, 8, 101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]'
- 
+      IROHA_PUBLIC_KEY: 'ed20bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c'
+      IROHA_PRIVATE_KEY: '{"digest_function": "ed25519", "payload": "0311152fad9308482f51ca2832fdfab18e1c74f36c6adb198e3ef0213fe42fd8bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c"}'
 ...
 ```
 
-Repeat this for each Peer.
+Repeat this for each Peer, and do not forget to update `IROHA_TRUSTED_PEERS` correspondingly. 
+
+Also take a look at the reference configurations for a [single peer](https://github.com/hyperledger/iroha/blob/iroha2-dev/docker-compose-single.yml)
+and for [multiple peers](https://github.com/hyperledger/iroha/blob/iroha2-dev/docker-compose.yml).
 
 #### Build Binaries
 
