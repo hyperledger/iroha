@@ -38,9 +38,10 @@ impl WorldStateView {
             }
         }
         self.blocks.push(block.clone());
-        for listener in self.peer.listeners.clone() {
-            if let Err(e) = listener.execute(self.peer.authority(), self) {
-                log::warn!("Failed to execute listener on WSV: {}", e);
+        for trigger in self.peer.triggers.clone() {
+            match trigger.execute(self.peer.authority(), self) {
+                Ok(result) => *self = result.world_state_view,
+                Err(e) => log::warn!("Failed to execute trigger on WSV: {}", e),
             }
         }
     }
@@ -114,8 +115,8 @@ impl WorldStateView {
     }
 
     /// Get `Asset` without an ability to modify it.
-    pub fn read_asset(&mut self, id: &<Asset as Identifiable>::Id) -> Option<&Asset> {
-        self.account(&id.account_id)?.assets.get(id)
+    pub fn read_asset(&self, id: &<Asset as Identifiable>::Id) -> Option<&Asset> {
+        self.read_account(&id.account_id)?.assets.get(id)
     }
 
     /// Get `Asset` with an ability to modify it.
@@ -154,13 +155,13 @@ mod tests {
     use crate::{
         block::BlockHeader,
         peer::{Peer, PeerId},
-        permission::Permission,
+        permission::{self, Permission},
     };
     use iroha_crypto::{KeyPair, Signatures};
     use std::collections::BTreeMap;
 
     #[async_std::test]
-    async fn test_listeners() {
+    async fn test_triggers() {
         let block = CommittedBlock {
             header: BlockHeader {
                 timestamp: 0,
@@ -175,7 +176,7 @@ mod tests {
         };
         let domain_name = "global".to_string();
         let mut asset_definitions = BTreeMap::new();
-        let asset_definition_id = crate::permission::permission_asset_definition_id();
+        let asset_definition_id = permission::permission_asset_definition_id();
         asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinition::new(asset_definition_id.clone()),
@@ -213,7 +214,7 @@ mod tests {
             &Vec::new(),
             domains,
         );
-        peer.add_listener(Instruction::If(
+        peer.add_trigger(Instruction::If(
             Box::new(Instruction::Notify("Test".to_string())),
             Box::new(peer.add_domain(Domain::new("Test".to_string())).into()),
             None,

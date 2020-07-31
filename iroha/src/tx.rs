@@ -155,9 +155,13 @@ impl SignedTransaction {
         self,
         world_state_view: &mut WorldStateView,
     ) -> Result<ValidTransaction, String> {
+        let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            instruction.execute(self.payload.account_id.clone(), world_state_view)?;
+            world_state_view_temp = instruction
+                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
+                .world_state_view;
         }
+        *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
             payload: self.payload,
             signatures: self.signatures,
@@ -189,7 +193,7 @@ pub struct ValidTransaction {
 }
 
 impl ValidTransaction {
-    // TODO: comment that it should use a clone
+    // TODO: Should not be in `ValidTransaction`.
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
     /// `WorldStateView`.
     ///
@@ -198,9 +202,13 @@ impl ValidTransaction {
         self,
         world_state_view: &mut WorldStateView,
     ) -> Result<ValidTransaction, String> {
+        let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            instruction.execute(self.payload.account_id.clone(), world_state_view)?;
+            world_state_view_temp = instruction
+                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
+                .world_state_view;
         }
+        *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
             payload: self.payload,
             signatures: self.signatures,
@@ -209,11 +217,13 @@ impl ValidTransaction {
 
     /// Apply instructions to the `WorldStateView`.
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            if let Err(e) = instruction.execute(self.payload.account_id.clone(), world_state_view) {
-                log::warn!("Failed to invoke instruction on WSV: {}", e);
-            }
+            world_state_view_temp = instruction
+                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
+                .world_state_view;
         }
+        *world_state_view = world_state_view_temp;
         Ok(())
     }
 

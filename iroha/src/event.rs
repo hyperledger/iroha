@@ -360,11 +360,11 @@ pub mod connection {
     }
 }
 
-/// Iroha Special Instructions module provides `EventInstruction` enum with all legal types of
+/// Iroha Special Instructions module provides `EventInstruction` enum with all possible types of
 /// events related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `EventInstruction` variants into generic ISI.
 pub mod isi {
-    use crate::prelude::*;
+    use crate::{isi, prelude::*};
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
     use std::time::SystemTime;
@@ -389,16 +389,33 @@ pub mod isi {
         OnTimestamp(u128, Box<Instruction>),
     }
 
+    /// Enumeration of all possible Outputs for `EventInstruction` execution.
+    #[derive(Debug)]
+    pub enum Output {
+        /// Variant of output for `EventInstruction::OnBlockCreated`.
+        OnBlockCreated(Box<isi::InstructionResult>),
+        /// Variant of output for `EventInstruction::OnBlockchainHeight`.
+        OnBlockchainHeight(Box<isi::InstructionResult>),
+        /// Variant of output for `EventInstruction::OnWorldStateViewChange`.
+        OnWorldStateViewChange(Box<isi::InstructionResult>),
+        /// Variant of output for `EventInstruction::OnTimestamp`.
+        OnTimestamp(Box<isi::InstructionResult>),
+        /// Variant of output for skipped instruction.
+        None,
+    }
+
     impl EventInstruction {
         /// Execute `EventInstruction` origin based on the changes in `world_state_view`.
         pub fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             use EventInstruction::*;
             match self {
-                OnBlockCreated(instruction) => instruction.execute(authority, world_state_view),
+                OnBlockCreated(instruction) => Ok(Output::OnBlockCreated(Box::new(
+                    instruction.execute(authority, world_state_view)?,
+                ))),
                 OnBlockchainHeight(height, instruction) => {
                     if &world_state_view
                         .blocks
@@ -408,9 +425,11 @@ pub mod isi {
                         .height
                         == height
                     {
-                        instruction.execute(authority, world_state_view)
+                        Ok(Output::OnBlockchainHeight(Box::new(
+                            instruction.execute(authority, world_state_view)?,
+                        )))
                     } else {
-                        Ok(())
+                        Ok(Output::None)
                     }
                 }
                 OnWorldStateViewChange(trigger, instruction) => {
@@ -418,9 +437,11 @@ pub mod isi {
                         .execute(authority.clone(), world_state_view)
                         .is_ok()
                     {
-                        instruction.execute(authority, world_state_view)
+                        Ok(Output::OnWorldStateViewChange(Box::new(
+                            instruction.execute(authority, world_state_view)?,
+                        )))
                     } else {
-                        Ok(())
+                        Ok(Output::None)
                     }
                 }
                 OnTimestamp(duration, instruction) => {
@@ -437,11 +458,26 @@ pub mod isi {
                             .timestamp
                         >= *duration
                     {
-                        instruction.execute(authority, world_state_view)
+                        Ok(Output::OnTimestamp(Box::new(
+                            instruction.execute(authority, world_state_view)?,
+                        )))
                     } else {
-                        Ok(())
+                        Ok(Output::None)
                     }
                 }
+            }
+        }
+    }
+
+    impl Output {
+        /// Get instance of `WorldStateView` with changes applied during `Instruction` execution.
+        pub fn world_state_view(&self) -> Option<WorldStateView> {
+            match self {
+                Output::OnBlockCreated(result)
+                | Output::OnBlockchainHeight(result)
+                | Output::OnWorldStateViewChange(result)
+                | Output::OnTimestamp(result) => Some(result.world_state_view.clone()),
+                Output::None => None,
             }
         }
     }
@@ -453,7 +489,7 @@ pub mod isi {
             account::query::GetAccount,
             block::BlockHeader,
             peer::{Peer, PeerId},
-            permission::Permission,
+            permission::{self, Permission},
         };
         use iroha_crypto::{KeyPair, Signatures};
         use std::collections::BTreeMap;
@@ -474,7 +510,7 @@ pub mod isi {
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = crate::permission::permission_asset_definition_id();
+            let asset_definition_id = permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
@@ -518,9 +554,11 @@ pub mod isi {
             world_state_view.put(&block);
             let on_block_created_listener =
                 EventInstruction::OnBlockCreated(Box::new(add_domain_instruction));
-            on_block_created_listener
+            world_state_view = on_block_created_listener
                 .execute(authority, &mut world_state_view)
-                .expect("Failed to execute instruction.");
+                .expect("Failed to execute instruction.")
+                .world_state_view()
+                .expect("Failed to receive World State View");
             assert!(world_state_view.domain("Test").is_some());
         }
 
@@ -540,7 +578,7 @@ pub mod isi {
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = crate::permission::permission_asset_definition_id();
+            let asset_definition_id = permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
@@ -584,9 +622,11 @@ pub mod isi {
             world_state_view.put(&block);
             let on_block_created_listener =
                 EventInstruction::OnBlockchainHeight(0, Box::new(add_domain_instruction));
-            on_block_created_listener
-                .execute(authority, &mut world_state_view)
-                .expect("Failed to execute instruction.");
+            world_state_view = on_block_created_listener
+                .execute(authority, &world_state_view)
+                .expect("Failed to execute instruction.")
+                .world_state_view()
+                .expect("Failed to get World State View.");
             assert!(world_state_view.domain("Test").is_some());
         }
 
@@ -606,7 +646,7 @@ pub mod isi {
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = crate::permission::permission_asset_definition_id();
+            let asset_definition_id = permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
@@ -648,9 +688,11 @@ pub mod isi {
                 IrohaQuery::GetAccount(GetAccount { account_id }),
                 Box::new(add_domain_instruction),
             );
-            on_block_created_listener
+            world_state_view = on_block_created_listener
                 .execute(authority, &mut world_state_view)
-                .expect("Failed to execute instruction.");
+                .expect("Failed to execute instruction.")
+                .world_state_view()
+                .expect("Failed to get World State View.");
             assert!(world_state_view.domain("Test").is_some());
         }
 
@@ -670,7 +712,7 @@ pub mod isi {
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = crate::permission::permission_asset_definition_id();
+            let asset_definition_id = permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
@@ -714,9 +756,11 @@ pub mod isi {
             world_state_view.put(&block);
             let on_block_created_listener =
                 EventInstruction::OnTimestamp(1, Box::new(add_domain_instruction));
-            on_block_created_listener
-                .execute(authority, &mut world_state_view)
-                .expect("Failed to execute instruction.");
+            world_state_view = on_block_created_listener
+                .execute(authority, &world_state_view)
+                .expect("Failed to execute instruction.")
+                .world_state_view()
+                .expect("Failed to get World State View.");
             assert!(world_state_view.domain("Test").is_some());
         }
     }
