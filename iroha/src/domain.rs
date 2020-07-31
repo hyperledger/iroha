@@ -56,14 +56,14 @@ impl PartialEq for Domain {
     }
 }
 
-/// Iroha Special Instructions module provides `DomainInstruction` enum with all legal types of
+/// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `DomainInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
     use crate::{isi::Register, permission::isi::PermissionInstruction};
 
-    /// Enumeration of all legal Domain related Instructions.
+    /// Enumeration of all possible Domain related Instructions.
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum DomainInstruction {
         /// Variant of the generic `Register` instruction for `Account` --> `Domain`.
@@ -72,14 +72,23 @@ pub mod isi {
         RegisterAsset(Name, AssetDefinition),
     }
 
+    /// Enumeration of all possible Outputs for `DomainInstruction` execution.
+    #[derive(Debug)]
+    pub enum Output {
+        /// Variant of output for `DomainInstruction::RegisterAccount`.
+        RegisterAccount(WorldStateView),
+        /// Variant of output for `DomainInstruction::RegisterAsset`.
+        RegisterAsset(WorldStateView),
+    }
+
     impl DomainInstruction {
         /// Executes `DomainInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
         pub fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             match self {
                 DomainInstruction::RegisterAccount(domain_name, account) => {
                     Register::new(account.clone(), domain_name.clone())
@@ -89,6 +98,16 @@ pub mod isi {
                     Register::new(asset.clone(), domain_name.clone())
                         .execute(authority, world_state_view)
                 }
+            }
+        }
+    }
+
+    impl Output {
+        /// Get instance of `WorldStateView` with changes applied during `Instruction` execution.
+        pub fn world_state_view(&self) -> WorldStateView {
+            match self {
+                Output::RegisterAccount(world_state_view)
+                | Output::RegisterAsset(world_state_view) => world_state_view.clone(),
             }
         }
     }
@@ -106,9 +125,10 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanRegisterAccount(authority, None).execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             let account = self.object.clone();
             let domain = world_state_view
                 .domain(&self.destination_id)
@@ -120,7 +140,7 @@ pub mod isi {
                 ))
             } else {
                 domain.accounts.insert(account.id.clone(), account);
-                Ok(())
+                Ok(Output::RegisterAccount(world_state_view))
             }
         }
     }
@@ -138,17 +158,18 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanRegisterAssetDefinition(authority, None)
                 .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             let asset = self.object.clone();
             world_state_view
                 .domain(&self.destination_id)
                 .ok_or("Failed to find domain.")?
                 .asset_definitions
                 .insert(asset.id.clone(), asset);
-            Ok(())
+            Ok(Output::RegisterAsset(world_state_view))
         }
     }
 }

@@ -46,3 +46,8 @@ They can  only be build on top of [the Out of the Box Instructions](#out-of-the-
 ## World State View
 
 In-memory representation of the current blockchain state.
+
+## Trigger
+
+Triggers are Iroha Special Instructions registered on [peer](#peer). Their execution depends on some conditions,
+for example on the blockchain height, time or [query](#iroha-query) result.

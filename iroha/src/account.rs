@@ -112,7 +112,7 @@ impl Identifiable for Account {
     type Id = Id;
 }
 
-/// Iroha Special Instructions module provides `AccountInstruction` enum with all legal types of
+/// Iroha Special Instructions module provides `AccountInstruction` enum with all possible types of
 /// Account related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
 pub mod isi {
@@ -121,7 +121,7 @@ pub mod isi {
     use iroha_derive::*;
     use std::ops::{AddAssign, SubAssign};
 
-    /// Enumeration of all legal Account related Instructions.
+    /// Enumeration of all possible Account related Instructions.
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum AccountInstruction {
         /// Variant of the generic `Transfer` instruction for `Account` --`Asset`--> `Account`.
@@ -136,14 +136,25 @@ pub mod isi {
         RemoveSignatory(<Account as Identifiable>::Id, PublicKey),
     }
 
+    /// Enumeration of all possible Outputs for `AccountInstruction` execution.
+    #[derive(Debug)]
+    pub enum Output {
+        /// Variant of output for `AccountInstruction::TransferAsset`.
+        TransferAsset(WorldStateView),
+        /// Variant of output for `AccountInstruction::AddSignatory`.
+        AddSignatory(WorldStateView),
+        /// Variant of output for `AccountInstruction::RemoveSignatory`.
+        RemoveSignatory(WorldStateView),
+    }
+
     impl AccountInstruction {
         /// Executes `AccountInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
         pub fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             match self {
                 AccountInstruction::TransferAsset(
                     source_account_id,
@@ -163,6 +174,17 @@ pub mod isi {
                     Remove::new(public_key.clone(), account_id.clone())
                         .execute(authority, world_state_view)
                 }
+            }
+        }
+    }
+
+    impl Output {
+        /// Get instance of `WorldStateView` with changes applied during `Instruction` execution.
+        pub fn world_state_view(&self) -> WorldStateView {
+            match self {
+                Output::TransferAsset(world_state_view)
+                | Output::AddSignatory(world_state_view)
+                | Output::RemoveSignatory(world_state_view) => world_state_view.clone(),
             }
         }
     }
@@ -187,16 +209,17 @@ pub mod isi {
         fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanAddSignatory(authority, self.destination_id.clone(), None)
                 .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
                 .ok_or("Failed to find account.")?;
             *account += public_key;
-            Ok(())
+            Ok(Output::AddSignatory(world_state_view))
         }
     }
 
@@ -213,16 +236,17 @@ pub mod isi {
         fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanRemoveSignatory(authority, self.destination_id.clone(), None)
                 .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
                 .ok_or("Failed to find account.")?;
             *account -= public_key;
-            Ok(())
+            Ok(Output::RemoveSignatory(world_state_view))
         }
     }
 
@@ -239,14 +263,15 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanTransferAsset(
                 authority,
                 self.object.id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             let source = world_state_view
                 .account(&self.source_id)
                 .ok_or("Failed to find accounts.")?
@@ -283,7 +308,7 @@ pub mod isi {
                         .insert(transferred_asset.id.clone(), transferred_asset.clone());
                 }
             }
-            Ok(())
+            Ok(Output::TransferAsset(world_state_view))
         }
     }
 

@@ -15,7 +15,7 @@ pub struct Permissions {
 pub enum Permission {
     Anything,
     AddDomain,
-    AddListener,
+    AddTrigger,
     RegisterAssetDefinition(Option<<Domain as Identifiable>::Id>),
     RegisterAccount(Option<<Domain as Identifiable>::Id>),
     MintAsset(
@@ -69,7 +69,7 @@ pub mod isi {
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum PermissionInstruction {
         CanAnything(<Account as Identifiable>::Id),
-        CanAddListener(<Account as Identifiable>::Id),
+        CanAddTrigger(<Account as Identifiable>::Id),
         CanAddDomain(<Account as Identifiable>::Id),
         CanRegisterAccount(
             <Account as Identifiable>::Id,
@@ -106,18 +106,22 @@ pub mod isi {
         ),
     }
 
+    /// Enumeration of all possible Outputs for `AccountInstruction` execution.
+    #[derive(Debug)]
+    pub struct Output {}
+
     impl PermissionInstruction {
         /// Defines the variant of the underlying instructions and executes them on `WorldStateView`.
         /// These Iroha Special Instructions should be used to check permissions prior to other
         /// instructions execution.
         /// If permission check is satysfied - `Result::Ok(())` will be return.
         /// If permission check results in failure - `Result::Err(String)` will be return.
-        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        pub fn execute(&self, world_state_view: &WorldStateView) -> Result<Output, String> {
             use PermissionInstruction::*;
             match self {
                 CanAnything(authority_account_id)
                 | CanAddDomain(authority_account_id)
-                | CanAddListener(authority_account_id)
+                | CanAddTrigger(authority_account_id)
                 | CanRegisterAccount(authority_account_id, ..)
                 | CanRegisterAssetDefinition(authority_account_id, ..)
                 | CanTransferAsset(authority_account_id, ..)
@@ -129,7 +133,10 @@ pub mod isi {
                         definition_id: permission_asset_definition_id(),
                         account_id: authority_account_id.clone(),
                     }) {
-                        Some(asset) => asset.permissions.check(self.into()),
+                        Some(asset) => {
+                            asset.permissions.check(self.into())?;
+                            Ok(Output {})
+                        }
                         None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                     }
                 }
@@ -142,7 +149,7 @@ pub mod isi {
             match instruction {
                 PermissionInstruction::CanAnything(_) => Permission::Anything,
                 PermissionInstruction::CanAddDomain(_) => Permission::AddDomain,
-                PermissionInstruction::CanAddListener(_) => Permission::AddListener,
+                PermissionInstruction::CanAddTrigger(_) => Permission::AddTrigger,
                 PermissionInstruction::CanRegisterAccount(_, option_domain_id) => {
                     Permission::RegisterAccount(option_domain_id.clone())
                 }
@@ -228,10 +235,9 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanAnything(account_id).execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAnything(account_id)
+                .execute(&mut world_state_view)
+                .is_ok());
         }
 
         #[test]
@@ -336,10 +342,9 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanAddDomain(account_id).execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAddDomain(account_id)
+                .execute(&mut world_state_view)
+                .is_ok());
         }
 
         #[test]
@@ -419,7 +424,7 @@ pub mod isi {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
             };
-            let asset = Asset::with_permission(asset_id.clone(), Permission::AddListener);
+            let asset = Asset::with_permission(asset_id.clone(), Permission::AddTrigger);
             let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
@@ -444,10 +449,9 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanAddListener(account_id).execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAddTrigger(account_id)
+                .execute(&mut world_state_view)
+                .is_ok());
         }
 
         #[test]
@@ -486,7 +490,7 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert!(PermissionInstruction::CanAddListener(account_id)
+            assert!(PermissionInstruction::CanAddTrigger(account_id)
                 .execute(&mut world_state_view)
                 .unwrap_err()
                 .contains(PERMISSION_NOT_FOUND));
@@ -495,7 +499,7 @@ pub mod isi {
         #[test]
         fn test_can_add_listener_without_an_account_should_fail_with_permission_not_found() {
             assert!(
-                PermissionInstruction::CanAddListener(AccountId::new("NOT_ROOT", "Company"))
+                PermissionInstruction::CanAddTrigger(AccountId::new("NOT_ROOT", "Company"))
                     .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
@@ -552,11 +556,9 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanRegisterAccount(account_id, None)
-                    .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanRegisterAccount(account_id, None)
+                .execute(&mut world_state_view)
+                .is_ok());
         }
 
         #[test]
@@ -604,10 +606,10 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
+            assert!(
                 PermissionInstruction::CanRegisterAccount(account_id, Some(domain_name))
                     .execute(&mut world_state_view)
+                    .is_ok()
             );
         }
 
@@ -715,10 +717,10 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
+            assert!(
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, None)
                     .execute(&mut world_state_view)
+                    .is_ok()
             );
         }
 
@@ -767,11 +769,12 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanRegisterAssetDefinition(account_id, Some(domain_name))
-                    .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanRegisterAssetDefinition(
+                account_id,
+                Some(domain_name)
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -884,15 +887,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanTransferAsset(
-                    account_id,
-                    transfer_asset_definition_id,
-                    None
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanTransferAsset(
+                account_id,
+                transfer_asset_definition_id,
+                None
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -944,15 +945,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanTransferAsset(
-                    account_id,
-                    transfer_asset_definition_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanTransferAsset(
+                account_id,
+                transfer_asset_definition_id,
+                Some(domain_name)
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1067,11 +1066,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanAddSignatory(account_id, multisignature_account_id, None)
-                    .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAddSignatory(
+                account_id,
+                multisignature_account_id,
+                None
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1123,15 +1124,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanAddSignatory(
-                    account_id,
-                    multisignature_account_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAddSignatory(
+                account_id,
+                multisignature_account_id,
+                Some(domain_name)
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1246,15 +1245,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanRemoveSignatory(
-                    account_id,
-                    multisignature_account_id,
-                    None
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanRemoveSignatory(
+                account_id,
+                multisignature_account_id,
+                None
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1306,15 +1303,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanRemoveSignatory(
-                    account_id,
-                    multisignature_account_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanRemoveSignatory(
+                account_id,
+                multisignature_account_id,
+                Some(domain_name)
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1429,11 +1424,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanMintAsset(account_id, mint_asset_definition_id, None)
-                    .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanMintAsset(
+                account_id,
+                mint_asset_definition_id,
+                None
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1485,15 +1482,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanMintAsset(
-                    account_id,
-                    mint_asset_definition_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanMintAsset(
+                account_id,
+                mint_asset_definition_id,
+                Some(domain_name)
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1608,11 +1603,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanDemintAsset(account_id, demint_asset_definition_id, None)
-                    .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanDemintAsset(
+                account_id,
+                demint_asset_definition_id,
+                None
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
@@ -1664,15 +1661,13 @@ pub mod isi {
                 &Vec::new(),
                 domains,
             ));
-            assert_eq!(
-                Ok(()),
-                PermissionInstruction::CanDemintAsset(
-                    account_id,
-                    demint_asset_definition_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanDemintAsset(
+                account_id,
+                demint_asset_definition_id,
+                Some(domain_name)
+            )
+            .execute(&mut world_state_view)
+            .is_ok());
         }
 
         #[test]
