@@ -121,10 +121,8 @@ pub mod isi {
 pub mod query {
     use super::*;
     use crate::query::IrohaQuery;
-    use iroha_crypto::Signature;
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
 
     /// Get information related to the account with a specified `account_id`.
     #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
@@ -144,15 +142,7 @@ pub mod query {
         /// Build a `GetAccount` query in the form of a `QueryRequest`.
         pub fn build_request(account_id: <Account as Identifiable>::Id) -> QueryRequest {
             let query = GetAccount { account_id };
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::<Signature>::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 }

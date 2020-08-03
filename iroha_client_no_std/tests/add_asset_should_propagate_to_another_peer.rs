@@ -20,6 +20,7 @@ mod tests {
     const MAX_FAULTS: usize = 1;
 
     #[async_std::test]
+    #[ignore]
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
     ) {

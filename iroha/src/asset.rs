@@ -512,7 +512,6 @@ pub mod query {
     use crate::query::IrohaQuery;
     use iroha_derive::{IntoQuery, Io};
     use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
 
     /// To get the state of all assets,
     /// GetAllAssets query can be used.
@@ -530,15 +529,7 @@ pub mod query {
         /// Build a `GetAllAssets` query in the form of a `QueryRequest`.
         pub fn build_request() -> QueryRequest {
             let query = GetAllAssets {};
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 
@@ -570,15 +561,7 @@ pub mod query {
         /// Build a `GetAllAssetsDefinitions` query in the form of a `QueryRequest`.
         pub fn build_request() -> QueryRequest {
             let query = GetAllAssetsDefinitions {};
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 
@@ -614,15 +597,7 @@ pub mod query {
         /// Build a `GetAccountAssets` query in the form of a `QueryRequest`.
         pub fn build_request(account_id: <Account as Identifiable>::Id) -> QueryRequest {
             let query = GetAccountAssets { account_id };
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 
@@ -670,15 +645,7 @@ pub mod query {
                 account_id,
                 asset_definition_id,
             };
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 

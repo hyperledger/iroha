@@ -18,6 +18,7 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[async_std::test]
+    #[ignore]
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account_x100() {
         // Given
