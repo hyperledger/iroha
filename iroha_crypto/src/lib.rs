@@ -317,7 +317,13 @@ impl Signature {
             }
         }
         .map_err(|e| e.to_string())
-        .map(|_| ())
+        .and_then(|verified| {
+            if verified {
+                Ok(())
+            } else {
+                Err("Signature did not pass verification.".to_string())
+            }
+        })
     }
 }
 

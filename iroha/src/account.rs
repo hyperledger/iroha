@@ -329,7 +329,6 @@ pub mod query {
     use crate::query::IrohaQuery;
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
 
     /// Get information related to all accounts.
     #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
@@ -346,15 +345,7 @@ pub mod query {
         /// Build a `GetAllAccounts` query in the form of a `QueryRequest`.
         pub fn build_request() -> QueryRequest {
             let query = GetAllAccounts {};
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 
@@ -388,15 +379,7 @@ pub mod query {
         /// Build a `GetAccount` query in the form of a `QueryRequest`.
         pub fn build_request(account_id: <Account as Identifiable>::Id) -> QueryRequest {
             let query = GetAccount { account_id };
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 

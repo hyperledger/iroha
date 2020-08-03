@@ -89,7 +89,10 @@ impl Client {
     pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
         let network = Network::new(&self.torii_url);
         match network
-            .send_request(Request::new(uri::QUERY_URI.to_string(), request.into()))
+            .send_request(Request::new(
+                uri::QUERY_URI.to_string(),
+                request.clone().sign(&self.key_pair)?.into(),
+            ))
             .await
             .map_err(|e| format!("Failed to write a get request: {}", e))?
         {

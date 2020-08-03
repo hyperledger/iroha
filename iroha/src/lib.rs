@@ -287,7 +287,7 @@ pub mod prelude {
         domain::Domain,
         isi::{Add, Demint, Instruction, Mint, Register, Remove, Transfer},
         peer::{Peer, PeerId},
-        query::{IrohaQuery, Query, QueryRequest, QueryResult},
+        query::{IrohaQuery, Query, QueryRequest, QueryResult, SignedQueryRequest},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,
         CommittedBlockReceiver, CommittedBlockSender, Identifiable, Iroha, TransactionReceiver,

@@ -22,6 +22,7 @@ mod tests {
     const MAX_FAULTS: usize = 1;
 
     #[async_std::test]
+    #[ignore]
     async fn asset_amount_should_be_the_same_on_a_recently_added_peer() {
         // Given
         let mut configuration =
