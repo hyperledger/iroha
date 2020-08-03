@@ -199,10 +199,8 @@ pub mod isi {
 pub mod query {
     use super::*;
     use crate::query::IrohaQuery;
-    use iroha_crypto::Signature;
     use iroha_derive::{IntoQuery, Io};
     use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
 
     /// To get the state of all assets in an account (a balance),
     /// GetAccountAssets query can be used.
@@ -222,15 +220,7 @@ pub mod query {
         /// Build a `GetAccountAssets` query in the form of a `QueryRequest`.
         pub fn build_request(account_id: <Account as Identifiable>::Id) -> QueryRequest {
             let query = GetAccountAssets { account_id };
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::<Signature>::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 }

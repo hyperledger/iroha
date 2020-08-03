@@ -179,7 +179,6 @@ pub mod query {
     use super::*;
     use crate::query::IrohaQuery;
     use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
 
     /// Get information related to all domains.
     #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
@@ -196,15 +195,7 @@ pub mod query {
         /// Build a `GetAllDomains` query in the form of a `QueryRequest`.
         pub fn build_request() -> QueryRequest {
             let query = GetAllDomains {};
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 
@@ -239,15 +230,7 @@ pub mod query {
         /// Build a `GetDomain` query in the form of a `QueryRequest`.
         pub fn build_request(domain_name: <Domain as Identifiable>::Id) -> QueryRequest {
             let query = GetDomain { domain_name };
-            QueryRequest {
-                timestamp: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
-                signature: Option::None,
-                query: query.into(),
-            }
+            QueryRequest::new(query.into())
         }
     }
 

@@ -209,17 +209,26 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
-        uri::QUERY_URI => match QueryRequest::try_from(request.payload().to_vec()) {
-            Ok(request) => match request
-                .query
-                .execute(&*state.read().await.world_state_view.read().await)
-            {
-                Ok(result) => {
-                    let result = &result;
-                    Ok(Response::Ok(result.into()))
+        uri::QUERY_URI => match SignedQueryRequest::try_from(request.payload().to_vec()) {
+            //TODO: check query permissions based on signature?
+            Ok(request) => match request.verify() {
+                Ok(request) => {
+                    match request
+                        .query
+                        .execute(&*state.read().await.world_state_view.read().await)
+                    {
+                        Ok(result) => {
+                            let result = &result;
+                            Ok(Response::Ok(result.into()))
+                        }
+                        Err(e) => {
+                            log::error!("Failed to execute query: {}", e);
+                            Ok(Response::InternalError)
+                        }
+                    }
                 }
                 Err(e) => {
-                    log::error!("Failed to execute Query: {}", e);
+                    log::error!("Failed to verify Query Request: {}", e);
                     Ok(Response::InternalError)
                 }
             },

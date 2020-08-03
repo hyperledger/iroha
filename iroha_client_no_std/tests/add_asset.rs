@@ -16,6 +16,7 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[async_std::test]
+    #[ignore]
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         // Given

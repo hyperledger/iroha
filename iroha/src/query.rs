@@ -1,22 +1,95 @@
 //! This module contains query related Iroha functionality.
 
 use crate::{account, asset, domain, prelude::*};
+use iroha_crypto::Hash;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
+use std::time::SystemTime;
+
+/// I/O ready structure to send queries.
+#[derive(Debug, Io, Encode, Decode, Clone)]
+pub struct QueryRequest {
+    //TODO: why use `String` for timestamp? maybe replace it with milliseconds in `u64`
+    /// Timestamp of the query creation.
+    pub timestamp: String,
+    /// Query definition.
+    pub query: IrohaQuery,
+}
+
+impl QueryRequest {
+    /// Constructs a new request with the `query`.
+    pub fn new(query: IrohaQuery) -> Self {
+        QueryRequest {
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get System Time.")
+                .as_millis()
+                .to_string(),
+            query,
+        }
+    }
+
+    /// `Hash` of this request.
+    pub fn hash(&self) -> Hash {
+        let mut payload: Vec<u8> = self.query.clone().into();
+        payload.extend_from_slice(self.timestamp.as_bytes());
+        iroha_crypto::hash(payload)
+    }
+
+    /// Consumes self and returns a signed `QueryReuest`.
+    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest, String> {
+        Ok(SignedQueryRequest {
+            timestamp: self.timestamp.clone(),
+            signature: Signature::new(key_pair.clone(), &self.hash())?,
+            query: self.query,
+        })
+    }
+}
 
 /// I/O ready structure to send queries.
 #[derive(Debug, Io, Encode, Decode)]
-pub struct QueryRequest {
+pub struct SignedQueryRequest {
     /// Timestamp of the query creation.
     pub timestamp: String,
-    /// Optional query signature.
-    pub signature: Option<Signature>,
+    /// Signature of the client who sends this query.
+    pub signature: Signature,
+    /// Query definition.
+    pub query: IrohaQuery,
+}
+
+impl SignedQueryRequest {
+    /// `Hash` of this request.
+    pub fn hash(&self) -> Hash {
+        let mut payload: Vec<u8> = self.query.clone().into();
+        payload.extend_from_slice(self.timestamp.as_bytes());
+        iroha_crypto::hash(payload)
+    }
+
+    /// Verifies the signature of this query.
+    pub fn verify(self) -> Result<VerifiedQueryRequest, String> {
+        self.signature
+            .verify(&self.hash())
+            .map(|_| VerifiedQueryRequest {
+                timestamp: self.timestamp,
+                signature: self.signature,
+                query: self.query,
+            })
+    }
+}
+
+/// Query Request verified on the Iroha node side.
+#[derive(Debug, Io, Encode, Decode)]
+pub struct VerifiedQueryRequest {
+    /// Timestamp of the query creation.
+    pub timestamp: String,
+    /// Signature of the client who sends this query.
+    pub signature: Signature,
     /// Query definition.
     pub query: IrohaQuery,
 }
 
 /// Enumeration of all possible Iroha Queries.
-#[derive(Clone, Debug, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode, Io)]
 pub enum IrohaQuery {
     /// Query all Assets.
     GetAllAssets(asset::query::GetAllAssets),
