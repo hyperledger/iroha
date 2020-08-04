@@ -16,7 +16,7 @@ message("Botan Libraries: ${BOTAN_LIBRARIES}")
 add_executable(HMAC_TEST hmain.cpp)
 
 target_link_libraries(HMAC_TEST
-  #sha3_cryptography
   ${BOTAN_LIBRARIES}
   gost3410_cryptography
+  sha3_cryptography
 )
