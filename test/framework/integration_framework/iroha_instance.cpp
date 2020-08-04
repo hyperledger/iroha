@@ -43,8 +43,9 @@ namespace integration_framework {
         // proposal_timeout results in non-deterministic behavior due
         // to thread scheduling and network
         proposal_delay_(1h),
-        // not required due to solo consensus
-        vote_delay_(0ms),
+        // small delay to avoid unnecessary messages due to eternal voting
+        // and to allow scheduler to switch threads
+        vote_delay_(100ms),
         // amount of minutes in a day
         mst_expiration_time_(std::chrono::minutes(24 * 60)),
         opt_mst_gossip_params_(boost::make_optional(

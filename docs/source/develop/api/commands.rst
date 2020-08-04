@@ -215,7 +215,7 @@ Schema
 .. code-block:: proto
 
     message CallEngine {
-        string caller = 1;  // hex string
+        string caller = 1;
         oneof opt_callee {
             string callee = 2;  // hex string
         }
@@ -905,6 +905,7 @@ Schema
         oneof opt_old_value {
             string old_value = 4;
         }
+        bool check_empty = 5;
     }
 
 .. note::
@@ -922,6 +923,7 @@ Structure
     "Key", "key of information being set", "`[A-Za-z0-9_]{1,64}`", "Name"
     "Value", "new value for the corresponding key", "length of value ≤ 4096", "Artyom"
     "Old value", "current value for the corresponding key", "length of value ≤ 4096", "Artem"
+    "check_empty", "if true, empty old_value in command must match absent value in WSV; if false, any old_value in command matches absent in WSV (legacy)", "bool", "true"
 
 Validation
 ^^^^^^^^^^
