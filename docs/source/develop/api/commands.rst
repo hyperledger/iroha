@@ -215,7 +215,7 @@ Schema
 .. code-block:: proto
 
     message CallEngine {
-        string caller = 1;  // hex string
+        string caller = 1;
         oneof opt_callee {
             string callee = 2;  // hex string
         }
