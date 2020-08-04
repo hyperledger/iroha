@@ -694,7 +694,7 @@ namespace iroha {
                             THEN data->:creator->:key = :expected_value::jsonb
                         ELSE FALSE
                         END
-                    ELSE not :have_expected_value::boolean
+                    ELSE not (:check_empty::boolean and :have_expected_value::boolean)
                   END
             ),
             inserted AS
@@ -1542,9 +1542,9 @@ namespace iroha {
           }
 
           using namespace shared_model::interface::types;
+          PostgresBurrowStorage burrow_storage(*sql_, tx_hash, cmd_index);
           return vm_caller_->get()
               .call(
-                  *sql_,
                   tx_hash,
                   cmd_index,
                   EvmCodeHexStringView{command.input()},
@@ -1553,6 +1553,7 @@ namespace iroha {
                       ? std::optional<EvmCalleeHexStringView>{command.callee()
                                                                   ->get()}
                       : std::optional<EvmCalleeHexStringView>{std::nullopt},
+                  burrow_storage,
                   *this,
                   *specific_query_executor_)
               .match(
@@ -1611,6 +1612,7 @@ namespace iroha {
       executor.use("target", command.accountId());
       executor.use("key", command.key());
       executor.use("new_value", new_json_value);
+      executor.use("check_empty", command.checkEmpty());
       executor.use("have_expected_value",
                    static_cast<bool>(command.oldValue()));
       executor.use("expected_value", expected_json_value);
