@@ -395,6 +395,11 @@ impl Signatures {
     }
 }
 
+/// The prelude re-exports most commonly used traits, structs and macros from this crate.
+pub mod prelude {
+    pub use super::{KeyPair, PrivateKey, PublicKey, Signature, Signatures};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,20 @@
+[package]
+name = "iroha_data_model"
+version = "0.1.0"
+authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+edition = "2018"
+description = "Iroha uses a simple data model made up of domains, peers, accounts, assets, signatories, and permissions. This library contains basic data model structures."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha", "model"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+iroha_crypto = { path = "../iroha_crypto" }
