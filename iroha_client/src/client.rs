@@ -19,8 +19,10 @@ impl Client {
     pub fn new(configuration: &Configuration) -> Self {
         Client {
             torii_url: configuration.torii_url.clone(),
-            //TODO: The `public_key` from `configuration` will be different. Fix this inconsistency.
-            key_pair: KeyPair::generate().expect("Failed to generate KeyPair."),
+            key_pair: KeyPair {
+                public_key: configuration.public_key.clone(),
+                private_key: configuration.private_key.clone(),
+            },
             proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
         }
     }
