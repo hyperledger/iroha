@@ -26,10 +26,8 @@ namespace shared_model::crypto::gost3410 {
     Botan::PK_Verifier verifier(*key, EMSA);
     verifier.update(msg, msgsize);
 
-    auto decoded = Botan::base64_decode(reinterpret_cast<const char*>(signature), signature_size);
     auto res = verifier.check_signature(
-      //signature, signature_size
-      decoded.data(), decoded.size()
+      signature, signature_size
       );
     delete key;
     return res;
@@ -57,7 +55,7 @@ namespace shared_model::crypto::gost3410 {
     return pair;
   }
   
-  std::string sign(const uint8_t *msg,
+  std::vector<uint8_t> sign(const uint8_t *msg,
                   size_t msgsize,
                   const uint8_t* priv, size_t privLen){
     
@@ -69,12 +67,12 @@ namespace shared_model::crypto::gost3410 {
     signer.update(msg, msgsize);
     std::vector<uint8_t> signature = signer.signature(rng);
 
-    return Botan::base64_encode(signature);//signature;
+    return signature;
   }
 
-  std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen){
+  std::vector<uint8_t> sign(const std::string& msg, const uint8_t* priv, size_t privLen){
     auto sig = sign(reinterpret_cast<const uint8_t*>(msg.data()), msg.size(),
                       priv, privLen);
-    return std::string(reinterpret_cast<const char*>(sig.data()), sig.size());
+    return sig;
   }
 }

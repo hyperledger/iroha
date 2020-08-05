@@ -16,9 +16,8 @@ void gostTest(){
 
   std::cout << "Sign:\n" << sign << std::endl;
   
-  auto byteRange = shared_model::interface::types::makeByteRange(sign);
-  auto signByteRange = shared_model::interface::types::SignatureByteRangeView(byteRange);
-  //from hex string
+  auto blobSign = shared_model::crypto::Blob::fromHexString(sign);
+  auto signByteRange = shared_model::interface::types::SignatureByteRangeView(blobSign.range());//byteRange);
 
   auto kpbytes = shared_model::interface::types::makeByteRange(kp.publicKey().t);
   auto kpbrange = shared_model::interface::types::PublicKeyByteRangeView(kpbytes);

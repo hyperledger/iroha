@@ -6,10 +6,10 @@
 #include <utility>
 
 namespace shared_model::crypto::gost3410 {
-  std::string sign(const uint8_t *msg,
+  std::vector<uint8_t> sign(const uint8_t *msg,
                     size_t msgsize,
                     const uint8_t* priv, size_t privLen);
-  std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen);
+  std::vector<uint8_t> sign(const std::string& msg, const uint8_t* priv, size_t privLen);
  
   bool verify(const uint8_t* msg,
               size_t msgsize,
@@ -23,6 +23,6 @@ namespace shared_model::crypto::gost3410 {
               const std::vector<uint8_t>& signature);
 
   std::pair<std::string, std::vector<uint8_t>> create_keypair();
-} // namespace iroha
+} // namespace shared_model::crypto::gost3410
 
 #endif // GOST_IMPL_HPP
