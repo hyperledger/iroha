@@ -7,11 +7,11 @@
 #include <botan/x509_key.h>
 #include <botan/rng.h>
 #include <botan/data_src.h>
+#include <botan/base64.h>
 
-static const auto ECGName = std::string("gost_256A");
-static const auto EMSA = std::string("EMSA1(SHA-512)");
-
-namespace iroha {
+namespace shared_model::crypto::gost3410 {
+  static const auto ECGName = std::string("gost_256A");
+  static const auto EMSA = std::string("EMSA1(SHA-512)");
 
   bool verify(const uint8_t *msg,
               size_t msgsize,
@@ -26,8 +26,10 @@ namespace iroha {
     Botan::PK_Verifier verifier(*key, EMSA);
     verifier.update(msg, msgsize);
 
+    auto decoded = Botan::base64_decode(reinterpret_cast<const char*>(signature), signature_size);
     auto res = verifier.check_signature(
-      signature, signature_size
+      //signature, signature_size
+      decoded.data(), decoded.size()
       );
     delete key;
     return res;
@@ -55,7 +57,7 @@ namespace iroha {
     return pair;
   }
   
-  std::vector<uint8_t> sign(const uint8_t *msg,
+  std::string sign(const uint8_t *msg,
                   size_t msgsize,
                   const uint8_t* priv, size_t privLen){
     
@@ -66,8 +68,8 @@ namespace iroha {
     Botan::PK_Signer signer(*key.get(), rng, EMSA);
     signer.update(msg, msgsize);
     std::vector<uint8_t> signature = signer.signature(rng);
-    
-    return signature;
+
+    return Botan::base64_encode(signature);//signature;
   }
 
   std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen){

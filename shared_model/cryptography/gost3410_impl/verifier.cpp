@@ -1,8 +1,7 @@
 #include "cryptography/gost3410_impl/verifier.hpp"
-
 #include "cryptography/gost3410_impl/internal/gost_impl.hpp"
 
-using namespace shared_model::crypto::gost3410_sha512;
+using namespace shared_model::crypto::gost3410;
 using namespace shared_model::interface::types;
 
 iroha::expected::Result<void, std::string> Verifier::verify(
@@ -23,13 +22,12 @@ bool Verifier::verifyGost3410Sha512(
     shared_model::interface::types::PublicKeyByteRangeView public_key){
   const shared_model::interface::types::ByteRange &pub = public_key;
   const shared_model::interface::types::ByteRange &sig = signature;
-  return iroha::verify(
+  return gost3410::verify(
     reinterpret_cast<const uint8_t*>(source.data()), source.size(),
     reinterpret_cast<const uint8_t*>(pub.data()), pub.size(),
     reinterpret_cast<const uint8_t*>(sig.data()), sig.size()
     );
 }
-
 
 std::vector<iroha::multihash::Type> Verifier::getSupportedTypes() const {
   return {iroha::multihash::Type::kGost3410Sha_512};

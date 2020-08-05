@@ -5,8 +5,8 @@
 #include <vector>
 #include <utility>
 
-namespace iroha {
-  std::vector<uint8_t> sign(const uint8_t *msg,
+namespace shared_model::crypto::gost3410 {
+  std::string sign(const uint8_t *msg,
                     size_t msgsize,
                     const uint8_t* priv, size_t privLen);
   std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen);
@@ -23,7 +23,6 @@ namespace iroha {
               const std::vector<uint8_t>& signature);
 
   std::pair<std::string, std::vector<uint8_t>> create_keypair();
-
 } // namespace iroha
 
 #endif // GOST_IMPL_HPP

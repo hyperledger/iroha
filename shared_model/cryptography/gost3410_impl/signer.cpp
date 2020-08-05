@@ -5,12 +5,10 @@
 #include <iostream>
 #include <vector>
 
-namespace shared_model {
-  namespace crypto {
-    std::string Signer::sign(const Blob & blob, const Keypair &keypair){
-      return iroha::sign(crypto::toBinaryString(blob), 
-                keypair.privateKey().blob().data(),
-                keypair.privateKey().blob().size());
-    }
-  } // namespace crypto
-} // namespace shared_model
+namespace shared_model::crypto::gost3410 {
+  std::string Signer::sign(const Blob & blob, const Keypair &keypair){;
+    return gost3410::sign(toBinaryString(blob), 
+              keypair.privateKey().blob().data(),
+              keypair.privateKey().blob().size());
+  } 
+} // namespace shared_model::crypto::gost3410
