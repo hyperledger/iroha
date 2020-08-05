@@ -1,7 +1,7 @@
 import os
 import sys
-import alabaster
 import yaml
+import sphinx_rtd_theme
 from sphinx.highlighting import lexers
 from pygments_lexer_solidity import SolidityLexer
 lexers['solidity'] = SolidityLexer()
@@ -25,8 +25,8 @@ extensions = [
     'sphinx.ext.ifconfig',
     'sphinx.ext.viewcode',
     'sphinx_markdown_tables',
+    'sphinx_rtd_theme',
     'recommonmark',
-    'alabaster',
     'sphinxcontrib.plantuml'
 ]
 
@@ -70,25 +70,26 @@ gettext_compact = False
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'alabaster'
-html_theme_path = [alabaster.get_path()]
+html_theme = 'sphinx_rtd_theme'
 
-# Custom sidebar templates, must be a dictionary that maps document names
-# to template names.
-#
-# This is required for the alabaster theme
-# refs: http://alabaster.readthedocs.io/en/latest/installation.html#sidebars
 html_sidebars = {
     '**': [
-        'about.html',
-        'navigation.html',
+        'localtoc.html',
         'relations.html',
         'searchbox.html',
     ]
 }
-html_theme_options = {
-    'fixed_sidebar': True,
 
+html_theme_options = {
+    'display_version': True,
+    'prev_next_buttons_location': 'none',
+    'style_external_links': True,
+    # Toc options
+    'collapse_navigation': True,
+    'sticky_navigation': True,
+    'navigation_depth': 2,
+    'includehidden': False,
+    'titles_only': False
 }
 
 # Additional files
@@ -164,7 +165,7 @@ man_pages = [
 texinfo_documents = [
     (master_doc, project, documentation,
      author, project, description,
-     'C++'),
+     'Rust'),
 ]
 
 

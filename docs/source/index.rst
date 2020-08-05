@@ -14,9 +14,10 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
 
 .. toctree::
     :maxdepth: 2
-    :numbered:
+    :glob:
 
     iroha_2_whitepaper.md
-    guides/*
-    references/glossary.md
+    guides/index.rst
+    references/index.rst
+    tutorials/index.rst
     community/CONTRIBUTING.md
