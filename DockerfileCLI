@@ -1,0 +1,5 @@
+FROM debian:stable-slim
+COPY target/release/iroha_client_cli .
+COPY iroha_client_cli/config.json .
+RUN apt-get update && apt-get -y upgrade && apt-get install -y libssl-dev
+ENTRYPOINT ["./iroha_client_cli"]
