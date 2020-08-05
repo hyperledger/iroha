@@ -144,6 +144,18 @@ complex uses will be easier to incude in dependent modules.
 - Put inner modules after `self` module content, but before `tests` module.
 - Prefer to return `Result` instead of panic.
 - Use `expect` with explicit error message instead of `unwrap`.
+- Split your code into the following sections and keep order in each of them equivalent:
+-- submodules declarations (no bodies)
+-- `use` block
+-- type aliases
+-- pub struct
+-- pub trait
+-- impl `trait-from-this-module` for struct
+-- impl struct
+-- impl `trait-from-other-modules` for struct
+-- impl `trait-from-std` for struct
+-- submodules with bodies
+-- pub mod prelude
 
 ### Documentation Styleguide
 

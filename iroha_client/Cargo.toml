@@ -1,7 +1,7 @@
 [package]
 name = "iroha_client"
 version = "0.1.0"
-authors = [ "Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov < <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>" ]
+authors = [ "Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>" ]
 edition = "2018"
 description = "Iroha Client is a Rust Library which encapsulates network related logic and gives users an ability to interact with Iroha Peers like they are non-distributed application."
 readme = "README.md"

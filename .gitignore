@@ -2,6 +2,7 @@
 **/blocks/
 Cargo.lock
 **/*.rs.bk
+**/rusty-tags.vi
 
 config/__pycahe__
 **/__pycache__/*
