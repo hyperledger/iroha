@@ -1,39 +1,53 @@
+//! This module contains permissions.
 use crate::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 const PERMISSION_NOT_FOUND: &str = "Permission not found.";
 
+/// Special `AssetDefinitionId` for assets of type permission.
 pub fn permission_asset_definition_id() -> AssetDefinitionId {
     AssetDefinitionId::new("permissions", "global")
 }
 
+/// Pemissions.
 #[derive(Clone, Debug, Default, Encode, Decode)]
 pub struct Permissions {
     origin: Vec<Permission>,
 }
 
+/// Types of permission.
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
 pub enum Permission {
+    /// Allows to do anything.
     Anything,
+    /// Allows to add domains.
     AddDomain,
+    /// Allows to add triggers.
     AddTrigger,
+    /// Allows to register asset definition.
     RegisterAssetDefinition(Option<<Domain as Identifiable>::Id>),
+    /// Allows to register account.
     RegisterAccount(Option<<Domain as Identifiable>::Id>),
+    /// Allows to register asset.
     MintAsset(
         Option<<Domain as Identifiable>::Id>,
         Option<<AssetDefinition as Identifiable>::Id>,
     ),
+    /// Allows to demint asset.
     DemintAsset(
         Option<<Domain as Identifiable>::Id>,
         Option<<AssetDefinition as Identifiable>::Id>,
     ),
+    /// Allows to transfer asset.
     TransferAsset(
         Option<<Domain as Identifiable>::Id>,
         Option<<AssetDefinition as Identifiable>::Id>,
     ),
+    /// Allows to add signatory.
     AddSignatory(
         Option<<Domain as Identifiable>::Id>,
         Option<<Account as Identifiable>::Id>,
     ),
+    /// Allows to remove signatory.
     RemoveSignatory(
         Option<<Domain as Identifiable>::Id>,
         Option<<Account as Identifiable>::Id>,
@@ -41,16 +55,19 @@ pub enum Permission {
 }
 
 impl Permissions {
+    /// Constructs an empty list of permissions.
     pub fn new() -> Self {
         Permissions::default()
     }
 
+    /// Constructs `Permissions` list with one permission.
     pub fn single(permission: Permission) -> Self {
         Permissions {
             origin: vec![permission],
         }
     }
 
+    /// Checks if these `Permissions` contain the specified `permission`.
     fn check(&self, permission: Permission) -> Result<(), String> {
         if self.origin.contains(&Permission::Anything) || self.origin.contains(&permission) {
             Ok(())
@@ -60,45 +77,57 @@ impl Permissions {
     }
 }
 
+/// Iroha Special Instructions related to permissions.
 pub mod isi {
     use super::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
 
     /// Iroha special instructions related to `Permission`.
+    /// They are meant to be used as to check permission prior to other instruction execution.
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum PermissionInstruction {
+        /// Should be able to do anything.
         CanAnything(<Account as Identifiable>::Id),
+        /// Should be able to add triggers.
         CanAddTrigger(<Account as Identifiable>::Id),
+        /// Should be able to add domain.
         CanAddDomain(<Account as Identifiable>::Id),
+        /// Should be able to register account.
         CanRegisterAccount(
             <Account as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        /// Should be able to register asset definition.
         CanRegisterAssetDefinition(
             <Account as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        /// Should be able to transfer asset.
         CanTransferAsset(
             <Account as Identifiable>::Id,
             <AssetDefinition as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        /// Should be able to add signatory.
         CanAddSignatory(
             <Account as Identifiable>::Id,
             <Account as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        /// Should be able to remove signatory.
         CanRemoveSignatory(
             <Account as Identifiable>::Id,
             <Account as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        /// Should be able to mint asset.
         CanMintAsset(
             <Account as Identifiable>::Id,
             <AssetDefinition as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        /// Should be able to demint asset.
         CanDemintAsset(
             <Account as Identifiable>::Id,
             <AssetDefinition as Identifiable>::Id,

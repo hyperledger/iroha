@@ -1,5 +1,7 @@
 use criterion::*;
-use iroha::{isi, peer::PeerId, prelude::*};
+use iroha::{isi, peer::PeerId, permission, prelude::*};
+use permission::Permission;
+use std::collections::BTreeMap;
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -265,8 +267,47 @@ fn sign_blocks(criterion: &mut Criterion) {
 }
 
 fn validate_blocks(criterion: &mut Criterion) {
-    let domain_name = "domain";
+    // Prepare WSV
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+    let domain_name = "global".to_string();
+    let mut asset_definitions = BTreeMap::new();
+    let asset_definition_id = permission::permission_asset_definition_id();
+    asset_definitions.insert(
+        asset_definition_id.clone(),
+        AssetDefinition::new(asset_definition_id.clone()),
+    );
+    let account_id = AccountId::new("root", &domain_name);
+    let asset_id = AssetId {
+        definition_id: asset_definition_id,
+        account_id: account_id.clone(),
+    };
+    let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
+    let mut account = Account::with_signatory(
+        &account_id.name,
+        &account_id.domain_name,
+        key_pair.public_key.clone(),
+    );
+    account.assets.insert(asset_id, asset);
+    let mut accounts = BTreeMap::new();
+    accounts.insert(account_id, account);
+    let domain = Domain {
+        name: domain_name.clone(),
+        accounts,
+        asset_definitions,
+    };
+    let mut domains = BTreeMap::new();
+    domains.insert(domain_name, domain);
+    let world_state_view = WorldStateView::new(Peer::with_domains(
+        PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: key_pair.public_key,
+        },
+        &Vec::new(),
+        domains,
+    ));
+    // Pepare test transaction
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+    let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
@@ -290,7 +331,7 @@ fn validate_blocks(criterion: &mut Criterion) {
             create_account.into(),
             create_asset.into(),
         ],
-        AccountId::new("account", "domain"),
+        AccountId::new("root", "global"),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
     .accept()
@@ -298,13 +339,6 @@ fn validate_blocks(criterion: &mut Criterion) {
     let block = PendingBlock::new(vec![transaction], &key_pair)
         .expect("Failed to create a block.")
         .chain_first();
-    let world_state_view = WorldStateView::new(Peer::new(
-        PeerId {
-            address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key,
-        },
-        &Vec::new(),
-    ));
     criterion.bench_function("validate_block", |b| {
         b.iter(|| block.clone().validate(&world_state_view));
     });

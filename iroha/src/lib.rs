@@ -18,7 +18,7 @@ mod kura;
 pub mod maintenance;
 mod merkle;
 pub mod peer;
-mod permission;
+pub mod permission;
 pub mod query;
 mod queue;
 pub mod sumeragi;
