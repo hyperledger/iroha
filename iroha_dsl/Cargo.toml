@@ -1,0 +1,20 @@
+[package]
+name = "iroha_dsl"
+version = "0.1.0"
+authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+edition = "2018"
+description = "Iroha Domain Specific Language is a public API for users. DSL provides an ability to declare instructions and queries for Iroha without knowledge of implementation details."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha", "dsl"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+iroha_data_model = { path = "../iroha_data_model" }
