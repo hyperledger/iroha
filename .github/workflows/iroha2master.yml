@@ -23,7 +23,7 @@ jobs:
     - name: Measure lines of code tests coverage
       uses: actions-rs/tarpaulin@v0.1
       with:
-        args: '-v -- --test-threads 1'
+        args: '-v'
     - name: Archive code coverage results
       uses: actions/upload-artifact@v1
       with:
