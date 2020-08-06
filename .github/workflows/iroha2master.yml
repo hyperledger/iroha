@@ -23,7 +23,7 @@ jobs:
     - name: Measure lines of code tests coverage
       uses: actions-rs/tarpaulin@v0.1
       with:
-        args: '-v -- --test-threads 1'
+        args: '-v'
     - name: Archive code coverage results
       uses: actions/upload-artifact@v1
       with:
@@ -57,16 +57,29 @@ jobs:
       with:
         name: cargo-build-release
         path: target/release/iroha
-    - name: Archive CLI build 
+    - name: Archive Client CLI build 
       uses: actions/upload-artifact@v1
       with:
-        name: cargo-cli-build-release
+        name: cargo-client-cli-build-release
         path: target/release/iroha_client_cli
-    - name: Build and push Docker images
+    - name: Archive Crypto CLI build 
+      uses: actions/upload-artifact@v1
+      with:
+        name: cargo-crypto-cli-build-release
+        path: target/release/iroha_crypto_cli
+    - name: Build and push Iroha Docker image
       uses: docker/build-push-action@v1.1.0
       with:
         username: humb1t
         password: ${{ secrets.DOCKERHUB }}
         repository: hyperledger/iroha
         tags: iroha2-dev
+    - name: Build and push Iroha CLI Docker image
+      uses: docker/build-push-action@v1.1.0
+      with:
+        username: humb1t
+        password: ${{ secrets.DOCKERHUB }}
+        repository: hyperledger/iroha
+        tags: iroha2-dev-cli
+        dockerfile: "./DockerfileCLI"
 

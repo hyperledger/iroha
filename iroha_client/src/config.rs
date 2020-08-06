@@ -1,5 +1,5 @@
 use iroha::config::Configuration as IrohaConfiguration;
-use iroha_crypto::PublicKey;
+use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -7,6 +7,7 @@ use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 const TORII_URL: &str = "TORII_URL";
 const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
+const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
@@ -18,6 +19,8 @@ const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 pub struct Configuration {
     /// Public key of this client.
     pub public_key: PublicKey,
+    /// Private key of this client.
+    pub private_key: PrivateKey,
     /// Torii URL.
     #[serde(default = "default_torii_url")]
     pub torii_url: String,
@@ -50,7 +53,9 @@ impl Configuration {
         Configuration {
             torii_url: configuration.torii_configuration.torii_url.clone(),
             logger_configuration: configuration.logger_configuration.clone(),
+            //TODO: should we copy keys from Iroha config?
             public_key: configuration.public_key.clone(),
+            private_key: configuration.private_key.clone(),
             torii_connect_url: configuration.torii_configuration.torii_connect_url.clone(),
             transaction_time_to_live_ms: configuration
                 .queue_configuration
@@ -71,6 +76,10 @@ impl Configuration {
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
+        }
+        if let Ok(private_key) = env::var(IROHA_PRIVATE_KEY) {
+            self.private_key = serde_json::from_str(&private_key)
+                .map_err(|e| format!("Failed to parse Private Key: {}", e))?;
         }
         if let Ok(proposed_transaction_ttl_ms) = env::var(TRANSACTION_TIME_TO_LIVE_MS) {
             self.transaction_time_to_live_ms =
