@@ -16,19 +16,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: actions/cache@v2
+    - name: Set nightly toolchain  
+      uses: actions-rs/toolchain@v1
       with:
-        path: ${{ env.CACHE_PATHS }}
-        key: ${{ hashFiles('Cargo.toml') }}
-    - name: Measure lines of code tests coverage
-      uses: actions-rs/tarpaulin@v0.1
+        toolchain: nightly
+        override: true
+    - name: Cargo clean
+      uses: actions-rs/cargo@v1
       with:
-        args: '-v'
+        command: clean
+    - name: Cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+        CARGO_INCREMENTAL: '0'
+        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests'
+        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort'
+    - name: Generate coverage report
+      id: coverage
+      uses: actions-rs/grcov@v0.1
     - name: Archive code coverage results
       uses: actions/upload-artifact@v1
       with:
         name: code-coverage-report
-        path: cobertura.xml
+        path: ${{ steps.coverage.outputs.report }}
+    - name: Upload coverage to codecov.io
+      uses: codecov/codecov-action@v1
+      with:
+        file: ${{ steps.coverage.outputs.report }}
   bench:
     runs-on: ubuntu-latest
     steps:
