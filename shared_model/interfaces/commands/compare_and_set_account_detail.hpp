@@ -37,6 +37,12 @@ namespace shared_model {
       virtual const types::AccountDetailValueType &value() const = 0;
 
       /**
+       * @return true, if empty oldValue in command must match absent value in
+       * WSV, false if any oldValue in command matches absent in WSV (legacy)
+       */
+      virtual bool checkEmpty() const = 0;
+
+      /**
        * @return the value expected before the change
        */
       virtual const std::optional<types::AccountDetailValueType> oldValue()
