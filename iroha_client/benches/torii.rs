@@ -6,10 +6,12 @@ use iroha_client::{
     client::{asset, Client},
     config::Configuration as ClientConfiguration,
 };
+use log::LevelFilter;
 use std::thread;
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
 fn query_requests(criterion: &mut Criterion) {
     thread::spawn(create_and_start_iroha);
@@ -83,6 +85,12 @@ fn query_requests(criterion: &mut Criterion) {
         success_count, failures_count
     );
     group.finish();
+    if (failures_count + success_count) > 0 {
+        assert!(
+            success_count as f32 / (failures_count + success_count) as f32
+                > MINIMUM_SUCCESS_REQUEST_RATIO
+        );
+    }
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
@@ -146,6 +154,12 @@ fn instruction_submits(criterion: &mut Criterion) {
         success_count, failures_count
     );
     group.finish();
+    if (failures_count + success_count) > 0 {
+        assert!(
+            success_count as f32 / (failures_count + success_count) as f32
+                > MINIMUM_SUCCESS_REQUEST_RATIO
+        );
+    }
 }
 
 fn create_and_start_iroha() {
@@ -155,6 +169,7 @@ fn create_and_start_iroha() {
     configuration
         .kura_configuration
         .kura_block_store_path(temp_dir.path());
+    configuration.logger_configuration.max_log_level = LevelFilter::Off;
     let iroha = Iroha::new(configuration);
     task::block_on(iroha.start()).expect("Failed to start Iroha.");
     //Prevents temp_dir from clean up untill the end of the tests.
