@@ -22,7 +22,7 @@ namespace shared_model::crypto::gost3410 {
               const std::vector<uint8_t>& public_key,
               const std::vector<uint8_t>& signature);
 
-  std::pair<std::string, std::vector<uint8_t>> create_keypair();
+  std::pair<std::vector<uint8_t>, std::vector<uint8_t>> create_keypair();
 } // namespace shared_model::crypto::gost3410
 
 #endif // GOST_IMPL_HPP

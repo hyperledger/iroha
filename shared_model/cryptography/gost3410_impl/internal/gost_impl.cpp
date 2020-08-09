@@ -43,12 +43,12 @@ namespace shared_model::crypto::gost3410 {
                   );
   }
 
-  std::pair<std::string, std::vector<uint8_t>> create_keypair() {
+  std::pair<std::vector<uint8_t>, std::vector<uint8_t>> create_keypair() {
     Botan::AutoSeeded_RNG rng;
     auto key = Botan::GOST_3410_PrivateKey(rng, Botan::EC_Group(ECGName));
 
     auto pvkey = Botan::PKCS8::BER_encode(key);
-    auto pbkey = Botan::X509::PEM_encode(key);
+    auto pbkey = Botan::X509::BER_encode(key);
 
     auto pair = std::make_pair(std::move(pbkey), std::vector<uint8_t>(pvkey.begin(), pvkey.end()));
     

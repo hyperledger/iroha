@@ -3,6 +3,7 @@
 #include "cryptography/gost3410_impl/signer.hpp"
 #include "cryptography/gost3410_impl/verifier.hpp"
 #include "cryptography/gost3410_impl/internal/gost_impl.hpp"
+#include "common/hexutils.hpp"
 
 using namespace shared_model::interface::types;
 
@@ -20,7 +21,10 @@ namespace shared_model::crypto{
 
   Keypair CryptoProviderGOST3410::generateKeypair() {
     auto key_pair = gost3410::create_keypair();
-    auto pbk = shared_model::interface::types::PublicKeyHexStringView(key_pair.first);
+    auto t1 = interface::types::makeByteRange(key_pair.first.data(), key_pair.first.size());
+    auto t2 = iroha::bytestringToHexstring(t1);
+    auto pbk = shared_model::interface::types::PublicKeyHexStringView(t2);
+    //auto pbk = shared_model::interface::types::PublicKeyHexStringView(iroha::bytestringToHexstring(key_pair.first));
     auto pvk = shared_model::crypto::PrivateKey(shared_model::crypto::Blob(key_pair.second));
 
     return Keypair(pbk, pvk);
