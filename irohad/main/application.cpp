@@ -11,10 +11,7 @@
 #include <rxcpp/operators/rx-concat.hpp>
 #include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
-#include "ametsuchi/impl/flat_file_block_storage.hpp"
-#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
-#include "ametsuchi/impl/postgres_block_storage_factory.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -40,6 +37,7 @@
 #include "main/impl/consensus_init.hpp"
 #include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
@@ -261,80 +259,25 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  */
 Irohad::RunResult Irohad::initStorage(
     StartupWsvDataPolicy startup_wsv_data_policy) {
-  return PgConnectionInit::prepareWorkingDatabase(startup_wsv_data_policy,
-                                                  *pg_opt_)
-             |
-             [this] {
-               return PgConnectionInit::prepareConnectionPool(
-                   iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-                   *pg_opt_,
-                   kDbPoolSize,
-                   log_manager_);
-             }
+  return PgConnectionInit::init(startup_wsv_data_policy, *pg_opt_, log_manager_)
              | [this](auto &&pool_wrapper) -> RunResult {
     pool_wrapper_ = std::move(pool_wrapper);
     query_response_factory_ =
         std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
-    auto perm_converter =
-        std::make_shared<shared_model::proto::ProtoPermissionToString>();
 
-    // TODO: luckychess IR-308 05.08.2019 stateless validation for genesis
-    // block
-    auto block_transport_factory =
-        std::make_shared<shared_model::proto::ProtoBlockFactory>(
-            std::make_unique<shared_model::validation::AlwaysValidValidator<
-                shared_model::interface::Block>>(),
-            std::make_unique<shared_model::validation::ProtoBlockValidator>());
-
-    std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
-        std::make_unique<PostgresBlockStorageFactory>(
-            pool_wrapper_,
-            block_transport_factory,
-            []() { return generator::randomString(20); },
-            log_manager_->getChild("TemporaryBlockStorage")->getLogger());
-
-    std::unique_ptr<BlockStorage> persistent_block_storage;
-    if (block_store_dir_) {
-      auto flat_file = FlatFile::create(
-          *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
-      if (not flat_file) {
-        return expected::makeError(
-            "Unable to create FlatFile for persistent storage");
-      }
-      std::shared_ptr<shared_model::interface::BlockJsonConverter>
-          block_converter =
-              std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-      persistent_block_storage = std::make_unique<FlatFileBlockStorage>(
-          std::move(flat_file.get()),
-          block_converter,
-          log_manager_->getChild("FlatFileBlockStorage")->getLogger());
-    } else {
-      auto sql =
-          std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
-      const std::string persistent_table("blocks");
-
-      auto create_table_result =
-          PostgresBlockStorageFactory::createTable(*sql, persistent_table);
-      if (boost::get<expected::Error<std::string>>(&create_table_result)) {
-        return create_table_result;
-      }
-      persistent_block_storage = std::make_unique<PostgresBlockStorage>(
-          pool_wrapper_, block_transport_factory, persistent_table, log_);
-    }
     std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
         vm_caller_ref;
     if (vm_caller_) {
       vm_caller_ref = *vm_caller_.value();
     }
-    return StorageImpl::create(*pg_opt_,
-                               pool_wrapper_,
-                               perm_converter,
-                               pending_txs_storage_,
-                               query_response_factory_,
-                               std::move(temporary_block_storage_factory),
-                               std::move(persistent_block_storage),
-                               vm_caller_ref,
-                               log_manager_->getChild("Storage"))
+
+    return ::iroha::initStorage(*pg_opt_,
+                                pool_wrapper_,
+                                pending_txs_storage_,
+                                query_response_factory_,
+                                block_store_dir_,
+                                vm_caller_ref,
+                                log_manager_->getChild("Storage"))
                | [&](auto &&v) -> RunResult {
       storage = std::move(v);
       finalized_txs_ =
