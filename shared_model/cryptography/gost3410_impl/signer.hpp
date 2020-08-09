@@ -1,3 +1,8 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #ifndef GOST_CRYPTO_SIGNER_HPP
 #define GOST_CRYPTO_SIGNER_HPP
 
@@ -5,6 +10,9 @@
 #include "cryptography/keypair.hpp"
 
 namespace shared_model::crypto::gost3410 {
+  /**
+   * Class which signs provided data with a provided private key.
+   */
   class Signer {
     public:
     /**

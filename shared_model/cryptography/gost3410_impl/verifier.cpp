@@ -1,3 +1,8 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "cryptography/gost3410_impl/verifier.hpp"
 #include "cryptography/gost3410_impl/internal/gost_impl.hpp"
 

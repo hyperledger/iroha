@@ -1,3 +1,8 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #ifndef GOST_CRYPTO_VERIFIER_HPP
 #define GOST_CRYPTO_VERIFIER_HPP
 
@@ -7,6 +12,9 @@
 #include "crypto/keypair.hpp"
 
 namespace shared_model::crypto::gost3410 {
+  /**
+   * Class for signature verification.
+   */
   class Verifier : public shared_model::crypto::CryptoVerifierMultihash {
     public:
     ~Verifier() override;

@@ -1,3 +1,8 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "cryptography/gost3410_impl/crypto_provider.hpp"
 
 #include "cryptography/gost3410_impl/signer.hpp"
@@ -21,13 +26,11 @@ namespace shared_model::crypto{
 
   Keypair CryptoProviderGOST3410::generateKeypair() {
     auto key_pair = gost3410::create_keypair();
-    auto t1 = interface::types::makeByteRange(key_pair.first.data(), key_pair.first.size());
-    auto t2 = iroha::bytestringToHexstring(t1);
-    auto pbk = shared_model::interface::types::PublicKeyHexStringView(t2);
-    //auto pbk = shared_model::interface::types::PublicKeyHexStringView(iroha::bytestringToHexstring(key_pair.first));
-    auto pvk = shared_model::crypto::PrivateKey(shared_model::crypto::Blob(key_pair.second));
-
-    return Keypair(pbk, pvk);
+    
+    return Keypair(shared_model::interface::types::PublicKeyHexStringView(
+      iroha::bytestringToHexstring(
+        interface::types::makeByteRange(key_pair.first.data(), key_pair.first.size()))),
+        shared_model::crypto::PrivateKey(shared_model::crypto::Blob(key_pair.second)));
   }
 
   constexpr size_t CryptoProviderGOST3410::kHashLength;
