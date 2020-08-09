@@ -30,6 +30,12 @@ namespace iroha {
 
     class PgConnectionInit {
      public:
+      static expected::Result<std::shared_ptr<iroha::ametsuchi::PoolWrapper>,
+                              std::string>
+      init(StartupWsvDataPolicy startup_wsv_data_policy,
+           iroha::ametsuchi::PostgresOptions const &pg_opt,
+           logger::LoggerManagerTreePtr log_manager);
+
       static expected::Result<void, std::string> prepareWorkingDatabase(
           StartupWsvDataPolicy startup_wsv_data_policy,
           const PostgresOptions &options);

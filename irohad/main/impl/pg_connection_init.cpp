@@ -7,6 +7,7 @@
 
 #include <boost/functional/hash.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "common/irohad_version.hpp"
 #include "logger/logger.hpp"
@@ -15,6 +16,9 @@
 using namespace iroha::ametsuchi;
 
 namespace {
+  /// Database connection pool size. Limits the number of similtaneous accesses.
+  constexpr int kDbPoolSize = 10;
+
   std::string formatPostgresMessage(const char *message) {
     std::string formatted_message(message);
     boost::replace_if(formatted_message, boost::is_any_of("\r\n"), ' ');
@@ -128,6 +132,19 @@ namespace {
     return iroha::expected::makeValue(pool);
   }
 }  // namespace
+
+iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::PoolWrapper>,
+                        std::string>
+PgConnectionInit::init(StartupWsvDataPolicy startup_wsv_data_policy,
+                       iroha::ametsuchi::PostgresOptions const &pg_opt,
+                       logger::LoggerManagerTreePtr log_manager) {
+  return prepareWorkingDatabase(startup_wsv_data_policy, pg_opt) | [&] {
+    return prepareConnectionPool(KTimesReconnectionStrategyFactory{10},
+                                 pg_opt,
+                                 kDbPoolSize,
+                                 log_manager);
+  };
+}
 
 iroha::expected::Result<void, std::string>
 PgConnectionInit::prepareWorkingDatabase(

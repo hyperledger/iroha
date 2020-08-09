@@ -154,7 +154,6 @@ target_link_libraries(ametsuchi
     default_vm_call
     pg_connection_init
     flat_file_storage
-    k_times_reconnection_strategy
     postgres_indexer
     postgres_storage
     logger
