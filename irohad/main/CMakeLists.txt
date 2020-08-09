@@ -29,6 +29,7 @@ target_link_libraries(pg_connection_init
     SOCI::core
     failover_callback
     irohad_version
+    k_times_reconnection_strategy
     pool_wrapper
     logger
     )
@@ -45,6 +46,7 @@ add_library(application
     impl/on_demand_ordering_init.cpp
     impl/consensus_init.cpp
     impl/block_loader_init.cpp
+    impl/storage_init.cpp
     )
 target_link_libraries(application
     PRIVATE
