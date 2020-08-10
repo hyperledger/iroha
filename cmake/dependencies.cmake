@@ -98,3 +98,16 @@ find_package(ed25519 REQUIRED CONFIG)
 #              fmt                #
 ###################################
 find_package(fmt 5.3.0 REQUIRED CONFIG)
+
+## Botan
+
+find_library(BOTAN_LIBS botan-2 REQUIRED)
+find_path(BOTAN_INCLUDE botan REQUIRED)
+
+if(UNIX)
+  set(BOTAN_LIBS ${BOTAN_LIBS} pthread)
+endif(UNIX)
+include_directories(${BOTAN_INCLUDE})
+
+message("BOTAN_LIBS: ${BOTAN_LIBS}")
+message("BOTAN_INCLUDE: ${BOTAN_INCLUDE}")

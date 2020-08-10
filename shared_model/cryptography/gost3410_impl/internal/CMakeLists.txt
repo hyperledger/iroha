@@ -1,15 +1,11 @@
-if(NOT PKG_CONFIG_FOUND)
-  find_package(PkgConfig REQUIRED)
-endif()
+# if(NOT PKG_CONFIG_FOUND)
+#   find_package(PkgConfig REQUIRED)
+# endif()
 
-pkg_check_modules(BOTAN botan-2)
+# pkg_check_modules(BOTAN botan-2)
 
-include_directories(${BOTAN_INCLUDE_DIRS})
-link_directories(${BOTAN_LIBRARY_DIRS})
-
-message("Botan Includes: ${BOTAN_INCLUDE_DIRS}")
-message("Botan Lib dirs: ${BOTAN_LIBRARY_DIRS}")
-message("Botan Libraries: ${BOTAN_LIBRARIES}")
+# include_directories(${BOTAN_INCLUDE_DIRS})
+# link_directories(${BOTAN_LIBRARY_DIRS})
 
 
 add_library(gost3410_crypto
@@ -17,5 +13,5 @@ add_library(gost3410_crypto
   gost_impl.cpp
 )
 target_link_libraries(gost3410_crypto
-  ${BOTAN_LIBRARIES}
+  ${BOTAN_LIBS}
 )
