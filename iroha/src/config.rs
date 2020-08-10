@@ -1,8 +1,8 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
-    block_sync::config::BlockSyncConfiguration, kura::config::KuraConfiguration, peer::PeerId,
-    queue::config::QueueConfiguration, sumeragi::config::SumeragiConfiguration,
-    torii::config::ToriiConfiguration,
+    block_sync::config::BlockSyncConfiguration, init::config::InitConfiguration,
+    kura::config::KuraConfiguration, peer::PeerId, queue::config::QueueConfiguration,
+    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_logger::config::LoggerConfiguration;
@@ -32,6 +32,8 @@ pub struct Configuration {
     pub queue_configuration: QueueConfiguration,
     /// `Logger` configuration.
     pub logger_configuration: LoggerConfiguration,
+    /// Configuration for initial setup
+    pub init_configuration: InitConfiguration,
 }
 
 impl Configuration {
@@ -65,6 +67,7 @@ impl Configuration {
         self.block_sync_configuration.load_environment()?;
         self.queue_configuration.load_environment()?;
         self.logger_configuration.load_environment()?;
+        self.init_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
