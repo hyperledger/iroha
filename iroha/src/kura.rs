@@ -5,7 +5,6 @@ use crate::{merkle::MerkleTree, prelude::*};
 use async_std::{
     fs::{metadata, File},
     prelude::*,
-    task,
 };
 use iroha_derive::*;
 use serde::Deserialize;
@@ -53,29 +52,14 @@ impl Kura {
         )
     }
 
-    /// `Kura` constructor with a [Genesis
-    /// Block](https://en.wikipedia.org/wiki/Blockchain#cite_note-hadc-21).
-    /// Kura will not be ready to work with before `init` method invocation.
-    pub fn with_genesis_block(
-        mode: Mode,
-        block_store_path: &Path,
-        block_sender: CommittedBlockSender,
-        genesis_block: ValidBlock,
-    ) -> Self {
-        Kura {
-            mode,
-            block_store: BlockStore::with_genesis_block(block_store_path, genesis_block),
-            block_sender,
-            merkle_tree: MerkleTree::new(),
-            blocks: Vec::new(),
-        }
-    }
-
     /// After constructing `Kura` it should be initialized to be ready to work with it.
     pub async fn init(&mut self) -> Result<(), String> {
         let blocks = self.block_store.read_all().await;
         self.merkle_tree =
             MerkleTree::new().build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
+        for block in &blocks {
+            self.block_sender.send(block.clone().commit()).await;
+        }
         self.blocks = blocks;
         Ok(())
     }
@@ -157,13 +141,6 @@ impl BlockStore {
         BlockStore {
             path: path.to_path_buf(),
         }
-    }
-
-    fn with_genesis_block(path: &Path, genesis_block: ValidBlock) -> BlockStore {
-        let block_store = BlockStore::new(path);
-        task::block_on(async { block_store.write(&genesis_block).await })
-            .expect("Failed to write a Genesis Block.");
-        block_store
     }
 
     fn get_block_filename(block_height: u64) -> String {
@@ -281,28 +258,6 @@ mod tests {
             .init()
             .await
             .is_ok());
-    }
-
-    #[async_std::test]
-    async fn strict_init_kura_with_genesis_block() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let (tx, _rx) = sync::channel(100);
-        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let genesis_block = PendingBlock::new(Vec::new(), &keypair)
-            .expect("Failed to create a block.")
-            .chain_first()
-            .validate(&WorldStateView::new(Peer::new(
-                PeerId {
-                    address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key.clone(),
-                },
-                &Vec::new(),
-            )))
-            .sign(&keypair)
-            .expect("Failed to sign blocks.");
-        let mut kura = Kura::with_genesis_block(Mode::Strict, temp_dir.path(), tx, genesis_block);
-        assert!(kura.init().await.is_ok());
-        assert!(kura.blocks.len() == 1);
     }
 
     #[async_std::test]

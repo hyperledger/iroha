@@ -13,6 +13,7 @@ pub mod config;
 pub mod dex;
 pub mod domain;
 pub mod event;
+mod init;
 pub mod isi;
 mod kura;
 pub mod maintenance;
@@ -32,7 +33,6 @@ use crate::{
     kura::Kura,
     maintenance::System,
     peer::{Peer, PeerId},
-    permission::Permission,
     prelude::*,
     queue::Queue,
     sumeragi::{message::Message as SumeragiMessage, Sumeragi},
@@ -43,7 +43,7 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
@@ -97,38 +97,10 @@ impl Iroha {
         let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
-        let domain_name = "global".to_string();
-        let mut asset_definitions = BTreeMap::new();
-        let asset_definition_id = permission::permission_asset_definition_id();
-        asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinition::new(asset_definition_id.clone()),
-        );
-        let account_id = AccountId::new("root", &domain_name);
-        let asset_id = AssetId {
-            definition_id: asset_definition_id,
-            account_id: account_id.clone(),
-        };
-        let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account = Account::with_signatory(
-            &account_id.name,
-            &account_id.domain_name,
-            config.public_key.clone(),
-        );
-        account.assets.insert(asset_id, asset);
-        let mut accounts = BTreeMap::new();
-        accounts.insert(account_id, account);
-        let domain = Domain {
-            name: domain_name.clone(),
-            accounts,
-            asset_definitions,
-        };
-        let mut domains = BTreeMap::new();
-        domains.insert(domain_name, domain);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
             PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
             &config.sumeragi_configuration.trusted_peers,
-            domains,
+            init::domains(&config.init_configuration),
         ))));
         let torii = Torii::from_configuration(
             &config.torii_configuration,
