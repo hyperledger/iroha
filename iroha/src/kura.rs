@@ -264,8 +264,7 @@ mod tests {
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), &keypair)
-            .expect("Failed to create a block.")
+        let block = PendingBlock::new(Vec::new())
             .chain_first()
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
@@ -283,8 +282,7 @@ mod tests {
     async fn read_block_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), &keypair)
-            .expect("Failed to create a block.")
+        let block = PendingBlock::new(Vec::new())
             .chain_first()
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
@@ -309,8 +307,7 @@ mod tests {
         let block_store = BlockStore::new(dir.path());
         let n = 10;
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let mut block = PendingBlock::new(Vec::new(), &keypair)
-            .expect("Failed to create a block.")
+        let mut block = PendingBlock::new(Vec::new())
             .chain_first()
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
@@ -326,8 +323,7 @@ mod tests {
                 .write(&block)
                 .await
                 .expect("Failed to write block to file.");
-            block = PendingBlock::new(Vec::new(), &keypair)
-                .expect("Failed to create a block.")
+            block = PendingBlock::new(Vec::new())
                 .chain(height, hash, 0, Vec::new())
                 .validate(&WorldStateView::new(Peer::new(
                     PeerId {
@@ -352,8 +348,7 @@ mod tests {
     #[async_std::test]
     async fn store_block() {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), &keypair)
-            .expect("Failed to create a block.")
+        let block = PendingBlock::new(Vec::new())
             .chain_first()
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {

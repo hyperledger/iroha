@@ -260,7 +260,7 @@ pub mod prelude {
         isi::{Add, Demint, Instruction, Mint, Register, Remove, Transfer},
         peer::{Peer, PeerId},
         query::{IrohaQuery, Query, QueryRequest, QueryResult, SignedQueryRequest},
-        tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
+        tx::{AcceptedTransaction, SignedTransaction, Transaction, ValidTransaction},
         wsv::WorldStateView,
         CommittedBlockReceiver, CommittedBlockSender, Identifiable, Iroha, TransactionReceiver,
         TransactionSender, ValidBlockReceiver, ValidBlockSender,
