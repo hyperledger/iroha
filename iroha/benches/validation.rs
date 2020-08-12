@@ -32,7 +32,7 @@ fn accept_transaction(criterion: &mut Criterion) {
         object: AssetDefinition::new(asset_definition_id),
         destination_id: domain_name.to_string(),
     };
-    let transaction = RequestedTransaction::new(
+    let transaction = Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -40,7 +40,9 @@ fn accept_transaction(criterion: &mut Criterion) {
         ],
         AccountId::new("account", "domain"),
         TRANSACTION_TIME_TO_LIVE_MS,
-    );
+    )
+    .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+    .expect("Failed to sign.");
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("accept", |b| {
@@ -82,7 +84,7 @@ fn sign_transaction(criterion: &mut Criterion) {
         object: AssetDefinition::new(asset_definition_id),
         destination_id: domain_name.to_string(),
     };
-    let transaction = RequestedTransaction::new(
+    let transaction = Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -90,9 +92,7 @@ fn sign_transaction(criterion: &mut Criterion) {
         ],
         AccountId::new("account", "domain"),
         TRANSACTION_TIME_TO_LIVE_MS,
-    )
-    .accept()
-    .expect("Failed to accept transaction.");
+    );
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -128,7 +128,7 @@ fn validate_transaction(criterion: &mut Criterion) {
         object: AssetDefinition::new(asset_definition_id),
         destination_id: domain_name.to_string(),
     };
-    let transaction = RequestedTransaction::new(
+    let transaction = Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -137,10 +137,10 @@ fn validate_transaction(criterion: &mut Criterion) {
         AccountId::new("account", "domain"),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
-    .accept()
-    .expect("Failed to accept transaction.")
     .sign(&key_pair)
-    .expect("Failed to sign transaction.");
+    .expect("Failed to sign transaction.")
+    .accept()
+    .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
     let mut world_state_view = WorldStateView::new(Peer::new(
@@ -184,7 +184,7 @@ fn chain_blocks(criterion: &mut Criterion) {
         object: AssetDefinition::new(asset_definition_id),
         destination_id: domain_name.to_string(),
     };
-    let transaction = RequestedTransaction::new(
+    let transaction = Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -193,9 +193,11 @@ fn chain_blocks(criterion: &mut Criterion) {
         AccountId::new("account", "domain"),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
+    .sign(&key_pair)
+    .expect("Failed to sign.")
     .accept()
     .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction], &key_pair).expect("Failed to create block");
+    let block = PendingBlock::new(vec![transaction]);
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
     criterion.bench_function("chain_block", |b| {
@@ -230,7 +232,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         object: AssetDefinition::new(asset_definition_id),
         destination_id: domain_name.to_string(),
     };
-    let transaction = RequestedTransaction::new(
+    let transaction = Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -239,6 +241,8 @@ fn sign_blocks(criterion: &mut Criterion) {
         AccountId::new("account", "domain"),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
+    .sign(&key_pair)
+    .expect("Failed to sign.")
     .accept()
     .expect("Failed to accept transaction.");
     let world_state_view = WorldStateView::new(Peer::new(
@@ -248,8 +252,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         },
         &Vec::new(),
     ));
-    let block = PendingBlock::new(vec![transaction], &key_pair)
-        .expect("Failed to create block")
+    let block = PendingBlock::new(vec![transaction])
         .chain_first()
         .validate(&world_state_view);
     let mut success_count = 0;
@@ -325,7 +328,7 @@ fn validate_blocks(criterion: &mut Criterion) {
         object: AssetDefinition::new(asset_definition_id),
         destination_id: domain_name.to_string(),
     };
-    let transaction = RequestedTransaction::new(
+    let transaction = Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -334,11 +337,11 @@ fn validate_blocks(criterion: &mut Criterion) {
         AccountId::new("root", "global"),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
+    .sign(&key_pair)
+    .expect("Failed to sign.")
     .accept()
     .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction], &key_pair)
-        .expect("Failed to create a block.")
-        .chain_first();
+    let block = PendingBlock::new(vec![transaction]).chain_first();
     criterion.bench_function("validate_block", |b| {
         b.iter(|| block.clone().validate(&world_state_view));
     });

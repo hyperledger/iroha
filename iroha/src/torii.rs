@@ -172,7 +172,7 @@ async fn handle_connections(
 #[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
-        uri::INSTRUCTIONS_URI => match RequestedTransaction::try_from(request.payload().to_vec()) {
+        uri::INSTRUCTIONS_URI => match SignedTransaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
                 if let Err(e) = state
                     .write()
