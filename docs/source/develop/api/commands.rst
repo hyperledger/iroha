@@ -215,7 +215,7 @@ Schema
 .. code-block:: proto
 
     message CallEngine {
-        string caller = 1;  // hex string
+        string caller = 1;
         oneof opt_callee {
             string callee = 2;  // hex string
         }
@@ -236,7 +236,7 @@ Validation
 ^^^^^^^^^^
 
 1. Caller is a valid Iroha account ID
-2. The transaction creator has a role with either CanCallEngine permission
+2. The transaction creator has a role with either can_call_engine or can_call_engine_on_my_behalf permission
 
 Possible Stateful Validation Errors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -905,6 +905,7 @@ Schema
         oneof opt_old_value {
             string old_value = 4;
         }
+        bool check_empty = 5;
     }
 
 .. note::
@@ -922,6 +923,7 @@ Structure
     "Key", "key of information being set", "`[A-Za-z0-9_]{1,64}`", "Name"
     "Value", "new value for the corresponding key", "length of value ≤ 4096", "Artyom"
     "Old value", "current value for the corresponding key", "length of value ≤ 4096", "Artem"
+    "check_empty", "if true, empty old_value in command must match absent value in WSV; if false, any old_value in command matches absent in WSV (legacy)", "bool", "true"
 
 Validation
 ^^^^^^^^^^
