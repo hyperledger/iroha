@@ -31,14 +31,13 @@ impl Client {
     #[log]
     pub async fn submit(&mut self, instruction: Instruction) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction: RequestedTransaction = RequestedTransaction::new(
+        //TODO: specify account in the config or CLI params
+        let transaction: SignedTransaction = Transaction::new(
             vec![instruction],
             iroha::account::Id::new("root", "global"),
             self.proposed_transaction_ttl_ms,
         )
-        .accept()?
-        .sign(&self.key_pair)?
-        .into();
+        .sign(&self.key_pair)?;
         if let Response::InternalError = network
             .send_request(Request::new(
                 uri::INSTRUCTIONS_URI.to_string(),
@@ -60,14 +59,12 @@ impl Client {
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     pub async fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction: RequestedTransaction = RequestedTransaction::new(
+        let transaction: SignedTransaction = Transaction::new(
             instructions,
             iroha::account::Id::new("root", "global"),
             self.proposed_transaction_ttl_ms,
         )
-        .accept()?
-        .sign(&self.key_pair)?
-        .into();
+        .sign(&self.key_pair)?;
         if let Response::InternalError = network
             .send_request(Request::new(
                 uri::INSTRUCTIONS_URI.to_string(),

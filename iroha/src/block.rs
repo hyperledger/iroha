@@ -15,26 +15,19 @@ pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<AcceptedTransaction>,
 }
 
 impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
-    pub fn new(
-        transactions: Vec<AcceptedTransaction>,
-        key_pair: &KeyPair,
-    ) -> Result<PendingBlock, String> {
-        Ok(PendingBlock {
+    pub fn new(transactions: Vec<AcceptedTransaction>) -> PendingBlock {
+        PendingBlock {
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Failed to get System Time.")
                 .as_millis(),
-            transactions: transactions
-                .iter()
-                .cloned()
-                .map(|transaction| transaction.sign(key_pair))
-                .collect::<Result<Vec<_>, _>>()?,
-        })
+            transactions,
+        }
     }
 
     /// Chain block with the existing blockchain.
@@ -51,7 +44,6 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 height: height + 1,
                 previous_block_hash,
-                // TODO: get actual merkle tree hash
                 merkle_root_hash: [0u8; 32],
                 number_of_view_changes,
                 invalidated_blocks_hashes,
@@ -81,7 +73,7 @@ pub struct ChainedBlock {
     /// Header
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<AcceptedTransaction>,
 }
 
 /// Header of the block. The hash should be taken from its byte representation.

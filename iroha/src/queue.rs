@@ -102,13 +102,15 @@ mod tests {
             transaction_time_to_live_ms: 100000,
         });
         queue.push_pending_transaction(
-            RequestedTransaction::new(
+            Transaction::new(
                 Vec::new(),
                 <Account as Identifiable>::Id::new("account", "domain"),
                 100000,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+            .expect("Failed to sign.")
             .accept()
-            .expect("Failed to create Transaction."),
+            .expect("Failed to accept Transaction."),
         );
     }
 
@@ -121,13 +123,15 @@ mod tests {
         });
         for _ in 0..5 {
             queue.push_pending_transaction(
-                RequestedTransaction::new(
+                Transaction::new(
                     Vec::new(),
                     <Account as Identifiable>::Id::new("account", "domain"),
                     100000,
                 )
+                .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+                .expect("Failed to sign.")
                 .accept()
-                .expect("Failed to create Transaction."),
+                .expect("Failed to accept Transaction."),
             );
         }
         assert_eq!(
@@ -145,34 +149,40 @@ mod tests {
         });
         for _ in 0..(max_block_tx - 1) {
             queue.push_pending_transaction(
-                RequestedTransaction::new(
+                Transaction::new(
                     Vec::new(),
                     <Account as Identifiable>::Id::new("account", "domain"),
                     100,
                 )
+                .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+                .expect("Failed to sign.")
                 .accept()
-                .expect("Failed to create Transaction."),
+                .expect("Failed to accept Transaction."),
             );
         }
         queue.push_pending_transaction(
-            RequestedTransaction::new(
+            Transaction::new(
                 Vec::new(),
                 <Account as Identifiable>::Id::new("account", "domain"),
                 200,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+            .expect("Failed to sign.")
             .accept()
-            .expect("Failed to create Transaction."),
+            .expect("Failed to accept Transaction."),
         );
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(queue.pop_pending_transactions().len(), 1);
         queue.push_pending_transaction(
-            RequestedTransaction::new(
+            Transaction::new(
                 Vec::new(),
                 <Account as Identifiable>::Id::new("account", "domain"),
                 300,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+            .expect("Failed to sign.")
             .accept()
-            .expect("Failed to create Transaction."),
+            .expect("Failed to accept Transaction."),
         );
         std::thread::sleep(Duration::from_millis(201));
         assert_eq!(queue.pop_pending_transactions().len(), 0);

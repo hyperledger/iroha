@@ -112,7 +112,7 @@ impl Sumeragi {
         }
         if let Role::Leader = self.network_topology.role(&self.peer_id) {
             let wsv = self.world_state_view.clone();
-            let block = PendingBlock::new(transactions, &self.key_pair)?.chain(
+            let block = PendingBlock::new(transactions).chain(
                 self.block_height,
                 self.latest_block_hash,
                 self.number_of_view_changes,
@@ -1471,11 +1471,13 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![RequestedTransaction::new(
+            .round(vec![Transaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
             .await
@@ -1595,11 +1597,13 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![RequestedTransaction::new(
+            .round(vec![Transaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
             .await
@@ -1747,11 +1751,13 @@ mod tests {
             .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
-            .round(vec![RequestedTransaction::new(
+            .round(vec![Transaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
             .await
@@ -1895,11 +1901,13 @@ mod tests {
             .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
-            .round(vec![RequestedTransaction::new(
+            .round(vec![Transaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
             .await
@@ -2037,11 +2045,13 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![RequestedTransaction::new(
+            .round(vec![Transaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
+            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
             .await
