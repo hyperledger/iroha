@@ -106,9 +106,9 @@ void test(const std::string& algName){
   std::cout << "  Keypair test\t\tSign test\t\tVerify test" << std::endl;
   std::cout.precision(10);
   std::cout << "  " << std::fixed << 
-      std::get<0>(prfRes) / generateKeypairNum << "\t\t" <<
-      std::get<1>(prfRes) / signNum << "\t\t" <<
-      std::get<2>(prfRes) / verifyNum << std::endl;
+      std::get<0>(prfRes) << "\t\t" <<
+      std::get<1>(prfRes) << "\t\t" <<
+      std::get<2>(prfRes) << std::endl;
 }
 
 
