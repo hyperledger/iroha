@@ -149,12 +149,15 @@ where
     O: Value,
 {
 }
+
 impl<D, O> Instruction for Remove<D, O>
 where
     D: Identifiable,
     O: Value,
 {
 }
+
+impl Instruction for Register<Peer, Domain> {}
 impl Instruction for Register<Domain, Account> {}
 impl Instruction for Register<Domain, AssetDefinition> {}
 impl<O> Instruction for Mint<Asset, O> where O: Value {}
