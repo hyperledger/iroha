@@ -62,6 +62,18 @@ impl Account {
     pub fn read_signatories(&self) -> &Vec<PublicKey> {
         &self.signatories
     }
+
+    /// Verify if the signature is produced by the owner of this account.
+    pub fn verify_signature(&self, signature: &Signature, payload: &[u8]) -> Result<(), String> {
+        if self.signatories.contains(&signature.public_key) {
+            signature.verify(payload)
+        } else {
+            Err(format!(
+                "Account does not have a signatory with this public key: {}",
+                signature.public_key
+            ))
+        }
+    }
 }
 
 /// Identification of an Account. Consists of Account's name and Domain's name.

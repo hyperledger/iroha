@@ -22,7 +22,7 @@ iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
-async-std = { version = "1.5", features = ["attributes"] }
+async-std = { version = "=1.6.2", features = ["attributes"] }
 parity-scale-codec = { version = "1.3", features = ["derive"] }
 ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }

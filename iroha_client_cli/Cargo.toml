@@ -19,7 +19,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha = { version = "=0.1.0", path = "../iroha" }
 iroha_client = { version = "=0.1.0", path = "../iroha_client" }
-async-std = { version = "1.6", features = ["attributes"] }
+async-std = { version = "=1.6.2", features = ["attributes"] }
 clap = "2.33.0"
 futures = "0.3.4"
 
