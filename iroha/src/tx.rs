@@ -181,6 +181,14 @@ impl AcceptedTransaction {
         world_state_view: &mut WorldStateView,
     ) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
+        let account_id = self.payload.account_id.clone();
+        world_state_view
+            .read_account(&account_id)
+            .ok_or(format!("Account with id {} not found", account_id))?
+            .verify_signature(
+                self.signatures.first().ok_or("No signatures found.")?,
+                &self.hash(),
+            )?;
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
                 .execute(self.payload.account_id.clone(), &world_state_view_temp)?
@@ -212,9 +220,17 @@ impl ValidTransaction {
         world_state_view: &mut WorldStateView,
     ) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
+        let account_id = self.payload.account_id.clone();
+        world_state_view
+            .read_account(&account_id)
+            .ok_or(format!("Account with id {} not found", account_id))?
+            .verify_signature(
+                self.signatures.first().ok_or("No signatures found.")?,
+                &self.hash(),
+            )?;
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
+                .execute(account_id.clone(), &world_state_view_temp)?
                 .world_state_view;
         }
         *world_state_view = world_state_view_temp;
@@ -242,7 +258,7 @@ impl ValidTransaction {
             digest::{Input, VariableOutput},
             VarBlake2b,
         };
-        let bytes: Vec<u8> = self.into();
+        let bytes: Vec<u8> = self.payload.clone().into();
         let vec_hash = VarBlake2b::new(32)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
@@ -271,5 +287,40 @@ mod event {
         fn from(transaction: &SignedTransaction) -> Occurrence {
             Occurrence::Created(Entity::Transaction(transaction.into()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::init::{self, config::InitConfiguration};
+
+    #[test]
+    fn hash_should_be_the_same() {
+        let tx = Transaction::new(vec![], AccountId::new("root", "global"), 1000);
+        let tx_hash = tx.hash();
+        let root_key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
+        let signed_tx = tx.sign(&root_key_pair).expect("Failed to sign.");
+        let signed_tx_hash = signed_tx.hash();
+        let accepted_tx = signed_tx.accept().expect("Failed to accept.");
+        let accepted_tx_hash = accepted_tx.hash();
+        let valid_tx_hash = accepted_tx
+            .validate(&mut WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
+                },
+                &Vec::new(),
+                init::domains(&InitConfiguration {
+                    root_public_key: root_key_pair.public_key.clone(),
+                }),
+            )))
+            .expect("Failed to validate.")
+            .hash();
+        assert_eq!(tx_hash, signed_tx_hash);
+        assert_eq!(tx_hash, accepted_tx_hash);
+        assert_eq!(tx_hash, valid_tx_hash);
     }
 }
