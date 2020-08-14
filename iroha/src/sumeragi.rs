@@ -1265,7 +1265,13 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{account, config::Configuration, maintenance::System, torii::Torii};
+    use crate::{
+        account,
+        config::Configuration,
+        init::{self, config::InitConfiguration},
+        maintenance::System,
+        torii::Torii,
+    };
     use async_std::{prelude::*, sync, task};
     use std::time::Duration;
 
@@ -1377,6 +1383,7 @@ mod tests {
         let mut keys = Vec::new();
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
+        let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1401,7 +1408,7 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
                     public_key: KeyPair::generate()
@@ -1409,6 +1416,9 @@ mod tests {
                         .public_key,
                 },
                 &ids,
+                init::domains(&InitConfiguration {
+                    root_public_key: root_key_pair.public_key.clone(),
+                }),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1473,10 +1483,10 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("entity", "domain"),
+                account::Id::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
-            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .sign(&root_key_pair)
             .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
@@ -1496,6 +1506,7 @@ mod tests {
         let mut keys = Vec::new();
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
+        let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1520,7 +1531,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
                     public_key: KeyPair::generate()
@@ -1528,6 +1539,9 @@ mod tests {
                         .public_key,
                 },
                 &ids,
+                init::domains(&InitConfiguration {
+                    root_public_key: root_key_pair.public_key.clone(),
+                }),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1599,10 +1613,10 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("entity", "domain"),
+                account::Id::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
-            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .sign(&root_key_pair)
             .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
@@ -1639,6 +1653,7 @@ mod tests {
         let mut keys = Vec::new();
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
+        let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1662,7 +1677,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
                     public_key: KeyPair::generate()
@@ -1670,6 +1685,9 @@ mod tests {
                         .public_key,
                 },
                 &ids,
+                init::domains(&InitConfiguration {
+                    root_public_key: root_key_pair.public_key.clone(),
+                }),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1753,10 +1771,10 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("entity", "domain"),
+                account::Id::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
-            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .sign(&root_key_pair)
             .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
@@ -1792,6 +1810,7 @@ mod tests {
         let mut keys = Vec::new();
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
+        let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1815,7 +1834,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
                     public_key: KeyPair::generate()
@@ -1823,6 +1842,9 @@ mod tests {
                         .public_key,
                 },
                 &ids,
+                init::domains(&InitConfiguration {
+                    root_public_key: root_key_pair.public_key.clone(),
+                }),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1903,10 +1925,10 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("entity", "domain"),
+                account::Id::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
-            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .sign(&root_key_pair)
             .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
@@ -1942,6 +1964,7 @@ mod tests {
         let mut keys = Vec::new();
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
+        let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1966,7 +1989,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
                     public_key: KeyPair::generate()
@@ -1974,6 +1997,9 @@ mod tests {
                         .public_key,
                 },
                 &ids,
+                init::domains(&InitConfiguration {
+                    root_public_key: root_key_pair.public_key.clone(),
+                }),
             ))));
             let mut torii = Torii::new(
                 (
@@ -2047,10 +2073,10 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("entity", "domain"),
+                account::Id::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
-            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .sign(&root_key_pair)
             .expect("Failed to sign.")
             .accept()
             .expect("Failed to accept tx.")])
