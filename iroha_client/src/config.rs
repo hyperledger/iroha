@@ -1,4 +1,3 @@
-use iroha::config::Configuration as IrohaConfiguration;
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
@@ -46,21 +45,6 @@ impl Configuration {
         let reader = BufReader::new(file);
         Ok(serde_json::from_reader(reader)
             .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?)
-    }
-
-    /// This method will build `Configuration` from existing `IrohaConfiguration`.
-    pub fn from_iroha_configuration(configuration: &IrohaConfiguration) -> Self {
-        Configuration {
-            torii_url: configuration.torii_configuration.torii_url.clone(),
-            logger_configuration: configuration.logger_configuration.clone(),
-            //TODO: should we copy keys from Iroha config?
-            public_key: configuration.public_key.clone(),
-            private_key: configuration.private_key.clone(),
-            torii_connect_url: configuration.torii_configuration.torii_connect_url.clone(),
-            transaction_time_to_live_ms: configuration
-                .queue_configuration
-                .transaction_time_to_live_ms,
-        }
     }
 
     /// Load environment variables and replace predefined parameters with these variables

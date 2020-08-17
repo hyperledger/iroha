@@ -4,10 +4,10 @@ use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
     block::ValidBlock,
     kura::Kura,
-    peer::PeerId,
     sumeragi::{Role, Sumeragi},
 };
 use async_std::{sync::RwLock, task};
+use iroha_data_model::prelude::*;
 use iroha_derive::*;
 use std::{sync::Arc, time::Duration};
 
@@ -59,12 +59,12 @@ impl BlockSynchronizer {
         let kura = self.kura.clone();
         let peer_id = self.peer_id.clone();
         let sumeragi = self.sumeragi.clone();
-        task::spawn(async move {
+        let _ = task::spawn(async move {
             loop {
                 task::sleep(gossip_period).await;
                 let message =
                     Message::LatestBlock(kura.read().await.latest_block_hash(), peer_id.clone());
-                futures::future::join_all(
+                let _ = futures::future::join_all(
                     sumeragi
                         .read()
                         .await
@@ -121,8 +121,9 @@ impl BlockSynchronizer {
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
     use super::{BlockSynchronizer, State};
-    use crate::{block::ValidBlock, peer::PeerId, torii::uri};
+    use crate::{block::ValidBlock, torii::uri};
     use iroha_crypto::*;
+    use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_network::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -214,7 +215,7 @@ pub mod config {
     const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
 
     /// Configuration for `BlockSynchronizer`.
-    #[derive(Clone, Deserialize, Debug)]
+    #[derive(Copy, Clone, Deserialize, Debug)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct BlockSyncConfiguration {
         /// The time between peer sharing its latest block hash with other peers in milliseconds.

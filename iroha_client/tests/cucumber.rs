@@ -2,11 +2,12 @@ use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
 use cucumber::{Cucumber, World};
 use futures::executor;
-use iroha::{config::Configuration, isi, prelude::*};
+use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
     client::{self, Client},
     config::Configuration as ClientConfiguration,
 };
+use iroha_data_model::prelude::*;
 use std::{thread, time::Duration};
 use tempfile::TempDir;
 
@@ -24,20 +25,15 @@ pub struct IrohaWorld {
 #[async_trait(?Send)]
 impl World for IrohaWorld {
     async fn new() -> Self {
-        let mut configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        let mut configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
+            .expect("Failed to load configuration.");
         let free_port = port_check::free_local_port().expect("Failed to allocate a free port.");
         println!("Free port: {}", free_port);
-        configuration.torii_configuration.torii_url = format!("127.0.0.1:{}", free_port);
-        let client = Client::new(&ClientConfiguration::from_iroha_configuration(
-            &configuration,
-        ));
+        configuration.torii_url = format!("127.0.0.1:{}", free_port);
+        let iroha_client = Client::new(&configuration);
         IrohaWorld {
-            client,
-            peer_id: PeerId::new(
-                &configuration.torii_configuration.torii_url,
-                &configuration.public_key,
-            ),
+            client: iroha_client,
+            peer_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
             block_build_time: 300,
             iroha_port: free_port,
             result: Option::None,
@@ -102,13 +98,13 @@ mod asset_steps {
                     world
                         .client
                         .submit(
-                            isi::Register::<Domain, AssetDefinition> {
-                                object: AssetDefinition::new(AssetDefinitionId::new(
+                            Register::<Domain, AssetDefinition>::new (
+                                 AssetDefinition::new(AssetDefinitionId::new(
                                                 &asset_definition_name,
                                                 &asset_definition_domain,
                                                 )),
-                                                destination_id: asset_definition_domain.to_string(),
-                            }
+                                                 asset_definition_domain.to_string(),
+                            )
                             .into(),
                             )
                         .await
@@ -131,13 +127,13 @@ mod asset_steps {
                     world
                         .client
                         .submit(
-                            isi::Mint {
-                                object: asset_quantity,
-                                destination_id: AssetId::new(AssetDefinitionId::new(
+                            Mint::<Asset, u32>::new(
+                                 asset_quantity,
+                                 AssetId::new(AssetDefinitionId::new(
                                                 &asset_definition_name,
                                                 &asset_definition_domain,
                                                 ), AccountId::new(account_name, account_domain)),
-                            }
+                            )
                             .into(),
                             )
                         .await
@@ -162,7 +158,7 @@ mod asset_steps {
                 let query_result =
                     executor::block_on(async { world.client.request(&request).await })
                     .expect("Failed to execute request.");
-                if let QueryResult::GetAccountAssetsWithDefinition(result) = query_result {
+                if let QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(result) = query_result {
                     assert!(!result.assets.is_empty());
                 } else {
                     panic!("Wrong Query Result Type.");
@@ -186,7 +182,7 @@ mod asset_steps {
                 let query_result =
                     executor::block_on(async { world.client.request(&request).await })
                     .expect("Failed to execute request.");
-                if let QueryResult::GetAccountAssetsWithDefinition(result) = query_result {
+                if let QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(result) = query_result {
                     assert!(!result.assets.is_empty());
                     let mut total_quantity = 0;
                     result.assets.iter().for_each(|asset| {
@@ -221,10 +217,10 @@ mod account_steps {
                         "Going to register an account with id: {}@{}",
                         &account_name, &domain_name
                         );
-                    let register_account = isi::Register::<Domain, Account> {
-                        object: Account::new(&account_name, &domain_name),
-                        destination_id: domain_name.to_string(),
-                    };
+                    let register_account = Register::<Domain, Account>::new(
+                         Account::new(AccountId::new(&account_name, &domain_name)),
+                         domain_name.to_string(),
+                    );
                     executor::block_on(async {
                         world.client.submit(register_account.into()).await
                     })
@@ -250,19 +246,19 @@ mod account_steps {
                         account_name, account_domain_name);
                     executor::block_on(
                         world.client.submit(
-                            isi::Mint {
-                                object: quantity,
-                                destination_id: AssetId {
-                                    definition_id: AssetDefinitionId::new(
+                            Mint::<Asset, u32>::new(
+                                 quantity,
+                                 AssetId::new(
+                                     AssetDefinitionId::new(
                                                        &asset_definition_name,
                                                        &asset_definition_domain
                                                        ),
-                                                       account_id: AccountId::new(
+                                                        AccountId::new(
                                                            &account_name,
                                                            &account_domain_name
                                                            )
-                                }
-                            }.into()
+                                )
+                            ).into()
                             )
                         ).expect("Failed to submit Mint instruction.");
                     thread::sleep(Duration::from_millis(world.block_build_time));
@@ -282,7 +278,7 @@ mod account_steps {
                     let query_result =
                         executor::block_on(async { world.client.request(&request).await })
                         .expect("Failed to execute request.");
-                    if let QueryResult::GetAccount(_) = query_result {
+                    if let QueryResult::FindAccountById(_) = query_result {
                         println!("Account found.");
                     } else {
                         panic!("Wrong Query Result Type.");
@@ -306,10 +302,10 @@ mod domain_steps {
                 |mut world, matches, _step| {
                     let domain_name = matches[1].trim();
                     println!("Going to add domain with name: {}", domain_name);
-                    let add_domain = isi::Add::<Peer, Domain> {
-                        object: Domain::new(domain_name.to_string()),
-                        destination_id: world.peer_id.clone(),
-                    };
+                    let add_domain = Register::<Peer, Domain>::new(
+                        Domain::new(domain_name),
+                        world.peer_id.clone(),
+                    );
                     executor::block_on(async { world.client.submit(add_domain.into()).await })
                         .expect("Failed to add the domain.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
@@ -325,7 +321,7 @@ mod domain_steps {
                     let query_result =
                         executor::block_on(async { world.client.request(&request).await })
                             .expect("Failed to execute request.");
-                    if let QueryResult::GetDomain(_) = query_result {
+                    if let QueryResult::FindDomainByName(_) = query_result {
                         println!("Domain found.");
                     } else {
                         panic!("Wrong Query Result Type.");
@@ -357,7 +353,7 @@ mod query_steps {
                     let query_result =
                         executor::block_on(async { world.client.request(&request).await })
                             .expect("Failed to execute request.");
-                    if let QueryResult::GetAllDomains(_) = query_result {
+                    if let QueryResult::FindAllDomains(_) = query_result {
                         world.result = Some(query_result);
                     } else {
                         panic!("Wrong Query Result Type.");
@@ -378,7 +374,7 @@ mod query_steps {
                     let query_result =
                         executor::block_on(async { world.client.request(&request).await })
                             .expect("Failed to execute request.");
-                    if let QueryResult::GetAllAssets(_) = query_result {
+                    if let QueryResult::FindAllAssets(_) = query_result {
                         world.result = Some(query_result);
                     } else {
                         panic!("Wrong Query Result Type.");
@@ -399,7 +395,7 @@ mod query_steps {
                     let query_result =
                         executor::block_on(async { world.client.request(&request).await })
                             .expect("Failed to execute request.");
-                    if let QueryResult::GetAllAccounts(_) = query_result {
+                    if let QueryResult::FindAllAccounts(_) = query_result {
                         world.result = Some(query_result);
                     } else {
                         panic!("Wrong Query Result Type.");
@@ -420,7 +416,7 @@ mod query_steps {
                     let query_result =
                         executor::block_on(async { world.client.request(&request).await })
                             .expect("Failed to execute request.");
-                    if let QueryResult::GetAllAssetsDefinitions(_) = query_result {
+                    if let QueryResult::FindAllAssetsDefinitions(_) = query_result {
                         world.result = Some(query_result);
                     } else {
                         panic!("Wrong Query Result Type.");
@@ -434,10 +430,8 @@ mod query_steps {
                     let domain_name = matches[1].trim();
                     println!("Check that result has {} domain in it.", domain_name);
                     if let Some(query_result) = &world.result {
-                        if let QueryResult::GetAllDomains(result) = query_result {
-                            assert!(result
-                                .domains
-                                .contains(&Domain::new(domain_name.to_string())));
+                        if let QueryResult::FindAllDomains(result) = query_result {
+                            assert!(result.domains.contains(&Domain::new(domain_name)));
                         } else {
                             panic!("Wrong Query Result Type.");
                         }
@@ -453,7 +447,7 @@ mod query_steps {
                     let account_name = matches[1].trim();
                     println!("Check that result has {} account in it.", account_name);
                     if let Some(query_result) = &world.result {
-                        if let QueryResult::GetAllAccounts(result) = query_result {
+                        if let QueryResult::FindAllAccounts(result) = query_result {
                             assert!(!result
                                 .accounts
                                 .iter()
@@ -480,7 +474,7 @@ mod query_steps {
                     );
                     if let Some(query_result) = &world.result {
                         println!("{:?}", query_result);
-                        if let QueryResult::GetAllAssetsDefinitions(result) = query_result {
+                        if let QueryResult::FindAllAssetsDefinitions(result) = query_result {
                             assert!(!result
                                 .assets_definitions
                                 .iter()
@@ -513,7 +507,7 @@ mod query_steps {
                     );
                     if let Some(query_result) = &world.result {
                         println!("{:?}", query_result);
-                        if let QueryResult::GetAllAssets(result) = query_result {
+                        if let QueryResult::FindAllAssets(result) = query_result {
                             assert!(!result
                                 .assets
                                 .iter()
@@ -539,117 +533,6 @@ mod query_steps {
     }
 }
 
-mod bridge_steps {
-    use super::*;
-    use cucumber::Steps;
-    use iroha::bridge;
-
-    pub fn steps() -> Steps<IrohaWorld> {
-        let mut steps = Steps::<IrohaWorld>::new();
-        steps
-            .given_sync("Iroha Bridge module enabled", |mut world, _step| {
-                let instructions = vec![
-                    isi::Add::<Peer, Domain> {
-                        object: Domain::new("bridge".to_string()),
-                        destination_id: world.peer_id.clone(),
-                    }
-                    .into(),
-                    isi::Register::<Domain, AssetDefinition> {
-                        object: AssetDefinition::new(AssetDefinitionId::new(
-                            "bridges_asset",
-                            "bridge",
-                        )),
-                        destination_id: "bridge".to_string(),
-                    }
-                    .into(),
-                    isi::Register::<Domain, AssetDefinition> {
-                        object: AssetDefinition::new(AssetDefinitionId::new(
-                            "bridge_external_assets_asset",
-                            "bridge",
-                        )),
-                        destination_id: "bridge".to_string(),
-                    }
-                    .into(),
-                    isi::Register::<Domain, AssetDefinition> {
-                        object: AssetDefinition::new(AssetDefinitionId::new(
-                            "bridge_incoming_external_transactions_asset",
-                            "bridge",
-                        )),
-                        destination_id: "bridge".to_string(),
-                    }
-                    .into(),
-                    isi::Register::<Domain, AssetDefinition> {
-                        object: AssetDefinition::new(AssetDefinitionId::new(
-                            "bridge_outgoing_external_transactions_asset",
-                            "bridge",
-                        )),
-                        destination_id: "bridge".to_string(),
-                    }
-                    .into(),
-                ];
-                executor::block_on(async { world.client.submit_all(instructions).await })
-                    .expect("Failed to add the domain.");
-                thread::sleep(Duration::from_millis(world.block_build_time * 2));
-                world
-            })
-            .when_regex_sync(
-                r"^(.+) Account from (.+) domain registers Bridge with name (.+)$",
-                |mut world, matches, _step| {
-                    let bridge_owner_account_name = matches[1].trim();
-                    let bridge_owner_domain = matches[2].trim();
-                    let bridge_name = matches[3].trim();
-                    println!(
-                        "Register bridge {} on behalf of account {}@{}",
-                        bridge_name, bridge_owner_account_name, bridge_owner_domain
-                    );
-                    let bridge_owner_public_key = KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key;
-                    let bridge_owner_account =
-                        Account::with_signatory("bridge_owner", "company", bridge_owner_public_key);
-                    let bridge_definition = BridgeDefinition {
-                        id: BridgeDefinitionId::new(&bridge_name),
-                        kind: BridgeKind::IClaim,
-                        owner_account_id: bridge_owner_account.id.clone(),
-                    };
-                    let register_bridge =
-                        bridge::isi::register_bridge(world.peer_id.clone(), &bridge_definition);
-                    executor::block_on(async { world.client.submit(register_bridge.into()).await })
-                        .expect("Failed to register bridge.");
-                    thread::sleep(Duration::from_millis(world.block_build_time * 2));
-                    world
-                },
-            )
-            .then_regex_sync(
-                r"^Peer has Bridge Definition with name (.+) and kind iclaim and owner (.+)$",
-                |world, matches, _step| {
-                    let bridge_definition_name = matches[1].trim();
-                    let bridge_owner = matches[2].trim();
-                    println!(
-                        "Check bridge definition with name {} and owner {}",
-                        bridge_definition_name, bridge_owner
-                    );
-                    world
-                },
-            );
-        steps
-    }
-}
-
-mod dex_steps {
-    use super::*;
-    use cucumber::Steps;
-
-    pub fn steps() -> Steps<IrohaWorld> {
-        let mut steps = Steps::<IrohaWorld>::new();
-        steps.given_sync("Iroha DEX module enabled", |world, _step| {
-            println!("DEX module enabled.");
-            world
-        });
-        steps
-    }
-}
-
 #[async_std::main]
 async fn main() {
     let runner = Cucumber::<IrohaWorld>::new()
@@ -658,8 +541,6 @@ async fn main() {
         .steps(asset_steps::steps())
         .steps(account_steps::steps())
         .steps(domain_steps::steps())
-        .steps(query_steps::steps())
-        .steps(bridge_steps::steps())
-        .steps(dex_steps::steps());
+        .steps(query_steps::steps());
     runner.run().await;
 }

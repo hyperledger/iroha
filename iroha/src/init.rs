@@ -1,7 +1,4 @@
-use crate::{
-    permission::{self, Permission},
-    prelude::*,
-};
+use iroha_data_model::prelude::*;
 use std::collections::BTreeMap;
 
 /// The name of the initial root user.
@@ -13,33 +10,21 @@ pub const GLOBAL_DOMAIN_NAME: &str = "global";
 /// `root_public_key` - the public key of a root account. Should be the same for all peers in the peer network.
 pub fn domains(configuration: &config::InitConfiguration) -> BTreeMap<String, Domain> {
     let domain_name = GLOBAL_DOMAIN_NAME.to_string();
-    let mut asset_definitions = BTreeMap::new();
-    let asset_definition_id = permission::permission_asset_definition_id();
-    asset_definitions.insert(
-        asset_definition_id.clone(),
-        AssetDefinition::new(asset_definition_id.clone()),
-    );
+    let asset_definitions = BTreeMap::new();
     let account_id = AccountId::new(ROOT_USER_NAME, &domain_name);
-    let asset_id = AssetId {
-        definition_id: asset_definition_id,
-        account_id: account_id.clone(),
-    };
-    let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-    let mut account = Account::with_signatory(
-        &account_id.name,
-        &account_id.domain_name,
+    let account = Account::with_signatory(
+        AccountId::new(&account_id.name, &account_id.domain_name),
         configuration.root_public_key.clone(),
     );
-    account.assets.insert(asset_id, asset);
     let mut accounts = BTreeMap::new();
-    accounts.insert(account_id, account);
+    let _ = accounts.insert(account_id, account);
     let domain = Domain {
         name: domain_name.clone(),
         accounts,
         asset_definitions,
     };
     let mut domains = BTreeMap::new();
-    domains.insert(domain_name, domain);
+    let _ = domains.insert(domain_name, domain);
     domains
 }
 

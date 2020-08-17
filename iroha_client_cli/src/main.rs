@@ -1,11 +1,13 @@
 use clap::{App, Arg};
 use iroha_client::config::Configuration;
+use iroha_crypto::prelude::*;
+use iroha_dsl::prelude::*;
+use std::str::FromStr;
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
 const ACCOUNT: &str = "account";
 const ASSET: &str = "asset";
-const MAINTENANCE: &str = "maintenance";
 
 fn main() {
     let matches = App::new("Iroha CLI Client")
@@ -30,9 +32,6 @@ fn main() {
         .subcommand(
             asset::build_app(),
             )
-        .subcommand(
-            maintenance::build_app(),
-            )
         .get_matches();
     let configuration_path = matches
         .value_of(CONFIG)
@@ -49,16 +48,12 @@ fn main() {
     if let Some(ref matches) = matches.subcommand_matches(ASSET) {
         asset::process(matches, &configuration);
     }
-    if let Some(ref matches) = matches.subcommand_matches(MAINTENANCE) {
-        maintenance::process(matches, &configuration);
-    }
 }
 
 mod domain {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{isi, peer::PeerId, prelude::*};
     use iroha_client::{client::Client, config::Configuration};
 
     const DOMAIN_NAME: &str = "name";
@@ -90,10 +85,10 @@ mod domain {
 
     fn create_domain(domain_name: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
-        let create_domain = isi::Add {
-            object: Domain::new(domain_name.to_string()),
-            destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
-        };
+        let create_domain = Register::<Peer, Domain>::new(
+            Domain::new(domain_name),
+            PeerId::new(&configuration.torii_url, &configuration.public_key),
+        );
         executor::block_on(iroha_client.submit(create_domain.into()))
             .expect("Failed to create domain.");
     }
@@ -103,7 +98,6 @@ mod account {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{isi, prelude::*};
     use iroha_client::{client::Client, config::Configuration};
 
     const REGISTER: &str = "register";
@@ -166,10 +160,13 @@ mod account {
         configuration: &Configuration,
     ) {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let create_account = isi::Register {
-            object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
-            destination_id: String::from(domain_name),
-        };
+        let create_account = Register::<Domain, Account>::new(
+            Account::with_signatory(
+                AccountId::new(account_name, domain_name),
+                key_pair.public_key,
+            ),
+            Name::from(domain_name),
+        );
         let mut iroha_client = Client::new(configuration);
         executor::block_on(iroha_client.submit(create_account.into()))
             .expect("Failed to create account.");
@@ -180,7 +177,6 @@ mod asset {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{isi, prelude::*};
     use iroha_client::{
         client::{asset, Client},
         config::Configuration,
@@ -281,10 +277,10 @@ mod asset {
         let mut iroha_client = Client::new(configuration);
         executor::block_on(
             iroha_client.submit(
-                isi::Register {
-                    object: AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)),
-                    destination_id: domain_name.to_string(),
-                }
+                Register::<Domain, AssetDefinition>::new(
+                    AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)),
+                    domain_name.to_string(),
+                )
                 .into(),
             ),
         )
@@ -298,13 +294,14 @@ mod asset {
         configuration: &Configuration,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
-        let mint_asset = isi::Mint {
-            object: quantity,
-            destination_id: AssetId {
-                definition_id: AssetDefinitionId::from(asset_definition_id),
-                account_id: AccountId::from(account_id),
-            },
-        };
+        let mint_asset = Mint::<Asset, u32>::new(
+            quantity,
+            AssetId::new(
+                AssetDefinitionId::from_str(asset_definition_id)
+                    .expect("Failed to parse Asset Definition Id."),
+                AccountId::from_str(account_id).expect("Failed to parse Account Id."),
+            ),
+        );
         let mut iroha_client = Client::new(configuration);
         executor::block_on(iroha_client.submit(mint_asset.into()))
             .expect("Failed to create account.");
@@ -313,201 +310,11 @@ mod asset {
     fn get_asset(_asset_id: &str, account_id: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
         let query_result = executor::block_on(iroha_client.request(&asset::by_account_id(
-            <Account as Identifiable>::Id::from(account_id),
+            AccountId::from_str(account_id).expect("Failed to parse Account Id."),
         )))
         .expect("Failed to get asset.");
-        if let QueryResult::GetAccountAssets(result) = query_result {
+        if let QueryResult::FindAssetsByAccountId(result) = query_result {
             println!("Get Asset result: {:?}", result);
-        }
-    }
-}
-
-mod maintenance {
-    use super::*;
-    use clap::ArgMatches;
-    use futures::executor;
-    use iroha_client::{client::Client, config::Configuration, prelude::*};
-
-    const HEALTH: &str = "health";
-    const METRICS: &str = "metrics";
-    const CONNECT: &str = "connect";
-    const ENTITY_TYPE: &str = "entity";
-    const EVENT_TYPE: &str = "event";
-
-    pub fn build_app<'a, 'b>() -> App<'a, 'b> {
-        App::new(MAINTENANCE)
-            .about("Use this command to use maintenance functionality.")
-            .subcommand(App::new(HEALTH).about("Use this command to check peer's health."))
-            .subcommand(App::new(METRICS).about("Use this command to scrape peer's metrics."))
-            .subcommand(
-                App::new(CONNECT)
-                    .about("Use this command to connect to the peer and start consuming events.")
-                    .arg(
-                        Arg::with_name(ENTITY_TYPE)
-                            .long(ENTITY_TYPE)
-                            .value_name(ENTITY_TYPE)
-                            .help("Type of entity to consume events about.")
-                            .takes_value(true)
-                            .required(true),
-                    )
-                    .arg(
-                        Arg::with_name(EVENT_TYPE)
-                            .long(EVENT_TYPE)
-                            .value_name(EVENT_TYPE)
-                            .help("Type of event to consume.")
-                            .takes_value(true)
-                            .required(true),
-                    ),
-            )
-    }
-
-    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        if let Some(ref matches) = matches.subcommand_matches(CONNECT) {
-            if let Some(entity_type) = matches.value_of(ENTITY_TYPE) {
-                println!("Connecting to consume events for: {}", entity_type);
-                if let Some(event_type) = matches.value_of(EVENT_TYPE) {
-                    println!("Connecting to consume events: {}", event_type);
-                    if let Err(err) = connect(entity_type, event_type, configuration) {
-                        eprintln!("Failed to connect: {}", err)
-                    }
-                }
-            }
-        }
-        if matches.subcommand_matches(HEALTH).is_some() {
-            println!("Checking peer's health.");
-            health(configuration);
-        }
-        if matches.subcommand_matches(METRICS).is_some() {
-            println!("Retrieving peer's metrics.");
-            metrics(configuration);
-        }
-    }
-
-    fn health(configuration: &Configuration) {
-        let mut iroha_client = Client::with_maintenance(configuration);
-        executor::block_on(async {
-            let result = iroha_client
-                .health()
-                .await
-                .expect("Failed to execute request.");
-            println!("Health is {:?}", result);
-        });
-    }
-
-    fn metrics(configuration: &Configuration) {
-        let mut iroha_client = Client::with_maintenance(configuration);
-        executor::block_on(async {
-            let result = iroha_client
-                .scrape_metrics()
-                .await
-                .expect("Failed to execute request.");
-            println!("{:?}", result);
-        });
-    }
-
-    fn connect(
-        entity_type: &str,
-        event_type: &str,
-        configuration: &Configuration,
-    ) -> Result<(), String> {
-        let mut iroha_client = Client::with_maintenance(configuration);
-        let event_type: OccurrenceType = event_type.parse()?;
-        let entity_type: EntityType = entity_type.parse()?;
-        executor::block_on(async {
-            let stream = iroha_client
-                .subscribe_to_changes(event_type, entity_type)
-                .await
-                .expect("Failed to execute request.");
-            println!("Successfully connected. Listening for changes.");
-            for change in stream {
-                println!("Change received {:?}", change);
-            }
-        });
-        Ok(())
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use async_std::task;
-        use iroha::{config::Configuration, isi, prelude::*};
-        use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
-        use std::{thread, time::Duration};
-        use tempfile::TempDir;
-
-        const CONFIGURATION_PATH: &str = "tests/test_config.json";
-
-        #[test]
-        fn cli_check_health_should_work() {
-            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                .expect("Failed to load configuration.");
-            let client_configuration =
-                ClientConfiguration::from_iroha_configuration(&configuration);
-            task::spawn(async move {
-                let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-                configuration
-                    .kura_configuration
-                    .kura_block_store_path(temp_dir.path());
-                let iroha = Iroha::new(configuration);
-                iroha.start().await.expect("Failed to start Iroha.");
-                //Prevents temp_dir from clean up untill the end of the tests.
-                #[allow(clippy::empty_loop)]
-                loop {}
-            });
-            thread::sleep(Duration::from_millis(300));
-            super::health(&client_configuration);
-        }
-
-        #[test]
-        fn cli_scrape_metrics_should_work() {
-            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                .expect("Failed to load configuration.");
-            let client_configuration =
-                ClientConfiguration::from_iroha_configuration(&configuration);
-            task::spawn(async move {
-                let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-                configuration
-                    .kura_configuration
-                    .kura_block_store_path(temp_dir.path());
-                let iroha = Iroha::new(configuration.clone());
-                iroha.start().await.expect("Failed to start Iroha.");
-                //Prevents temp_dir from clean up untill the end of the tests.
-                #[allow(clippy::empty_loop)]
-                loop {}
-            });
-            thread::sleep(Duration::from_millis(300));
-            super::metrics(&client_configuration);
-        }
-
-        #[test]
-        fn cli_connect_to_consume_block_changes_should_work() {
-            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                .expect("Failed to load configuration.");
-            let client_configuration =
-                ClientConfiguration::from_iroha_configuration(&configuration);
-            task::spawn(async move {
-                let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-                configuration
-                    .kura_configuration
-                    .kura_block_store_path(temp_dir.path());
-                let iroha = Iroha::new(configuration.clone());
-                iroha.start().await.expect("Failed to start Iroha.");
-                //Prevents temp_dir from clean up untill the end of the tests.
-                #[allow(clippy::empty_loop)]
-                loop {}
-            });
-            thread::sleep(Duration::from_millis(600));
-            let client_configuration_clone = client_configuration.clone();
-            thread::spawn(move || super::connect("all", "all", &client_configuration_clone));
-            let domain_name = "global";
-            let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-            let create_asset = isi::Register {
-                object: AssetDefinition::new(asset_definition_id),
-                destination_id: domain_name.to_string(),
-            };
-            let mut iroha_client = Client::new(&client_configuration);
-            thread::sleep(Duration::from_millis(300));
-            task::block_on(iroha_client.submit(create_asset.into()))
-                .expect("Failed to prepare state.");
         }
     }
 }
