@@ -82,6 +82,7 @@ target_link_libraries(application
 add_executable(irohad irohad.cpp)
 target_link_libraries(irohad
     application
+    data_model_adapter_python
     raw_block_loader
     gflags
     RapidJSON::rapidjson

@@ -61,4 +61,9 @@ namespace config_members {
   const char *kGroup = "group";
   const char *kKey = "key";
   const char *kName = "name";
+  const char *DataModelModules = "data_model_modules";
+  const char *Python = "python";
+  const char *PythonPaths = "python_paths";
+  const char *ModuleName = "module_name";
+  const char *InitArgument = "initialization_argument";
 }  // namespace config_members

@@ -12,9 +12,12 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include <gflags/gflags.h>
 #include <grpc++/grpc++.h>
+#include "ametsuchi/data_models/data_model.hpp"
+#include "ametsuchi/data_models/data_model_python.hpp"
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/bind.hpp"
@@ -179,6 +182,24 @@ getCommonObjectsFactory() {
       std::make_shared<shared_model::validation::ValidatorsConfig>(0, nullptr);
   return std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
       shared_model::validation::FieldValidator>>(validators_config);
+}
+
+std::vector<std::unique_ptr<iroha::ametsuchi::DataModel>> makeDataModels(
+    std::vector<IrohadConfig::DataModelModule> const &config) {
+  std::vector<std::unique_ptr<iroha::ametsuchi::DataModel>> modules;
+  for (auto const &config : config) {
+    std::visit(
+        iroha::make_visitor(
+            [&modules](IrohadConfig::DataModelModule::Python const &config) {
+              modules.emplace_back(
+                  std::make_unique<iroha::ametsuchi::DataModelPython>(
+                      config.python_paths,
+                      config.module_name,
+                      config.initialization_argument));
+            }),
+        config.module);
+  }
+  return modules;
 }
 
 int main(int argc, char *argv[]) {

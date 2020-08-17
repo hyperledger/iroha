@@ -61,6 +61,11 @@ namespace config_members {
   extern const char *kGroup;
   extern const char *kKey;
   extern const char *kName;
+  extern const char *DataModelModules;
+  extern const char *Python;
+  extern const char *PythonPaths;
+  extern const char *ModuleName;
+  extern const char *InitArgument;
 
 }  // namespace config_members
 

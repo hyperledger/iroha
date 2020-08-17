@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "common/result_fwd.hpp"
@@ -43,6 +44,18 @@ struct IrohadConfig {
   struct UtilityService {
     std::string ip;
     uint16_t port;
+  };
+
+  struct DataModelModule {
+    struct Python {
+      std::vector<std::string> python_paths;
+      std::string module_name;
+      std::string initialization_argument;
+    };
+
+    using ModuleType = std::variant<Python>;
+
+    ModuleType module;
   };
 
   // TODO: block_store_path is now optional, change docs IR-576
