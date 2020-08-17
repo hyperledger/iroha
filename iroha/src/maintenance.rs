@@ -31,7 +31,7 @@ impl System {
 
 /// `Health` enumerates different variants of Iroha `Peer` states.
 /// Each variant can provide additional information if needed.
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Copy, Clone, Debug, Io, Encode, Decode)]
 pub enum Health {
     /// `Healthy` variant means that `Peer` has finished initial setup.
     Healthy,

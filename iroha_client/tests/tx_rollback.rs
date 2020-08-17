@@ -6,6 +6,7 @@ mod tests {
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
+    use iroha_data_model::prelude::*;
     use std::{thread, time::Duration};
     use tempfile::TempDir;
 
@@ -25,21 +26,19 @@ mod tests {
         let account_id = AccountId::new(account_name, domain_name);
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let wrong_asset_definition_id = AssetDefinitionId::new("ksor", domain_name);
-        let create_asset = isi::Register {
-            object: AssetDefinition::new(asset_definition_id.clone()),
-            destination_id: domain_name.to_string(),
-        };
+        let create_asset = Register::<Domain, AssetDefinition>::new(
+            AssetDefinition::new(asset_definition_id.clone()),
+            domain_name.to_string(),
+        );
         let quantity: u32 = 200;
-        let mint_asset = isi::Mint {
-            object: quantity,
-            destination_id: AssetId {
-                definition_id: wrong_asset_definition_id.clone(),
-                account_id: account_id.clone(),
-            },
-        };
-        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
-            &configuration,
-        ));
+        let mint_asset = Mint::<Asset, u32>::new(
+            quantity,
+            AssetId::new(wrong_asset_definition_id.clone(), account_id.clone()),
+        );
+        let mut iroha_client = Client::new(
+            &ClientConfiguration::from_path(CONFIGURATION_PATH)
+                .expect("Failed to load configuration."),
+        );
         iroha_client
             .submit_all(vec![create_asset.into(), mint_asset.into()])
             .await
@@ -54,7 +53,7 @@ mod tests {
             .request(&request)
             .await
             .expect("Failed to execute request.");
-        if let QueryResult::GetAccountAssets(result) = query_result {
+        if let QueryResult::FindAssetsByAccountId(result) = query_result {
             assert!(result
                 .assets
                 .iter()
@@ -68,7 +67,7 @@ mod tests {
             .request(&client::asset::all_definitions())
             .await
             .expect("Failed to execute request.");
-        if let QueryResult::GetAllAssetsDefinitions(result) = definition_query_result {
+        if let QueryResult::FindAllAssetsDefinitions(result) = definition_query_result {
             assert!(result
                 .assets_definitions
                 .iter()

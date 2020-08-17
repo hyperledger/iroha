@@ -6,11 +6,11 @@ use self::message::*;
 use crate::{
     block::PendingBlock,
     event::{Entity, EventsSender, Occurrence},
-    peer::PeerId,
     prelude::*,
 };
 use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
+use iroha_data_model::prelude::*;
 use iroha_derive::*;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -95,7 +95,13 @@ impl Sumeragi {
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
     pub async fn update_network_topology(&mut self) {
-        let wsv_peers = self.world_state_view.read().await.peer.peers.clone();
+        let wsv_peers = self
+            .world_state_view
+            .read()
+            .await
+            .peer
+            .trusted_peers_ids
+            .clone();
         self.network_topology
             .update(wsv_peers, self.latest_block_hash);
     }
@@ -159,7 +165,8 @@ impl Sumeragi {
                     })
                     .send_to(self.network_topology.leader()),
                 );
-                self.transactions_awaiting_receipts
+                let _ = self
+                    .transactions_awaiting_receipts
                     .write()
                     .await
                     .insert(transaction.hash());
@@ -178,7 +185,7 @@ impl Sumeragi {
                 let transaction_hash = transaction.hash();
                 let peer_id = self.peer_id.clone();
                 let tx_receipt_time = self.tx_receipt_time;
-                async_std::task::spawn(async move {
+                let _ = async_std::task::spawn(async move {
                     async_std::task::sleep(tx_receipt_time).await;
                     if transactions_awaiting_receipts
                         .write()
@@ -230,7 +237,7 @@ impl Sumeragi {
         let recipient_peers = self.network_topology.sorted_peers.clone();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
-        async_std::task::spawn(async move {
+        let _ = async_std::task::spawn(async move {
             async_std::task::sleep(commit_time).await;
             if let Some(voting_block) = voting_block.write().await.clone() {
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
@@ -291,6 +298,7 @@ impl Debug for Sumeragi {
 
 /// Uninitialized `NetworkTopology`, use only for construction.
 /// Call `init` to get `InitializedNetworkTopology` and access all other methods.
+#[derive(Debug)]
 pub struct NetworkTopology {
     peers: Vec<PeerId>,
     max_faults: usize,
@@ -333,8 +341,9 @@ pub struct InitializedNetworkTopology {
 
 impl InitializedNetworkTopology {
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
-    pub fn update(&mut self, peers: BTreeSet<PeerId>, latest_block_hash: Hash) {
+    pub fn update(&mut self, peers: Vec<PeerId>, latest_block_hash: Hash) {
         let current_peers: BTreeSet<_> = self.sorted_peers.iter().cloned().collect();
+        let peers: BTreeSet<_> = peers.into_iter().collect();
         if peers != current_peers {
             self.sorted_peers = peers.iter().cloned().collect();
             self.sort_peers(Some(latest_block_hash));
@@ -468,7 +477,7 @@ impl InitializedNetworkTopology {
 }
 
 /// Possible Peer's roles in consensus.
-#[derive(PartialOrd, Ord, Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Copy, Clone, Debug, Hash, PartialOrd, Ord, Eq, PartialEq)]
 pub enum Role {
     /// Leader.
     Leader,
@@ -517,12 +526,12 @@ impl VotingBlock {
 pub mod message {
     use crate::{
         block::ValidBlock,
-        peer::PeerId,
         sumeragi::{InitializedNetworkTopology, Role, Sumeragi, VotingBlock},
         torii::uri,
         tx::AcceptedTransaction,
     };
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
+    use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_network::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -805,7 +814,7 @@ pub mod message {
                         .sign(&sumeragi.key_pair)
                         .expect("Failed to sign."),
                 );
-                futures::future::join_all(
+                let _ = futures::future::join_all(
                     sumeragi
                         .network_topology
                         .sorted_peers
@@ -905,7 +914,7 @@ pub mod message {
                 })
                 .send_to(sumeragi.network_topology.leader())
                 .await;
-                sumeragi
+                let _ = sumeragi
                     .transactions_awaiting_receipts
                     .write()
                     .await
@@ -917,7 +926,7 @@ pub mod message {
                     .clone()
                     .sign(&sumeragi.key_pair)
                     .expect("Failed to sign.");
-                async_std::task::spawn(async move {
+                let _ = async_std::task::spawn(async move {
                     async_std::task::sleep(tx_receipt_time).await;
                     if pending_forwarded_tx_hashes
                         .write()
@@ -931,7 +940,7 @@ pub mod message {
                                     .send_to(peer),
                             );
                         }
-                        futures::future::join_all(send_futures).await;
+                        let _ = futures::future::join_all(send_futures).await;
                     }
                 });
             }
@@ -1026,7 +1035,7 @@ pub mod message {
                     .await
                     .contains(&self.transaction_hash)
             {
-                sumeragi
+                let _ = sumeragi
                     .transactions_awaiting_receipts
                     .write()
                     .await
@@ -1042,12 +1051,12 @@ pub mod message {
                         .sign(&sumeragi.key_pair)
                         .expect("Failed to put first signature.");
                 }
-                transactions_awaiting_created_block
+                let _ = transactions_awaiting_created_block
                     .write()
                     .await
                     .insert(tx_hash);
                 let recipient_peers = sumeragi.network_topology.sorted_peers.clone();
-                async_std::task::spawn(async move {
+                let _ = async_std::task::spawn(async move {
                     async_std::task::sleep(block_time).await;
                     // Suspect leader if the block was not yet created
                     if transactions_awaiting_created_block
@@ -1057,7 +1066,7 @@ pub mod message {
                     {
                         let block_creation_timeout_message =
                             Message::BlockCreationTimeout(block_creation_timeout);
-                        futures::future::join_all(
+                        let _ = futures::future::join_all(
                             recipient_peers
                                 .iter()
                                 .map(|peer| block_creation_timeout_message.clone().send_to(peer)),
@@ -1155,8 +1164,8 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use crate::peer::PeerId;
-    use iroha_crypto::KeyPair;
+    use iroha_crypto::prelude::*;
+    use iroha_data_model::prelude::*;
     use serde::Deserialize;
     use std::env;
 
@@ -1172,14 +1181,14 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Clone, Deserialize, Debug)]
+    #[derive(Clone, Debug, Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct SumeragiConfiguration {
         /// Key pair of private and public keys.
         #[serde(skip)]
         pub key_pair: KeyPair,
         /// Current Peer Identification.
-        #[serde(skip)]
+        #[serde(default = "default_peer_id")]
         pub peer_id: PeerId,
         /// Amount of time peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
         #[serde(default = "default_block_time_ms")]
@@ -1245,6 +1254,13 @@ pub mod config {
         }
     }
 
+    fn default_peer_id() -> PeerId {
+        PeerId {
+            address: "".to_string(),
+            public_key: PublicKey::default(),
+        }
+    }
+
     fn default_block_time_ms() -> u64 {
         DEFAULT_BLOCK_TIME_MS
     }
@@ -1266,13 +1282,14 @@ pub mod config {
 mod tests {
     use super::*;
     use crate::{
-        account,
         config::Configuration,
         init::{self, config::InitConfiguration},
         maintenance::System,
         torii::Torii,
+        tx::Accept,
     };
     use async_std::{prelude::*, sync, task};
+    use iroha_data_model::prelude::*;
     use std::time::Duration;
 
     const CONFIG_PATH: &str = "config.json";
@@ -1408,17 +1425,17 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: "127.0.0.1:7878".to_string(),
-                    public_key: KeyPair::generate()
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
+                PeerId::new(
+                    "127.0.0.1:7878",
+                    &KeyPair::generate()
                         .expect("Failed to generate KeyPair.")
                         .public_key,
-                },
-                &ids,
+                ),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
+                ids.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1483,7 +1500,7 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("root", "global"),
+                AccountId::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
             .sign(&root_key_pair)
@@ -1531,17 +1548,17 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: "127.0.0.1:7878".to_string(),
-                    public_key: KeyPair::generate()
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
+                PeerId::new(
+                    "127.0.0.1:7878",
+                    &KeyPair::generate()
                         .expect("Failed to generate KeyPair.")
                         .public_key,
-                },
-                &ids,
+                ),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
+                ids.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1613,7 +1630,7 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("root", "global"),
+                AccountId::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
             .sign(&root_key_pair)
@@ -1677,17 +1694,17 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: "127.0.0.1:7878".to_string(),
-                    public_key: KeyPair::generate()
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
+                PeerId::new(
+                    "127.0.0.1:7878",
+                    &KeyPair::generate()
                         .expect("Failed to generate KeyPair.")
                         .public_key,
-                },
-                &ids,
+                ),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
+                ids.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1771,7 +1788,7 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("root", "global"),
+                AccountId::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
             .sign(&root_key_pair)
@@ -1834,17 +1851,17 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: "127.0.0.1:7878".to_string(),
-                    public_key: KeyPair::generate()
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
+                PeerId::new(
+                    "127.0.0.1:7878",
+                    &KeyPair::generate()
                         .expect("Failed to generate KeyPair.")
                         .public_key,
-                },
-                &ids,
+                ),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
+                ids.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1925,7 +1942,7 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("root", "global"),
+                AccountId::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
             .sign(&root_key_pair)
@@ -1989,17 +2006,17 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: "127.0.0.1:7878".to_string(),
-                    public_key: KeyPair::generate()
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
+                PeerId::new(
+                    "127.0.0.1:7878",
+                    &KeyPair::generate()
                         .expect("Failed to generate KeyPair.")
                         .public_key,
-                },
-                &ids,
+                ),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
+                ids.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -2073,7 +2090,7 @@ mod tests {
             .await
             .round(vec![Transaction::new(
                 vec![],
-                account::Id::new("root", "global"),
+                AccountId::new("root", "global"),
                 TRANSACTION_TIME_TO_LIVE_MS,
             )
             .sign(&root_key_pair)

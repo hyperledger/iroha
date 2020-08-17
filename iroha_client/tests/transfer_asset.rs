@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{config::Configuration, isi, prelude::*};
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
+    use iroha_data_model::prelude::*;
     use std::thread;
     use tempfile::TempDir;
 
@@ -17,45 +18,37 @@ mod tests {
         // Given
         thread::spawn(create_and_start_iroha);
         thread::sleep(std::time::Duration::from_millis(100));
-        let configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
-            &configuration,
-        ));
+        let configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
+            .expect("Failed to load configuration.");
+        let mut iroha_client = Client::new(&configuration);
         let domain_name = "domain";
-        let create_domain = isi::Add {
-            object: Domain::new(domain_name.to_string()),
-            destination_id: PeerId::new(
-                &configuration.torii_configuration.torii_url,
-                &configuration.public_key,
-            ),
-        };
+        let create_domain = Register::<Peer, Domain>::new(
+            Domain::new(domain_name),
+            PeerId::new(&configuration.torii_url, &configuration.public_key),
+        );
         let account1_name = "account1";
         let account2_name = "account2";
         let account1_id = AccountId::new(account1_name, domain_name);
         let account2_id = AccountId::new(account2_name, domain_name);
-        let (public_key, _) = configuration.key_pair();
-        let create_account1 = isi::Register {
-            object: Account::with_signatory(account1_name, domain_name, public_key.clone()),
-            destination_id: String::from(domain_name),
-        };
-        let create_account2 = isi::Register {
-            object: Account::with_signatory(account2_name, domain_name, public_key.clone()),
-            destination_id: String::from(domain_name),
-        };
+        let public_key = configuration.public_key;
+        let create_account1 = Register::<Domain, Account>::new(
+            Account::with_signatory(account1_id.clone(), public_key.clone()),
+            domain_name.to_string(),
+        );
+        let create_account2 = Register::<Domain, Account>::new(
+            Account::with_signatory(account2_id.clone(), public_key.clone()),
+            domain_name.to_string(),
+        );
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let quantity: u32 = 200;
-        let create_asset = isi::Register {
-            object: AssetDefinition::new(asset_definition_id.clone()),
-            destination_id: domain_name.to_string(),
-        };
-        let mint_asset = isi::Mint {
-            object: quantity,
-            destination_id: AssetId {
-                definition_id: asset_definition_id.clone(),
-                account_id: account1_id.clone(),
-            },
-        };
+        let create_asset = Register::<Domain, AssetDefinition>::new(
+            AssetDefinition::new(asset_definition_id.clone()),
+            domain_name.to_string(),
+        );
+        let mint_asset = Mint::<Asset, u32>::new(
+            quantity,
+            AssetId::new(asset_definition_id.clone(), account1_id.clone()),
+        );
         iroha_client
             .submit_all(vec![
                 create_domain.into(),
@@ -66,36 +59,26 @@ mod tests {
             ])
             .await
             .expect("Failed to prepare state.");
-        std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-        ));
+        std::thread::sleep(std::time::Duration::from_millis(200 * 2));
         //When
         let quantity = 20;
-        let transfer_asset = isi::Transfer {
-            source_id: account1_id.clone(),
-            destination_id: account2_id.clone(),
-            object: Asset::with_quantity(
-                AssetId {
-                    definition_id: asset_definition_id.clone(),
-                    account_id: account1_id.clone(),
-                },
-                quantity,
-            ),
-        };
+        let transfer_asset = Transfer::<Asset, u32, Asset>::new(
+            AssetId::new(asset_definition_id.clone(), account1_id.clone()),
+            quantity,
+            AssetId::new(asset_definition_id.clone(), account2_id.clone()),
+        );
         iroha_client
             .submit(transfer_asset.into())
             .await
             .expect("Failed to submit instruction.");
-        std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-        ));
+        std::thread::sleep(std::time::Duration::from_millis(200 * 2));
         //Then
         let request = client::asset::by_account_id(account2_id.clone());
         let query_result = iroha_client
             .request(&request)
             .await
             .expect("Failed to execute request.");
-        if let QueryResult::GetAccountAssets(result) = query_result {
+        if let QueryResult::FindAssetsByAccountId(result) = query_result {
             assert_eq!(
                 result
                     .assets

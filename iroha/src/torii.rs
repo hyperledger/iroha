@@ -9,10 +9,13 @@ use crate::{
     },
     maintenance::{Health, System},
     prelude::*,
+    query::Verify,
     sumeragi::message::Message as SumeragiMessage,
+    tx::Accept,
     BlockSyncMessageSender, SumeragiMessageSender,
 };
 use async_std::{prelude::*, sync::RwLock, task};
+use iroha_data_model::prelude::*;
 use iroha_derive::*;
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
@@ -21,6 +24,7 @@ use iroha_network::prelude::*;
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 /// Main network handler and the only entrypoint of the Iroha.
+#[derive(Debug)]
 pub struct Torii {
     url: String,
     connect_url: String,
@@ -172,7 +176,7 @@ async fn handle_connections(
 #[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
-        uri::INSTRUCTIONS_URI => match SignedTransaction::try_from(request.payload().to_vec()) {
+        uri::INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
                 if let Err(e) = state
                     .write()
@@ -348,7 +352,7 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::Configuration, peer::PeerId};
+    use crate::config::Configuration;
     use async_std::{sync, task};
     use std::time::Duration;
 
@@ -366,17 +370,17 @@ mod tests {
         let (events_sender, events_receiver) = sync::channel(100);
         let mut torii = Torii::new(
             (&torii_url, &torii_connect_url),
-            Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
-                &Vec::new(),
-            )))),
+            Arc::new(RwLock::new(WorldStateView::new(Peer::new(PeerId::new(
+                &config.torii_configuration.torii_url,
+                &config.public_key,
+            ))))),
             tx_tx,
             sumeragi_message_sender,
             block_sync_message_sender,
             System::new(&config),
             (events_sender, events_receiver),
         );
-        task::spawn(async move {
+        let _ = task::spawn(async move {
             if let Err(e) = torii.start().await {
                 eprintln!("Failed to start Torii: {}", e);
             }

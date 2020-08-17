@@ -2,8 +2,8 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use crate::prelude::*;
-use iroha_crypto::KeyPair;
+use crate::{isi::Execute, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::{
@@ -11,102 +11,19 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-/// This structure represents transaction right after construction.
-#[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct Transaction {
-    payload: Payload,
-    /// Signatures of accounts. There can be multiple in case of MST.
-    signatures: Vec<Signature>,
+/// Temp trait for transaction acceptance.
+//TODO: replace with From.
+pub trait Accept {
+    /// Transform transaction to `AcceptedTransaction`.
+    fn accept(self) -> Result<AcceptedTransaction, String>;
 }
 
-#[derive(Clone, Debug, Io, Encode, Decode)]
-struct Payload {
-    /// Account ID of transaction creator.
-    account_id: <Account as Identifiable>::Id,
-    /// An ordered set of instructions.
-    instructions: Vec<Instruction>,
-    /// Time of creation (unix time, in milliseconds).
-    creation_time: u64,
-    /// The transaction will be dropped after this time if it is still in a `Queue`.
-    time_to_live_ms: u64,
-}
-
-impl Transaction {
-    /// Default `CreatedTransaction` constructor.
-    pub fn new(
-        instructions: Vec<Instruction>,
-        account_id: <Account as Identifiable>::Id,
-        proposed_ttl_ms: u64,
-    ) -> Transaction {
-        Transaction {
-            payload: Payload {
-                instructions,
-                account_id,
-                creation_time: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time.")
-                    .as_millis() as u64,
-                time_to_live_ms: proposed_ttl_ms,
-            },
-            signatures: Vec::new(),
-        }
-    }
-
-    /// Sign transaction with the provided key pair.
-    ///
-    /// Returns `Ok(SignedTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedTransaction, String> {
-        let mut signatures = self.signatures.clone();
-        signatures.push(Signature::new(key_pair.clone(), &self.hash())?);
-        Ok(SignedTransaction {
-            payload: self.payload,
-            signatures,
-        })
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        use ursa::blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        };
-        let bytes: Vec<u8> = self.payload.clone().into();
-        let vec_hash = VarBlake2b::new(32)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vec_hash);
-        hash
-    }
-}
-
-/// `SignedTransaction` represents transaction signed by corresponding initiator's account.
-#[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct SignedTransaction {
-    payload: Payload,
-    /// Signatures of accounts. There can be multiple in case of MST.
-    signatures: Vec<Signature>,
-}
-
-impl SignedTransaction {
-    /// Sign transaction with the provided key pair.
-    ///
-    /// Returns `Ok(SignedTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedTransaction, String> {
-        let mut signatures = self.signatures.clone();
-        signatures.push(Signature::new(key_pair.clone(), &self.hash())?);
-        Ok(SignedTransaction {
-            payload: self.payload,
-            signatures,
-        })
-    }
-
+impl Accept for Transaction {
     /// Transaction acceptance will check that transaction signatures are valid and move state one
     /// step forward.
     ///
     /// Returns `Ok(AcceptedTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn accept(self) -> Result<AcceptedTransaction, String> {
+    fn accept(self) -> Result<AcceptedTransaction, String> {
         for signature in &self.signatures {
             if let Err(e) = signature.verify(&self.hash()) {
                 return Err(format!("Failed to verify signatures: {}", e));
@@ -116,22 +33,6 @@ impl SignedTransaction {
             payload: self.payload,
             signatures: self.signatures,
         })
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        use ursa::blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        };
-        let bytes: Vec<u8> = self.payload.clone().into();
-        let vec_hash = VarBlake2b::new(32)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vec_hash);
-        hash
     }
 }
 
@@ -191,8 +92,8 @@ impl AcceptedTransaction {
             )?;
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
-                .world_state_view;
+                .clone()
+                .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
@@ -230,8 +131,8 @@ impl ValidTransaction {
             )?;
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
-                .execute(account_id.clone(), &world_state_view_temp)?
-                .world_state_view;
+                .clone()
+                .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
@@ -245,8 +146,8 @@ impl ValidTransaction {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
-                .world_state_view;
+                .clone()
+                .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(())
@@ -269,22 +170,12 @@ impl ValidTransaction {
     }
 }
 
-impl From<&AcceptedTransaction> for SignedTransaction {
-    fn from(transaction: &AcceptedTransaction) -> SignedTransaction {
-        let transaction = transaction.clone();
-        SignedTransaction {
-            payload: transaction.payload,
-            signatures: transaction.signatures,
-        }
-    }
-}
-
 mod event {
     use super::*;
     use crate::event::{Entity, Occurrence};
 
-    impl From<&SignedTransaction> for Occurrence {
-        fn from(transaction: &SignedTransaction) -> Occurrence {
+    impl From<&Transaction> for Occurrence {
+        fn from(transaction: &Transaction) -> Occurrence {
             Occurrence::Created(Entity::Transaction(transaction.into()))
         }
     }
@@ -305,17 +196,17 @@ mod tests {
         let accepted_tx = signed_tx.accept().expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
-            .validate(&mut WorldStateView::new(Peer::with_domains(
+            .validate(&mut WorldStateView::new(Peer::with(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
                     public_key: KeyPair::generate()
                         .expect("Failed to generate KeyPair.")
                         .public_key,
                 },
-                &Vec::new(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
+                Vec::new(),
             )))
             .expect("Failed to validate.")
             .hash();

@@ -1,6 +1,7 @@
 use criterion::*;
-use iroha::{peer::PeerId, sumeragi::NetworkTopology};
+use iroha::sumeragi::NetworkTopology;
 use iroha_crypto::KeyPair;
+use iroha_data_model::prelude::*;
 
 const N_PEERS: usize = 255;
 

@@ -21,6 +21,7 @@
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
+    #[doc(inline)]
     pub use iroha_data_model::prelude::*;
 }
 
@@ -34,7 +35,7 @@ mod tests {
     #[test]
     fn find_rate_and_make_exchange_isi_should_be_valid() {
         let _ = Pair::new(
-            Box::new(Transfer::new(
+            Transfer::<Asset, _, Asset>::new(
                 AssetId::from_names("btc", "crypto", "seller", "company"),
                 FindAssetQuantityById::new(AssetId::from_names(
                     "btc2eth_rate",
@@ -43,8 +44,8 @@ mod tests {
                     "exchange",
                 )),
                 AssetId::from_names("btc", "crypto", "buyer", "company"),
-            )),
-            Box::new(Transfer::new(
+            ),
+            Transfer::<Asset, _, Asset>::new(
                 AssetId::from_names("eth", "crypto", "buyer", "company"),
                 FindAssetQuantityById::new(AssetId::from_names(
                     "btc2eth_rate",
@@ -53,14 +54,14 @@ mod tests {
                     "exchange",
                 )),
                 AssetId::from_names("eth", "crypto", "seller", "company"),
-            )),
+            ),
         );
     }
 
     #[test]
     fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
         let _ = If::new(
-            Box::new(Not::new(Box::new(Greater::new(
+            Not::new(Greater::new(
                 FindAssetQuantityById::new(AssetId::from_names(
                     "btc2eth_rate",
                     "exchange",
@@ -68,8 +69,8 @@ mod tests {
                     "exchange",
                 )),
                 10,
-            )))),
-            Box::new(Fail::new("rate is less or equal to value")),
+            )),
+            Fail::new("rate is less or equal to value"),
         );
     }
 
@@ -90,7 +91,7 @@ mod tests {
 
         pub fn into_isi(self) -> If {
             If::new(
-                Box::new(Not::new(Box::new(Greater::new(
+                Not::new(Greater::new(
                     FindAssetQuantityById::new(AssetId::from_names(
                         &format!("{}2{}_rate", self.from_currency, self.to_currency),
                         "exchange",
@@ -98,8 +99,8 @@ mod tests {
                         "exchange",
                     )),
                     self.value,
-                )))),
-                Box::new(Fail::new("rate is less or equal to value")),
+                )),
+                Fail::new("rate is less or equal to value"),
             )
         }
     }

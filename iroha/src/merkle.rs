@@ -114,6 +114,7 @@ impl Node {
     }
 }
 
+#[derive(Debug)]
 pub struct BreadthFirstIter<'a> {
     queue: Vec<&'a Node>,
 }
