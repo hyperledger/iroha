@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{config::Configuration, isi, prelude::*};
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
+    use iroha_data_model::prelude::*;
     use std::{thread, time::Duration};
     use tempfile::TempDir;
 
@@ -23,13 +24,14 @@ mod tests {
         let account_name = "root";
         let account_id = AccountId::new(account_name, domain_name);
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-        let create_asset = isi::Register {
-            object: AssetDefinition::new(asset_definition_id.clone()),
-            destination_id: domain_name.to_string(),
-        };
-        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
-            &configuration,
-        ));
+        let create_asset = Register::<Domain, AssetDefinition>::new(
+            AssetDefinition::new(asset_definition_id.clone()),
+            domain_name.to_string(),
+        );
+        let mut iroha_client = Client::new(
+            &ClientConfiguration::from_path(CONFIGURATION_PATH)
+                .expect("Failed to load configuration."),
+        );
         iroha_client
             .submit(create_asset.into())
             .await
@@ -40,13 +42,10 @@ mod tests {
         .await;
         //When
         let quantity: u32 = 200;
-        let mint_asset = isi::Mint {
-            object: quantity,
-            destination_id: AssetId {
-                definition_id: asset_definition_id.clone(),
-                account_id: account_id.clone(),
-            },
-        };
+        let mint_asset = Mint::<Asset, u32>::new(
+            quantity,
+            AssetId::new(asset_definition_id, account_id.clone()),
+        );
         iroha_client
             .submit(mint_asset.into())
             .await
@@ -61,7 +60,7 @@ mod tests {
             .request(&request)
             .await
             .expect("Failed to execute request.");
-        if let QueryResult::GetAccountAssets(result) = query_result {
+        if let QueryResult::FindAssetsByAccountId(result) = query_result {
             assert!(!result.assets.is_empty());
             assert_eq!(
                 quantity,

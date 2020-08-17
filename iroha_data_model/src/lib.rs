@@ -23,46 +23,122 @@ pub mod isi;
 pub mod query;
 
 use iroha_crypto::PublicKey;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// `Name` struct represents type for Iroha Entities names, like `Domain`'s name or `Account`'s
 /// name.
 pub type Name = String;
 
+/// Represents a sequence of bytes. Used for storing encoded data.
+pub type Bytes = Vec<u8>;
+
+/// Sized container for all possible identifications.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub enum IdBox {
+    /// `AccountId` variant.
+    AccountId(account::Id),
+    /// `AssetId` variant.
+    AssetId(asset::Id),
+    /// `AssetDefinitionId` variant.
+    AssetDefinitionId(asset::DefinitionId),
+    /// `DomainName` variant.
+    DomainName(Name),
+    /// `PeerId` variant.
+    PeerId(peer::Id),
+}
+
+/// Sized container for all possible entities.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub enum IdentifiableBox {
+    /// `Account` variant.
+    Account(Box<account::Account>),
+    /// `Asset` variant.
+    Asset(Box<asset::Asset>),
+    /// `AssetDefinition` variant.
+    AssetDefinition(Box<asset::AssetDefinition>),
+    /// `Domain` variant.
+    Domain(Box<domain::Domain>),
+    /// `Peer` variant.
+    Peer(Box<peer::Peer>),
+}
+
+/// Sized container for all possible values.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub enum ValueBox {
+    /// `u32` variant.
+    U32(u32),
+    /// Iroha `Query` variant.
+    Query(Box<query::QueryBox>),
+}
+
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
-pub trait Identifiable: Debug {
+pub trait Identifiable: Debug + Clone {
     /// Defines the type of entity's identification.
-    type Id: Debug;
+    type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
 }
 
 /// This trait marks entity that can be used as a value for different Iroha Special Instructions.
-pub trait Value: Debug {
+pub trait Value: Debug + Clone {
     /// Defines the type of the value.
-    type Type;
+    type Type: Debug + Clone;
 }
 
 impl Value for u32 {
     type Type = u32;
 }
 
+impl Value for u128 {
+    type Type = u128;
+}
+
+impl Value for Name {
+    type Type = Name;
+}
+
+impl Value for (Name, Bytes) {
+    type Type = (Name, Bytes);
+}
+
+impl Value for PublicKey {
+    type Type = PublicKey;
+}
+
+impl From<u32> for ValueBox {
+    fn from(value: u32) -> ValueBox {
+        ValueBox::U32(value)
+    }
+}
+
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
 
-    use crate::{asset::AssetsMap, Identifiable, Name, PublicKey};
-    use std::collections::BTreeMap;
+    use crate::{asset::AssetsMap, IdBox, Identifiable, IdentifiableBox, Name, PublicKey};
+    use iroha_derive::Io;
+    use serde::{Deserialize, Serialize};
+    //TODO: get rid of it?
+    use iroha_crypto::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+    use std::{collections::BTreeMap, fmt};
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
     pub type AccountsMap = BTreeMap<Id, Account>;
+    type Signatories = Vec<PublicKey>;
 
     /// Account entity is an authority which is used to execute `Iroha Special Insturctions`.
-    #[derive(Debug)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct Account {
         /// An Identification of the `Account`.
         pub id: Id,
         /// Asset's in this `Account`.
         pub assets: AssetsMap,
-        signatories: Vec<PublicKey>,
+        /// `Account`'s signatories.
+        //TODO: signatories are not public keys - rename this field.
+        pub signatories: Signatories,
     }
 
     /// Identification of an Account. Consists of Account's name and Domain's name.
@@ -74,10 +150,62 @@ pub mod account {
     ///
     /// let id = Id::new("user", "company");
     /// ```
-    #[derive(Debug)]
+    #[derive(
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+    )]
     pub struct Id {
-        name: Name,
-        domain_name: Name,
+        /// `Account`'s name.
+        pub name: Name,
+        /// `Account`'s `Domain`'s name.
+        pub domain_name: Name,
+    }
+
+    impl Account {
+        /// Default `Account` constructor.
+        pub fn new(id: Id) -> Self {
+            Account {
+                id,
+                assets: AssetsMap::new(),
+                signatories: Signatories::new(),
+            }
+        }
+
+        /// Account with single `signatory` constructor.
+        pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
+            let mut signatories = Signatories::new();
+            signatories.push(signatory);
+            Account {
+                id,
+                assets: AssetsMap::new(),
+                signatories,
+            }
+        }
+        /// Verify if the signature is produced by the owner of this account.
+        pub fn verify_signature(
+            &self,
+            signature: &Signature,
+            payload: &[u8],
+        ) -> Result<(), String> {
+            if self.signatories.contains(&signature.public_key) {
+                signature.verify(payload)
+            } else {
+                Err(format!(
+                    "Account does not have a signatory with this public key: {}",
+                    signature.public_key
+                ))
+            }
+        }
     }
 
     impl Id {
@@ -95,6 +223,37 @@ pub mod account {
         type Id = Id;
     }
 
+    impl From<Account> for IdentifiableBox {
+        fn from(account: Account) -> IdentifiableBox {
+            IdentifiableBox::Account(Box::new(account))
+        }
+    }
+
+    impl From<Id> for IdBox {
+        fn from(id: Id) -> IdBox {
+            IdBox::AccountId(id)
+        }
+    }
+
+    /// Account Identification is represented by `name@domain_name` string.
+    impl std::str::FromStr for Id {
+        type Err = String;
+
+        fn from_str(string: &str) -> Result<Self, Self::Err> {
+            let vector: Vec<&str> = string.split('@').collect();
+            Ok(Id {
+                name: String::from(vector[0]),
+                domain_name: String::from(vector[1]),
+            })
+        }
+    }
+
+    impl fmt::Display for Id {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}@{}", self.name, self.domain_name)
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{Account, Id as AccountId};
@@ -105,7 +264,10 @@ pub mod asset {
     //! This module contains `Asset` structure, it's implementation and related traits and
     //! instructions implementations.
 
-    use crate::{account::prelude::*, Identifiable, Name};
+    use crate::{account::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Value};
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
     use std::{
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
@@ -117,13 +279,13 @@ pub mod asset {
     /// `AssetDefinitionsMap` provides an API to work with collection of key (`DefinitionId`) - value
     /// (`AssetDefinition`) pairs.
     pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinition>;
-    /// Represents a sequence of bytes. Used for storing encoded data.
-    type Bytes = Vec<u8>;
     /// Collection of `Bytes` represented parameters and their names.
     type Store = BTreeMap<Name, Bytes>;
 
     /// Asset definition defines type of that asset.
-    #[derive(Debug)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct AssetDefinition {
         /// An Identification of the `AssetDefinition`.
         pub id: DefinitionId,
@@ -131,7 +293,9 @@ pub mod asset {
 
     /// Asset represents some sort of commodity or value.
     /// All possible variants of `Asset` entity's components.
-    #[derive(Debug)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct Asset {
         /// Component Identification.
         pub id: Id,
@@ -141,8 +305,6 @@ pub mod asset {
         pub big_quantity: u128,
         /// Asset's key-value structured data.
         pub store: Store,
-        // Asset's key-value  (action, object_id) structured permissions.
-        //pub permissions: Permissions,
     }
 
     /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
@@ -154,7 +316,9 @@ pub mod asset {
     ///
     /// let definition_id = DefinitionId::new("xor", "soramitsu");
     /// ```
-    #[derive(Debug)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct DefinitionId {
         /// Asset's name.
         pub name: Name,
@@ -163,12 +327,55 @@ pub mod asset {
     }
 
     /// Identification of an Asset's components include Entity Id (`Asset::Id`) and `Account::Id`.
-    #[derive(Debug)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct Id {
         /// Entity Identification.
         pub definition_id: DefinitionId,
         /// Account Identification.
         pub account_id: AccountId,
+    }
+
+    impl AssetDefinition {
+        /// Default `AssetDefinition` constructor.
+        pub fn new(id: DefinitionId) -> Self {
+            AssetDefinition { id }
+        }
+    }
+
+    impl Asset {
+        /// `Asset` with `quantity` value constructor.
+        pub fn with_quantity(id: Id, quantity: u32) -> Self {
+            Asset {
+                id,
+                quantity,
+                big_quantity: 0,
+                store: Store::new(),
+            }
+        }
+
+        /// `Asset` with `big_quantity` value constructor.
+        pub fn with_big_quantity(id: Id, big_quantity: u128) -> Self {
+            Asset {
+                id,
+                quantity: 0,
+                big_quantity,
+                store: Store::new(),
+            }
+        }
+
+        /// `Asset` with a `parameter` inside `store` value constructor.
+        pub fn with_parameter(id: Id, parameter: (String, Bytes)) -> Self {
+            let mut store = Store::new();
+            let _ = store.insert(parameter.0, parameter.1);
+            Asset {
+                id,
+                quantity: 0,
+                big_quantity: 0,
+                store,
+            }
+        }
     }
 
     impl DefinitionId {
@@ -214,8 +421,24 @@ pub mod asset {
         type Id = Id;
     }
 
+    impl Value for Asset {
+        type Type = Asset;
+    }
+
     impl Identifiable for AssetDefinition {
         type Id = DefinitionId;
+    }
+
+    impl From<Asset> for IdentifiableBox {
+        fn from(asset: Asset) -> IdentifiableBox {
+            IdentifiableBox::Asset(Box::new(asset))
+        }
+    }
+
+    impl From<AssetDefinition> for IdentifiableBox {
+        fn from(asset_definition: AssetDefinition) -> IdentifiableBox {
+            IdentifiableBox::AssetDefinition(Box::new(asset_definition))
+        }
     }
 
     /// Asset Identification is represented by `name#domain_name` string.
@@ -237,6 +460,18 @@ pub mod asset {
         }
     }
 
+    impl From<DefinitionId> for IdBox {
+        fn from(id: DefinitionId) -> IdBox {
+            IdBox::AssetDefinitionId(id)
+        }
+    }
+
+    impl From<Id> for IdBox {
+        fn from(id: Id) -> IdBox {
+            IdBox::AssetId(id)
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{Asset, AssetDefinition, DefinitionId as AssetDefinitionId, Id as AssetId};
@@ -246,7 +481,13 @@ pub mod asset {
 pub mod domain {
     //! This module contains `Domain` structure and related implementations and trait implementations.
 
-    use crate::{account::AccountsMap, asset::AssetDefinitionsMap, Identifiable, Name};
+    use crate::{
+        account::AccountsMap, asset::AssetDefinitionsMap, IdBox, Identifiable, IdentifiableBox,
+        Name,
+    };
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     /// `DomainsMap` provides an API to work with collection of key (`Name`) - value
@@ -254,7 +495,9 @@ pub mod domain {
     pub type DomainsMap = BTreeMap<Name, Domain>;
 
     /// Named group of `Account` and `Asset` entities.
-    #[derive(Debug)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct Domain {
         /// Domain name, for example company name.
         pub name: Name,
@@ -264,8 +507,31 @@ pub mod domain {
         pub asset_definitions: AssetDefinitionsMap,
     }
 
+    impl Domain {
+        /// Default `Domain` constructor.
+        pub fn new(name: &str) -> Self {
+            Domain {
+                name: name.to_string(),
+                accounts: AccountsMap::new(),
+                asset_definitions: AssetDefinitionsMap::new(),
+            }
+        }
+    }
+
     impl Identifiable for Domain {
         type Id = Name;
+    }
+
+    impl From<Domain> for IdentifiableBox {
+        fn from(domain: Domain) -> IdentifiableBox {
+            IdentifiableBox::Domain(Box::new(domain))
+        }
+    }
+
+    impl From<Name> for IdBox {
+        fn from(name: Name) -> IdBox {
+            IdBox::DomainName(name)
+        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -277,22 +543,17 @@ pub mod domain {
 pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
 
-    use crate::{domain::DomainsMap, isi::Instruction, Identifiable, PublicKey};
-    use std::collections::BTreeSet;
+    use crate::{
+        domain::DomainsMap, isi::InstructionBox, IdBox, Identifiable, IdentifiableBox, PublicKey,
+    };
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
-    type PeersIds = BTreeSet<Id>;
-
-    /// Peer's identification.
-    #[derive(Debug)]
-    pub struct Id {
-        /// Address of the Peer's entrypoint.
-        pub address: String,
-        /// Public Key of the Peer.
-        pub public_key: PublicKey,
-    }
+    type PeersIds = Vec<Id>;
 
     /// Peer represents Iroha instance.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Peer {
         /// Peer Identification.
         pub id: Id,
@@ -303,7 +564,44 @@ pub mod peer {
         /// Identifications of discovered trusted peers.
         pub trusted_peers_ids: PeersIds,
         /// Iroha `Triggers` registered on the peer.
-        pub triggers: Vec<Box<dyn Instruction>>,
+        pub triggers: Vec<InstructionBox>,
+    }
+
+    /// Peer's identification.
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
+    pub struct Id {
+        /// Address of the Peer's entrypoint.
+        pub address: String,
+        /// Public Key of the Peer.
+        pub public_key: PublicKey,
+    }
+
+    impl Peer {
+        /// Default `Peer` constructor.
+        pub fn new(id: Id) -> Self {
+            let address = id.address.clone();
+            Peer {
+                id,
+                address,
+                domains: DomainsMap::new(),
+                trusted_peers_ids: PeersIds::new(),
+                triggers: Vec::new(),
+            }
+        }
+
+        /// Constructor with additional parameters.
+        pub fn with(id: Id, domains: DomainsMap, trusted_peers_ids: PeersIds) -> Self {
+            let address = id.address.clone();
+            Peer {
+                id,
+                address,
+                domains,
+                trusted_peers_ids,
+                triggers: Vec::new(),
+            }
+        }
     }
 
     impl Identifiable for Peer {
@@ -320,181 +618,122 @@ pub mod peer {
         }
     }
 
+    impl From<Peer> for IdentifiableBox {
+        fn from(peer: Peer) -> IdentifiableBox {
+            IdentifiableBox::Peer(Box::new(peer))
+        }
+    }
+
+    impl From<Id> for IdBox {
+        fn from(id: Id) -> IdBox {
+            IdBox::PeerId(id)
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{Id as PeerId, Peer};
     }
 }
 
-pub mod permission {
-    //! This module contains `Permission` structures and related implementations
+pub mod transaction {
+    //! This module contains `Transaction` structures and related implementations
     //! and traits implementations.
 
-    use crate::{account::prelude::*, asset::prelude::*, domain::prelude::*, Identifiable};
+    use crate::{account::Account, isi::InstructionBox, Identifiable};
+    use iroha_crypto::prelude::*;
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use std::time::SystemTime;
 
-    /// `Permission` grants it's owner an ability to execute Iroha Special Instructions on Iroha
-    /// Peers. Some permissions like `Anything` grants an ability to execute any instruction inside
-    /// any domain, some permissions grants an ability to execute only one type of instructions and
-    /// may be limited in scope (only inside one domain or account or only work with assets of
-    /// certain defintion.
-    #[derive(Debug)]
-    pub enum PermissionBox {
-        /// Variant for `Anything` permission.
-        Anything(Box<Anything>),
-        /// Variant for `AddDomain` permission.
-        AddDomain(Box<AddDomain>),
-        /// Variant for `RemoveDomain` permission.
-        RemoveDomain(Box<RemoveDomain>),
-        /// Variant for `AddTrigger` permission.
-        AddTrigger(Box<AddTrigger>),
-        /// Variant for `RemoveTrigger` permission.
-        RemoveTrigger(Box<RemoveTrigger>),
-        /// Variant for `RegisterAssetDefinition` permission.
-        RegisterAssetDefinition(Box<RegisterAssetDefinition>),
-        /// Variant for `UnregisterAssetDefinition` permission.
-        UnregisterAssetDefinition(Box<UnregisterAssetDefinition>),
-        /// Variant for `RegisterAccount` permission.
-        RegisterAccount(Box<RegisterAccount>),
-        /// Variant for `UnregisterAccount` permission.
-        UnregisterAccount(Box<UnregisterAccount>),
-        /// Variant for `MintAsset` permission.
-        MintAsset(Box<MintAsset>),
-        /// Variant for `DemintAsset` permission.
-        DemintAsset(Box<DemintAsset>),
-        /// Variant for `TransferAsset` permission.
-        TransferAsset(Box<TransferAsset>),
-        /// Variant for `AddSignatory` permission.
-        AddSignatory(Box<AddSignatory>),
-        /// Variant for `RemoveSignatory` permission.
-        RemoveSignatory(Box<RemoveSignatory>),
+    /// This structure represents transaction in non-trusted form.
+    ///
+    /// `Iroha` and its' clients use `Transaction` to send transactions via network.
+    /// Direct usage in business logic is strongly prohibited. Before any interactions
+    /// `accept`.
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub struct Transaction {
+        /// `Transaction` payload.
+        pub payload: Payload,
+        /// `Transaction`'s `Signature`s.
+        pub signatures: Vec<Signature>,
     }
 
-    /// Permission owner can execute any Iroha Special Instruction.
-    /// If `Domain`'s name is defined, permission is limited to execute instructions for
-    /// entites inside this domain.
-    #[derive(Debug)]
-    pub struct Anything {
-        domain_name: Option<<Domain as Identifiable>::Id>,
+    /// Iroha `Transaction` payload.
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub struct Payload {
+        /// Account ID of transaction creator.
+        pub account_id: <Account as Identifiable>::Id,
+        /// An ordered set of instructions.
+        pub instructions: Vec<InstructionBox>,
+        /// Time of creation (unix time, in milliseconds).
+        pub creation_time: u64,
+        /// The transaction will be dropped after this time if it is still in a `Queue`.
+        pub time_to_live_ms: u64,
     }
 
-    /// Permission owner can add `Domain` to Iroha `Peer`.
-    #[derive(Copy, Clone, Debug)]
-    pub struct AddDomain {}
+    impl Transaction {
+        /// Default `Transaction` constructor.
+        pub fn new(
+            instructions: Vec<InstructionBox>,
+            account_id: <Account as Identifiable>::Id,
+            proposed_ttl_ms: u64,
+        ) -> Transaction {
+            Transaction {
+                payload: Payload {
+                    instructions,
+                    account_id,
+                    creation_time: SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .expect("Failed to get System Time.")
+                        .as_millis() as u64,
+                    time_to_live_ms: proposed_ttl_ms,
+                },
+                signatures: Vec::new(),
+            }
+        }
 
-    /// Permission owner can remove `Domain` from Iroha `Peer`.
-    #[derive(Copy, Clone, Debug)]
-    pub struct RemoveDomain {}
+        /// Calculate transaction `Hash`.
+        pub fn hash(&self) -> Hash {
+            use ursa::blake2::{
+                digest::{Input, VariableOutput},
+                VarBlake2b,
+            };
+            let bytes: Vec<u8> = self.payload.clone().into();
+            let vec_hash = VarBlake2b::new(32)
+                .expect("Failed to initialize variable size hash")
+                .chain(bytes)
+                .vec_result();
+            let mut hash = [0; 32];
+            hash.copy_from_slice(&vec_hash);
+            hash
+        }
 
-    /// Permission owner can add `Trigger` to Iroha `Peer`.
-    #[derive(Copy, Clone, Debug)]
-    pub struct AddTrigger {}
-
-    /// Permission owner can remove `Trigger` from Iroha `Peer`.
-    #[derive(Copy, Clone, Debug)]
-    pub struct RemoveTrigger {}
-
-    /// Permission owner can register `AssetDefinition` in `Domain`.
-    /// If `Domain`'s name is defined, permission is limited to register asset definitions
-    /// only inside this domain.
-    #[derive(Debug)]
-    pub struct RegisterAssetDefinition {
-        domain_name: Option<<Domain as Identifiable>::Id>,
+        /// Sign transaction with the provided key pair.
+        ///
+        /// Returns `Ok(Transaction)` if succeeded and `Err(String)` if failed.
+        pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction, String> {
+            let mut signatures = self.signatures.clone();
+            signatures.push(Signature::new(key_pair.clone(), &self.hash())?);
+            Ok(Transaction {
+                payload: self.payload,
+                signatures,
+            })
+        }
     }
 
-    /// Permission owner can unregister `AssetDefinition` from `Domain`.
-    /// If `Domain`'s name is defined, permission is limited to unregister asset definitions
-    /// only inside this domain.
-    #[derive(Debug)]
-    pub struct UnregisterAssetDefinition {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-    }
-
-    /// Permission owner can register `Account` in `Domain`.
-    /// If `Domain`'s name is defined, permission is limited to register account
-    /// only inside this domain.
-    #[derive(Debug)]
-    pub struct RegisterAccount {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-    }
-
-    /// Permission owner can unregister `Account` from `Domain`.
-    /// If `Domain`'s name is defined, permission is limited to unregister account
-    /// only inside this domain.
-    #[derive(Debug)]
-    pub struct UnregisterAccount {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-    }
-
-    /// Permission owner can mint `Asset` in Iroha `Peer`.
-    /// If `Domain`'s name is defined, permission is limited to mint asset
-    /// only inside this domain.
-    /// If `Account`'s id is defined, permission is limited to mint asset
-    /// only inside this account.
-    /// If `AssetDefinition`'s id is defined, permission is limited to mint asset
-    /// only with this defintion.
-    #[derive(Debug)]
-    pub struct MintAsset {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-        account_id: Option<<Account as Identifiable>::Id>,
-        asset_definition_id: Option<<AssetDefinition as Identifiable>::Id>,
-    }
-
-    /// Permission owner can demint `Asset` in Iroha `Peer`.
-    /// If `Domain`'s name is defined, permission is limited to demint asset
-    /// only inside this domain.
-    /// If `Account`'s id is defined, permission is limited to demint asset
-    /// only inside this account.
-    /// If `AssetDefinition`'s id is defined, permission is limited to demint asset
-    /// only with this defintion.
-    #[derive(Debug)]
-    pub struct DemintAsset {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-        account_id: Option<<Account as Identifiable>::Id>,
-        asset_definition_id: Option<<AssetDefinition as Identifiable>::Id>,
-    }
-
-    /// Permission owner can transfer `Asset` in Iroha `Peer`.
-    /// If `Domain`'s name is defined, permission is limited to transfer asset
-    /// only inside this domain.
-    /// If `Account`s ids are defined, permission is limited to transfer asset
-    /// only from or to these accounts.
-    /// If `AssetDefinition`'s id is defined, permission is limited to demint asset
-    /// only with this defintion.
-    #[derive(Debug)]
-    pub struct TransferAsset {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-        account_id: Option<(<Account as Identifiable>::Id, <Account as Identifiable>::Id)>,
-        asset_definition_id: Option<<AssetDefinition as Identifiable>::Id>,
-    }
-
-    /// Permission owner can add `Signatory` to Iroha `Peer`.
-    /// If `Domain`'s name is defined, permission is limited to add signatories
-    /// only inside this domain.
-    /// If `Account`'s id is defined, permission is limited to add signatories
-    /// only for this account.
-    #[derive(Debug)]
-    pub struct AddSignatory {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-        account_id: Option<<Account as Identifiable>::Id>,
-    }
-
-    /// Permission owner can remove `Signatory` from Iroha `Peer`.
-    /// If `Domain`'s name is defined, permission is limited to remove signatories
-    /// only inside this domain.
-    /// If `Account`'s id is defined, permission is limited to remove signatories
-    /// only for this account.
-    #[derive(Debug)]
-    pub struct RemoveSignatory {
-        domain_name: Option<<Domain as Identifiable>::Id>,
-        account_id: Option<<Account as Identifiable>::Id>,
+    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub mod prelude {
+        pub use super::{Payload, Transaction};
     }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*, Identifiable,
-        Name, Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
+        transaction::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Value,
+        ValueBox,
     };
     pub use crate::{isi::prelude::*, query::prelude::*};
 }

@@ -1,10 +1,11 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
     block_sync::config::BlockSyncConfiguration, init::config::InitConfiguration,
-    kura::config::KuraConfiguration, peer::PeerId, queue::config::QueueConfiguration,
+    kura::config::KuraConfiguration, queue::config::QueueConfiguration,
     sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
+use iroha_data_model::prelude::*;
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -95,7 +96,6 @@ impl Configuration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::peer::PeerId;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 

@@ -17,8 +17,9 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha = { version = "=0.1.0", path = "../iroha" }
 iroha_client = { version = "=0.1.0", path = "../iroha_client" }
+iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
+iroha_dsl = { path = "../iroha_dsl" }
 async-std = { version = "=1.6.2", features = ["attributes"] }
 clap = "2.33.0"
 futures = "0.3.4"

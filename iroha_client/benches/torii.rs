@@ -1,11 +1,12 @@
 use async_std::task;
 use criterion::*;
 use futures::executor;
-use iroha::{config::Configuration, isi, prelude::*};
+use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
     client::{asset, Client},
     config::Configuration as ClientConfiguration,
 };
+use iroha_data_model::prelude::*;
 use log::LevelFilter;
 use std::thread;
 use tempfile::TempDir;
@@ -20,33 +21,30 @@ fn query_requests(criterion: &mut Criterion) {
     let configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
-    let create_domain = isi::Add {
-        object: Domain::new(domain_name.to_string()),
-        destination_id: PeerId::new(
+    let create_domain = Register::<Peer, Domain>::new(
+        Domain::new(domain_name),
+        PeerId::new(
             &configuration.torii_configuration.torii_url,
             &configuration.public_key,
         ),
-    };
+    );
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
     let (public_key, _) = configuration.key_pair();
-    let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, public_key),
-        destination_id: String::from(domain_name),
-    };
+    let create_account = Register::<Domain, Account>::new(
+        Account::with_signatory(account_id.clone(), public_key),
+        domain_name.to_string(),
+    );
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = isi::Register {
-        object: AssetDefinition::new(asset_definition_id.clone()),
-        destination_id: domain_name.to_string(),
-    };
+    let create_asset = Register::<Domain, AssetDefinition>::new(
+        AssetDefinition::new(asset_definition_id.clone()),
+        domain_name.to_string(),
+    );
     let quantity: u32 = 200;
-    let mint_asset = isi::Mint {
-        object: quantity,
-        destination_id: AssetId {
-            definition_id: asset_definition_id,
-            account_id: account_id.clone(),
-        },
-    };
+    let mint_asset = Mint::<Asset, u32>::new(
+        quantity,
+        AssetId::new(asset_definition_id, account_id.clone()),
+    );
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
@@ -66,7 +64,7 @@ fn query_requests(criterion: &mut Criterion) {
         b.iter(
             || match executor::block_on(iroha_client.request(&request)) {
                 Ok(query_result) => {
-                    if let QueryResult::GetAccountAssets(result) = query_result {
+                    if let QueryResult::FindAssetsByAccountId(result) = query_result {
                         assert!(!result.assets.is_empty());
                         success_count += 1;
                     } else {
@@ -100,46 +98,36 @@ fn instruction_submits(criterion: &mut Criterion) {
     let configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
-    let create_domain = isi::Add {
-        object: Domain::new(domain_name.to_string()),
-        destination_id: PeerId::new(
+    let create_domain = Register::<Peer, Domain>::new(
+        Domain::new(domain_name),
+        PeerId::new(
             &configuration.torii_configuration.torii_url,
             &configuration.public_key,
         ),
-    };
+    );
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
     let (public_key, _) = configuration.key_pair();
-    let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, public_key),
-        destination_id: String::from(domain_name),
-    };
+    let create_account = Register::<Domain, Account>::new(
+        Account::with_signatory(account_id.clone(), public_key),
+        domain_name.to_string(),
+    );
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = isi::Register {
-        object: AssetDefinition::new(asset_definition_id.clone()),
-        destination_id: domain_name.to_string(),
-    };
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
     executor::block_on(iroha_client.submit_all(vec![create_domain.into(), create_account.into()]))
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
-    group.throughput(Throughput::Bytes(
-        Vec::from(&Instruction::from(create_asset)).len() as u64,
-    ));
     let mut success_count = 0;
     let mut failures_count = 0;
     group.bench_function("instructions", |b| {
         b.iter(|| {
             let quantity: u32 = 200;
-            let mint_asset = isi::Mint {
-                object: quantity,
-                destination_id: AssetId {
-                    definition_id: asset_definition_id.clone(),
-                    account_id: account_id.clone(),
-                },
-            };
+            let mint_asset = Mint::<Asset, u32>::new(
+                quantity,
+                AssetId::new(asset_definition_id.clone(), account_id.clone()),
+            );
             match executor::block_on(iroha_client.submit(mint_asset.into())) {
                 Ok(_) => success_count += 1,
                 Err(e) => {

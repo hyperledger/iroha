@@ -50,7 +50,7 @@ pub mod config {
     const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
     /// Configuration for `Queue`.
-    #[derive(Clone, Deserialize, Debug)]
+    #[derive(Copy, Clone, Deserialize, Debug)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct QueueConfiguration {
         /// The upper limit of the number of transactions per block.
@@ -94,6 +94,8 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tx::Accept;
+    use iroha_data_model::prelude::*;
 
     #[test]
     fn push_pending_transaction() {

@@ -3,7 +3,6 @@
 members = [
   "iroha",
   "iroha_client",
-  "iroha_client_no_std",
   "iroha_client_cli",
   "iroha_crypto",
   "iroha_crypto_cli",

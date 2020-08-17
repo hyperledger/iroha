@@ -6,8 +6,10 @@ use crate::prelude::*;
 use async_std::sync::{Receiver, Sender};
 use chrono::Utc;
 use cloudevents::{Event, EventBuilder};
-use iroha_derive::*;
+use iroha_data_model::prelude::*;
+use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
@@ -22,7 +24,7 @@ pub type EventsReceiver = Receiver<Occurrence>;
 /// Iroha - creation of new entities, updates on and deletion of existing entities.
 ///
 /// [Specification](https://github.com/cloudevents/spec/blob/v1.0/spec.md#occurrence).
-#[derive(Io, Encode, Decode, Debug, Clone)]
+#[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
 pub enum Occurrence {
     /// Entity was added, registered, minted or another action was made to make entity appear on
     /// the blockchain for the first time.
@@ -36,7 +38,7 @@ pub enum Occurrence {
 }
 
 /// Enumeration of all possible Iroha entities.
-#[derive(Io, Encode, Decode, Debug, Clone)]
+#[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
 pub enum Entity {
     /// Account.
     Account(Account),
@@ -92,14 +94,14 @@ pub mod connection {
     const TIMEOUT: Duration = Duration::from_millis(1000);
 
     /// Criteria to filter `Occurrences` based on.
-    #[derive(Clone, Debug, Io, Encode, Decode)]
+    #[derive(Copy, Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct Criteria {
         occurrence_type: OccurrenceType,
         entity_type: EntityType,
     }
 
     /// Which type of `Occurrences` should be added to filter.
-    #[derive(Clone, Debug, Io, Encode, Decode, Eq, PartialEq)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Io, Serialize, Deserialize, Encode, Decode)]
     pub enum OccurrenceType {
         /// Filter `Occurrence::Created` events.
         Created,
@@ -144,7 +146,7 @@ pub mod connection {
     }
 
     /// Which type of `Entities` should be added to filter.
-    #[derive(Clone, Debug, Io, Encode, Decode, Eq, PartialEq)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Io, Serialize, Deserialize, Encode, Decode)]
     pub enum EntityType {
         /// Filter `Entity::Account` events.
         Account,
@@ -230,7 +232,7 @@ pub mod connection {
 
     /// Initial Message for Connect functionality.
     /// Provides Authority and Criteria to Filter Events.
-    #[derive(Clone, Debug, Io, Encode, Decode)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct ConnectRequest {
         criteria: Criteria,
         signature: Signature,
@@ -243,13 +245,14 @@ pub mod connection {
                 .verify(&Vec::from(&self.criteria))
                 .expect("Failed to verify Connect Request");
             ValidConnectRequest {
-                criteria: self.criteria.clone(),
+                criteria: self.criteria,
                 _authority: self.signature.public_key.clone(),
             }
         }
     }
 
     /// Validated `ConnectRequest`.
+    #[derive(Debug)]
     pub struct ValidConnectRequest {
         criteria: Criteria,
         _authority: PublicKey,
@@ -264,7 +267,7 @@ pub mod connection {
     }
 
     /// Filter to apply to Events stream before sending to Consumers.
-    #[derive(Debug)]
+    #[derive(Copy, Clone, Debug)]
     pub struct Filter {
         criteria: Criteria,
     }
@@ -314,7 +317,9 @@ pub mod connection {
         }
     }
 
+    #[allow(unsafe_code)]
     unsafe impl Send for Consumer {}
+    #[allow(unsafe_code)]
     unsafe impl Sync for Consumer {}
 
     impl Debug for Consumer {
@@ -356,412 +361,6 @@ pub mod connection {
                 .flatten()
                 .collect();
             assert_eq!(occurrences, filtered_occurrences);
-        }
-    }
-}
-
-/// Iroha Special Instructions module provides `EventInstruction` enum with all possible types of
-/// events related instructions as variants, implementations of generic Iroha Special Instructions
-/// and the `From/Into` implementations to convert `EventInstruction` variants into generic ISI.
-pub mod isi {
-    use crate::{isi, prelude::*};
-    use iroha_derive::*;
-    use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
-
-    type Trigger = IrohaQuery;
-
-    /// Instructions related to different type of Iroha events.
-    /// Some of them are time based triggers, another watch the Blockchain and others
-    /// check the World State View.
-    #[derive(Clone, Debug, Io, Encode, Decode)]
-    pub enum EventInstruction {
-        /// This variant of Iroha Special Instruction will execute instruction when new Block
-        /// will be created.
-        OnBlockCreated(Box<Instruction>),
-        /// This variant of Iroha Special Instruction will execute instruction when Blockchain
-        /// will reach predefined height.
-        OnBlockchainHeight(u64, Box<Instruction>),
-        /// This variant of Iroha Special Instruction will execute instruction when World State
-        /// View change will be detected by `Trigger`.
-        OnWorldStateViewChange(Trigger, Box<Instruction>),
-        /// This variant of Iroha Special Instruction will execute instruction regulary.
-        OnTimestamp(u128, Box<Instruction>),
-    }
-
-    /// Enumeration of all possible Outputs for `EventInstruction` execution.
-    #[derive(Debug)]
-    pub enum Output {
-        /// Variant of output for `EventInstruction::OnBlockCreated`.
-        OnBlockCreated(Box<isi::InstructionResult>),
-        /// Variant of output for `EventInstruction::OnBlockchainHeight`.
-        OnBlockchainHeight(Box<isi::InstructionResult>),
-        /// Variant of output for `EventInstruction::OnWorldStateViewChange`.
-        OnWorldStateViewChange(Box<isi::InstructionResult>),
-        /// Variant of output for `EventInstruction::OnTimestamp`.
-        OnTimestamp(Box<isi::InstructionResult>),
-        /// Variant of output for skipped instruction.
-        None,
-    }
-
-    impl EventInstruction {
-        /// Execute `EventInstruction` origin based on the changes in `world_state_view`.
-        pub fn execute(
-            &self,
-            authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<Output, String> {
-            use EventInstruction::*;
-            match self {
-                OnBlockCreated(instruction) => Ok(Output::OnBlockCreated(Box::new(
-                    instruction.execute(authority, world_state_view)?,
-                ))),
-                OnBlockchainHeight(height, instruction) => {
-                    if &world_state_view
-                        .blocks
-                        .last()
-                        .ok_or("Failed to find the last block on the chain.")?
-                        .header
-                        .height
-                        == height
-                    {
-                        Ok(Output::OnBlockchainHeight(Box::new(
-                            instruction.execute(authority, world_state_view)?,
-                        )))
-                    } else {
-                        Ok(Output::None)
-                    }
-                }
-                OnWorldStateViewChange(trigger, instruction) => {
-                    if Instruction::ExecuteQuery(trigger.clone())
-                        .execute(authority.clone(), world_state_view)
-                        .is_ok()
-                    {
-                        Ok(Output::OnWorldStateViewChange(Box::new(
-                            instruction.execute(authority, world_state_view)?,
-                        )))
-                    } else {
-                        Ok(Output::None)
-                    }
-                }
-                OnTimestamp(duration, instruction) => {
-                    let now = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .expect("Failed to get System Time.")
-                        .as_millis();
-                    if now
-                        - world_state_view
-                            .blocks
-                            .last()
-                            .ok_or("Failed to find the last block on the chain.")?
-                            .header
-                            .timestamp
-                        >= *duration
-                    {
-                        Ok(Output::OnTimestamp(Box::new(
-                            instruction.execute(authority, world_state_view)?,
-                        )))
-                    } else {
-                        Ok(Output::None)
-                    }
-                }
-            }
-        }
-    }
-
-    impl Output {
-        /// Get instance of `WorldStateView` with changes applied during `Instruction` execution.
-        pub fn world_state_view(&self) -> Option<WorldStateView> {
-            match self {
-                Output::OnBlockCreated(result)
-                | Output::OnBlockchainHeight(result)
-                | Output::OnWorldStateViewChange(result)
-                | Output::OnTimestamp(result) => Some(result.world_state_view.clone()),
-                Output::None => None,
-            }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::{
-            account::query::GetAccount,
-            block::BlockHeader,
-            peer::{Peer, PeerId},
-            permission::{self, Permission},
-        };
-        use iroha_crypto::{KeyPair, Signatures};
-        use std::collections::BTreeMap;
-
-        #[test]
-        fn test_on_block_created_should_trigger() {
-            let block = CommittedBlock {
-                header: BlockHeader {
-                    timestamp: 0,
-                    height: 0,
-                    previous_block_hash: [0; 32],
-                    merkle_root_hash: [0; 32],
-                    number_of_view_changes: 0,
-                    invalidated_blocks_hashes: Vec::new(),
-                },
-                transactions: Vec::new(),
-                signatures: Signatures::default(),
-            };
-            let domain_name = "global".to_string();
-            let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = permission::permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let public_key = KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key;
-            let account_id = AccountId::new("root", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id, asset);
-            let mut accounts = BTreeMap::new();
-            accounts.insert(account_id, account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = BTreeMap::new();
-            domains.insert(domain_name, domain);
-            let address = "127.0.0.1:8080".to_string();
-            let peer = Peer::with_domains(
-                PeerId {
-                    address,
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            );
-            let add_domain_instruction = peer.add_domain(Domain::new("Test".to_string())).into();
-            let authority = peer.authority();
-            let mut world_state_view = WorldStateView::new(peer);
-            world_state_view.put(&block);
-            let on_block_created_listener =
-                EventInstruction::OnBlockCreated(Box::new(add_domain_instruction));
-            world_state_view = on_block_created_listener
-                .execute(authority, &mut world_state_view)
-                .expect("Failed to execute instruction.")
-                .world_state_view()
-                .expect("Failed to receive World State View");
-            assert!(world_state_view.domain("Test").is_some());
-        }
-
-        #[test]
-        fn test_on_blockchain_height_should_trigger() {
-            let block = CommittedBlock {
-                header: BlockHeader {
-                    timestamp: 0,
-                    height: 0,
-                    previous_block_hash: [0; 32],
-                    merkle_root_hash: [0; 32],
-                    number_of_view_changes: 0,
-                    invalidated_blocks_hashes: Vec::new(),
-                },
-                transactions: Vec::new(),
-                signatures: Signatures::default(),
-            };
-            let domain_name = "global".to_string();
-            let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = permission::permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let public_key = KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key;
-            let account_id = AccountId::new("root", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id, asset);
-            let mut accounts = BTreeMap::new();
-            accounts.insert(account_id, account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = BTreeMap::new();
-            domains.insert(domain_name, domain);
-            let address = "127.0.0.1:8080".to_string();
-            let peer = Peer::with_domains(
-                PeerId {
-                    address,
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            );
-            let add_domain_instruction = peer.add_domain(Domain::new("Test".to_string())).into();
-            let authority = peer.authority();
-            let mut world_state_view = WorldStateView::new(peer);
-            world_state_view.put(&block);
-            let on_block_created_listener =
-                EventInstruction::OnBlockchainHeight(0, Box::new(add_domain_instruction));
-            world_state_view = on_block_created_listener
-                .execute(authority, &world_state_view)
-                .expect("Failed to execute instruction.")
-                .world_state_view()
-                .expect("Failed to get World State View.");
-            assert!(world_state_view.domain("Test").is_some());
-        }
-
-        #[test]
-        fn test_on_world_state_view_change_should_trigger() {
-            let block = CommittedBlock {
-                header: BlockHeader {
-                    timestamp: 0,
-                    height: 0,
-                    previous_block_hash: [0; 32],
-                    merkle_root_hash: [0; 32],
-                    number_of_view_changes: 0,
-                    invalidated_blocks_hashes: Vec::new(),
-                },
-                transactions: Vec::new(),
-                signatures: Signatures::default(),
-            };
-            let domain_name = "global".to_string();
-            let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = permission::permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let public_key = KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key;
-            let account_id = AccountId::new("root", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::new(&account_id.name, &account_id.domain_name);
-            account.assets.insert(asset_id, asset);
-            let mut accounts = BTreeMap::new();
-            accounts.insert(account_id.clone(), account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = BTreeMap::new();
-            domains.insert(domain_name, domain);
-            let address = "127.0.0.1:8080".to_string();
-            let peer = Peer::with_domains(
-                PeerId {
-                    address,
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            );
-            let add_domain_instruction = peer.add_domain(Domain::new("Test".to_string())).into();
-            let authority = peer.authority();
-            let mut world_state_view = WorldStateView::new(peer);
-            world_state_view.put(&block);
-            let on_block_created_listener = EventInstruction::OnWorldStateViewChange(
-                IrohaQuery::GetAccount(GetAccount { account_id }),
-                Box::new(add_domain_instruction),
-            );
-            world_state_view = on_block_created_listener
-                .execute(authority, &mut world_state_view)
-                .expect("Failed to execute instruction.")
-                .world_state_view()
-                .expect("Failed to get World State View.");
-            assert!(world_state_view.domain("Test").is_some());
-        }
-
-        #[test]
-        fn test_on_timestamp_should_trigger() {
-            let block = CommittedBlock {
-                header: BlockHeader {
-                    timestamp: 0,
-                    height: 0,
-                    previous_block_hash: [0; 32],
-                    merkle_root_hash: [0; 32],
-                    number_of_view_changes: 0,
-                    invalidated_blocks_hashes: Vec::new(),
-                },
-                transactions: Vec::new(),
-                signatures: Signatures::default(),
-            };
-            let domain_name = "global".to_string();
-            let mut asset_definitions = BTreeMap::new();
-            let asset_definition_id = permission::permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let public_key = KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key;
-            let account_id = AccountId::new("root", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id, asset);
-            let mut accounts = BTreeMap::new();
-            accounts.insert(account_id, account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = BTreeMap::new();
-            domains.insert(domain_name, domain);
-            let address = "127.0.0.1:8080".to_string();
-            let peer = Peer::with_domains(
-                PeerId {
-                    address,
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            );
-            let add_domain_instruction = peer.add_domain(Domain::new("Test".to_string())).into();
-            let authority = peer.authority();
-            let mut world_state_view = WorldStateView::new(peer);
-            world_state_view.put(&block);
-            let on_block_created_listener =
-                EventInstruction::OnTimestamp(1, Box::new(add_domain_instruction));
-            world_state_view = on_block_created_listener
-                .execute(authority, &world_state_view)
-                .expect("Failed to execute instruction.")
-                .world_state_view()
-                .expect("Failed to get World State View.");
-            assert!(world_state_view.domain("Test").is_some());
         }
     }
 }
