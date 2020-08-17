@@ -94,6 +94,7 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iroha_data_model::prelude::*;
 
     #[test]
     fn push_pending_transaction() {

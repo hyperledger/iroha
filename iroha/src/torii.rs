@@ -348,8 +348,9 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::Configuration, peer::PeerId};
+    use crate::config::Configuration;
     use async_std::{sync, task};
+    use iroha_data_model::prelude::*;
     use std::time::Duration;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -366,10 +367,10 @@ mod tests {
         let (events_sender, events_receiver) = sync::channel(100);
         let mut torii = Torii::new(
             (&torii_url, &torii_connect_url),
-            Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
-                &Vec::new(),
-            )))),
+            Arc::new(RwLock::new(WorldStateView::new(Peer::new(PeerId::new(
+                &config.torii_configuration.torii_url,
+                &config.public_key,
+            ))))),
             tx_tx,
             sumeragi_message_sender,
             block_sync_message_sender,

@@ -1,7 +1,7 @@
 //! This module contains functionality related to `Bridge`.
 
-use crate::asset::Bytes;
 use crate::prelude::*;
+use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
@@ -10,14 +10,14 @@ const BRIDGE_ASSET_BRIDGE_DEFINITION_PARAMETER_KEY: &str = "bridge_definition";
 
 /// Enumeration of all supported bridge kinds (types). Each variant represents some communication
 /// protocol between blockchains which can be used within Iroha.
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Copy, Hash, Io)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Io, Encode, Decode)]
 pub enum BridgeKind {
     /// XClaim-like protocol.
     IClaim,
 }
 
 /// Identification of a Bridge definition. Consists of Bridge's name.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct BridgeDefinitionId {
     /// Bridge's name.
     pub name: String,
@@ -33,7 +33,7 @@ impl BridgeDefinitionId {
 }
 
 /// A data required for `Bridge` entity initialization.
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io)]
+#[derive(PartialEq, Eq, Debug, Clone, Hash, Encode, Decode)]
 pub struct BridgeDefinition {
     /// An Identification of the `BridgeDefinition`.
     pub id: <BridgeDefinition as Identifiable>::Id,
@@ -48,7 +48,7 @@ impl Identifiable for BridgeDefinition {
 }
 
 /// Identification of a Bridge. Consists of Bridge's definition Identification.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct BridgeId {
     /// Entity Identification.
     definition_id: <BridgeDefinition as Identifiable>::Id,
@@ -166,23 +166,20 @@ pub mod asset {
 /// Iroha Special Instructions module provides helper-methods for `Peer` for registering bridges,
 /// bridge clients and external assets.
 pub mod isi {
-    use super::*;
+    use super::{asset::*, *};
     use crate::account::query::*;
-    use crate::bridge::asset::*;
 
     /// Constructor of Iroha Special Instruction for bridge registration.
     pub fn register_bridge(
         peer_id: <Peer as Identifiable>::Id,
         bridge_definition: &BridgeDefinition,
-    ) -> Instruction {
-        let domain = Domain::new(bridge_definition.id.name.clone());
-        let account = Account::new(BRIDGE_ACCOUNT_NAME, &domain.name);
-        Instruction::If(
-            Box::new(Instruction::ExecuteQuery(IrohaQuery::GetAccount(
-                GetAccount {
-                    account_id: bridge_definition.owner_account_id.clone(),
-                },
-            ))),
+    ) -> If {
+        let domain = Domain::new(&bridge_definition.id.name);
+        let account = Account::new(AccountId::new(BRIDGE_ACCOUNT_NAME, &domain.name));
+        If::with_otherwise(
+            FindAccountById(GetAccount {
+                account_id: bridge_definition.owner_account_id.clone(),
+            }),
             Box::new(Instruction::Sequence(vec![
                 Add {
                     object: domain.clone(),
@@ -225,7 +222,7 @@ pub mod isi {
     }
 
     /// Constructor of Iroha Special Instruction for external asset registration.
-    pub fn register_external_asset(external_asset: &ExternalAsset) -> Instruction {
+    pub fn register_external_asset(external_asset: &ExternalAsset) -> Sequence {
         let domain_id = &external_asset.bridge_id.definition_id.name;
         let account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, domain_id);
         let asset_definition = AssetDefinition::new(AssetDefinitionId::new(
@@ -253,28 +250,26 @@ pub mod isi {
     pub fn add_client(
         bridge_definition_id: &<BridgeDefinition as Identifiable>::Id,
         client_public_key: PublicKey,
-    ) -> Instruction {
+    ) -> Add<Account, PublicKey> {
         let domain_id = &bridge_definition_id.name;
         let account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, domain_id);
         Add {
             object: client_public_key,
             destination_id: account_id,
         }
-        .into()
     }
 
     /// Constructor of Iroha Special Instruction for removing bridge client.
     pub fn remove_client(
         bridge_definition_id: &<BridgeDefinition as Identifiable>::Id,
         client_public_key: PublicKey,
-    ) -> Instruction {
+    ) -> Remove<Account, PublicKey> {
         let domain_id = &bridge_definition_id.name;
         let account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, domain_id);
         Remove {
             object: client_public_key,
             destination_id: account_id,
         }
-        .into()
     }
 
     /// Constructor of Iroha Special Instruction for registering incoming transfer and minting
@@ -286,7 +281,7 @@ pub mod isi {
         big_quantity: u128,
         recipient: <Account as Identifiable>::Id,
         transaction: &ExternalTransaction,
-    ) -> Instruction {
+    ) -> Sequence {
         let domain_id = &bridge_definition_id.name;
         let account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, domain_id);
         let asset_id = AssetId {
@@ -294,16 +289,15 @@ pub mod isi {
             account_id: recipient,
         };
         Instruction::Sequence(vec![
-            Mint::new(quantity, asset_id.clone()).into(),
-            Mint::new(big_quantity, asset_id).into(),
+            Mint::new(quantity, asset_id.clone()),
+            Mint::new(big_quantity, asset_id),
             Mint::new(
                 (transaction.hash.clone(), transaction.encode()),
                 AssetId {
                     definition_id: bridge_incoming_external_transactions_asset_definition_id(),
                     account_id,
                 },
-            )
-            .into(),
+            ),
         ])
     }
 
@@ -315,7 +309,7 @@ pub mod isi {
         quantity: u32,
         big_quantity: u128,
         transaction: &ExternalTransaction,
-    ) -> Instruction {
+    ) -> Sequence {
         let domain_id = &bridge_definition_id.name;
         let account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, domain_id);
         let asset_id = AssetId {
@@ -323,16 +317,15 @@ pub mod isi {
             account_id: account_id.clone(),
         };
         Instruction::Sequence(vec![
-            Demint::new(quantity, asset_id.clone()).into(),
-            Demint::new(big_quantity, asset_id).into(),
+            Demint::new(quantity, asset_id.clone()),
+            Demint::new(big_quantity, asset_id),
             Mint::new(
                 (transaction.hash.clone(), transaction.encode()),
                 AssetId {
                     definition_id: bridge_outgoing_external_transactions_asset_definition_id(),
                     account_id,
                 },
-            )
-            .into(),
+            ),
         ])
     }
 
@@ -340,8 +333,7 @@ pub mod isi {
     mod tests {
         use super::*;
         use crate::bridge::query::*;
-        use crate::peer::PeerId;
-        use crate::permission::{permission_asset_definition_id, Permission};
+        use crate::permission::permission_asset_definition_id;
         use std::collections::BTreeMap;
 
         const BRIDGE_NAME: &str = "Polkadot";

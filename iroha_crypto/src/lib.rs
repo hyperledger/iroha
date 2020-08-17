@@ -279,7 +279,7 @@ pub fn hash(bytes: Vec<u8>) -> Hash {
 }
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
-#[derive(Clone, Encode, Decode)]
+#[derive(Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct Signature {
     /// Ed25519 (Edwards-curve Digital Signature Algorithm scheme using SHA-512 and Curve25519)
     /// public-key of an approved authority.

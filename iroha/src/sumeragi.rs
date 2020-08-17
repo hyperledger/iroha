@@ -95,7 +95,13 @@ impl Sumeragi {
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
     pub async fn update_network_topology(&mut self) {
-        let wsv_peers = self.world_state_view.read().await.peer.peers.clone();
+        let wsv_peers = self
+            .world_state_view
+            .read()
+            .await
+            .peer
+            .trusted_peers_ids
+            .clone();
         self.network_topology
             .update(wsv_peers, self.latest_block_hash);
     }

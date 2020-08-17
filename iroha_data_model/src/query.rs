@@ -18,30 +18,80 @@
     variant_size_differences
 )]
 
+use self::{account::*, asset::*, domain::*, peer::*};
+use iroha_derive::Io;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
+
+/// Sized container for all possible Queries.
+#[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode)]
+pub enum QueryBox {
+    /// `FindAllAccounts` variant.
+    FindAllAccounts(Box<FindAllAccounts>),
+    /// `FindAccountById` variant.
+    FindAccountById(Box<FindAccountById>),
+    /// `FindAccountsByName` variant.
+    FindAccountsByName(Box<FindAccountsByName>),
+    /// `FindAccountsByDomainName` variant.
+    FindAccountsByDomainName(Box<FindAccountsByDomainName>),
+    /// `FindAllAssets` variant.
+    FindAllAssets(Box<FindAllAssets>),
+    /// `FindAllAssetsDefinitions` variant.
+    FindAllAssetsDefinitions(Box<FindAllAssetsDefinitions>),
+    /// `FindAssetById` variant.
+    FindAssetById(Box<FindAssetById>),
+    /// `FindAssetByName` variant.
+    FindAssetByName(Box<FindAssetByName>),
+    /// `FindAssetsByAccountId` variant.
+    FindAssetsByAccountId(Box<FindAssetsByAccountId>),
+    /// `FindAssetsByAssetDefinitionId` variant.
+    FindAssetsByAssetDefinitionId(Box<FindAssetsByAssetDefinitionId>),
+    /// `FindAssetsByDomainName` variant.
+    FindAssetsByDomainName(Box<FindAssetsByDomainName>),
+    /// `FindAssetsByAccountIdAndAssetDefinitionId` variant.
+    FindAssetsByAccountIdAndAssetDefinitionId(Box<FindAssetsByAccountIdAndAssetDefinitionId>),
+    /// `FindAssetsByDomainNameAndAssetDefinitionId` variant.
+    FindAssetsByDomainNameAndAssetDefinitionId(Box<FindAssetsByDomainNameAndAssetDefinitionId>),
+    /// `FindAssetQuantityById` variant.
+    FindAssetQuantityById(Box<FindAssetQuantityById>),
+    /// `FindAllDomains` variant.
+    FindAllDomains(Box<FindAllDomains>),
+    /// `FindDomainByName` variant.
+    FindDomainByName(Box<FindDomainByName>),
+    /// `FindAllPeers` variant.
+    FindAllPeers(Box<FindAllPeers>),
+    /// `FindPeerById` variant.
+    FindPeerById(Box<FindPeerById>),
+}
+
 pub mod account {
     //! Queries related to `Account`.
     use crate::prelude::*;
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     /// `FindAllAccounts` Iroha Query will find all `Account`s presented in Iroha `Peer`.
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAccounts {}
 
     /// `FindAccountById` Iroha Query will find an `Account` by it's identification in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAccountById {
-        id: AccountId,
+        /// `Id` of an account to find.
+        pub id: AccountId,
     }
 
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
     /// find all `Account`s with this name in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAccountsByName {
         name: Name,
     }
 
     /// `FindAccountsByDomainName` Iroha Query will get `Domain`s name as input and
     /// find all `Account`s under this `Domain` in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAccountsByDomainName {
         domain_name: Name,
     }
@@ -56,46 +106,50 @@ pub mod asset {
     //! Queries related to `Asset`.
 
     use crate::prelude::*;
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     /// `FindAllAssets` Iroha Query will find all `Asset`s presented in Iroha Peer.
-    #[derive(Copy, Clone, Debug, Default)]
+    #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAssets {}
 
     /// `FindAllAssetsDefinitions` Iroha Query will find all `AssetDefinition`s presented
     /// in Iroha Peer.
-    #[derive(Copy, Clone, Debug, Default)]
+    #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAssetsDefinitions {}
 
     /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetById {
         id: AssetId,
     }
 
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
     /// find all `Asset`s with it in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetByName {
         name: Name,
     }
 
     /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
     /// owned by the `Account` in Iroha Peer.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByAccountId {
-        account_id: AccountId,
+        /// `AccountId` under which assets should be find.
+        pub account_id: AccountId,
     }
 
     /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
     /// find all `Asset`s with this `AssetDefinition` in Iroha Peer.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByAssetDefinitionId {
         asset_definition_id: AssetDefinitionId,
     }
 
     /// `FindAssetsByDomainName` Iroha Query will get `Domain`s name as input and
     /// find all `Asset`s under this `Domain` in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByDomainName {
         domain_name: Name,
     }
@@ -103,16 +157,18 @@ pub mod asset {
     /// `FindAssetsByAccountIdAndAssetDefinitionId` Iroha Query will get `AccountId` and
     /// `AssetDefinitionId` as inputs and find all `Asset`s owned by the `Account`
     /// with this `AssetDefinition` in Iroha Peer.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByAccountIdAndAssetDefinitionId {
-        account_id: AccountId,
-        asset_definition_id: AssetDefinitionId,
+        /// `AccountId` under which assets should be find.
+        pub account_id: AccountId,
+        /// `AssetDefinitionId` which assets should be find.
+        pub asset_definition_id: AssetDefinitionId,
     }
 
     /// `FindAssetsByDomainNameAndAssetDefinitionId` Iroha Query will get `Domain`'s name and
     /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByDomainNameAndAssetDefinitionId {
         domain_name: Name,
         asset_definition_id: AssetDefinitionId,
@@ -120,7 +176,7 @@ pub mod asset {
 
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
     /// parameter's value if `Asset` is presented in Iroha Peer.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetQuantityById {
         id: AssetId,
     }
@@ -195,15 +251,19 @@ pub mod domain {
     //! Queries related to `Domain`.
 
     use crate::prelude::*;
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     /// `FindAllDomains` Iroha Query will find all `Domain`s presented in Iroha `Peer`.
-    #[derive(Copy, Clone, Debug, Default)]
+    #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllDomains {}
 
     /// `FindDomainByName` Iroha Query will find a `Domain` by it's identification in Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindDomainByName {
-        name: Name,
+        /// Name of the domain to find.
+        pub name: Name,
     }
 
     impl FindAllDomains {
@@ -238,14 +298,17 @@ pub mod peer {
     //! Queries related to `Domain`.
 
     use crate::prelude::*;
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     /// `FindAllPeers` Iroha Query will find all trusted `Peer`s presented in current Iroha `Peer`.
-    #[derive(Copy, Clone, Debug, Default)]
+    #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllPeers {}
 
     /// `FindPeerById` Iroha Query will find a trusted `Peer` by it's identification in
     /// current Iroha `Peer`.
-    #[derive(Debug)]
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindPeerById {
         id: PeerId,
     }
@@ -280,6 +343,8 @@ pub mod peer {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*};
+    pub use super::{
+        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*, QueryBox,
+    };
     pub use crate::prelude::*;
 }

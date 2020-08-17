@@ -2,6 +2,7 @@
 //! state.
 
 use crate::prelude::*;
+use iroha_data_model::prelude::*;
 
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
@@ -38,12 +39,6 @@ impl WorldStateView {
             }
         }
         self.blocks.push(block.clone());
-        for trigger in self.peer.triggers.clone() {
-            match trigger.execute(self.peer.authority(), self) {
-                Ok(result) => *self = result.world_state_view,
-                Err(e) => log::warn!("Failed to execute trigger on WSV: {}", e),
-            }
-        }
     }
 
     /// Get `Peer` without an ability to modify it.
@@ -154,7 +149,6 @@ mod tests {
     use super::*;
     use crate::{
         block::BlockHeader,
-        peer::{Peer, PeerId},
         permission::{self, Permission},
     };
     use iroha_crypto::{KeyPair, Signatures};
@@ -189,7 +183,7 @@ mod tests {
             definition_id: asset_definition_id,
             account_id: account_id.clone(),
         };
-        let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
+        let asset = Asset::with_permission(asset_id.clone(), Anything::new().into_boxed());
         let mut account = Account::with_signatory(
             &account_id.name,
             &account_id.domain_name,

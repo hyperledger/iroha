@@ -1,16 +1,28 @@
 //! Iroha - A simple, enterprise-grade decentralized ledger.
 
-#![warn(missing_docs)]
-#![warn(private_doc_tests)]
+#![warn(
+    anonymous_parameters,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    missing_docs,
+    rust_2018_idioms,
+    private_doc_tests,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused,
+    future_incompatible,
+    nonstandard_style,
+    unsafe_code,
+    unused_import_braces,
+    unused_results,
+    variant_size_differences
+)]
+
 pub mod account;
 pub mod asset;
 pub mod block;
 pub mod block_sync;
-#[cfg(feature = "bridge")]
-pub mod bridge;
 pub mod config;
-#[cfg(feature = "dex")]
-pub mod dex;
 pub mod domain;
 pub mod event;
 mod init;
@@ -18,6 +30,7 @@ pub mod isi;
 mod kura;
 pub mod maintenance;
 mod merkle;
+pub mod modules;
 pub mod peer;
 pub mod permission;
 pub mod query;
@@ -32,7 +45,6 @@ use crate::{
     config::Configuration,
     kura::Kura,
     maintenance::System,
-    peer::{Peer, PeerId},
     prelude::*,
     queue::Queue,
     sumeragi::{message::Message as SumeragiMessage, Sumeragi},
@@ -43,6 +55,7 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
+use iroha_data_model::prelude::*;
 use std::{sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -97,10 +110,10 @@ impl Iroha {
         let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
-        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
+        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
             PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
-            &config.sumeragi_configuration.trusted_peers,
             init::domains(&config.init_configuration),
+            &config.sumeragi_configuration.trusted_peers,
         ))));
         let torii = Torii::from_configuration(
             &config.torii_configuration,
@@ -242,33 +255,25 @@ impl Iroha {
     }
 }
 
-/// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
-pub trait Identifiable {
-    /// Defines the type of entity's identification.
-    type Id;
-}
-
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 
     #[doc(inline)]
     pub use crate::{
-        account::{Account, Id as AccountId},
-        asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
         block::{CommittedBlock, PendingBlock, ValidBlock},
-        domain::Domain,
-        isi::{Add, Demint, Instruction, Mint, Register, Remove, Transfer},
-        peer::{Peer, PeerId},
-        query::{IrohaQuery, Query, QueryRequest, QueryResult, SignedQueryRequest},
+        permission,
+        query::{Query, QueryRequest, SignedQueryRequest},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,
-        CommittedBlockReceiver, CommittedBlockSender, Identifiable, Iroha, TransactionReceiver,
+        CommittedBlockReceiver, CommittedBlockSender, Iroha, TransactionReceiver,
         TransactionSender, ValidBlockReceiver, ValidBlockSender,
     };
 
     #[doc(inline)]
     #[cfg(feature = "bridge")]
-    pub use crate::bridge::{Bridge, BridgeDefinition, BridgeDefinitionId, BridgeId, BridgeKind};
+    pub use crate::modules::bridge::{
+        Bridge, BridgeDefinition, BridgeDefinitionId, BridgeId, BridgeKind,
+    };
 
     #[doc(inline)]
     pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature};

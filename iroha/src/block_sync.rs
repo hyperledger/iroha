@@ -4,10 +4,10 @@ use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
     block::ValidBlock,
     kura::Kura,
-    peer::PeerId,
     sumeragi::{Role, Sumeragi},
 };
 use async_std::{sync::RwLock, task};
+use iroha_data_model::*;
 use iroha_derive::*;
 use std::{sync::Arc, time::Duration};
 
@@ -121,8 +121,9 @@ impl BlockSynchronizer {
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
     use super::{BlockSynchronizer, State};
-    use crate::{block::ValidBlock, peer::PeerId, torii::uri};
+    use crate::{block::ValidBlock, torii::uri};
     use iroha_crypto::*;
+    use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_network::prelude::*;
     use parity_scale_codec::{Decode, Encode};

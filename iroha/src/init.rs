@@ -1,7 +1,5 @@
-use crate::{
-    permission::{self, Permission},
-    prelude::*,
-};
+use crate::permission;
+use iroha_data_model::prelude::*;
 use std::collections::BTreeMap;
 
 /// The name of the initial root user.
@@ -24,10 +22,9 @@ pub fn domains(configuration: &config::InitConfiguration) -> BTreeMap<String, Do
         definition_id: asset_definition_id,
         account_id: account_id.clone(),
     };
-    let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
+    let asset = Asset::with_permission(asset_id.clone(), Anything::new().into_boxed());
     let mut account = Account::with_signatory(
-        &account_id.name,
-        &account_id.domain_name,
+        AccountId::new(&account_id.name, &account_id.domain_name),
         configuration.root_public_key.clone(),
     );
     account.assets.insert(asset_id, asset);

@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn find_rate_and_make_exchange_isi_should_be_valid() {
         let _ = Pair::new(
-            Box::new(Transfer::new(
+            Transfer::new(
                 AssetId::from_names("btc", "crypto", "seller", "company"),
                 FindAssetQuantityById::new(AssetId::from_names(
                     "btc2eth_rate",
@@ -43,7 +43,8 @@ mod tests {
                     "exchange",
                 )),
                 AssetId::from_names("btc", "crypto", "buyer", "company"),
-            )),
+            )
+            .into(),
             Box::new(Transfer::new(
                 AssetId::from_names("eth", "crypto", "buyer", "company"),
                 FindAssetQuantityById::new(AssetId::from_names(

@@ -2,8 +2,9 @@
 //!
 //! `RequestedTransaction` is the start of the Transaction lifecycle.
 
-use crate::prelude::*;
+use crate::{isi::Execute, prelude::*};
 use iroha_crypto::KeyPair;
+use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::{
@@ -27,7 +28,7 @@ struct Payload {
     /// Account ID of transaction creator.
     account_id: <Account as Identifiable>::Id,
     /// An ordered set of instructions.
-    instructions: Vec<Instruction>,
+    instructions: Vec<InstructionBox>,
     /// Time of creation (unix time, in milliseconds).
     creation_time: u64,
     /// The transaction will be dropped after this time if it is still in a `Queue`.
@@ -37,7 +38,7 @@ struct Payload {
 impl RequestedTransaction {
     /// Default `RequestedTransaction` constructor.
     pub fn new(
-        instructions: Vec<Instruction>,
+        instructions: Vec<InstructionBox>,
         account_id: <Account as Identifiable>::Id,
         proposed_ttl_ms: u64,
     ) -> RequestedTransaction {
@@ -157,9 +158,8 @@ impl SignedTransaction {
     ) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            world_state_view_temp = instruction
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
-                .world_state_view;
+            world_state_view_temp =
+                instruction.execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
@@ -204,9 +204,8 @@ impl ValidTransaction {
     ) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            world_state_view_temp = instruction
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
-                .world_state_view;
+            world_state_view_temp =
+                instruction.execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
@@ -219,9 +218,8 @@ impl ValidTransaction {
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            world_state_view_temp = instruction
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?
-                .world_state_view;
+            world_state_view_temp =
+                instruction.execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(())
