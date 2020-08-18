@@ -5,6 +5,8 @@
 
 #include "validators/protobuf/proto_block_validator.hpp"
 
+#include <ciso646>
+
 #include <fmt/core.h>
 #include <boost/range/adaptor/indexed.hpp>
 #include "block.pb.h"
