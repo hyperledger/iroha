@@ -5,6 +5,8 @@
 
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
+#include <ciso646>
+
 #include "transaction.pb.h"
 #include "validators/validation_error_helpers.hpp"
 #include "validators/validators_common.hpp"
