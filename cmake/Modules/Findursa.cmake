@@ -20,7 +20,12 @@ set_target_properties(ursa PROPERTIES
     INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto;dl;pthread"
 )
 
-if(NOT TARGET hyperledger_ursa_build) 
+if(APPLE)
+  find_library(SECURITY_LIBRARY Security)
+  target_link_libraries(ursa ${SECURITY_LIBRARY})
+endif()
+
+if(NOT TARGET hyperledger_ursa_build)
   find_package(OpenSSL REQUIRED)
 
   get_filename_component(OPENSSL_ROOT_DIR ${OPENSSL_INCLUDE_DIR} DIRECTORY)
