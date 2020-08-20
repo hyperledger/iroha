@@ -13,4 +13,5 @@ members = [
   "iroha_macro/iroha_derive",
   "iroha_network",
   "iroha_substrate",
+  "iroha_http_server",
 ]
