@@ -14,7 +14,8 @@ namespace iroha {
   /**
    * This class is mostly the same as rxcpp::operators::delay,
    * the only change is that it accepts a selector lambda which generates
-   * a duration based on observable value instead of a fixed duration
+   * a duration based on observable value instead of a fixed duration.  The
+   * delay from selector is only used if it does not change the order of values.
    * Return an observable that emits each item emitted by the source observable
    * after the specified delay
    * Delay is generated with selector from the last received value
@@ -48,6 +49,7 @@ namespace iroha {
       typedef rxcpp::util::decay_t<T> value_type;
       typedef rxcpp::util::decay_t<Subscriber> dest_type;
       typedef rxcpp::observer<T, this_type> observer_type;
+      typedef rxcpp::schedulers::scheduler::clock_type clock_type;
 
       struct delay_subscriber_values : public delay_values {
         delay_subscriber_values(rxcpp::composite_subscription cs,
@@ -59,13 +61,13 @@ namespace iroha {
               dest(std::move(d)),
               coordinator(std::move(c)),
               worker(coordinator.get_worker()),
-              expected(worker.now()) {}
+              monotonous_time_next(worker.now()) {}
 
         rxcpp::composite_subscription cs;
         dest_type dest;
         coordinator_type coordinator;
         rxcpp::schedulers::worker worker;
-        rxcpp::schedulers::scheduler::clock_type::time_point expected;
+        clock_type::time_point monotonous_time_next;
       };
       std::shared_ptr<delay_subscriber_values> state;
 
@@ -97,11 +99,22 @@ namespace iroha {
       }
 
       template <class Value>
+      static inline clock_type::time_point selectNext(
+          delay_subscriber_values &state, Value &&v) {
+        auto const next_selected_time_point = std::max(
+            state.monotonous_time_next,
+            state.worker.now() + state.selector(std::forward<Value>(v)));
+        state.monotonous_time_next =
+            next_selected_time_point + clock_type::duration{1};
+        return next_selected_time_point;
+      }
+
+      template <class Value>
       void on_next(Value &&v) const {
         auto localState = state;
 
         auto selected = on_exception(
-            [&]() { return localState->selector(std::forward<Value>(v)); },
+            [&]() { return selectNext(*localState, std::forward<Value>(v)); },
             localState->dest);
         if (selected.empty()) {
           return;
@@ -116,8 +129,7 @@ namespace iroha {
         if (selectedWork.empty()) {
           return;
         }
-        localState->worker.schedule(localState->worker.now() + selected.get(),
-                                    selectedWork.get());
+        localState->worker.schedule(selected.get(), selectedWork.get());
       }
 
       void on_error(std::exception_ptr e) const {
