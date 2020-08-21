@@ -1,7 +1,8 @@
 package iroha
 
 // #cgo CFLAGS: -I ../../../../irohad
-// #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #cgo linux LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #cgo darwin LDFLAGS: -Wl,-undefined,dynamic_lookup
 // #include "ametsuchi/impl/proto_command_executor.h"
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
