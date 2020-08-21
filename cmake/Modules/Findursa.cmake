@@ -22,7 +22,7 @@ set_target_properties(ursa PROPERTIES
 
 if(APPLE)
   find_library(SECURITY_LIBRARY Security)
-  target_link_libraries(ursa ${SECURITY_LIBRARY})
+  target_link_libraries(ursa INTERFACE ${SECURITY_LIBRARY})
 endif()
 
 if(NOT TARGET hyperledger_ursa_build)
