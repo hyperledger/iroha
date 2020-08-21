@@ -1,7 +1,8 @@
 package iroha
 
 // #cgo CFLAGS: -I ../../../../irohad
-// #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #cgo linux LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #cgo darwin LDFLAGS: -Wl,-undefined,dynamic_lookup
 // #include <stdlib.h>
 // #include "ametsuchi/impl/burrow_storage.h"
 import "C"
