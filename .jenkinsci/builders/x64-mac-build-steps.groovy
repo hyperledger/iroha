@@ -35,7 +35,7 @@ def testSteps(scmVars, String buildDir, List environment, String testList) {
 }
 
 def buildSteps(int parallelism, List compilerVersions, String build_type, boolean coverage, boolean testing, String testList,
-       boolean packagebuild, boolean fuzzing, boolean benchmarking, boolean useBTF, List environment) {
+       boolean packagebuild, boolean fuzzing, boolean benchmarking, boolean useBTF, boolean use_libursa, boolean use_burrow, List environment) {
   withEnv(environment) {
     def build, vars, utils
     stage('Prepare Mac environment') {
@@ -72,6 +72,8 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
         -DBENCHMARKING=${cmakeBooleanOption[benchmarking]} \
         -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
         -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
+        -DUSE_LIBURSA=${cmakeBooleanOption[use_libursa]} \
+        -DUSE_BURROW=${cmakeBooleanOption[use_burrow]} \
         -DCMAKE_TOOLCHAIN_FILE=${mac_vcpkg_toolchain_file} ")
 
         build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
