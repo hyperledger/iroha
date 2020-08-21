@@ -62,6 +62,10 @@ add_library(burrow_vm_caller_generated STATIC IMPORTED GLOBAL)
 add_dependencies(burrow_vm_caller_generated generate_burrow_vm_caller_lib_and_header)
 set_property(TARGET burrow_vm_caller_generated PROPERTY IMPORTED_LOCATION "${VM_CALLER_LIB}")
 target_include_directories(burrow_vm_caller_generated INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
+if(APPLE)
+  find_library(SECURITY_LIBRARY Security)
+  target_link_libraries(burrow_vm_caller_generated INTERFACE ${SECURITY_LIBRARY})
+endif()
 target_compile_definitions(burrow_vm_caller_generated
   INTERFACE
     USE_BURROW
