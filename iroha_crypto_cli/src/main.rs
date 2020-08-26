@@ -31,6 +31,8 @@ fn main() {
                 .takes_value(true)
                 .possible_value(iroha_crypto::ED_25519)
                 .possible_value(iroha_crypto::SECP_256_K1)
+                .possible_value(iroha_crypto::BLS_NORMAL)
+                .possible_value(iroha_crypto::BLS_SMALL)
                 .default_value(&default_algorithm)
         )
         .arg(
