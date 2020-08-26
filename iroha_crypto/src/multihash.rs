@@ -7,6 +7,8 @@ use std::{
 
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";
 pub const SECP_256_K1_PUB_STR: &str = "secp256k1-pub";
+pub const BLS12_381_G1_PUB: &str = "bls12_381-g1-pub";
+pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 
 /// Type of digest function.
 /// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
@@ -15,6 +17,8 @@ pub const SECP_256_K1_PUB_STR: &str = "secp256k1-pub";
 pub enum DigestFunction {
     Ed25519Pub = 0xed,
     Secp256k1Pub = 0xe7,
+    Bls12381G1Pub = 0xea,
+    Bls12381G2Pub = 0xeb,
 }
 
 impl Display for DigestFunction {
@@ -22,6 +26,8 @@ impl Display for DigestFunction {
         match self {
             DigestFunction::Ed25519Pub => write!(f, "{}", ED_25519_PUB_STR),
             DigestFunction::Secp256k1Pub => write!(f, "{}", SECP_256_K1_PUB_STR),
+            DigestFunction::Bls12381G1Pub => write!(f, "{}", BLS12_381_G1_PUB),
+            DigestFunction::Bls12381G2Pub => write!(f, "{}", BLS12_381_G2_PUB),
         }
     }
 }
@@ -33,6 +39,8 @@ impl FromStr for DigestFunction {
         match s {
             ED_25519_PUB_STR => Ok(DigestFunction::Ed25519Pub),
             SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
+            BLS12_381_G1_PUB => Ok(DigestFunction::Bls12381G1Pub),
+            BLS12_381_G2_PUB => Ok(DigestFunction::Bls12381G2Pub),
             _ => Err("The specified digest function is not supported.".to_string()),
         }
     }
@@ -51,6 +59,12 @@ impl TryFrom<u8> for DigestFunction {
         match byte {
             byte if byte == DigestFunction::Ed25519Pub as u8 => Ok(DigestFunction::Ed25519Pub),
             byte if byte == DigestFunction::Secp256k1Pub as u8 => Ok(DigestFunction::Secp256k1Pub),
+            byte if byte == DigestFunction::Bls12381G1Pub as u8 => {
+                Ok(DigestFunction::Bls12381G1Pub)
+            }
+            byte if byte == DigestFunction::Bls12381G2Pub as u8 => {
+                Ok(DigestFunction::Bls12381G2Pub)
+            }
             _ => Err("The specified digest function is not supported.".to_string()),
         }
     }
