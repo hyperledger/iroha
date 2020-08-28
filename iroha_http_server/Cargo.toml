@@ -13,6 +13,7 @@ route-recognizer = "0.2.0"
 async-std = { version = "=1.6.2", features = ["attributes","unstable"] }
 log = { version = "0.4", features = ["std", "serde"] }
 async-trait = "0.1.38"
+url = "2.1.1"
 
 [dev-dependencies]
 attohttpc = "0.15.0"
