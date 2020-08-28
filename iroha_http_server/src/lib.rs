@@ -59,7 +59,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
                     }
                     Err(err) => {
                         log::error!("Failed to parse incoming HTTP request: {}", err);
-                        //TODO: return `not supported` for the features that are not supported instead of bad reauest.
+                        //TODO: return `not supported` for the features that are not supported instead of bad request.
                         Some(HttpResponse::bad_request())
                     }
                 };
@@ -91,6 +91,7 @@ pub mod http {
         convert::{TryFrom, TryInto},
         fmt::Display,
     };
+    use url::form_urlencoded;
 
     pub const GET_METHOD: &str = "GET";
     pub const POST_METHOD: &str = "POST";
@@ -102,6 +103,7 @@ pub mod http {
     pub const HTTP_CODE_NOT_FOUND: u16 = 404;
     pub const HTTP_CODE_BAD_REQUEST: u16 = 400;
     pub const HTTP_CODE_METHOD_NOT_ALLOWED: u16 = 405;
+    pub const HTTP_CODE_UPGRADE_REQUIRED: u16 = 426;
     pub const HTTP_VERSION_1_1: &str = "HTTP/1.1";
     const MAX_HEADERS: usize = 128;
 
@@ -112,6 +114,8 @@ pub mod http {
     pub type HeaderValue = Vec<u8>;
 
     pub type PathParams = BTreeMap<String, String>;
+
+    pub type QueryParams = BTreeMap<String, String>;
 
     type HttpParseHttpVersion = u8;
 
@@ -127,7 +131,8 @@ pub mod http {
         async fn call(
             &self,
             state: State,
-            params: PathParams,
+            path_params: PathParams,
+            query_params: QueryParams,
             request: HttpRequest,
         ) -> Result<HttpResponse, String>;
     }
@@ -136,16 +141,17 @@ pub mod http {
     impl<State, F, Fut> HttpHandler<State> for F
     where
         State: Clone + Send + Sync + 'static,
-        F: Send + Sync + 'static + Fn(State, PathParams, HttpRequest) -> Fut,
+        F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, HttpRequest) -> Fut,
         Fut: Future<Output = Result<HttpResponse, String>> + Send + 'static,
     {
         async fn call(
             &self,
             state: State,
-            params: PathParams,
+            path_params: PathParams,
+            query_params: QueryParams,
             request: HttpRequest,
         ) -> Result<HttpResponse, String> {
-            let future = (self)(state, params, request);
+            let future = (self)(state, path_params, query_params, request);
             future.await
         }
     }
@@ -202,10 +208,10 @@ pub mod http {
         where
             State: Clone + Send + Sync + 'static,
         {
-            if let Ok(route_match) = router.recognize(self.path.as_ref()) {
+            let (path, query_params) = strip_query_params(self.path.as_ref());
+            if let Ok(route_match) = router.recognize(path) {
                 let endpoint = route_match.handler;
-                //TODO: parse and pass query params from the url
-                let params: PathParams = route_match
+                let path_params: PathParams = route_match
                     .params
                     .iter()
                     .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -218,13 +224,14 @@ pub mod http {
                     if let Endpoint::WebSocket(handler) = endpoint {
                         match async_tungstenite::accept_async(stream.clone()).await {
                             Ok(stream) => {
-                                if let Err(err) = handler.call(state, params, stream).await {
+                                if let Err(err) =
+                                    handler.call(state, path_params, query_params, stream).await
+                                {
                                     log::error!("Failed to handle web socket stream: {}", err)
                                 }
                                 None
                             }
                             Err(err) => {
-                                //TODO: don't print error on connection closed.
                                 log::error!(
                                     "Failed to handle web socket request {:?} with error: {}",
                                     self,
@@ -234,14 +241,16 @@ pub mod http {
                             }
                         }
                     } else {
-                        //TODO: return error that upgrade is needed
-                        Some(HttpResponse::internal_server_error())
+                        Some(HttpResponse::upgrade_required(WEB_SOCKET_UPGRADE))
                     }
                 } else {
                     match self.method.as_ref() {
                         GET_METHOD => {
                             if let Endpoint::Http(HttpEndpoint::Get(handler)) = endpoint {
-                                match handler.call(state, params, self.clone()).await {
+                                match handler
+                                    .call(state, path_params, query_params, self.clone())
+                                    .await
+                                {
                                     Ok(response) => Some(response),
                                     Err(err) => {
                                         log::error!(
@@ -258,7 +267,10 @@ pub mod http {
                         }
                         POST_METHOD => {
                             if let Endpoint::Http(HttpEndpoint::Post(handler)) = endpoint {
-                                match handler.call(state, params, self.clone()).await {
+                                match handler
+                                    .call(state, path_params, query_params, self.clone())
+                                    .await
+                                {
                                     Ok(response) => Some(response),
                                     Err(err) => {
                                         log::error!(
@@ -389,6 +401,32 @@ pub mod http {
                 body: Vec::new(),
             }
         }
+
+        pub fn upgrade_required(upgrade: &[u8]) -> HttpResponse {
+            let mut headers = Headers::new();
+            headers.insert(UPGRADE_HEADER.to_string(), upgrade.to_vec());
+            HttpResponse {
+                version: HttpVersion::Http1_1,
+                code: HTTP_CODE_UPGRADE_REQUIRED,
+                reason: "Upgrade required".to_string(),
+                headers,
+                body: Vec::new(),
+            }
+        }
+
+        pub fn ok(mut headers: Headers, body: Vec<u8>) -> HttpResponse {
+            headers.insert(
+                CONTENT_LENGTH_HEADER.to_string(),
+                format!("{}", body.len()).as_bytes().to_vec(),
+            );
+            HttpResponse {
+                version: HttpVersion::Http1_1,
+                code: HTTP_CODE_OK,
+                reason: "OK".to_string(),
+                headers,
+                body,
+            }
+        }
     }
 
     impl From<&HttpResponse> for Vec<u8> {
@@ -411,10 +449,22 @@ pub mod http {
             bytes
         }
     }
+
+    fn strip_query_params(path: &str) -> (&str, QueryParams) {
+        if let Some(query_start) = path.find('?') {
+            let (path, query) = path.split_at(query_start);
+            let query_params: QueryParams = form_urlencoded::parse(query[1..].as_bytes())
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+            (path, query_params)
+        } else {
+            (path, QueryParams::new())
+        }
+    }
 }
 
 pub mod web_socket {
-    use super::http::PathParams;
+    use super::http::{PathParams, QueryParams};
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
     pub use async_tungstenite::tungstenite::Message as WebSocketMessage;
@@ -432,7 +482,8 @@ pub mod web_socket {
         async fn call(
             &self,
             state: State,
-            params: PathParams,
+            path_params: PathParams,
+            query_params: QueryParams,
             stream: WebSocketStream,
         ) -> Result<(), String>;
     }
@@ -441,16 +492,17 @@ pub mod web_socket {
     impl<State, F, Fut> WebSocketHandler<State> for F
     where
         State: Clone + Send + Sync + 'static,
-        F: Send + Sync + 'static + Fn(State, PathParams, WebSocketStream) -> Fut,
+        F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, WebSocketStream) -> Fut,
         Fut: Future<Output = Result<(), String>> + Send + 'static,
     {
         async fn call(
             &self,
             state: State,
-            params: PathParams,
+            path_params: PathParams,
+            query_params: QueryParams,
             stream: WebSocketStream,
         ) -> Result<(), String> {
-            let future = (self)(state, params, stream);
+            let future = (self)(state, path_params, query_params, stream);
             future.await
         }
     }
@@ -495,11 +547,10 @@ where
 }
 
 async fn consume_bytes(stream: &mut TcpStream, length: u64) {
-    //TODO: handle case when length is more than buffer size
-    let mut buffer = [0u8; BUFFER_SIZE];
+    let mut buffer = Vec::new();
     stream
         .take(length)
-        .read(&mut buffer)
+        .read_to_end(&mut buffer)
         .await
         .expect("Failed to consume data.");
 }
@@ -509,7 +560,7 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{
-        http::{Headers, HttpRequest, HttpResponse, HttpVersion, PathParams},
+        http::{Headers, HttpRequest, HttpResponse, HttpVersion, PathParams, QueryParams},
         web_socket::{WebSocketMessage, WebSocketStream},
     };
 }
@@ -529,16 +580,12 @@ mod tests {
         async_std::task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
-                |_state: (), _params: PathParams, request: HttpRequest| async move {
+                |_state: (),
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 request: HttpRequest| async move {
                     assert_eq!(&request.body, b"Hello, world!");
-                    let response = HttpResponse {
-                        version: HttpVersion::Http1_1,
-                        code: 200,
-                        reason: "OK".to_string(),
-                        headers: Headers::new(),
-                        body: b"Hi!".to_vec(),
-                    };
-                    Ok(response)
+                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -558,26 +605,24 @@ mod tests {
         async_std::task::spawn(async move {
             let mut server = Server::new(());
             server.at("/a").get(
-                |_state: (), _params: PathParams, _request: HttpRequest| async move {
-                    panic!("Wrong path.")
-                },
+                |_state: (),
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move { panic!("Wrong path.") },
             );
             server.at("/*/b").post(
-                |_state: (), _params: PathParams, _request: HttpRequest| async move {
-                    let response = HttpResponse {
-                        version: HttpVersion::Http1_1,
-                        code: 200,
-                        reason: "OK".to_string(),
-                        headers: Headers::new(),
-                        body: b"Right path".to_vec(),
-                    };
-                    Ok(response)
+                |_state: (),
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move {
+                    Ok(HttpResponse::ok(Headers::new(), b"Right path".to_vec()))
                 },
             );
             server.at("/c/b").get(
-                |_state: (), _params: PathParams, _request: HttpRequest| async move {
-                    panic!("Wrong path.")
-                },
+                |_state: (),
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move { panic!("Wrong path.") },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
         });
@@ -596,17 +641,13 @@ mod tests {
         async_std::task::spawn(async move {
             let mut server = Server::new(());
             server.at("/:a/path/:c").get(
-                |_state: (), params: PathParams, _request: HttpRequest| async move {
-                    assert_eq!(params["a"], "hello");
-                    assert_eq!(params["c"], "params");
-                    let response = HttpResponse {
-                        version: HttpVersion::Http1_1,
-                        code: 200,
-                        reason: "OK".to_string(),
-                        headers: Headers::new(),
-                        body: b"Hi!".to_vec(),
-                    };
-                    Ok(response)
+                |_state: (),
+                 path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move {
+                    assert_eq!(path_params["a"], "hello");
+                    assert_eq!(path_params["c"], "params");
+                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -621,35 +662,57 @@ mod tests {
     }
 
     #[test]
+    fn query_params() {
+        let port = port_check::free_local_port().expect("Failed to get free local port.");
+        async_std::task::spawn(async move {
+            let mut server = Server::new(());
+            server.at("/").get(
+                |_state: (),
+                 _path_params: PathParams,
+                 query_params: QueryParams,
+                 _request: HttpRequest| async move {
+                    assert_eq!(query_params.len(), 2);
+                    assert_eq!(query_params["a"], "hello");
+                    assert_eq!(query_params["c"], "params");
+                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
+                },
+            );
+            let _result = server.start(format!("localhost:{}", port).as_ref()).await;
+        });
+        thread::sleep(Duration::from_millis(100));
+        let response = attohttpc::get(format!("http://localhost:{}?a=hello&c=params", port))
+            .text("Hello, world!")
+            .send()
+            .expect("Failed to send request.");
+        assert!(response.is_success());
+        assert_eq!(response.text().expect("Failed to get text"), "Hi!")
+    }
+
+    #[test]
     fn stateful_server() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
         async_std::task::spawn(async move {
             let state = Arc::new(RwLock::new(0));
             let mut server = Server::new(state);
             server.at("/add/:num").get(
-                |state: Arc<RwLock<i32>>, params: PathParams, _request: HttpRequest| async move {
-                    let number: i32 = params["num"].parse().expect("Failed to parse i32");
+                |state: Arc<RwLock<i32>>,
+                 path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move {
+                    let number: i32 = path_params["num"].parse().expect("Failed to parse i32");
                     *state.write().await += number;
-                    let response = HttpResponse {
-                        version: HttpVersion::Http1_1,
-                        code: 200,
-                        reason: "OK".to_string(),
-                        headers: Headers::new(),
-                        body: Vec::new(),
-                    };
-                    Ok(response)
+                    Ok(HttpResponse::ok(Headers::new(), Vec::new()))
                 },
             );
             server.at("/value").get(
-                |state: Arc<RwLock<i32>>, _params: PathParams, _request: HttpRequest| async move {
-                    let response = HttpResponse {
-                        version: HttpVersion::Http1_1,
-                        code: 200,
-                        reason: "OK".to_string(),
-                        headers: Headers::new(),
-                        body: format!("{}", state.read().await).as_bytes().to_vec(),
-                    };
-                    Ok(response)
+                |state: Arc<RwLock<i32>>,
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move {
+                    Ok(HttpResponse::ok(
+                        Headers::new(),
+                        format!("{}", state.read().await).as_bytes().to_vec(),
+                    ))
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -676,7 +739,10 @@ mod tests {
         async_std::task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").web_socket(
-                |_state: (), _params: PathParams, mut stream: WebSocketStream| async move {
+                |_state: (),
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 mut stream: WebSocketStream| async move {
                     if let WebSocketMessage::Text(text) = stream
                         .next()
                         .await
