@@ -84,7 +84,7 @@ After you execute this script, the following things will happen:
 
 #. The script will check whether you have containers with Iroha already running. Successful completion finishes with the new container shell.
 
-#. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images. ``hyperledger/iroha:develop-build`` image contains all development dependencies and is based on top of ``ubuntu:18.04``. ``postgres`` image is required for starting and running Iroha.
+#. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images. ``hyperledger/iroha:develop-build`` image contains all development dependencies and is based on top of ``ubuntu:20.04``. ``postgres`` image is required for starting and running Iroha.
 
 #. Two containers are created and launched.
 
