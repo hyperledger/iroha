@@ -55,6 +55,20 @@ namespace shared_model {
           return aggregateErrors(
               "CreateAccount", {}, {validatePublicKey(ca.public_key())});
         }
+        case iroha::protocol::Command::kCreateAsset: {
+          const auto &ca = command.create_asset();
+          return aggregateErrors(
+              "CreateAsset",
+              {},
+              {[](auto precision) -> std::optional<ValidationError> {
+                if (precision < 0 or precision > 255) {
+                  return ValidationError(
+                      "Precision",
+                      {"Precision should be within range [0, 255]"});
+                }
+                return std::nullopt;
+              }(ca.precision())});
+        }
         case iroha::protocol::Command::kRemoveSignatory: {
           const auto &rs = command.remove_signatory();
           return aggregateErrors(
