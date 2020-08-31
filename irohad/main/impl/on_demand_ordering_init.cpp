@@ -7,13 +7,10 @@
 
 #include <numeric>
 
-#include <rxcpp/operators/rx-concat_map.hpp>
-#include <rxcpp/operators/rx-delay.hpp>
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/operators/rx-skip.hpp>
 #include <rxcpp/operators/rx-start_with.hpp>
-#include <rxcpp/operators/rx-tap.hpp>
 #include <rxcpp/operators/rx-with_latest_from.hpp>
 #include <rxcpp/operators/rx-zip.hpp>
 #include "common/bind.hpp"
@@ -188,8 +185,6 @@ namespace iroha {
             proposal_factory,
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
-        std::function<std::chrono::milliseconds(
-            const synchronizer::SynchronizationEvent &)> delay_func,
         size_t max_number_of_transactions,
         const logger::LoggerManagerTreePtr &ordering_log_manager) {
       return std::make_shared<ordering::OnDemandOrderingGate>(
@@ -217,27 +212,8 @@ namespace iroha {
                           std::inserter(*hashes, hashes->end()));
                 return hashes;
               }),
-          sync_event_notifier.get_observable()
-              .tap([this](synchronizer::SynchronizationEvent const &event) {
-                assert(not last_received_round_
-                       or *last_received_round_ < event.round
-                           && "Round does not increase");
-                last_received_round_ = event.round;
-              })
-              .concat_map(
-                  [delay_func = std::move(delay_func)](
-                      iroha::synchronizer::SynchronizationEvent event) {
-                    auto delay = delay_func(event);
-                    return rxcpp::observable<>::just(std::move(event))
-                        .delay(delay, rxcpp::identity_current_thread());
-                  },
-                  rxcpp::identity_current_thread())
-              .tap([this](synchronizer::SynchronizationEvent const &event) {
-                assert(last_received_round_
-                       && "Cannot continue without last received round");
-                assert(event.round == *last_received_round_
-                       && "Round differs from last received");
-              })
+          sync_event_notifier
+              .get_observable()
               .map([this](synchronizer::SynchronizationEvent const &event) {
                 consensus::Round current_round;
                 switch (event.sync_outcome) {
@@ -308,8 +284,6 @@ namespace iroha {
         std::shared_ptr<TransportFactoryType> proposal_transport_factory,
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
-        std::function<std::chrono::milliseconds(
-            const synchronizer::SynchronizationEvent &)> delay_func,
         logger::LoggerManagerTreePtr ordering_log_manager) {
       auto ordering_service = createService(max_number_of_transactions,
                                             proposal_factory,
@@ -333,7 +307,6 @@ namespace iroha {
           std::move(proposal_factory),
           std::move(tx_cache),
           std::move(creation_strategy),
-          std::move(delay_func),
           max_number_of_transactions,
           ordering_log_manager);
     }
