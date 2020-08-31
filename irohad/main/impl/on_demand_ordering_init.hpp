@@ -71,8 +71,6 @@ namespace iroha {
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
-          std::function<std::chrono::milliseconds(
-              const synchronizer::SynchronizationEvent &)> delay_func,
           size_t max_number_of_transactions,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
@@ -138,8 +136,6 @@ namespace iroha {
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
-          std::function<std::chrono::milliseconds(
-              const synchronizer::SynchronizationEvent &)> delay_func,
           logger::LoggerManagerTreePtr ordering_log_manager);
 
       /// gRPC service for ordering service
@@ -155,8 +151,6 @@ namespace iroha {
 
      private:
       logger::LoggerPtr log_;
-
-      boost::optional<consensus::Round> last_received_round_;
 
       std::vector<std::shared_ptr<shared_model::interface::Peer>>
           current_peers_;

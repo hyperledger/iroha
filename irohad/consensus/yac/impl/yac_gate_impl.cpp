@@ -6,6 +6,8 @@
 #include "consensus/yac/impl/yac_gate_impl.hpp"
 
 #include <boost/range/adaptor/transformed.hpp>
+#include <rxcpp/operators/rx-concat_map.hpp>
+#include <rxcpp/operators/rx-delay.hpp>
 #include <rxcpp/operators/rx-flat_map.hpp>
 #include "common/visitor.hpp"
 #include "consensus/yac/cluster_order.hpp"
@@ -41,26 +43,50 @@ namespace iroha {
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<consensus::ConsensusResultCache>
               consensus_result_cache,
-          logger::LoggerPtr log)
+          logger::LoggerPtr log,
+          std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
+              delay_func)
           : log_(std::move(log)),
             current_hash_(),
             alternative_order_(std::move(alternative_order)),
-            published_events_(hash_gate->onOutcome()
-                                  .flat_map([this](auto message) {
-                                    return visit_in_place(
-                                        message,
-                                        [this](const CommitMessage &msg) {
-                                          return this->handleCommit(msg);
-                                        },
-                                        [this](const RejectMessage &msg) {
-                                          return this->handleReject(msg);
-                                        },
-                                        [this](const FutureMessage &msg) {
-                                          return this->handleFuture(msg);
-                                        });
-                                  })
-                                  .publish()
-                                  .ref_count()),
+            published_events_(
+                hash_gate->onOutcome()
+                    .concat_map(
+                        [delay_func = std::move(delay_func)](auto message) {
+                          auto delay = delay_func(visit_in_place(
+                              message,
+                              [](const CommitMessage &msg) {
+                                auto const hash = getHash(msg.votes).value();
+                                if (hash.vote_hashes.proposal_hash.empty()) {
+                                  return ConsensusOutcomeType::kNothing;
+                                }
+                                return ConsensusOutcomeType::kElse;
+                              },
+                              [](const RejectMessage &msg) {
+                                return ConsensusOutcomeType::kReject;
+                              },
+                              [](const FutureMessage &msg) {
+                                return ConsensusOutcomeType::kElse;
+                              }));
+                          return rxcpp::observable<>::just(std::move(message))
+                              .delay(delay, rxcpp::identity_current_thread());
+                        },
+                        rxcpp::identity_current_thread())
+                    .flat_map([this](auto message) {
+                      return visit_in_place(
+                          message,
+                          [this](const CommitMessage &msg) {
+                            return this->handleCommit(msg);
+                          },
+                          [this](const RejectMessage &msg) {
+                            return this->handleReject(msg);
+                          },
+                          [this](const FutureMessage &msg) {
+                            return this->handleFuture(msg);
+                          });
+                    })
+                    .publish()
+                    .ref_count()),
             orderer_(std::move(orderer)),
             hash_provider_(std::move(hash_provider)),
             block_creator_(std::move(block_creator)),
