@@ -1,8 +1,4 @@
-FROM ubuntu:18.04
-
-RUN apt-get update; \
-    apt install -y software-properties-common; \
-    add-apt-repository ppa:ubuntu-toolchain-r/test
+FROM ubuntu:20.04
 
 #Install iroha
 COPY iroha.deb /tmp/iroha.deb
