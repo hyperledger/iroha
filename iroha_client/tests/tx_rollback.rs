@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{config::Configuration, isi, prelude::*};
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
@@ -12,9 +12,9 @@ mod tests {
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
-    #[async_std::test]
+    #[test]
     //TODO: use cucumber to write `gherkin` instead of code.
-    async fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
+    fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
         // Given
         thread::spawn(create_and_start_iroha);
         thread::sleep(std::time::Duration::from_millis(300));
@@ -41,17 +41,14 @@ mod tests {
         );
         iroha_client
             .submit_all(vec![create_asset.into(), mint_asset.into()])
-            .await
             .expect("Failed to prepare state.");
-        task::sleep(Duration::from_millis(
+        thread::sleep(Duration::from_millis(
             &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-        ))
-        .await;
+        ));
         //Then
         let request = client::asset::by_account_id(account_id);
         let query_result = iroha_client
             .request(&request)
-            .await
             .expect("Failed to execute request.");
         if let QueryResult::FindAssetsByAccountId(result) = query_result {
             assert!(result
@@ -65,7 +62,6 @@ mod tests {
         }
         let definition_query_result = iroha_client
             .request(&client::asset::all_definitions())
-            .await
             .expect("Failed to execute request.");
         if let QueryResult::FindAllAssetsDefinitions(result) = definition_query_result {
             assert!(result

@@ -28,6 +28,7 @@ iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
+iroha_http_server = { version = "=0.1.0", path = "../iroha_http_server" }
 async-std = { version = "=1.6.2", features = ["attributes","unstable"] }
 chrono = "0.4"
 cloudevents-sdk = "0.1.0"

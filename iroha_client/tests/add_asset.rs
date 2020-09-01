@@ -10,9 +10,9 @@ use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
-#[async_std::test]
+#[test]
 //TODO: use cucumber to write `gherkin` instead of code.
-async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
+fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     // Given
     thread::spawn(create_and_start_iroha);
     thread::sleep(std::time::Duration::from_millis(300));
@@ -31,12 +31,10 @@ async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amoun
     );
     iroha_client
         .submit(create_asset.into())
-        .await
         .expect("Failed to prepare state.");
-    task::sleep(Duration::from_millis(
+    thread::sleep(Duration::from_millis(
         &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-    ))
-    .await;
+    ));
     //When
     let quantity: u32 = 200;
     let mint_asset = Mint::<Asset, u32>::new(
@@ -45,17 +43,14 @@ async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amoun
     );
     iroha_client
         .submit(mint_asset.into())
-        .await
         .expect("Failed to create asset.");
-    task::sleep(Duration::from_millis(
+    thread::sleep(Duration::from_millis(
         &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-    ))
-    .await;
+    ));
     //Then
     let request = client::asset::by_account_id(account_id);
     let query_result = iroha_client
         .request(&request)
-        .await
         .expect("Failed to execute request.");
     if let QueryResult::FindAssetsByAccountId(result) = query_result {
         assert!(!result.assets.is_empty());

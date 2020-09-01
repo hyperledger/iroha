@@ -1,10 +1,12 @@
-use crate::config::Configuration;
+use crate::{
+    config::Configuration,
+    http_client::{self, StatusCode},
+};
 use iroha_crypto::KeyPair;
 use iroha_derive::log;
 use iroha_dsl::prelude::*;
-use iroha_network::{prelude::*, Network};
 use std::{
-    convert::TryFrom,
+    convert::TryInto,
     fmt::{self, Debug, Formatter},
 };
 
@@ -18,7 +20,7 @@ pub struct Client {
 impl Client {
     pub fn new(configuration: &Configuration) -> Self {
         Client {
-            torii_url: configuration.torii_url.clone(),
+            torii_url: configuration.torii_api_url.clone(),
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
                 private_key: configuration.private_key.clone(),
@@ -29,76 +31,78 @@ impl Client {
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     #[log]
-    pub async fn submit(&mut self, instruction: InstructionBox) -> Result<(), String> {
-        let network = Network::new(&self.torii_url);
+    pub fn submit(&mut self, instruction: InstructionBox) -> Result<(), String> {
         //TODO: specify account in the config or CLI params
-        let transaction = Transaction::new(
+        let transaction: Vec<u8> = Transaction::new(
             vec![instruction],
             AccountId::new("root", "global"),
             self.proposed_transaction_ttl_ms,
         )
-        .sign(&self.key_pair)?;
-        if let Response::InternalError = network
-            .send_request(Request::new(
-                uri::INSTRUCTIONS_URI.to_string(),
-                Vec::from(&transaction),
+        .sign(&self.key_pair)?
+        .into();
+        let response = http_client::post(
+            &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
+            transaction.clone(),
+        )
+        .map_err(|e| {
+            format!(
+                "Error: {}, failed to send transaction: {:?}",
+                e, &transaction
+            )
+        })?;
+        if response.status() == StatusCode::OK {
+            Ok(())
+        } else {
+            Err(format!(
+                "Failed to submit instruction with HTTP status: {}",
+                response.status()
             ))
-            .await
-            .map_err(|e| {
-                format!(
-                    "Error: {}, Failed to write a transaction request: {:?}",
-                    e, &transaction
-                )
-            })?
-        {
-            return Err("Server error.".to_string());
         }
-        Ok(())
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
-    pub async fn submit_all(&mut self, instructions: Vec<InstructionBox>) -> Result<(), String> {
-        let network = Network::new(&self.torii_url);
-        let transaction = Transaction::new(
+    pub fn submit_all(&mut self, instructions: Vec<InstructionBox>) -> Result<(), String> {
+        let transaction: Vec<u8> = Transaction::new(
             instructions,
             AccountId::new("root", "global"),
             self.proposed_transaction_ttl_ms,
         )
-        .sign(&self.key_pair)?;
-        if let Response::InternalError = network
-            .send_request(Request::new(
-                uri::INSTRUCTIONS_URI.to_string(),
-                Vec::from(&transaction),
+        .sign(&self.key_pair)?
+        .into();
+        let response = http_client::post(
+            &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
+            transaction.clone(),
+        )
+        .map_err(|e| {
+            format!(
+                "Error: {}, failed to send transaction: {:?}",
+                e, &transaction
+            )
+        })?;
+        if response.status() == StatusCode::OK {
+            Ok(())
+        } else {
+            Err(format!(
+                "Failed to submit instructions with HTTP status: {}",
+                response.status()
             ))
-            .await
-            .map_err(|e| {
-                format!(
-                    "Error: {}, Failed to write a transaction request: {:?}",
-                    e, &transaction
-                )
-            })?
-        {
-            return Err("Server error.".to_string());
         }
-        Ok(())
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
     #[log]
-    pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
-        let network = Network::new(&self.torii_url);
-        match network
-            .send_request(Request::new(
-                uri::QUERY_URI.to_string(),
-                request.clone().sign(&self.key_pair)?.into(),
+    pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
+        let response = http_client::get(
+            &format!("http://{}{}", self.torii_url, uri::QUERY_URI),
+            request.clone().sign(&self.key_pair)?.into(),
+        )?;
+        if response.status() == StatusCode::OK {
+            response.body().clone().try_into()
+        } else {
+            Err(format!(
+                "Failed to make query request with HTTP status: {}",
+                response.status()
             ))
-            .await
-            .map_err(|e| format!("Failed to write a get request: {}", e))?
-        {
-            Response::Ok(payload) => Ok(
-                QueryResult::try_from(payload).expect("Failed to try Query Result from vector.")
-            ),
-            Response::InternalError => Err("Server error.".to_string()),
         }
     }
 }

@@ -53,7 +53,6 @@ fn main() {
 mod domain {
     use super::*;
     use clap::ArgMatches;
-    use futures::executor;
     use iroha_client::{client::Client, config::Configuration};
 
     const DOMAIN_NAME: &str = "name";
@@ -87,9 +86,10 @@ mod domain {
         let mut iroha_client = Client::new(configuration);
         let create_domain = Register::<Peer, Domain>::new(
             Domain::new(domain_name),
-            PeerId::new(&configuration.torii_url, &configuration.public_key),
+            PeerId::new(&configuration.torii_api_url, &configuration.public_key),
         );
-        executor::block_on(iroha_client.submit(create_domain.into()))
+        iroha_client
+            .submit(create_domain.into())
             .expect("Failed to create domain.");
     }
 }
@@ -97,7 +97,6 @@ mod domain {
 mod account {
     use super::*;
     use clap::ArgMatches;
-    use futures::executor;
     use iroha_client::{client::Client, config::Configuration};
 
     const REGISTER: &str = "register";
@@ -168,7 +167,8 @@ mod account {
             Name::from(domain_name),
         );
         let mut iroha_client = Client::new(configuration);
-        executor::block_on(iroha_client.submit(create_account.into()))
+        iroha_client
+            .submit(create_account.into())
             .expect("Failed to create account.");
     }
 }
@@ -176,7 +176,6 @@ mod account {
 mod asset {
     use super::*;
     use clap::ArgMatches;
-    use futures::executor;
     use iroha_client::{
         client::{asset, Client},
         config::Configuration,
@@ -313,16 +312,15 @@ mod asset {
         configuration: &Configuration,
     ) {
         let mut iroha_client = Client::new(configuration);
-        executor::block_on(
-            iroha_client.submit(
+        iroha_client
+            .submit(
                 Register::<Domain, AssetDefinition>::new(
                     AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)),
                     domain_name.to_string(),
                 )
                 .into(),
-            ),
-        )
-        .expect("Failed to create account.");
+            )
+            .expect("Failed to create account.");
     }
 
     fn mint_asset(
@@ -341,7 +339,8 @@ mod asset {
             ),
         );
         let mut iroha_client = Client::new(configuration);
-        executor::block_on(iroha_client.submit(mint_asset.into()))
+        iroha_client
+            .submit(mint_asset.into())
             .expect("Failed to create account.");
     }
 
@@ -367,15 +366,18 @@ mod asset {
             ),
         );
         let mut iroha_client = Client::new(configuration);
-        executor::block_on(iroha_client.submit(transfer_asset.into()))
+        iroha_client
+            .submit(transfer_asset.into())
             .expect("Failed to transfer asset.");
     }
+
     fn get_asset(_asset_id: &str, account_id: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
-        let query_result = executor::block_on(iroha_client.request(&asset::by_account_id(
-            AccountId::from_str(account_id).expect("Failed to parse Account Id."),
-        )))
-        .expect("Failed to get asset.");
+        let query_result = iroha_client
+            .request(&asset::by_account_id(
+                AccountId::from_str(account_id).expect("Failed to parse Account Id."),
+            ))
+            .expect("Failed to get asset.");
         if let QueryResult::FindAssetsByAccountId(result) = query_result {
             println!("Get Asset result: {:?}", result);
         }

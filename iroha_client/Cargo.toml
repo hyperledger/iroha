@@ -18,7 +18,6 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_dsl = { version = "=0.1.0", path = "../iroha_dsl" }
-iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
@@ -27,6 +26,8 @@ ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = { version = "0.4", features = ["std", "serde"] }
+attohttpc = "0.15.0"
+http = "0.2.1"
 
 [dev-dependencies]
 iroha = { path = "../iroha" }

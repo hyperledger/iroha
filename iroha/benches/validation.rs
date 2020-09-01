@@ -1,7 +1,7 @@
 use criterion::*;
 use iroha::{prelude::*, tx::Accept};
 use iroha_data_model::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -280,7 +280,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     let world_state_view = WorldStateView::new(Peer::with(
         PeerId::new("127.0.0.1:8080", &key_pair.public_key),
         domains,
-        Vec::new(),
+        BTreeSet::new(),
     ));
     // Pepare test transaction
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
