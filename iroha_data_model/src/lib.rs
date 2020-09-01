@@ -466,6 +466,12 @@ pub mod asset {
         }
     }
 
+    impl Display for Id {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "{}@{}", self.definition_id, self.account_id)
+        }
+    }
+
     impl From<Id> for IdBox {
         fn from(id: Id) -> IdBox {
             IdBox::AssetId(id)

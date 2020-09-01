@@ -1,0 +1,34 @@
+{
+  "TORII_CONFIGURATION": {
+    "TORII_URL": "127.0.0.1:1337",
+    "TORII_CONNECT_URL": "127.0.0.1:8888"
+  },
+  "SUMERAGI_CONFIGURATION": {
+    "TRUSTED_PEERS": [
+      {
+        "address": "127.0.0.1:1337",
+        "public_key": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+      }
+    ]
+  },
+  "KURA_CONFIGURATION": {
+    "KURA_INIT_MODE": "strict",
+    "KURA_BLOCK_STORE_PATH": "./blocks"
+  },
+  "BLOCK_SYNC_CONFIGURATION": {
+    "GOSSIP_PERIOD_MS": 10000,
+    "BATCH_SIZE": 1
+  },
+  "QUEUE_CONFIGURATION": {
+    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 2
+  },
+  "LOGGER_CONFIGURATION": {},
+  "PUBLIC_KEY": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+  "PRIVATE_KEY": {
+    "digest_function": "ed25519",
+    "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+  },
+  "INIT_CONFIGURATION": {
+    "ROOT_PUBLIC_KEY": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+  }
+}

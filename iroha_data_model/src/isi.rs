@@ -1,23 +1,5 @@
 //! This library contains basic Iroha Special Instructions.
 
-#![warn(
-    anonymous_parameters,
-    missing_copy_implementations,
-    missing_docs,
-    missing_debug_implementations,
-    rust_2018_idioms,
-    private_doc_tests,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused,
-    future_incompatible,
-    nonstandard_style,
-    unsafe_code,
-    unused_import_braces,
-    unused_results,
-    variant_size_differences
-)]
-
 use super::{prelude::*, IdBox, IdentifiableBox, ValueBox};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -28,16 +10,16 @@ use std::fmt::Debug;
 pub enum InstructionBox {
     /// `Add` variant.
     Add(AddBox),
-    /// `Remove` variant.
-    Remove(RemoveBox),
+    /// `Subtract` variant.
+    Subtract(SubtractBox),
     /// `Register` variant.
     Register(RegisterBox),
     /// `Unregister` variant.
     Unregister(UnregisterBox),
     /// `Mint` variant.
     Mint(MintBox),
-    /// `Demint` variant.
-    Demint(DemintBox),
+    /// `Burn` variant.
+    Burn(BurnBox),
     /// `Transfer` variant.
     Transfer(TransferBox),
     /// `If` variant.
@@ -63,9 +45,9 @@ pub struct AddBox {
     pub destination_id: IdBox,
 }
 
-/// Sized structure for all possible Removes.
+/// Sized structure for all possible Subtracts.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct RemoveBox {
+pub struct SubtractBox {
     object: ValueBox,
     destination_id: IdBox,
 }
@@ -97,12 +79,12 @@ pub struct MintBox {
     pub destination_id: IdBox,
 }
 
-/// Sized structure for all possible Demints.
+/// Sized structure for all possible Burns.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct DemintBox {
-    /// Object to demint.
+pub struct BurnBox {
+    /// Object to burn.
     pub object: ValueBox,
-    /// Entity to demint from.
+    /// Entity to burn from.
     pub destination_id: IdBox,
 }
 
@@ -141,12 +123,12 @@ where
 
 /// Generic instruction for a removal of an object from the identifiable destination.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Remove<D, O>
+pub struct Subtract<D, O>
 where
     D: Identifiable,
     O: Value,
 {
-    /// Object which should be removed.
+    /// Object which should be subtracted.
     pub object: O,
     /// Destination object `Id`.
     pub destination_id: D::Id,
@@ -190,14 +172,14 @@ where
     pub destination_id: D::Id,
 }
 
-/// Generic instruction for a demint of an object to the identifiable destination.
+/// Generic instruction for a burn of an object to the identifiable destination.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Demint<D, O>
+pub struct Burn<D, O>
 where
     D: Identifiable,
     O: Value,
 {
-    /// Object which should be deminted.
+    /// Object which should be burned.
     pub object: O,
     /// Destination object `Id`.
     pub destination_id: D::Id,
@@ -257,13 +239,14 @@ pub struct If {
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Fail {
     /// Message to submit.
-    message: String,
+    pub message: String,
 }
 
 /// Composite instruction to inverse result of the another instruction.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Not {
-    instruction: InstructionBox,
+    /// Instruction to invert result of.
+    pub instruction: InstructionBox,
 }
 
 /// Marker trait for Iroha Special Instructions.
@@ -276,7 +259,7 @@ where
     O: Value,
 {
 }
-impl<D, O> Instruction for Remove<D, O>
+impl<D, O> Instruction for Subtract<D, O>
 where
     D: Identifiable,
     O: Value,
@@ -289,7 +272,7 @@ impl Instruction for Register<Peer, Domain> {}
 impl Instruction for Register<Domain, Account> {}
 impl Instruction for Register<Domain, AssetDefinition> {}
 impl<O> Instruction for Mint<Asset, O> where O: Value {}
-impl<O> Instruction for Demint<Asset, O> where O: Value {}
+impl<O> Instruction for Burn<Asset, O> where O: Value {}
 impl<O> Instruction for Transfer<Asset, O, Asset> where O: Value {}
 impl<LV, RV> Instruction for Greater<LV, RV>
 where
@@ -315,12 +298,12 @@ impl AddBox {
     }
 }
 
-impl RemoveBox {
+impl SubtractBox {
     fn new<D: Identifiable, O: Into<ValueBox>>(
         object: O,
         destination_id: <D as Identifiable>::Id,
     ) -> Self {
-        RemoveBox {
+        SubtractBox {
             object: object.into(),
             destination_id: destination_id.into(),
         }
@@ -363,12 +346,12 @@ impl MintBox {
     }
 }
 
-impl DemintBox {
+impl BurnBox {
     fn new<D: Identifiable, O: Into<ValueBox>>(
         object: O,
         destination_id: <D as Identifiable>::Id,
     ) -> Self {
-        DemintBox {
+        BurnBox {
             object: object.into(),
             destination_id: destination_id.into(),
         }
@@ -413,14 +396,14 @@ where
     }
 }
 
-impl<D, O> Remove<D, O>
+impl<D, O> Subtract<D, O>
 where
     D: Identifiable,
     O: Value,
 {
-    /// Default `Remove` constructor.
+    /// Default `Subtract` constructor.
     pub fn new(object: O, destination_id: D::Id) -> Self {
-        Remove {
+        Subtract {
             object,
             destination_id,
         }
@@ -469,14 +452,14 @@ where
     }
 }
 
-impl<D, O> Demint<D, O>
+impl<D, O> Burn<D, O>
 where
     D: Identifiable,
     O: Value,
 {
-    /// Default `Demint` constructor.
+    /// Default `Burn` constructor.
     pub fn new(object: O, destination_id: D::Id) -> Self {
-        Demint {
+        Burn {
             object,
             destination_id,
         }
@@ -588,13 +571,13 @@ where
     }
 }
 
-impl<D, O> From<Remove<D, O>> for InstructionBox
+impl<D, O> From<Subtract<D, O>> for InstructionBox
 where
     D: Into<IdentifiableBox> + Identifiable,
     O: Into<ValueBox> + Value,
 {
-    fn from(instruction: Remove<D, O>) -> InstructionBox {
-        InstructionBox::Remove(RemoveBox::new::<D, O>(
+    fn from(instruction: Subtract<D, O>) -> InstructionBox {
+        InstructionBox::Subtract(SubtractBox::new::<D, O>(
             instruction.object,
             instruction.destination_id,
         ))
@@ -640,13 +623,13 @@ where
     }
 }
 
-impl<D, O> From<Demint<D, O>> for InstructionBox
+impl<D, O> From<Burn<D, O>> for InstructionBox
 where
     D: Into<IdentifiableBox> + Identifiable,
     O: Into<ValueBox> + Value,
 {
-    fn from(instruction: Demint<D, O>) -> InstructionBox {
-        InstructionBox::Demint(DemintBox::new::<D, O>(
+    fn from(instruction: Burn<D, O>) -> InstructionBox {
+        InstructionBox::Burn(BurnBox::new::<D, O>(
             instruction.object,
             instruction.destination_id,
         ))
@@ -720,7 +703,7 @@ impl Identifiable for InstructionBox {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Add, Demint, Fail, Greater, If, Instruction, InstructionBox, Mint, Not, Pair, Register,
-        Remove, Sequence, Transfer, Unregister,
+        Add, Burn, Fail, Greater, If, Instruction, InstructionBox, Mint, Not, Pair, Register,
+        Sequence, Subtract, Transfer, Unregister,
     };
 }
