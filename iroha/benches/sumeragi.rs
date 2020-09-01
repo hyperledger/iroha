@@ -2,10 +2,11 @@ use criterion::*;
 use iroha::sumeragi::NetworkTopology;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
+use std::collections::BTreeSet;
 
 const N_PEERS: usize = 255;
 
-fn get_n_peers(n: usize) -> Vec<PeerId> {
+fn get_n_peers(n: usize) -> BTreeSet<PeerId> {
     (0..n)
         .map(|i| PeerId {
             address: format!("127.0.0.{}", i),

@@ -111,7 +111,10 @@ impl Iroha {
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-            PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
+            PeerId::new(
+                &config.torii_configuration.torii_p2p_url,
+                &config.public_key,
+            ),
             init::domains(&config.init_configuration),
             config.sumeragi_configuration.trusted_peers.clone(),
         ))));
@@ -142,7 +145,10 @@ impl Iroha {
             &config.block_sync_configuration,
             kura.clone(),
             sumeragi.clone(),
-            PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
+            PeerId::new(
+                &config.torii_configuration.torii_p2p_url,
+                &config.public_key,
+            ),
         )));
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
             &config.queue_configuration,

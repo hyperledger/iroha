@@ -29,11 +29,11 @@ impl World for IrohaWorld {
             .expect("Failed to load configuration.");
         let free_port = port_check::free_local_port().expect("Failed to allocate a free port.");
         println!("Free port: {}", free_port);
-        configuration.torii_url = format!("127.0.0.1:{}", free_port);
+        configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
         let iroha_client = Client::new(&configuration);
         IrohaWorld {
             client: iroha_client,
-            peer_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
+            peer_id: PeerId::new(&configuration.torii_api_url, &configuration.public_key),
             block_build_time: 300,
             iroha_port: free_port,
             result: Option::None,
@@ -58,7 +58,7 @@ mod iroha_steps {
                     configuration
                         .kura_configuration
                         .kura_block_store_path(temp_dir.path());
-                    configuration.torii_configuration.torii_url =
+                    configuration.torii_configuration.torii_p2p_url =
                         format!("127.0.0.1:{}", iroha_port);
                     let iroha = Iroha::new(configuration.clone());
                     iroha.start().await.expect("Failed to start Iroha.");
@@ -94,7 +94,6 @@ mod asset_steps {
             _step | {
                 let asset_definition_name = matches[1].trim();
                 let asset_definition_domain = matches[2].trim();
-                executor::block_on(async {
                     world
                         .client
                         .submit(
@@ -107,8 +106,6 @@ mod asset_steps {
                                         )
                             .into(),
                             )
-                        .await
-                })
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -123,7 +120,6 @@ mod asset_steps {
                 let asset_quantity: u32 = matches[3].trim().parse().expect("Failed to parse Assets Quantity.");
                 let asset_definition_name = matches[4].trim();
                 let asset_definition_domain = matches[5].trim();
-                executor::block_on(async {
                     world
                         .client
                         .submit(
@@ -136,8 +132,6 @@ mod asset_steps {
                                         )
                             .into(),
                             )
-                        .await
-                })
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -156,7 +150,7 @@ mod asset_steps {
                     AssetDefinitionId::new(&asset_definition_name, &asset_definition_domain),
                     );
                 let query_result =
-                    executor::block_on(async { world.client.request(&request).await })
+                    world.client.request(&request)
                     .expect("Failed to execute request.");
                 if let QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(result) = query_result {
                     assert!(!result.assets.is_empty());
@@ -180,7 +174,7 @@ mod asset_steps {
                     AssetDefinitionId::new(&asset_definition_name, &asset_definition_domain),
                     );
                 let query_result =
-                    executor::block_on(async { world.client.request(&request).await })
+                    world.client.request(&request)
                     .expect("Failed to execute request.");
                 if let QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(result) = query_result {
                     assert!(!result.assets.is_empty());
@@ -218,12 +212,10 @@ mod account_steps {
                         &account_name, &domain_name
                         );
                     let register_account = Register::<Domain, Account>::new(
-                        Account::new(AccountId::new(&account_name, &domain_name)),
-                        domain_name.to_string(),
-                        );
-                    executor::block_on(async {
-                        world.client.submit(register_account.into()).await
-                    })
+                         Account::new(AccountId::new(&account_name, &domain_name)),
+                         domain_name.to_string(),
+                    );
+                        world.client.submit(register_account.into())
                     .expect("Failed to register an account.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
                     world
@@ -244,22 +236,20 @@ mod account_steps {
                         "Going to mint an {} of an asset with definition: {}#{} to an account: {}@{}",
                         quantity, asset_definition_name, asset_definition_domain,
                         account_name, account_domain_name);
-                    executor::block_on(
                         world.client.submit(
                             Mint::<Asset, u32>::new(
-                                quantity,
-                                AssetId::new(
-                                    AssetDefinitionId::new(
-                                        &asset_definition_name,
-                                        &asset_definition_domain
-                                        ),
-                                        AccountId::new(
-                                            &account_name,
-                                            &account_domain_name
-                                            )
-                                        )
-                                ).into()
-                            )
+                                 quantity,
+                                 AssetId::new(
+                                     AssetDefinitionId::new(
+                                                       &asset_definition_name,
+                                                       &asset_definition_domain
+                                                       ),
+                                                        AccountId::new(
+                                                           &account_name,
+                                                           &account_domain_name
+                                                           )
+                                )
+                            ).into()
                         ).expect("Failed to submit Mint instruction.");
                     thread::sleep(Duration::from_millis(world.block_build_time));
                     world
@@ -276,7 +266,7 @@ mod account_steps {
                     let request =
                         client::account::by_id(AccountId::new(&account_name, &domain_name));
                     let query_result =
-                        executor::block_on(async { world.client.request(&request).await })
+                        world.client.request(&request)
                         .expect("Failed to execute request.");
                     if let QueryResult::FindAccountById(_) = query_result {
                         println!("Account found.");
@@ -306,7 +296,9 @@ mod domain_steps {
                         Domain::new(domain_name),
                         world.peer_id.clone(),
                     );
-                    executor::block_on(async { world.client.submit(add_domain.into()).await })
+                    world
+                        .client
+                        .submit(add_domain.into())
                         .expect("Failed to add the domain.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
                     world
@@ -318,9 +310,10 @@ mod domain_steps {
                     let domain_name = matches[1].trim();
                     println!("Check domain: {}", domain_name);
                     let request = client::domain::by_name(domain_name.to_string());
-                    let query_result =
-                        executor::block_on(async { world.client.request(&request).await })
-                            .expect("Failed to execute request.");
+                    let query_result = world
+                        .client
+                        .request(&request)
+                        .expect("Failed to execute request.");
                     if let QueryResult::FindDomainByName(_) = query_result {
                         println!("Domain found.");
                     } else {
@@ -350,9 +343,10 @@ mod query_steps {
                         account_name, domain_name
                     );
                     let request = client::domain::all();
-                    let query_result =
-                        executor::block_on(async { world.client.request(&request).await })
-                            .expect("Failed to execute request.");
+                    let query_result = world
+                        .client
+                        .request(&request)
+                        .expect("Failed to execute request.");
                     if let QueryResult::FindAllDomains(_) = query_result {
                         world.result = Some(query_result);
                     } else {
@@ -371,9 +365,10 @@ mod query_steps {
                         account_name, domain_name
                     );
                     let request = client::asset::all();
-                    let query_result =
-                        executor::block_on(async { world.client.request(&request).await })
-                            .expect("Failed to execute request.");
+                    let query_result = world
+                        .client
+                        .request(&request)
+                        .expect("Failed to execute request.");
                     if let QueryResult::FindAllAssets(_) = query_result {
                         world.result = Some(query_result);
                     } else {
@@ -392,9 +387,10 @@ mod query_steps {
                         account_name, domain_name
                     );
                     let request = client::account::all();
-                    let query_result =
-                        executor::block_on(async { world.client.request(&request).await })
-                            .expect("Failed to execute request.");
+                    let query_result = world
+                        .client
+                        .request(&request)
+                        .expect("Failed to execute request.");
                     if let QueryResult::FindAllAccounts(_) = query_result {
                         world.result = Some(query_result);
                     } else {
@@ -413,9 +409,10 @@ mod query_steps {
                         account_name, domain_name
                     );
                     let request = client::asset::all_definitions();
-                    let query_result =
-                        executor::block_on(async { world.client.request(&request).await })
-                            .expect("Failed to execute request.");
+                    let query_result = world
+                        .client
+                        .request(&request)
+                        .expect("Failed to execute request.");
                     if let QueryResult::FindAllAssetsDefinitions(_) = query_result {
                         world.result = Some(query_result);
                     } else {
@@ -549,7 +546,6 @@ mod peer_steps {
                 let trusted_peer_url = matches[3].trim();
                 let trusted_peer_public_key = matches[4].trim();
                 let public_key: PublicKey = serde_json::from_value(serde_json::json!(trusted_peer_public_key)).expect("Failed to parse Public Key.");
-                executor::block_on(async {
                     world
                         .client
                         .submit(
@@ -562,8 +558,6 @@ mod peer_steps {
                                         )
                             .into(),
                             )
-                        .await
-                })
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -576,7 +570,6 @@ mod peer_steps {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
                 let maximum_faulty_peers_amount = matches[3].parse().expect("Failed to parse MaximumFaultyPeersAmount.");
-                executor::block_on(async {
                     world
                         .client
                         .submit(
@@ -586,8 +579,6 @@ mod peer_steps {
                                 )
                             .into(),
                             )
-                        .await
-                })
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -600,7 +591,7 @@ mod peer_steps {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
                 let commit_time_milliseconds = matches[3].parse().expect("Failed to parse CommitTime.");
-                executor::block_on(async {
+
                     world
                         .client
                         .submit(
@@ -610,8 +601,7 @@ mod peer_steps {
                                 )
                             .into(),
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -624,7 +614,7 @@ mod peer_steps {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
                 let transaction_receipt_time_milliseconds = matches[3].parse().expect("Failed to parse TransactionReceiptTime.");
-                executor::block_on(async {
+
                     world
                         .client
                         .submit(
@@ -634,8 +624,7 @@ mod peer_steps {
                                 )
                             .into(),
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -648,7 +637,7 @@ mod peer_steps {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
                 let block_time_milliseconds = matches[3].parse().expect("Failed to parse BlockTime.");
-                executor::block_on(async {
+
                     world
                         .client
                         .submit(
@@ -658,8 +647,7 @@ mod peer_steps {
                                 )
                             .into(),
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
@@ -671,14 +659,13 @@ mod peer_steps {
             _step | {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
-                let query_result = executor::block_on(async {
+                let query_result =
                     world
                         .client
                         .request(
                             &QueryRequest::new(FindAllPeers::new().into())
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 if let QueryResult::FindAllPeers(_) = query_result {
                     world.result = Some(query_result);
@@ -692,14 +679,13 @@ mod peer_steps {
             _step | {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
-                let query_result = executor::block_on(async {
+                let query_result =
                     world
                         .client
                         .request(
                             &QueryRequest::new(FindAllParameters::new().into())
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 if let QueryResult::FindAllParameters(_) = query_result {
                     world.result = Some(query_result);
@@ -713,15 +699,14 @@ mod peer_steps {
             _step | {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
-                let query_result = executor::block_on(async {
+                let query_result =
                     world
                         .client
                         .request(
                             //TODO: replace with FindParameterById or something like that.
                             &QueryRequest::new(FindAllParameters::new().into())
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 if let QueryResult::FindAllParameters(_) = query_result {
                     world.result = Some(query_result);
@@ -735,15 +720,14 @@ mod peer_steps {
             _step | {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
-                let query_result = executor::block_on(async {
+                let query_result =
                     world
                         .client
                         .request(
                             //TODO: replace with FindParameterById or something like that.
                             &QueryRequest::new(FindAllParameters::new().into())
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 if let QueryResult::FindAllParameters(_) = query_result {
                     world.result = Some(query_result);
@@ -757,15 +741,14 @@ mod peer_steps {
             _step | {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
-                let query_result = executor::block_on(async {
+                let query_result =
                     world
                         .client
                         .request(
                             //TODO: replace with FindParameterById or something like that.
                             &QueryRequest::new(FindAllParameters::new().into())
                             )
-                        .await
-                })
+
                 .expect("Failed to execute request.");
                 if let QueryResult::FindAllParameters(_) = query_result {
                     world.result = Some(query_result);
@@ -828,8 +811,7 @@ mod peer_steps {
                     assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::BlockTime(block_time_milliseconds)).is_some());
                 }
                 world
-            })
-        ;
+            });
         steps
     }
 }

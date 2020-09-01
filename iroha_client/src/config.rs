@@ -3,12 +3,12 @@ use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
-const TORII_URL: &str = "TORII_URL";
+const TORII_API_URL: &str = "TORII_API_URL";
 const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
-const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
+const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -21,8 +21,8 @@ pub struct Configuration {
     /// Private key of this client.
     pub private_key: PrivateKey,
     /// Torii URL.
-    #[serde(default = "default_torii_url")]
-    pub torii_url: String,
+    #[serde(default = "default_torii_api_url")]
+    pub torii_api_url: String,
     /// Torii connection URL.
     #[serde(default = "default_torii_connect_url")]
     pub torii_connect_url: String,
@@ -51,8 +51,8 @@ impl Configuration {
     /// values.
     pub fn load_environment(&mut self) -> Result<(), String> {
         self.logger_configuration.load_environment()?;
-        if let Ok(torii_url) = env::var(TORII_URL) {
-            self.torii_url = torii_url;
+        if let Ok(torii_api_url) = env::var(TORII_API_URL) {
+            self.torii_api_url = torii_api_url;
         }
         if let Ok(torii_connect_url) = env::var(TORII_CONNECT_URL) {
             self.torii_connect_url = torii_connect_url;
@@ -74,8 +74,8 @@ impl Configuration {
     }
 }
 
-fn default_torii_url() -> String {
-    DEFAULT_TORII_URL.to_string()
+fn default_torii_api_url() -> String {
+    DEFAULT_TORII_API_URL.to_string()
 }
 
 fn default_torii_connect_url() -> String {
