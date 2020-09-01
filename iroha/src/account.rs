@@ -11,7 +11,7 @@ pub mod isi {
     use super::*;
     use crate::isi::prelude::*;
 
-    impl Execute for Add<Account, PublicKey> {
+    impl Execute for Mint<Account, PublicKey> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -27,7 +27,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Remove<Account, PublicKey> {
+    impl Execute for Burn<Account, PublicKey> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,

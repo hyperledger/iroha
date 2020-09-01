@@ -1,23 +1,5 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
-#![warn(
-    anonymous_parameters,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    rust_2018_idioms,
-    private_doc_tests,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused,
-    future_incompatible,
-    nonstandard_style,
-    unsafe_code,
-    unused_import_braces,
-    unused_results,
-    variant_size_differences
-)]
-
 use self::{account::*, asset::*, domain::*, peer::*};
 use crate::ValueBox;
 use iroha_crypto::prelude::*;
