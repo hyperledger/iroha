@@ -17,6 +17,7 @@ use crate::{
 use async_std::{prelude::*, sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
+use iroha_http_server::{prelude::*, Server};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
@@ -26,7 +27,8 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 /// Main network handler and the only entrypoint of the Iroha.
 #[derive(Debug)]
 pub struct Torii {
-    url: String,
+    p2p_url: String,
+    api_url: String,
     connect_url: String,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
@@ -38,29 +40,6 @@ pub struct Torii {
 }
 
 impl Torii {
-    /// Default `Torii` constructor.
-    pub fn new(
-        (url, connect_url): (&str, &str),
-        world_state_view: Arc<RwLock<WorldStateView>>,
-        transaction_sender: TransactionSender,
-        sumeragi_message_sender: SumeragiMessageSender,
-        block_sync_message_sender: BlockSyncMessageSender,
-        system: System,
-        (events_sender, events_receiver): (EventsSender, EventsReceiver),
-    ) -> Self {
-        Torii {
-            url: url.to_string(),
-            connect_url: connect_url.to_string(),
-            world_state_view,
-            transaction_sender: Arc::new(RwLock::new(transaction_sender)),
-            sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
-            block_sync_message_sender: Arc::new(RwLock::new(block_sync_message_sender)),
-            system: Arc::new(RwLock::new(system)),
-            events_sender,
-            events_receiver,
-        }
-    }
-
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
         configuration: &config::ToriiConfiguration,
@@ -71,15 +50,18 @@ impl Torii {
         system: System,
         (events_sender, events_receiver): (EventsSender, EventsReceiver),
     ) -> Self {
-        Torii::new(
-            (&configuration.torii_url, &configuration.torii_connect_url),
+        Torii {
+            p2p_url: configuration.torii_p2p_url.clone(),
+            api_url: configuration.torii_api_url.clone(),
+            connect_url: configuration.torii_connect_url.clone(),
             world_state_view,
-            transaction_sender,
-            sumeragi_message_sender,
-            block_sync_message_sender,
-            system,
-            (events_sender, events_receiver),
-        )
+            transaction_sender: Arc::new(RwLock::new(transaction_sender)),
+            sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
+            block_sync_message_sender: Arc::new(RwLock::new(block_sync_message_sender)),
+            system: Arc::new(RwLock::new(system)),
+            events_sender,
+            events_receiver,
+        }
     }
 
     /// To handle incoming requests `Torii` should be started first.
@@ -100,13 +82,25 @@ impl Torii {
             events_sender: self.events_sender.clone(),
         };
         let state = Arc::new(RwLock::new(state));
-        let (handle_requests_result, handle_connects_result, _event_consumer_result) = futures::join!(
-            Network::listen(state.clone(), &self.url, handle_requests),
+        let mut server = Server::new(state.clone());
+        server.at(uri::INSTRUCTIONS_URI).post(handle_instructions);
+        server.at(uri::QUERY_URI).get(handle_queries);
+        server.at(uri::HEALTH_URI).get(handle_health);
+        server.at(uri::METRICS_URI).get(handle_metrics);
+        let (
+            handle_requests_result,
+            handle_connects_result,
+            http_server_result,
+            _event_consumer_result,
+        ) = futures::join!(
+            Network::listen(state.clone(), &self.p2p_url, handle_requests),
             Network::listen(state.clone(), &self.connect_url, handle_connections),
+            server.start(&self.api_url),
             consume_events(self.events_receiver.clone(), connections)
         );
         handle_requests_result?;
         handle_connects_result?;
+        http_server_result?;
         Ok(())
     }
 }
@@ -120,6 +114,111 @@ struct ToriiState {
     consumers: Arc<RwLock<Vec<Consumer>>>,
     system: Arc<RwLock<System>>,
     events_sender: EventsSender,
+}
+
+async fn handle_instructions(
+    state: State<ToriiState>,
+    _path_params: PathParams,
+    _query_params: QueryParams,
+    request: HttpRequest,
+) -> Result<HttpResponse, String> {
+    match Transaction::try_from(request.body) {
+        Ok(transaction) => {
+            if let Err(e) = state
+                .write()
+                .await
+                .events_sender
+                .try_send(Occurrence::Created(Entity::Transaction(Vec::from(
+                    &transaction,
+                ))))
+            {
+                log::error!("Failed to send event - channel is full: {}", e);
+            }
+            let transaction = transaction.accept()?;
+            let payload = Vec::from(&transaction);
+            state
+                .write()
+                .await
+                .transaction_sender
+                .write()
+                .await
+                .send(transaction)
+                .await;
+            if let Err(e) = state
+                .write()
+                .await
+                .events_sender
+                .try_send(Occurrence::Updated(Entity::Transaction(payload)))
+            {
+                log::error!("Failed to send event - channel is full: {}", e);
+            }
+            Ok(HttpResponse::ok(Headers::new(), Vec::new()))
+        }
+        Err(e) => {
+            log::error!("Failed to decode transaction: {}", e);
+            Ok(HttpResponse::internal_server_error())
+        }
+    }
+}
+
+async fn handle_queries(
+    state: State<ToriiState>,
+    _path_params: PathParams,
+    _query_params: QueryParams,
+    request: HttpRequest,
+) -> Result<HttpResponse, String> {
+    match SignedQueryRequest::try_from(request.body) {
+        //TODO: check query permissions based on signature?
+        Ok(request) => match request.verify() {
+            Ok(request) => {
+                match request
+                    .query
+                    .execute(&*state.read().await.world_state_view.read().await)
+                {
+                    Ok(result) => {
+                        let result = &result;
+                        Ok(HttpResponse::ok(Headers::new(), result.into()))
+                    }
+                    Err(e) => {
+                        log::error!("Failed to execute query: {}", e);
+                        Ok(HttpResponse::internal_server_error())
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to verify Query Request: {}", e);
+                Ok(HttpResponse::internal_server_error())
+            }
+        },
+        Err(e) => {
+            log::error!("Failed to decode transaction: {}", e);
+            Ok(HttpResponse::internal_server_error())
+        }
+    }
+}
+
+async fn handle_health(
+    _state: State<ToriiState>,
+    _path_params: PathParams,
+    _query_params: QueryParams,
+    _request: HttpRequest,
+) -> Result<HttpResponse, String> {
+    Ok(HttpResponse::ok(Headers::new(), Health::Healthy.into()))
+}
+
+async fn handle_metrics(
+    state: State<ToriiState>,
+    _path_params: PathParams,
+    _query_params: QueryParams,
+    _request: HttpRequest,
+) -> Result<HttpResponse, String> {
+    match state.read().await.system.read().await.scrape_metrics() {
+        Ok(metrics) => Ok(HttpResponse::ok(Headers::new(), metrics.into())),
+        Err(e) => {
+            log::error!("Failed to scrape metrics: {}", e);
+            Ok(HttpResponse::internal_server_error())
+        }
+    }
 }
 
 async fn handle_requests(
@@ -176,71 +275,6 @@ async fn handle_connections(
 #[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
-        uri::INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
-            Ok(transaction) => {
-                if let Err(e) = state
-                    .write()
-                    .await
-                    .events_sender
-                    .try_send(Occurrence::Created(Entity::Transaction(Vec::from(
-                        &transaction,
-                    ))))
-                {
-                    log::error!("Failed to send event - channel is full: {}", e);
-                }
-                let transaction = transaction.accept()?;
-                let payload = Vec::from(&transaction);
-                state
-                    .write()
-                    .await
-                    .transaction_sender
-                    .write()
-                    .await
-                    .send(transaction)
-                    .await;
-                if let Err(e) = state
-                    .write()
-                    .await
-                    .events_sender
-                    .try_send(Occurrence::Updated(Entity::Transaction(payload)))
-                {
-                    log::error!("Failed to send event - channel is full: {}", e);
-                }
-                Ok(Response::empty_ok())
-            }
-            Err(e) => {
-                log::error!("Failed to decode transaction: {}", e);
-                Ok(Response::InternalError)
-            }
-        },
-        uri::QUERY_URI => match SignedQueryRequest::try_from(request.payload().to_vec()) {
-            //TODO: check query permissions based on signature?
-            Ok(request) => match request.verify() {
-                Ok(request) => {
-                    match request
-                        .query
-                        .execute(&*state.read().await.world_state_view.read().await)
-                    {
-                        Ok(result) => {
-                            let result = &result;
-                            Ok(Response::Ok(result.into()))
-                        }
-                        Err(e) => {
-                            log::error!("Failed to execute query: {}", e);
-                            Ok(Response::InternalError)
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to verify Query Request: {}", e);
-                    Ok(Response::InternalError)
-                }
-            },
-            Err(e) => {
-                log::error!("Failed to decode transaction: {}", e);
-                Ok(Response::InternalError)
-            }
-        },
         uri::CONSENSUS_URI => match SumeragiMessage::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
@@ -255,14 +289,6 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
             }
             Err(e) => {
                 log::error!("Failed to decode peer message: {}", e);
-                Ok(Response::InternalError)
-            }
-        },
-        uri::HEALTH_URI => Ok(Response::Ok(Health::Healthy.into())),
-        uri::METRICS_URI => match state.read().await.system.read().await.scrape_metrics() {
-            Ok(metrics) => Ok(Response::Ok(metrics.into())),
-            Err(e) => {
-                log::error!("Failed to scrape metrics: {}", e);
                 Ok(Response::InternalError)
             }
         },
@@ -283,22 +309,29 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
-        non_supported_uri => panic!("URI not supported: {}.", &non_supported_uri),
+        non_supported_uri => {
+            log::error!("URI not supported: {}.", &non_supported_uri);
+            Ok(Response::InternalError)
+        }
     }
 }
 
 /// URI that `Torii` uses to route incoming requests.
 pub mod uri {
     /// Query URI is used to handle incoming Query requests.
+    //TODO: http
     pub const QUERY_URI: &str = "/query";
     /// Instructions URI is used to handle incoming ISI requests.
+    //TODO: http
     pub const INSTRUCTIONS_URI: &str = "/instruction";
     /// Block URI is used to handle incoming Block requests.
     pub const CONSENSUS_URI: &str = "/consensus";
     /// Health URI is used to handle incoming Healthcheck requests.
+    //TODO: http
     pub const HEALTH_URI: &str = "/health";
     /// Metrics URI is used to export metrics according to [Prometheus
     /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
+    //TODO: http
     pub const METRICS_URI: &str = "/metrics";
     /// The URI used for block synchronization.
     pub const BLOCK_SYNC_URI: &str = "/block";
@@ -309,18 +342,23 @@ pub mod config {
     use serde::Deserialize;
     use std::env;
 
-    const TORII_URL: &str = "TORII_URL";
+    const TORII_API_URL: &str = "TORII_API_URL";
+    const TORII_P2P_URL: &str = "TORII_P2P_URL";
     const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
-    const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
+    const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
+    const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
     const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Debug)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct ToriiConfiguration {
-        /// Torii URL.
-        #[serde(default = "default_torii_url")]
-        pub torii_url: String,
+        /// Torii URL for p2p communication for consensus and block synchronization purposes.
+        #[serde(default = "default_torii_p2p_url")]
+        pub torii_p2p_url: String,
+        /// Torii URL for client API.
+        #[serde(default = "default_torii_api_url")]
+        pub torii_api_url: String,
         /// Torii connection URL.
         #[serde(default = "default_torii_connect_url")]
         pub torii_connect_url: String,
@@ -330,8 +368,11 @@ pub mod config {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
         pub fn load_environment(&mut self) -> Result<(), String> {
-            if let Ok(torii_url) = env::var(TORII_URL) {
-                self.torii_url = torii_url;
+            if let Ok(torii_api_url) = env::var(TORII_API_URL) {
+                self.torii_api_url = torii_api_url;
+            }
+            if let Ok(torii_p2p_url) = env::var(TORII_P2P_URL) {
+                self.torii_p2p_url = torii_p2p_url;
             }
             if let Ok(torii_connect_url) = env::var(TORII_CONNECT_URL) {
                 self.torii_connect_url = torii_connect_url;
@@ -340,8 +381,12 @@ pub mod config {
         }
     }
 
-    fn default_torii_url() -> String {
-        DEFAULT_TORII_URL.to_string()
+    fn default_torii_p2p_url() -> String {
+        DEFAULT_TORII_P2P_URL.to_string()
+    }
+
+    fn default_torii_api_url() -> String {
+        DEFAULT_TORII_API_URL.to_string()
     }
 
     fn default_torii_connect_url() -> String {
@@ -362,16 +407,14 @@ mod tests {
     async fn create_and_start_torii() {
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let torii_url = config.torii_configuration.torii_url.to_string();
-        let torii_connect_url = config.torii_configuration.torii_connect_url.to_string();
         let (tx_tx, _) = sync::channel(100);
         let (sumeragi_message_sender, _) = sync::channel(100);
         let (block_sync_message_sender, _) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
-        let mut torii = Torii::new(
-            (&torii_url, &torii_connect_url),
+        let mut torii = Torii::from_configuration(
+            &config.torii_configuration,
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(PeerId::new(
-                &config.torii_configuration.torii_url,
+                &config.torii_configuration.torii_p2p_url,
                 &config.public_key,
             ))))),
             tx_tx,

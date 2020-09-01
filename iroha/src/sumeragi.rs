@@ -1410,13 +1410,20 @@ mod tests {
         let max_faults = 1;
         let mut keys = Vec::new();
         let mut ids = Vec::new();
+        let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
+            addresses.push((
+                format!("127.0.0.1:{}", 7878 + i * 3),
+                format!("127.0.0.1:{}", 7878 + i * 3 + 1),
+                format!("127.0.0.1:{}", 7878 + i * 3 + 2),
+            ));
+            let (p2p_address, _, _) = &addresses[i];
             let peer_id = PeerId {
-                address: format!("127.0.0.1:{}", 7878 + i),
+                address: p2p_address.clone(),
                 public_key: key_pair.public_key,
             };
             ids.push(peer_id);
@@ -1438,22 +1445,18 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                PeerId::new(
-                    "127.0.0.1:7878",
-                    &KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                ),
+                ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
                 ids_set.clone(),
             ))));
-            let mut torii = Torii::new(
-                (
-                    ids[i].address.as_str(),
-                    &format!("{}{}", ids[i].address, "0"),
-                ),
+            let (p2p_address, api_address, connect_address) = &addresses[i];
+            config.torii_configuration.torii_p2p_url = p2p_address.clone();
+            config.torii_configuration.torii_api_url = api_address.clone();
+            config.torii_configuration.torii_connect_url = connect_address.clone();
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -1469,7 +1472,6 @@ mod tests {
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
@@ -1534,13 +1536,20 @@ mod tests {
         let max_faults = 1;
         let mut keys = Vec::new();
         let mut ids = Vec::new();
+        let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
+            addresses.push((
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 + i * 3),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 + i * 3 + 1),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 + i * 3 + 2),
+            ));
+            let (p2p_address, _, _) = &addresses[i];
             let peer_id = PeerId {
-                address: format!("127.0.0.1:{}", 7878 + n_peers + i),
+                address: p2p_address.clone(),
                 public_key: key_pair.public_key,
             };
             ids.push(peer_id);
@@ -1562,22 +1571,18 @@ mod tests {
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                PeerId::new(
-                    "127.0.0.1:7878",
-                    &KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                ),
+                ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
                 ids_set.clone(),
             ))));
-            let mut torii = Torii::new(
-                (
-                    ids[i].address.as_str(),
-                    &format!("{}{}", ids[i].address, "0"),
-                ),
+            let (p2p_address, api_address, connect_address) = &addresses[i];
+            config.torii_configuration.torii_p2p_url = p2p_address.clone();
+            config.torii_configuration.torii_api_url = api_address.clone();
+            config.torii_configuration.torii_connect_url = connect_address.clone();
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -1593,7 +1598,6 @@ mod tests {
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
@@ -1682,13 +1686,20 @@ mod tests {
         let max_faults = 1;
         let mut keys = Vec::new();
         let mut ids = Vec::new();
+        let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
+            addresses.push((
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 2 + i * 3),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 2 + i * 3 + 1),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 2 + i * 3 + 2),
+            ));
+            let (p2p_address, _, _) = &addresses[i];
             let peer_id = PeerId {
-                address: format!("127.0.0.1:{}", 7878 + n_peers * 2 + i),
+                address: p2p_address.clone(),
                 public_key: key_pair.public_key,
             };
             ids.push(peer_id);
@@ -1709,22 +1720,18 @@ mod tests {
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                PeerId::new(
-                    "127.0.0.1:7878",
-                    &KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                ),
+                ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
                 ids_set.clone(),
             ))));
-            let mut torii = Torii::new(
-                (
-                    ids[i].address.as_str(),
-                    &format!("{}{}", ids[i].address, "0"),
-                ),
+            let (p2p_address, api_address, connect_address) = &addresses[i];
+            config.torii_configuration.torii_p2p_url = p2p_address.clone();
+            config.torii_configuration.torii_api_url = api_address.clone();
+            config.torii_configuration.torii_connect_url = connect_address.clone();
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
                 wsv.clone(),
                 transactions_sender.clone(),
                 sumeragi_message_sender,
@@ -1740,7 +1747,6 @@ mod tests {
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
@@ -1840,13 +1846,20 @@ mod tests {
         let max_faults = 1;
         let mut keys = Vec::new();
         let mut ids = Vec::new();
+        let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
+            addresses.push((
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 3 + i * 3 + 1),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 3 + i * 3 + 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 3 + i * 3),
+            ));
+            let (p2p_address, _, _) = &addresses[i];
             let peer_id = PeerId {
-                address: format!("127.0.0.1:{}", 7878 + n_peers * 3 + i),
+                address: p2p_address.clone(),
                 public_key: key_pair.public_key,
             };
             ids.push(peer_id);
@@ -1867,22 +1880,18 @@ mod tests {
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                PeerId::new(
-                    "127.0.0.1:7878",
-                    &KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                ),
+                ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
                 ids_set.clone(),
             ))));
-            let mut torii = Torii::new(
-                (
-                    ids[i].address.as_str(),
-                    &format!("{}{}", ids[i].address, "0"),
-                ),
+            let (p2p_address, api_address, connect_address) = &addresses[i];
+            config.torii_configuration.torii_p2p_url = p2p_address.clone();
+            config.torii_configuration.torii_api_url = api_address.clone();
+            config.torii_configuration.torii_connect_url = connect_address.clone();
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
                 wsv.clone(),
                 transactions_sender.clone(),
                 sumeragi_message_sender,
@@ -1898,7 +1907,6 @@ mod tests {
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
@@ -1995,13 +2003,20 @@ mod tests {
         let max_faults = 1;
         let mut keys = Vec::new();
         let mut ids = Vec::new();
+        let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
+            addresses.push((
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 4 + i * 3),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 4 + i * 3 + 1),
+                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 4 + i * 3 + 2),
+            ));
+            let (p2p_address, _, _) = &addresses[i];
             let peer_id = PeerId {
-                address: format!("127.0.0.1:{}", 7878 + n_peers * 4 + i),
+                address: p2p_address.clone(),
                 public_key: key_pair.public_key,
             };
             ids.push(peer_id);
@@ -2023,22 +2038,18 @@ mod tests {
             let (events_sender, events_receiver) = sync::channel(100);
             let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                PeerId::new(
-                    "127.0.0.1:7878",
-                    &KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                ),
+                ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
                 ids_set,
             ))));
-            let mut torii = Torii::new(
-                (
-                    ids[i].address.as_str(),
-                    &format!("{}{}", ids[i].address, "0"),
-                ),
+            let (p2p_address, api_address, connect_address) = &addresses[i];
+            config.torii_configuration.torii_p2p_url = p2p_address.clone();
+            config.torii_configuration.torii_api_url = api_address.clone();
+            config.torii_configuration.torii_connect_url = connect_address.clone();
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2054,7 +2065,6 @@ mod tests {
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(

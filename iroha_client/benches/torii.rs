@@ -1,6 +1,5 @@
 use async_std::task;
 use criterion::*;
-use futures::executor;
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
     client::{asset, Client},
@@ -24,7 +23,7 @@ fn query_requests(criterion: &mut Criterion) {
     let create_domain = Register::<Peer, Domain>::new(
         Domain::new(domain_name),
         PeerId::new(
-            &configuration.torii_configuration.torii_url,
+            &configuration.torii_configuration.torii_p2p_url,
             &configuration.public_key,
         ),
     );
@@ -48,35 +47,34 @@ fn query_requests(criterion: &mut Criterion) {
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
-    executor::block_on(iroha_client.submit_all(vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-        mint_asset.into(),
-    ]))
-    .expect("Failed to prepare state.");
+    iroha_client
+        .submit_all(vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+            mint_asset.into(),
+        ])
+        .expect("Failed to prepare state.");
     let request = asset::by_account_id(account_id);
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;
     group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
     group.bench_function("query", |b| {
-        b.iter(
-            || match executor::block_on(iroha_client.request(&request)) {
-                Ok(query_result) => {
-                    if let QueryResult::FindAssetsByAccountId(result) = query_result {
-                        assert!(!result.assets.is_empty());
-                        success_count += 1;
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+        b.iter(|| match iroha_client.request(&request) {
+            Ok(query_result) => {
+                if let QueryResult::FindAssetsByAccountId(result) = query_result {
+                    assert!(!result.assets.is_empty());
+                    success_count += 1;
+                } else {
+                    panic!("Wrong Query Result Type.");
                 }
-                Err(e) => {
-                    eprintln!("Query failed: {}", e);
-                    failures_count += 1;
-                }
-            },
-        );
+            }
+            Err(e) => {
+                eprintln!("Query failed: {}", e);
+                failures_count += 1;
+            }
+        });
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -101,7 +99,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let create_domain = Register::<Peer, Domain>::new(
         Domain::new(domain_name),
         PeerId::new(
-            &configuration.torii_configuration.torii_url,
+            &configuration.torii_configuration.torii_p2p_url,
             &configuration.public_key,
         ),
     );
@@ -116,7 +114,8 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
-    executor::block_on(iroha_client.submit_all(vec![create_domain.into(), create_account.into()]))
+    iroha_client
+        .submit_all(vec![create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
     let mut success_count = 0;
@@ -128,7 +127,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 quantity,
                 AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );
-            match executor::block_on(iroha_client.submit(mint_asset.into())) {
+            match iroha_client.submit(mint_asset.into()) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
                     eprintln!("Failed to execute instruction: {}", e);

@@ -12,9 +12,9 @@ mod tests {
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
-    #[async_std::test]
+    #[test]
     //TODO: use cucumber to write `gherkin` instead of code.
-    async fn client_can_transfer_asset_to_another_account() {
+    fn client_can_transfer_asset_to_another_account() {
         // Given
         thread::spawn(create_and_start_iroha);
         thread::sleep(std::time::Duration::from_millis(100));
@@ -24,7 +24,7 @@ mod tests {
         let domain_name = "domain";
         let create_domain = Register::<Peer, Domain>::new(
             Domain::new(domain_name),
-            PeerId::new(&configuration.torii_url, &configuration.public_key),
+            PeerId::new(&configuration.torii_api_url, &configuration.public_key),
         );
         let account1_name = "account1";
         let account2_name = "account2";
@@ -57,9 +57,8 @@ mod tests {
                 create_asset.into(),
                 mint_asset.into(),
             ])
-            .await
             .expect("Failed to prepare state.");
-        std::thread::sleep(std::time::Duration::from_millis(200 * 2));
+        thread::sleep(std::time::Duration::from_millis(200 * 2));
         //When
         let quantity = 20;
         let transfer_asset = Transfer::<Asset, u32, Asset>::new(
@@ -69,14 +68,12 @@ mod tests {
         );
         iroha_client
             .submit(transfer_asset.into())
-            .await
             .expect("Failed to submit instruction.");
-        std::thread::sleep(std::time::Duration::from_millis(200 * 2));
+        thread::sleep(std::time::Duration::from_millis(200 * 2));
         //Then
         let request = client::asset::by_account_id(account2_id.clone());
         let query_result = iroha_client
             .request(&request)
-            .await
             .expect("Failed to execute request.");
         if let QueryResult::FindAssetsByAccountId(result) = query_result {
             assert_eq!(
