@@ -2,6 +2,7 @@
 //! generic instruction types and related implementations.
 use crate::prelude::*;
 use iroha_data_model::{isi::*, prelude::*};
+use iroha_derive::log;
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 pub trait Execute {
@@ -22,11 +23,11 @@ impl Execute for InstructionBox {
         use InstructionBox::*;
         match self {
             Add(add_box) => add_box.execute(authority, world_state_view),
-            Remove(remove_box) => remove_box.execute(authority, world_state_view),
+            Subtract(substract_box) => substract_box.execute(authority, world_state_view),
             Register(register_box) => register_box.execute(authority, world_state_view),
             Unregister(unregister_box) => unregister_box.execute(authority, world_state_view),
             Mint(mint_box) => mint_box.execute(authority, world_state_view),
-            Demint(demint_box) => demint_box.execute(authority, world_state_view),
+            Burn(burn_box) => burn_box.execute(authority, world_state_view),
             Transfer(transfer_box) => transfer_box.execute(authority, world_state_view),
             If(if_box) => if_box.execute(authority, world_state_view),
             Greater(greater_box) => greater_box.execute(authority, world_state_view),
@@ -48,7 +49,7 @@ impl Execute for AddBox {
     }
 }
 
-impl Execute for RemoveBox {
+impl Execute for SubtractBox {
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
@@ -59,6 +60,7 @@ impl Execute for RemoveBox {
 }
 
 impl Execute for RegisterBox {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -87,6 +89,7 @@ impl Execute for RegisterBox {
 }
 
 impl Execute for UnregisterBox {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -117,6 +120,7 @@ impl Execute for UnregisterBox {
 }
 
 impl Execute for MintBox {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -134,7 +138,8 @@ impl Execute for MintBox {
     }
 }
 
-impl Execute for DemintBox {
+impl Execute for BurnBox {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -142,8 +147,9 @@ impl Execute for DemintBox {
     ) -> Result<WorldStateView, String> {
         match self.destination_id {
             IdBox::AssetId(asset_id) => match self.object {
-                ValueBox::U32(quantity) => Demint::<Asset, u32>::new(quantity, asset_id)
-                    .execute(authority, world_state_view),
+                ValueBox::U32(quantity) => {
+                    Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
+                }
                 _ => Err("Unsupported instruction.".to_string()),
             },
             _ => Err("Unsupported instruction.".to_string()),
@@ -152,6 +158,7 @@ impl Execute for DemintBox {
 }
 
 impl Execute for TransferBox {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -168,7 +175,27 @@ impl Execute for TransferBox {
                     .execute(authority, world_state_view),
                     _ => Err("Unsupported instruction.".to_string()),
                 },
-                _ => Err("Unsupported instruction.".to_string()),
+                ValueBox::Query(query_box) => match self.destination_id {
+                    IdBox::AssetId(destination_asset_id) => match *query_box {
+                        QueryBox::FindAssetQuantityById(query) => {
+                            if let QueryResult::FindAssetQuantityById(result) =
+                                query.execute(&world_state_view)?
+                            {
+                                let quantity = result.quantity;
+                                return Transfer::<Asset, u32, Asset>::new(
+                                    source_asset_id,
+                                    quantity,
+                                    destination_asset_id,
+                                )
+                                .execute(authority, world_state_view);
+                            } else {
+                                Err("Wrong query result.".to_string())
+                            }
+                        }
+                        _ => Err("Unsupported instruction.".to_string()),
+                    },
+                    _ => Err("Unsupported instruction.".to_string()),
+                },
             },
             _ => Err("Unsupported instruction.".to_string()),
         }
@@ -176,6 +203,7 @@ impl Execute for TransferBox {
 }
 
 impl Execute for If {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -195,6 +223,7 @@ impl Execute for If {
 }
 
 impl Execute for GreaterBox {
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -213,6 +242,7 @@ impl Execute for GreaterBox {
 }
 
 impl Execute for Greater<u32, u32> {
+    #[log]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
@@ -227,42 +257,59 @@ impl Execute for Greater<u32, u32> {
 }
 
 impl Execute for Pair {
+    #[log]
     fn execute(
         self,
-        _authority: <Account as Identifiable>::Id,
-        _world_state_view: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &WorldStateView,
     ) -> Result<WorldStateView, String> {
-        Err("Not implemented yet.".to_string())
+        let world_state_view = self
+            .left_instruction
+            .execute(authority.clone(), world_state_view)?;
+        let world_state_view = self
+            .right_instruction
+            .execute(authority, &world_state_view)?;
+        Ok(world_state_view)
     }
 }
 
 impl Execute for Sequence {
+    #[log]
     fn execute(
         self,
-        _authority: <Account as Identifiable>::Id,
-        _world_state_view: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &WorldStateView,
     ) -> Result<WorldStateView, String> {
-        Err("Not implemented yet.".to_string())
+        let mut world_state_view = world_state_view.clone();
+        for instruction in self.instructions {
+            world_state_view = instruction.execute(authority.clone(), &world_state_view)?;
+        }
+        Ok(world_state_view)
     }
 }
 
 impl Execute for Fail {
+    #[log]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
         _world_state_view: &WorldStateView,
     ) -> Result<WorldStateView, String> {
-        Err("Not implemented yet.".to_string())
+        Err(format!("Execution failed: {}.", self.message))
     }
 }
 
 impl Execute for Not {
+    #[log]
     fn execute(
         self,
-        _authority: <Account as Identifiable>::Id,
-        _world_state_view: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &WorldStateView,
     ) -> Result<WorldStateView, String> {
-        Err("Not implemented yet.".to_string())
+        match self.instruction.execute(authority, world_state_view) {
+            Ok(_) => Err("Not.".to_string()),
+            Err(_) => Ok(world_state_view.clone()),
+        }
     }
 }
 

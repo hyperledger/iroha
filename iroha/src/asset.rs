@@ -3,6 +3,7 @@
 
 use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::prelude::*;
+use iroha_derive::log;
 
 /// Iroha Special Instructions module provides `AssetInstruction` enum with all possible types of
 /// Asset related instructions as variants, implementations of generic Iroha Special Instructions
@@ -84,7 +85,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Demint<Asset, u32> {
+    impl Execute for Burn<Asset, u32> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -100,12 +101,12 @@ pub mod isi {
             asset.quantity = asset
                 .quantity
                 .checked_sub(self.object)
-                .ok_or("Not enough quantity to demint.")?;
+                .ok_or("Not enough quantity to burn.")?;
             Ok(world_state_view)
         }
     }
 
-    impl Execute for Demint<Asset, u128> {
+    impl Execute for Burn<Asset, u128> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -121,12 +122,12 @@ pub mod isi {
             asset.big_quantity = asset
                 .big_quantity
                 .checked_sub(self.object)
-                .ok_or("Not enough big quantity to demint.")?;
+                .ok_or("Not enough big quantity to burn.")?;
             Ok(world_state_view)
         }
     }
 
-    impl Execute for Demint<Asset, Name> {
+    impl Execute for Burn<Asset, Name> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -145,6 +146,7 @@ pub mod isi {
     }
 
     impl Execute for Transfer<Asset, u32, Asset> {
+        #[log]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -159,7 +161,11 @@ pub mod isi {
                 .ok_or("Failed to find asset.")?;
             match world_state_view.asset(&self.source_id) {
                 Some(asset) => {
-                    asset.quantity -= self.object;
+                    if asset.quantity >= self.object {
+                        asset.quantity -= self.object;
+                    } else {
+                        return Err("Source asset is too small.".to_string());
+                    }
                 }
                 None => return Err("Source asset not found.".to_string()),
             }
@@ -180,7 +186,6 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Asset related implementations.
 pub mod query {
     use super::*;
-    use iroha_derive::*;
 
     impl Query for FindAllAssets {
         #[log]
@@ -217,7 +222,10 @@ pub mod query {
                 asset: world_state_view
                     .read_asset(&self.id)
                     .map(Clone::clone)
-                    .ok_or("Failed to get an asset.")?,
+                    .ok_or(format!(
+                        "Failed to get an asset with identification: {}.",
+                        &self.id
+                    ))?,
             })))
         }
     }
@@ -243,10 +251,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             let assets: Vec<Asset> = world_state_view
                 .read_account(&self.account_id)
-                .ok_or(format!(
-                    "No account with id: {:?} found in the current world state: {:?}.",
-                    &self.account_id, world_state_view
-                ))?
+                .ok_or(format!("No account with id: {} found.", &self.account_id))?
                 .assets
                 .values()
                 .cloned()
@@ -294,10 +299,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             let assets: Vec<Asset> = world_state_view
                 .read_account(&self.account_id)
-                .ok_or(format!(
-                    "No account with id: {:?} found in the current world state: {:?}.",
-                    &self.account_id, world_state_view
-                ))?
+                .ok_or(format!("No account with id: {} found.", &self.account_id))?
                 .assets
                 .values()
                 .cloned()
@@ -336,7 +338,10 @@ pub mod query {
                     quantity: world_state_view
                         .read_asset(&self.id)
                         .map(|asset| asset.quantity)
-                        .ok_or("Failed to get an asset.")?,
+                        .ok_or(format!(
+                            "Failed to get an asset with identification: {}.",
+                            &self.id
+                        ))?,
                 },
             )))
         }
