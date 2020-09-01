@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <fmt/core.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/support/status.h>
 #include "endpoint.grpc.pb.h"
@@ -44,8 +45,8 @@ namespace {
   const unsigned int kAttemptsForSuccess = kAttemptsForFailure - 1;
   constexpr auto kListenIP = "127.0.0.1";
 
-  auto makeRunner() {
-    auto listen_addr = std::string(kListenIP) + ":0";
+  auto makeRunner(int port) {
+    auto listen_addr = fmt::format("{}:{}", kListenIP, port);
     auto logger = getTestLogger("TestServerRunner");
     return std::make_shared<iroha::network::ServerRunner>(
         listen_addr, logger, true);
@@ -53,7 +54,7 @@ namespace {
 
   std::shared_ptr<iroha::network::ServerRunner> makeServer(int max_attempts,
                                                            int &port) {
-    auto runner = makeRunner();
+    auto runner = makeRunner(port);
     runner->append(std::make_shared<MockQueryService>(max_attempts));
     runner->run().match([&](const auto &val) { port = val.value; },
                         [](const auto &err) {
@@ -62,13 +63,15 @@ namespace {
     return runner;
   }
 
-  auto makeRequestAndCheckStatus(int port,
-                                 grpc::StatusCode code,
-                                 const std::string &message) {
-    auto client =
-        iroha::network::createInsecureClient<iroha::protocol::QueryService_v1>(
-            kListenIP, port, *kChannelParams);
+  auto makeClient(int port) {
+    return iroha::network::createInsecureClient<
+        iroha::protocol::QueryService_v1>(kListenIP, port, *kChannelParams);
+  }
 
+  template <typename T>
+  auto makeRequestAndCheckStatusWithGivenClient(T client,
+                                                grpc::StatusCode code,
+                                                const std::string &message) {
     iroha::protocol::Query query;
     iroha::protocol::QueryResponse response;
 
@@ -76,8 +79,14 @@ namespace {
 
     auto status = client->Find(&client_context, query, &response);
 
-    ASSERT_EQ(status.error_code(), code);
-    ASSERT_EQ(status.error_message(), message);
+    EXPECT_EQ(status.error_code(), code);
+    EXPECT_EQ(status.error_message(), message);
+  }
+
+  auto makeRequestAndCheckStatus(int port,
+                                 grpc::StatusCode code,
+                                 const std::string &message) {
+    makeRequestAndCheckStatusWithGivenClient(makeClient(port), code, message);
   }
 
 }  // namespace
@@ -90,7 +99,7 @@ namespace {
  */
 TEST(GrpcRetryTest, GrpcRetrySuccessTest) {
   // the variable is not used in any way except keeping the server alive
-  int port;
+  int port = 0;
   auto server = makeServer(kAttemptsForSuccess, port);
   makeRequestAndCheckStatus(port, grpc::StatusCode::OK, "");
 }
@@ -103,7 +112,29 @@ TEST(GrpcRetryTest, GrpcRetrySuccessTest) {
  */
 TEST(GrpcRetryTest, GrpcRetryFailureTest) {
   // the variable is not used in any way except keeping the server alive
-  int port;
+  int port = 0;
   auto server = makeServer(kAttemptsForFailure, port);
   makeRequestAndCheckStatus(port, grpc::StatusCode::ABORTED, kErrorMessage);
+}
+
+/*
+ * @given a gRPC client tries to connect to a stopped server and fails,
+ *        then the server is started again
+ * @when  the client makes a request
+ * @then  the request succeeds
+ */
+TEST(GrpcRetryTest, GrpcReuseConnectionAfterServerUnavailable) {
+  int port = 0;
+  decltype(makeClient(port)) client;
+  {
+    auto server = makeServer(kAttemptsForSuccess, port);
+    client = makeClient(port);
+  }
+  makeRequestAndCheckStatus(port,
+                            grpc::StatusCode::UNAVAILABLE,
+                            "failed to connect to all addresses");
+
+  // the variable is not used in any way except keeping the server alive
+  auto server = makeServer(kAttemptsForSuccess, port);
+  makeRequestAndCheckStatus(port, grpc::StatusCode::OK, "");
 }
