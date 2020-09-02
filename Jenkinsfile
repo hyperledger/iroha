@@ -138,7 +138,7 @@ node ('master') {
   // Define variable and params
 
   //All variable and Default values
-  x64linux_compiler_list = ['gcc7']
+  x64linux_compiler_list = ['gcc9']
   mac_compiler_list = []
   win_compiler_list = []
 
@@ -223,7 +223,7 @@ node ('master') {
         break;
      case 'Before merge to trunk':
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
-        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang7' , 'clang9']
+        x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -235,7 +235,7 @@ node ('master') {
         useBTF = true
         break;
      case 'Nightly build':
-        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang7' , 'clang9']
+        x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -317,7 +317,7 @@ node ('master') {
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
       success: [{x64LinuxBuildScript.successPostSteps(scmVars, packagePush, pushDockerTag, environmentList)}])
     def first_compiler = x64linux_compiler_list[0]
-    def default_compiler = 'gcc7'
+    def default_compiler = 'gcc9'
     def release_build = specialBranch && build_type == 'Debug'
     def manifest_push = specialBranch && !env.TAG_NAME || forceDockerDevelopBuild
     def current_parallelism = parallelism == 0 ? x64LinuxWorker.cpusAvailable : parallelism
@@ -346,7 +346,7 @@ node ('master') {
                          /*fuzzing*/false, /*benchmarking*/false, /*coredumps*/false, /*use_btf*/false, use_libursa, use_burrow, /*force_docker_develop_build*/false,
                          /*manifest_push*/false, environmentList)}],
                          x64LinuxPostSteps, "x86_64 Linux Release ${first_compiler}", x64LinuxWorker, tasks)
-      // will not be executed in usual case, because x64linux_compiler_list = ['gcc7'] for master branch or tags
+      // will not be executed in usual case, because x64linux_compiler_list = ['gcc9'] for master branch or tags
       if (x64linux_compiler_list.size() > 1){
         x64linux_compiler_list[1..-1].each { compiler ->
           registerBuildSteps([{x64LinuxBuildScript.buildSteps(

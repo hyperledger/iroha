@@ -9,10 +9,9 @@
 //
 
 def compilerMapping () {
-  return ['gcc7': ['cxx_compiler':'g++-7', 'cc_compiler':'gcc-7'],
-          'gcc9' : ['cxx_compiler':'g++-9', 'cc_compiler':'gcc-9'],
-          'clang7': ['cxx_compiler':'clang++-7', 'cc_compiler':'clang-7'],
-          'clang9': ['cxx_compiler':'clang++-9', 'cc_compiler':'clang-9'],
+  return ['gcc9': ['cxx_compiler':'g++-9', 'cc_compiler':'gcc-9'],
+          'gcc10' : ['cxx_compiler':'g++-10', 'cc_compiler':'gcc-10'],
+          'clang10': ['cxx_compiler':'clang++-10', 'cc_compiler':'clang-10'],
           'appleclang': ['cxx_compiler':'clang++', 'cc_compiler':'clang'],
          ]
   }
