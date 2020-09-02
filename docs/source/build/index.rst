@@ -127,7 +127,7 @@ to install all environment dependencies with Homebrew:
 .. code-block:: shell
 
   xcode-select --install
-  brew install cmake ninja git gcc@7
+  brew install cmake ninja git gcc@9
 
 .. hint:: To install the Homebrew itself please run
 
