@@ -81,6 +81,9 @@ impl Execute for RegisterBox {
             IdBox::PeerId(peer_id) => match self.object {
                 IdentifiableBox::Domain(domain) => Register::<Peer, Domain>::new(*domain, peer_id)
                     .execute(authority, world_state_view),
+                IdentifiableBox::Peer(peer) => {
+                    Register::<Peer, Peer>::new(*peer, peer_id).execute(authority, world_state_view)
+                }
                 _ => Err("Unsupported instruction.".to_string()),
             },
             _ => Err("Unsupported instruction.".to_string()),
@@ -131,6 +134,11 @@ impl Execute for MintBox {
                 ValueBox::U32(quantity) => {
                     Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
+                _ => Err("Unsupported instruction.".to_string()),
+            },
+            IdBox::PeerId(peer_id) => match self.object {
+                ValueBox::Parameter(parameter) => Mint::<Peer, Parameter>::new(parameter, peer_id)
+                    .execute(authority, world_state_view),
                 _ => Err("Unsupported instruction.".to_string()),
             },
             _ => Err("Unsupported instruction.".to_string()),
@@ -196,6 +204,7 @@ impl Execute for TransferBox {
                     },
                     _ => Err("Unsupported instruction.".to_string()),
                 },
+                _ => Err("Unsupported instruction.".to_string()),
             },
             _ => Err("Unsupported instruction.".to_string()),
         }

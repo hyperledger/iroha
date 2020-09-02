@@ -34,6 +34,19 @@ pub type Name = String;
 /// Represents a sequence of bytes. Used for storing encoded data.
 pub type Bytes = Vec<u8>;
 
+/// Represents Iroha Configuration parameters.
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+pub enum Parameter {
+    /// Maximum amount of Faulty Peers in the system.
+    MaximumFaultyPeersAmount(u32),
+    /// TODO: write a doc
+    CommitTime(u128),
+    /// Time to wait for a transaction Receipt.
+    TransactionReceiptTime(u128),
+    /// TODO: write a doc
+    BlockTime(u128),
+}
+
 /// Sized container for all possible identifications.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub enum IdBox {
@@ -71,6 +84,8 @@ pub enum ValueBox {
     U32(u32),
     /// Iroha `Query` variant.
     Query(Box<query::QueryBox>),
+    /// Iroha `Parameter` variant.
+    Parameter(Parameter),
 }
 
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
@@ -105,9 +120,19 @@ impl Value for PublicKey {
     type Type = PublicKey;
 }
 
+impl Value for Parameter {
+    type Type = Parameter;
+}
+
 impl From<u32> for ValueBox {
     fn from(value: u32) -> ValueBox {
         ValueBox::U32(value)
+    }
+}
+
+impl From<Parameter> for ValueBox {
+    fn from(value: Parameter) -> ValueBox {
+        ValueBox::Parameter(value)
     }
 }
 
@@ -550,13 +575,15 @@ pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
 
     use crate::{
-        domain::DomainsMap, isi::InstructionBox, IdBox, Identifiable, IdentifiableBox, PublicKey,
+        domain::DomainsMap, isi::InstructionBox, IdBox, Identifiable, IdentifiableBox, Parameter,
+        PublicKey,
     };
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
+    use std::collections::BTreeSet;
 
-    type PeersIds = Vec<Id>;
+    type PeersIds = BTreeSet<Id>;
 
     /// Peer represents Iroha instance.
     #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode)]
@@ -571,6 +598,8 @@ pub mod peer {
         pub trusted_peers_ids: PeersIds,
         /// Iroha `Triggers` registered on the peer.
         pub triggers: Vec<InstructionBox>,
+        /// Iroha parameters.
+        pub parameters: Vec<Parameter>,
     }
 
     /// Peer's identification.
@@ -594,6 +623,7 @@ pub mod peer {
                 domains: DomainsMap::new(),
                 trusted_peers_ids: PeersIds::new(),
                 triggers: Vec::new(),
+                parameters: Vec::new(),
             }
         }
 
@@ -606,6 +636,7 @@ pub mod peer {
                 domains,
                 trusted_peers_ids,
                 triggers: Vec::new(),
+                parameters: Vec::new(),
             }
         }
     }
@@ -738,8 +769,8 @@ pub mod transaction {
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        transaction::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Value,
-        ValueBox,
+        transaction::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter,
+        Value, ValueBox,
     };
     pub use crate::{isi::prelude::*, query::prelude::*};
 }

@@ -47,6 +47,8 @@ pub enum QueryBox {
     FindAllPeers(Box<FindAllPeers>),
     /// `FindPeerById` variant.
     FindPeerById(Box<FindPeerById>),
+    /// `FindAllParameters` variant.
+    FindAllParameters(Box<FindAllParameters>),
 }
 
 /// I/O ready structure to send queries.
@@ -111,6 +113,8 @@ pub enum QueryResult {
     FindAllPeers(Box<FindAllPeersResult>),
     /// `FindPeerById` variant.
     FindPeerById(Box<FindPeerByIdResult>),
+    /// `FindAllParameters` variant.
+    FindAllParameters(Box<FindAllParametersResult>),
 }
 
 impl QueryRequest {
@@ -654,6 +658,17 @@ pub mod peer {
         pub peer: PeerId,
     }
 
+    /// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
+    #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
+    pub struct FindAllParameters {}
+
+    /// Result of the `FindAllParameters` execution.
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
+    pub struct FindAllParametersResult {
+        /// Iroha `Parameter`s.
+        pub parameters: Vec<Parameter>,
+    }
+
     impl FindAllPeers {
         ///Default `FindAllPeers` constructor.
         pub fn new() -> Self {
@@ -668,6 +683,13 @@ pub mod peer {
         }
     }
 
+    impl FindAllParameters {
+        /// Default `FindAllParameters` constructor.
+        pub fn new() -> Self {
+            FindAllParameters {}
+        }
+    }
+
     impl Value for FindAllPeers {
         type Type = Vec<Peer>;
     }
@@ -676,9 +698,34 @@ pub mod peer {
         type Type = Peer;
     }
 
+    impl Value for FindAllParameters {
+        type Type = Vec<Parameter>;
+    }
+
+    impl From<FindAllPeers> for QueryBox {
+        fn from(query: FindAllPeers) -> QueryBox {
+            QueryBox::FindAllPeers(Box::new(query))
+        }
+    }
+
+    impl From<FindPeerById> for QueryBox {
+        fn from(query: FindPeerById) -> QueryBox {
+            QueryBox::FindPeerById(Box::new(query))
+        }
+    }
+
+    impl From<FindAllParameters> for QueryBox {
+        fn from(query: FindAllParameters) -> QueryBox {
+            QueryBox::FindAllParameters(Box::new(query))
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllPeers, FindAllPeersResult, FindPeerById, FindPeerByIdResult};
+        pub use super::{
+            FindAllParameters, FindAllParametersResult, FindAllPeers, FindAllPeersResult,
+            FindPeerById, FindPeerByIdResult,
+        };
     }
 }
 

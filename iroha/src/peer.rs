@@ -10,6 +10,25 @@ pub mod isi {
     use super::*;
     use iroha_data_model::prelude::*;
 
+    impl Execute for Register<Peer, Peer> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &WorldStateView,
+        ) -> Result<WorldStateView, String> {
+            let mut world_state_view = world_state_view.clone();
+            if world_state_view
+                .peer()
+                .trusted_peers_ids
+                .insert(self.object.id)
+            {
+                Ok(world_state_view)
+            } else {
+                Err("Peer already presented in the list of trusted peers.".to_string())
+            }
+        }
+    }
+
     impl Execute for Register<Peer, Domain> {
         fn execute(
             self,
@@ -36,6 +55,18 @@ pub mod isi {
             Ok(world_state_view)
         }
     }
+
+    impl Execute for Mint<Peer, Parameter> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &WorldStateView,
+        ) -> Result<WorldStateView, String> {
+            let mut world_state_view = world_state_view.clone();
+            world_state_view.peer().parameters.push(self.object);
+            Ok(world_state_view)
+        }
+    }
 }
 
 /// Query module provides `IrohaQuery` Peer related implementations.
@@ -48,7 +79,12 @@ pub mod query {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             Ok(QueryResult::FindAllPeers(Box::new(FindAllPeersResult {
-                peers: world_state_view.read_peer().clone().trusted_peers_ids,
+                peers: world_state_view
+                    .read_peer()
+                    .clone()
+                    .trusted_peers_ids
+                    .into_iter()
+                    .collect(),
             })))
         }
     }
@@ -66,6 +102,17 @@ pub mod query {
                     .ok_or("Failed to find Peer.")?
                     .clone(),
             })))
+        }
+    }
+
+    impl Query for FindAllParameters {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            Ok(QueryResult::FindAllParameters(Box::new(
+                FindAllParametersResult {
+                    parameters: world_state_view.read_peer().parameters.clone(),
+                },
+            )))
         }
     }
 }
