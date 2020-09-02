@@ -36,6 +36,13 @@ pub enum InstructionBox {
     Not(Box<Not>),
 }
 
+/// Sized structure for all possible Sets.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct SetBox {
+    /// Object to set as a value.
+    pub object: ValueBox,
+}
+
 /// Sized structure for all possible Adds.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct AddBox {
@@ -106,6 +113,16 @@ pub struct GreaterBox {
     pub left: ValueBox,
     /// Right hand side Object to compare.
     pub right: ValueBox,
+}
+
+/// Generic instruction to set value to the object.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Set<O>
+where
+    O: Value,
+{
+    /// Object to equate.
+    pub object: O,
 }
 
 /// Generic instruction for an addition of an object to the identifiable destination.
@@ -253,6 +270,7 @@ pub struct Not {
 //TODO: develop derive macro for this trait
 pub trait Instruction: Debug + Clone {}
 
+impl<O> Instruction for Set<O> where O: Value {}
 impl<D, O> Instruction for Add<D, O>
 where
     D: Identifiable,
@@ -265,7 +283,6 @@ where
     O: Value,
 {
 }
-
 //TODO: Replace instruction box with trigger
 impl Instruction for Register<Peer, InstructionBox> {}
 impl Instruction for Register<Peer, Domain> {}
@@ -378,6 +395,16 @@ impl GreaterBox {
             left: left.into(),
             right: right.into(),
         }
+    }
+}
+
+impl<O> Set<O>
+where
+    O: Value,
+{
+    /// Default `Set` constructor.
+    pub fn new(object: O) -> Self {
+        Set { object }
     }
 }
 

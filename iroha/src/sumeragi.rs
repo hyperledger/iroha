@@ -300,16 +300,20 @@ impl Debug for Sumeragi {
 /// Call `init` to get `InitializedNetworkTopology` and access all other methods.
 #[derive(Debug)]
 pub struct NetworkTopology {
-    peers: Vec<PeerId>,
+    peers: BTreeSet<PeerId>,
     max_faults: usize,
     block_hash: Option<Hash>,
 }
 
 impl NetworkTopology {
     /// Constructs a new `NetworkTopology` instance.
-    pub fn new(peers: &[PeerId], block_hash: Option<Hash>, max_faults: usize) -> NetworkTopology {
+    pub fn new(
+        peers: &BTreeSet<PeerId>,
+        block_hash: Option<Hash>,
+        max_faults: usize,
+    ) -> NetworkTopology {
         NetworkTopology {
-            peers: peers.to_vec(),
+            peers: peers.clone(),
             max_faults,
             block_hash,
         }
@@ -320,7 +324,7 @@ impl NetworkTopology {
         let min_peers = 3 * self.max_faults + 1;
         if self.peers.len() >= min_peers {
             let mut topology = InitializedNetworkTopology {
-                sorted_peers: self.peers,
+                sorted_peers: self.peers.into_iter().collect(),
                 max_faults: self.max_faults,
             };
             topology.sort_peers(self.block_hash);
@@ -341,7 +345,7 @@ pub struct InitializedNetworkTopology {
 
 impl InitializedNetworkTopology {
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
-    pub fn update(&mut self, peers: Vec<PeerId>, latest_block_hash: Hash) {
+    pub fn update(&mut self, peers: BTreeSet<PeerId>, latest_block_hash: Hash) {
         let current_peers: BTreeSet<_> = self.sorted_peers.iter().cloned().collect();
         let peers: BTreeSet<_> = peers.into_iter().collect();
         if peers != current_peers {
@@ -1167,7 +1171,7 @@ pub mod config {
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
     use serde::Deserialize;
-    use std::env;
+    use std::{collections::BTreeSet, env};
 
     const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
     const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
@@ -1195,7 +1199,7 @@ pub mod config {
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
         #[serde(default)]
-        pub trusted_peers: Vec<PeerId>,
+        pub trusted_peers: BTreeSet<PeerId>,
         /// Maximum amount of peers to fail and do not compromise the consensus.
         #[serde(default = "default_max_faulty_peers")]
         pub max_faulty_peers: usize,
@@ -1240,7 +1244,7 @@ pub mod config {
 
         /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
         pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
-            self.trusted_peers = trusted_peers;
+            self.trusted_peers = trusted_peers.into_iter().collect();
         }
 
         /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
@@ -1290,6 +1294,7 @@ mod tests {
     };
     use async_std::{prelude::*, sync, task};
     use iroha_data_model::prelude::*;
+    use std::collections::BTreeSet;
     use std::time::Duration;
 
     const CONFIG_PATH: &str = "config.json";
@@ -1303,18 +1308,20 @@ mod tests {
     fn not_enough_peers() {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let listen_address = "127.0.0.1".to_string();
-        let this_peer = PeerId {
+        let this_peer: BTreeSet<PeerId> = vec![PeerId {
             address: listen_address,
             public_key: key_pair.public_key,
-        };
-        let _network_topology = NetworkTopology::new(&[this_peer], None, 3)
+        }]
+        .into_iter()
+        .collect();
+        let _network_topology = NetworkTopology::new(&this_peer, None, 3)
             .init()
             .expect("Failed to create topology.");
     }
 
     #[test]
     fn different_order() {
-        let peers = vec![
+        let peers: BTreeSet<PeerId> = vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
                 public_key: KeyPair::generate()
@@ -1339,7 +1346,9 @@ mod tests {
                     .expect("Failed to generate KeyPair.")
                     .public_key,
             },
-        ];
+        ]
+        .into_iter()
+        .collect();
         let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
@@ -1354,7 +1363,7 @@ mod tests {
 
     #[test]
     fn same_order() {
-        let peers = vec![
+        let peers: BTreeSet<PeerId> = vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
                 public_key: KeyPair::generate()
@@ -1379,7 +1388,9 @@ mod tests {
                     .expect("Failed to generate KeyPair.")
                     .public_key,
             },
-        ];
+        ]
+        .into_iter()
+        .collect();
         let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
             .init()
             .expect("Failed to initialize topology");
@@ -1418,6 +1429,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
+        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
@@ -1435,7 +1447,7 @@ mod tests {
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
-                ids.clone(),
+                ids_set.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1541,6 +1553,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
+        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
@@ -1558,7 +1571,7 @@ mod tests {
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
-                ids.clone(),
+                ids_set.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1647,7 +1660,7 @@ mod tests {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
+        let mut network_topology = NetworkTopology::new(&ids_set, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
@@ -1688,6 +1701,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
+        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
@@ -1704,7 +1718,7 @@ mod tests {
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
-                ids.clone(),
+                ids_set.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1805,7 +1819,7 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
+        let mut network_topology = NetworkTopology::new(&ids_set, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
@@ -1845,6 +1859,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
+        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
@@ -1861,7 +1876,7 @@ mod tests {
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
-                ids.clone(),
+                ids_set.clone(),
             ))));
             let mut torii = Torii::new(
                 (
@@ -1959,7 +1974,7 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
+        let mut network_topology = NetworkTopology::new(&ids_set, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
@@ -2006,6 +2021,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
+            let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
                 PeerId::new(
                     "127.0.0.1:7878",
@@ -2016,7 +2032,7 @@ mod tests {
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
-                ids.clone(),
+                ids_set,
             ))));
             let mut torii = Torii::new(
                 (
@@ -2107,6 +2123,7 @@ mod tests {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
         }
+        let ids: BTreeSet<PeerId> = ids.into_iter().collect();
         let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
