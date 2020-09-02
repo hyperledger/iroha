@@ -15,8 +15,8 @@ RUN apt-get update && \
 RUN set -e; \
     apt-get update && \
     apt-get -y --no-install-recommends install libtool \
-        # compilers (gcc-7, gcc-9)
-        build-essential g++-7 g++-9 ninja-build \
+        # compilers (gcc-9, gcc-10)
+        build-essential g++-9 g++-10 ninja-build \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # code coverage
@@ -29,13 +29,12 @@ RUN set -e; \
     apt-get -y clean && \
     rm -rf /var/lib/apt/lists/*
 
-# compiler clang-7, clang-9 and libc++ only on x86_64, for debug purpose
+# compiler clang-10 and libc++ only on x86_64, for debug purpose
 RUN set -e; \
     if [ `uname -m` = "x86_64" ]; then \
       apt-get update && \
       apt-get -y --no-install-recommends install \
-        clang-7 lldb-7 lld-7 libc++-7-dev libc++abi-7-dev clang-format-7 \
-        clang-9; \
+        clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format-7; \
       apt-get -y clean && \
       rm -rf /var/lib/apt/lists/*; \
     fi
