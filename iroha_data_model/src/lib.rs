@@ -35,7 +35,7 @@ pub type Name = String;
 pub type Bytes = Vec<u8>;
 
 /// Represents Iroha Configuration parameters.
-#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
     MaximumFaultyPeersAmount(u32),
@@ -45,6 +45,10 @@ pub enum Parameter {
     TransactionReceiptTime(u128),
     /// TODO: write a doc
     BlockTime(u128),
+    /// Path to the block store.
+    BlockStorePath(String),
+    /// Mode of `Kura` initialization.
+    KuraMode(String),
 }
 
 /// Sized container for all possible identifications.
