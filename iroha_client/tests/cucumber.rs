@@ -654,6 +654,49 @@ mod peer_steps {
                 world
             })
         .when_regex(
+            r"(.+) Account from (.+) domain sets Block Store Path to (.+)$",
+            | mut world,
+            matches,
+            _step | {
+                let _account_name = matches[1].trim();
+                let _account_domain_name = matches[2].trim();
+                let block_store_path = matches[3].trim();
+                world
+                    .client
+                    .submit(
+                        Mint::<Peer, Parameter>::new (
+                            Parameter::BlockStorePath(block_store_path.to_string()),
+                            world.peer_id.clone()
+                            )
+                        .into(),
+                        )
+                .expect("Failed to execute request.");
+                thread::sleep(Duration::from_millis(world.block_build_time * 2));
+                world
+            })
+        .when_regex(
+            r"(.+) Account from (.+) domain sets Kura Mode to (.+)$",
+            | mut world,
+            matches,
+            _step | {
+                let _account_name = matches[1].trim();
+                let _account_domain_name = matches[2].trim();
+                //TODO: move : iroha::kura::Mode to data model and deserialize to enum here.
+                let kura_mode = matches[3].trim();
+                world
+                    .client
+                    .submit(
+                        Mint::<Peer, Parameter>::new (
+                            Parameter::KuraMode(kura_mode.to_string()),
+                            world.peer_id.clone()
+                            )
+                        .into(),
+                        )
+                .expect("Failed to execute request.");
+                thread::sleep(Duration::from_millis(world.block_build_time * 2));
+                world
+            })
+        .when_regex(
             r"(.+) Account from (.+) domain requests List of Trusted Peers$",
             | mut world,
             matches,
@@ -749,7 +792,44 @@ mod peer_steps {
                             //TODO: replace with FindParameterById or something like that.
                             &QueryRequest::new(FindAllParameters::new().into())
                             )
-
+                .expect("Failed to execute request.");
+                if let QueryResult::FindAllParameters(_) = query_result {
+                    world.result = Some(query_result);
+                }
+                world
+            })
+        .when_regex(
+            r"(.+) Account from (.+) domain requests Block Store Path$",
+            | mut world,
+            matches,
+            _step | {
+                let _account_name = matches[1].trim();
+                let _account_domain_name = matches[2].trim();
+                let query_result = world
+                        .client
+                        .request(
+                            //TODO: replace with FindParameterById or something like that.
+                            &QueryRequest::new(FindAllParameters::new().into())
+                            )
+                .expect("Failed to execute request.");
+                if let QueryResult::FindAllParameters(_) = query_result {
+                    world.result = Some(query_result);
+                }
+                world
+            })
+        .when_regex(
+            r"(.+) Account from (.+) domain requests Kura Mode$",
+            | mut world,
+            matches,
+            _step | {
+                let _account_name = matches[1].trim();
+                let _account_domain_name = matches[2].trim();
+                let query_result = world
+                        .client
+                        .request(
+                            //TODO: replace with FindParameterById or something like that.
+                            &QueryRequest::new(FindAllParameters::new().into())
+                            )
                 .expect("Failed to execute request.");
                 if let QueryResult::FindAllParameters(_) = query_result {
                     world.result = Some(query_result);
@@ -812,7 +892,29 @@ mod peer_steps {
                     assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::BlockTime(block_time_milliseconds)).is_some());
                 }
                 world
-            });
+            })
+        .then_regex(
+            r"QueryResult contains Parameter Block Store Path with value (.+)$",
+            | world,
+            matches,
+            _step | {
+                let block_store_path = matches[1].trim();
+                if let QueryResult::FindAllParameters(result) = world.result.clone().expect("Result is missing.") {
+                    assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::BlockStorePath(block_store_path.to_string())).is_some());
+                }
+                world
+            })
+        .then_regex(
+            r"QueryResult contains Parameter Kura Mode with value (.+)$",
+            | world,
+            matches,
+            _step | {
+                let kura_mode = matches[1].trim();
+                if let QueryResult::FindAllParameters(result) = world.result.clone().expect("Result is missing.") {
+                    assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::KuraMode(kura_mode.to_string())).is_some());
+                }
+                world
+        }) ;
         steps
     }
 }
