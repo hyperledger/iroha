@@ -185,6 +185,7 @@ mod event {
 mod tests {
     use super::*;
     use crate::init::{self, config::InitConfiguration};
+    use std::collections::BTreeSet;
 
     #[test]
     fn hash_should_be_the_same() {
@@ -206,7 +207,7 @@ mod tests {
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                 }),
-                Vec::new(),
+                BTreeSet::new(),
             )))
             .expect("Failed to validate.")
             .hash();

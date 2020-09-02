@@ -96,6 +96,7 @@ impl Configuration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
@@ -110,7 +111,7 @@ mod tests {
             )
             .expect("Failed to decode"),
         };
-        let expected_trusted_peers = vec![
+        let expected_trusted_peers: BTreeSet<PeerId> = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
                 public_key: public_key.clone(),
@@ -123,7 +124,9 @@ mod tests {
                 address: "195.162.0.1:23".to_string(),
                 public_key: public_key.clone(),
             },
-        ];
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(
             "127.0.0.1:1337",
             configuration.torii_configuration.torii_url
