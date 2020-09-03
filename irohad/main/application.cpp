@@ -713,7 +713,7 @@ Irohad::RunResult Irohad::initSimulator() {
                            std::move(block_factory),
                            log_manager_->getChild("Simulator")->getLogger())
              | [this](auto &&simulator) -> RunResult {
-    simulator = std::move(simulator);
+    simulator_ = std::move(simulator);
     log_->info("[Init] => init simulator");
     return {};
   };
@@ -766,7 +766,7 @@ Irohad::RunResult Irohad::initConsensusGate() {
       {block->height(), ordering::kFirstRejectRound},
       storage,
       opt_alternative_peers_,
-      simulator,
+      simulator_,
       block_loader,
       keypair,
       consensus_result_cache_,
@@ -808,7 +808,7 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
   pcs = std::make_shared<PeerCommunicationServiceImpl>(
       ordering_gate,
       synchronizer,
-      simulator,
+      simulator_,
       log_manager_->getChild("PeerCommunicationService")->getLogger());
 
   pcs->onProposal().subscribe([this](const auto &) {

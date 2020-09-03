@@ -343,7 +343,7 @@ class Irohad {
   std::shared_ptr<iroha::network::OrderingGate> ordering_gate;
 
   // simulator
-  std::shared_ptr<iroha::simulator::Simulator> simulator;
+  std::shared_ptr<iroha::simulator::Simulator> simulator_;
 
   // block cache for consensus and block loader
   std::shared_ptr<iroha::consensus::ConsensusResultCache>

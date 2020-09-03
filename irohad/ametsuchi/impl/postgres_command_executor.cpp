@@ -8,6 +8,7 @@
 #include <exception>
 #include <forward_list>
 #include <memory>
+#include <string_view>
 
 #include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
@@ -87,6 +88,15 @@ namespace {
        std::make_tuple("Key (account_id, public_key)=", "already exists"),
        std::make_tuple("Key (account_id)=", "already exists"),
        std::make_tuple("Key (default_role)=", "is not present in table")};
+
+  /// HACK! Tells if this exception means session reconnection.
+  void rethrowConnectionFailedErrorHack(std::exception const &e) {
+    char const *kSociConnectionFailedSubstringHack = "Connection failed.";
+    if (std::string_view{e.what()}.find(kSociConnectionFailedSubstringHack)
+        != std::string_view::npos) {
+      throw e;
+    }
+  }
 
   /// mapping between command name, fake error code and related real error code
   const std::map<std::string, std::map<int, int>> kCmdNameToErrorCode{
@@ -486,6 +496,7 @@ namespace iroha {
         } catch (const std::exception &e) {
           statement_.bind_clean_up();
           temp_values_.clear();
+          rethrowConnectionFailedErrorHack(e);
           return getCommandError(
               command_name_, e.what(), arguments_string_builder_.finalize());
         }
@@ -1596,6 +1607,7 @@ namespace iroha {
           return makeCommandError("CallEngine", 1, "Engine is not configured.");
         }
       } catch (std::exception const &e) {
+        rethrowConnectionFailedErrorHack(e);
         return makeCommandError("CallEngine", 1, e.what());
       }
       return {};
