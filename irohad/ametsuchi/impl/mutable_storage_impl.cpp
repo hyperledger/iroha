@@ -45,6 +45,8 @@ namespace iroha {
           block_storage_(std::move(block_storage)),
           committed(false),
           log_(log_manager->getLogger()) {
+      // Issuing BEGIN when already inside a transaction block will provoke a
+      // warning message. The state of the transaction is not affected.
       retryOnException<soci::soci_error>(log_, [this]() { sql_ << "BEGIN"; });
     }
 

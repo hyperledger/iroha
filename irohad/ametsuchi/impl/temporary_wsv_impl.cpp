@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 
+#include <fmt/core.h>
 #include <soci/error.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
@@ -28,6 +29,8 @@ namespace iroha {
               std::move(command_executor))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
+      // Issuing BEGIN when already inside a transaction block will provoke a
+      // warning message. The state of the transaction is not affected.
       retryOnException<soci::soci_error>(log_, [this]() { sql_ << "BEGIN"; });
     }
 
@@ -82,26 +85,32 @@ namespace iroha {
 
     expected::Result<void, validation::CommandError> TemporaryWsvImpl::apply(
         const shared_model::interface::Transaction &transaction) {
-      auto savepoint_wrapper = createSavepoint("savepoint_temp_wsv");
-
-      return validateSignatures(transaction) |
-                 [this,
-                  savepoint = std::move(savepoint_wrapper),
-                  &transaction]()
-                 -> expected::Result<void, validation::CommandError> {
-        if (auto error = expected::resultToOptionalError(
-                transaction_executor_->execute(transaction, true))) {
-          return expected::makeError(
-              validation::CommandError{error->command_error.command_name,
-                                       error->command_error.error_code,
-                                       error->command_error.error_extra,
-                                       true,
-                                       error->command_index});
-        }
-        // success
-        savepoint->release();
-        return {};
-      };
+      try {
+        return validateSignatures(transaction) |
+                   [this,
+                    savepoint = createSavepoint("savepoint_temp_wsv"),
+                    &transaction]()
+                   -> expected::Result<void, validation::CommandError> {
+          if (auto error = expected::resultToOptionalError(
+                  transaction_executor_->execute(transaction, true))) {
+            return expected::makeError(
+                validation::CommandError{error->command_error.command_name,
+                                         error->command_error.error_code,
+                                         error->command_error.error_extra,
+                                         true,
+                                         error->command_index});
+          }
+          // success
+          savepoint->release();
+          return {};
+        };
+      } catch (soci::soci_error const &e) {
+        return expected::makeError(validation::CommandError{
+            fmt::format("applying transaction {}", transaction.hash()),
+            1,
+            e.what(),
+            false});
+      }
     }
 
     std::unique_ptr<TemporaryWsv::SavepointWrapper>
@@ -129,8 +138,7 @@ namespace iroha {
           savepoint_name_{std::move(savepoint_name)},
           is_released_{false},
           log_(std::move(log)) {
-      retryOnException<soci::soci_error>(
-          log_, [this]() { sql_ << "SAVEPOINT " + savepoint_name_ + ";"; });
+      sql_ << "SAVEPOINT " + savepoint_name_ + ";";
     }
 
     void TemporaryWsvImpl::SavepointWrapperImpl::release() {
