@@ -184,10 +184,13 @@ mod asset {
 
     const REGISTER: &str = "register";
     const MINT: &str = "mint";
+    const TRANSFER: &str = "transfer";
     const GET: &str = "get";
     const ASSET_NAME: &str = "name";
     const ASSET_DOMAIN_NAME: &str = "domain";
     const ASSET_ACCOUNT_ID: &str = "account_id";
+    const DESTINATION_ACCOUNT_ID: &str = "dst_account_id";
+    const SOURCE_ACCOUNT_ID: &str = "src_account_id";
     const ASSET_ID: &str = "id";
     const QUANTITY: &str = "quantity";
 
@@ -218,6 +221,14 @@ mod asset {
                 App::new(MINT)
                 .about("Use this command to Mint Asset in existing Iroha Account.")
                 .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
+                )
+            .subcommand(
+            App::new(TRANSFER)
+                .about("Use this command to Transfer Asset from Account to Account.")
+                .arg(Arg::with_name(SOURCE_ACCOUNT_ID).long(SOURCE_ACCOUNT_ID).value_name(SOURCE_ACCOUNT_ID).help("Source Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(DESTINATION_ACCOUNT_ID).long(DESTINATION_ACCOUNT_ID).value_name(DESTINATION_ACCOUNT_ID).help("Destination Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
                 )
@@ -254,6 +265,33 @@ mod asset {
                     if let Some(amount) = matches.value_of(QUANTITY) {
                         println!("Minting asset's quantity: {}", amount);
                         mint_asset(asset_id, account_id, amount, configuration);
+                    }
+                }
+            }
+        }
+        if let Some(ref matches) = matches.subcommand_matches(TRANSFER) {
+            if let Some(asset_id) = matches.value_of(ASSET_ID) {
+                println!("Transfer asset with an identification: {}", asset_id);
+                if let Some(account1_id) = matches.value_of(SOURCE_ACCOUNT_ID) {
+                    println!(
+                        "Transfer asset from account with an identification: {}",
+                        account1_id
+                    );
+                    if let Some(account2_id) = matches.value_of(DESTINATION_ACCOUNT_ID) {
+                        println!(
+                            "Transfer asset to account with an identification: {}",
+                            account2_id
+                        );
+                        if let Some(quantity) = matches.value_of(QUANTITY) {
+                            println!("Transfer asset's amount: {}", quantity);
+                            transfer_asset(
+                                account1_id,
+                                account2_id,
+                                asset_id,
+                                quantity,
+                                configuration,
+                            );
+                        }
                     }
                 }
             }
@@ -307,6 +345,31 @@ mod asset {
             .expect("Failed to create account.");
     }
 
+    fn transfer_asset(
+        account1_id: &str,
+        account2_id: &str,
+        asset_definition_id: &str,
+        quantity: &str,
+        configuration: &Configuration,
+    ) {
+        let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
+        let transfer_asset = Transfer::<Asset, u32, Asset>::new(
+            AssetId::new(
+                AssetDefinitionId::from_str(asset_definition_id)
+                    .expect("Failed to parse Source Definition Id"),
+                AccountId::from_str(account1_id).expect("Failed to parse Source Account Id."),
+            ),
+            quantity,
+            AssetId::new(
+                AssetDefinitionId::from_str(asset_definition_id)
+                    .expect("Failed to parse Destination Definition Id"),
+                AccountId::from_str(account2_id).expect("Failed to parse Destination Account Id."),
+            ),
+        );
+        let mut iroha_client = Client::new(configuration);
+        executor::block_on(iroha_client.submit(transfer_asset.into()))
+            .expect("Failed to transfer asset.");
+    }
     fn get_asset(_asset_id: &str, account_id: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
         let query_result = executor::block_on(iroha_client.request(&asset::by_account_id(
