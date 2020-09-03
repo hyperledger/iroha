@@ -138,7 +138,7 @@ node ('master') {
   // Define variable and params
 
   //All variable and Default values
-  x64linux_compiler_list = ['gcc7']
+  x64linux_compiler_list = ['gcc9']
   mac_compiler_list = []
   win_compiler_list = []
 
@@ -223,7 +223,7 @@ node ('master') {
         break;
      case 'Before merge to trunk':
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
-        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang7' , 'clang9']
+        x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -235,7 +235,7 @@ node ('master') {
         useBTF = true
         break;
      case 'Nightly build':
-        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang7' , 'clang9']
+        x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -317,12 +317,14 @@ node ('master') {
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
       success: [{x64LinuxBuildScript.successPostSteps(scmVars, packagePush, pushDockerTag, environmentList)}])
     def first_compiler = x64linux_compiler_list[0]
+    def default_compiler = 'gcc9'
     def release_build = specialBranch && build_type == 'Debug'
     def manifest_push = specialBranch && !env.TAG_NAME || forceDockerDevelopBuild
+    def current_parallelism = parallelism == 0 ? x64LinuxWorker.cpusAvailable : parallelism
 
     // register first compiler with coverage, analysis, docs, and manifest push
     registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, first_compiler, build_type, build_shared_libs, specialBranch, coverage,
+                       current_parallelism, first_compiler, build_type, build_shared_libs, specialBranch, coverage,
                        testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, benchmarking, coredumps, useBTF, use_libursa, use_burrow,
                        forceDockerDevelopBuild, manifest_push, environmentList)}],
                        release_build ? x64LinuxAlwaysPostSteps : x64LinuxPostSteps, "x86_64 Linux ${build_type} ${first_compiler}", x64LinuxWorker, tasks)
@@ -330,24 +332,28 @@ node ('master') {
       x64linux_compiler_list[1..-1].each { compiler ->
         // register compiler without coverage, analysis, docs, and manifest push
         registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                           parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, compiler, build_type, build_shared_libs, specialBranch, false,
-                           testing, testList, false, false, false, false, false, sanitize, fuzzing, benchmarking, coredumps, useBTF, use_libursa, use_burrow,
-                           false, false, environmentList)}],
+                           current_parallelism, compiler, build_type, build_shared_libs, specialBranch, /*coverage*/false,
+                           testing, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/false, sanitize, fuzzing,
+                           benchmarking, coredumps, useBTF, use_libursa, use_burrow, /*force_docker_develop_build*/false, /*manifest_push*/false, environmentList)}],
                            x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${compiler}", x64LinuxWorker, tasks)
       }
     }
     // If "master" also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, false,
-                         false, testList, false, false, false, false, true, false, false, false, false, false, use_libursa, use_burrow, false, false, environmentList)}],
+                         current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage*/false,
+                         /*testing*/false, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/true, /*sanitize*/false,
+                         /*fuzzing*/false, /*benchmarking*/false, /*coredumps*/false, /*use_btf*/false, use_libursa, use_burrow, /*force_docker_develop_build*/false,
+                         /*manifest_push*/false, environmentList)}],
                          x64LinuxPostSteps, "x86_64 Linux Release ${first_compiler}", x64LinuxWorker, tasks)
-      // will not be executed in usual case, because x64linux_compiler_list = ['gcc7'] for master branch or tags
+      // will not be executed in usual case, because x64linux_compiler_list = ['gcc9'] for master branch or tags
       if (x64linux_compiler_list.size() > 1){
         x64linux_compiler_list[1..-1].each { compiler ->
           registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                             parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, compiler, 'Release', build_shared_libs, specialBranch, false,
-                             false, testList, false, false, false, false, false, false, false, false, false, false, use_libursa, use_burrow, false, false, environmentList)}],
+                             current_parallelism, compiler, 'Release', build_shared_libs, specialBranch, /*coverage*/false,
+                             /*testing*/false, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/false, /*sanitize*/false,
+                             /*fuzzing*/false, /*benchmarking*/false, /*coredumps*/false, /*use_btf*/false, use_libursa, use_burrow, /*force_docker_develop_build*/false,
+                             /*manifest_push*/false, environmentList)}],
                              x64LinuxAlwaysPostSteps, "x86_64 Linux Release ${compiler}", x64LinuxWorker, tasks)
         }
       }
@@ -356,36 +362,59 @@ node ('master') {
       // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
       // toggle shared libraries
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, 'gcc7', build_type, !build_shared_libs, false, false,
-                         false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, use_burrow, false, false, environmentList)}],
-                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} Shared Libraries", x64LinuxWorker, tasks)
+                         current_parallelism, default_compiler, build_type, !build_shared_libs, /*special_branch*/false, /*coverage*/false,
+                         /*testing*/false, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/false, /*sanitize*/false,
+                         fuzzing, benchmarking, /*coredumps*/false, useBTF, use_libursa, use_burrow, /*force_docker_develop_build*/false, /*manifest_push*/false, environmentList)}],
+                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${default_compiler} Shared Libraries", x64LinuxWorker, tasks)
 
       // toggle libursa
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, 'gcc7', build_type, build_shared_libs, false, false,
-                         testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, !use_libursa, use_burrow, false, false, environmentList)}],
-                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} Ursa", x64LinuxWorker, tasks)
+                         current_parallelism, default_compiler, build_type, build_shared_libs, /*special_branch*/false, /*coverage*/false,
+                         testing, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/false, /*sanitize*/false, fuzzing,
+                         benchmarking, coredumps, useBTF, !use_libursa, use_burrow, /*force_docker_develop_build*/false, /*manifest_push*/false, environmentList)}],
+                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${default_compiler} Ursa", x64LinuxWorker, tasks)
 
       // toggle burrow
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
-                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, 'gcc7', build_type, build_shared_libs, false, false,
-                         testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, use_libursa, !use_burrow, false, false, environmentList)}],
-                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} Burrow", x64LinuxWorker, tasks)
+                         current_parallelism, default_compiler, build_type, build_shared_libs, /*special_branch*/false, /*coverage*/false,
+                         testing, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/false, /*sanitize*/false, fuzzing,
+                         benchmarking, coredumps, useBTF, use_libursa, !use_burrow, /*force_docker_develop_build*/false, /*manifest_push*/false, environmentList)}],
+                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${default_compiler} Burrow", x64LinuxWorker, tasks)
     }
   }
   def x64MacBuildSteps
-  def x64MacBuildPostSteps = new Builder.PostSteps()
-  if(!mac_compiler_list.isEmpty()){
-    x64MacBuildSteps = [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, environmentList)}]
-    //If "master" or "dev" also run Release build
-    if(specialBranch && build_type == 'Debug'){
-      x64MacBuildSteps += [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-        mac_compiler_list, 'Release', false, false, testList, true, false, false, false, environmentList)}]
-    }
-    x64MacBuildPostSteps = new Builder.PostSteps(
+  def x64MacPostSteps = new Builder.PostSteps()
+  if (!mac_compiler_list.isEmpty()) {
+    x64MacAlwaysPostSteps = new Builder.PostSteps(
+      always: [{x64BuildScript.alwaysPostSteps(environmentList)}])
+    x64MacPostSteps = new Builder.PostSteps(
       always: [{x64BuildScript.alwaysPostSteps(environmentList)}],
       success: [{x64BuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
+    def release_build = specialBranch && build_type == 'Debug'
+    def current_parallelism = parallelism == 0 ? x64MacWorker.cpusAvailable : parallelism
+
+    registerBuildSteps([{x64BuildScript.buildSteps(current_parallelism,
+                       mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, use_libursa, use_burrow, environmentList)}],
+                       release_build ? x64MacAlwaysPostSteps : x64MacPostSteps, "Mac ${build_type}", x64MacWorker, tasks)
+
+    //If "master" also run Release build
+    if (release_build) {
+      registerBuildSteps([{x64BuildScript.buildSteps(current_parallelism,
+                         mac_compiler_list, 'Release', /*coverage_mac*/false, /*testing*/false, testList, /*packageBuild*/true, /*fuzzing*/false, /*benchmarking*/false, /*use_btf*/false,
+                         use_libursa, use_burrow, environmentList)}],
+                         x64MacPostSteps, "Mac Release ${build_type}", x64MacWorker, tasks)
+    }
+    if (build_scenario == 'Before merge to trunk') {
+      // toggle libursa
+      registerBuildSteps([{x64BuildScript.buildSteps(current_parallelism,
+                       mac_compiler_list, build_type, /*coverage_mac*/false, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, !use_libursa, use_burrow, environmentList)}],
+                       x64MacAlwaysPostSteps, "Mac ${build_type} Ursa", x64MacWorker, tasks)
+
+      // toggle burrow
+      registerBuildSteps([{x64BuildScript.buildSteps(current_parallelism,
+                       mac_compiler_list, build_type, /*coverage_mac*/false, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, use_libursa, !use_burrow, environmentList)}],
+                       x64MacAlwaysPostSteps, "Mac ${build_type} Burrow", x64MacWorker, tasks)
+    }
   }
 
   def x64WinBuildSteps
@@ -398,9 +427,6 @@ node ('master') {
       success: [{x64WinBuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
   }
 
-  if(!mac_compiler_list.isEmpty()){
-    registerBuildSteps(x64MacBuildSteps, x64MacBuildPostSteps, "Mac ${build_type}", x64MacWorker, tasks)
-  }
   if(!win_compiler_list.isEmpty()){
     registerBuildSteps(x64WinBuildSteps, x64WinBuildPostSteps, "Windows ${build_type}", x64WinWorker, tasks)
   }

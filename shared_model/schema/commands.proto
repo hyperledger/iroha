@@ -106,6 +106,7 @@ message CompareAndSetAccountDetail {
     oneof opt_old_value {
         string old_value = 4;
     }
+    bool check_empty = 5;
 }
 
 message SetSettingValue {

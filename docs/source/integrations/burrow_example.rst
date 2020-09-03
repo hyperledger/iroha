@@ -77,7 +77,7 @@ Having got the bytecode, we can now send a  transaction from the Python Iroha cl
 	            "030033")
 
 	tx = iroha.transaction([
-	    iroha.command('EngineCall', callee='ServiceContract', input=bytecode)
+	    iroha.command('CallEngine', caller='admin@energy', input=bytecode)
 	])
 	IrohaCrypto.sign_transaction(tx, admin_key)
 
@@ -93,9 +93,21 @@ To call the mint method of this contract, we send the same *CallEngine* command 
 concatenated with the function arguments encoded according to the contract ABI rules – the first function argument has the *address* type, that is a 20-bytes long integer number.
 
 Let’s say the contract owner (the *admin@test* Iroha account) wants to mint 1000 coins and assign them to himself.
-Recalling the naming convention to derive the EVM address corresponding to the *admin@test* and also keeping in mind that numbers in EVM are left-padded, we will get the following string representing the address to mint the coins to: 
+To get the EVM address corresponding to the *admin@test* using Python library we might use:
 
-``000000000000000000000000969453762b0c739dd285b31635efa00e24c25628``
+.. code-block:: python
+
+	import sha3
+	k = sha3.keccak_256()
+	k.update(b'admin@test')
+	print(hexlify(k.digest()[12:32]).zfill(64))
+
+That way, we'll get:
+
+``000000000000000000000000f205c4a929072dd6e7fc081c2a78dbc79c76070b``
+
+So, the last 20 bytes are keccak256, zero left-padded to 32 bytes.
+
 
 The *amount* argument is a *uint256* number encoded in hex (also, left-padded):
 
@@ -116,12 +128,12 @@ Putting it all together, we will get the following client code to call the *mint
 
 	admin_key = os.getenv(ADMIN_PRIVATE_KEY, IrohaCrypto.private_key())
 	params = ("40c10f19”                                                             # selector
-	          "000000000000000000000000969453762b0c739dd285b31635efa00e24c25628"  # address
+	          "000000000000000000000000f205c4a929072dd6e7fc081c2a78dbc79c76070b"  # address
 	          "00000000000000000000000000000000000000000000000000000000000003e8"  # amount
 	         )
 
 	tx = iroha.transaction([
-	    iroha.command('EngineCall', callee='ServiceContract', input=params)
+	    iroha.command('CallEngine', callee='ServiceContract', input=params)
 	])
 	IrohaCrypto.sign_transaction(tx, admin_key)
 
@@ -159,13 +171,13 @@ The code of the contract is presented on the diagram below:
 	    }
 
 	    // Queries the balance in _asset of an Iroha _account
-	    function queryBalance(string memory _account, string memory _asset) public 
+	    function queryBalance(string memory _account, string memory _asset) public
 	                    returns (bytes memory result) {
 	        bytes memory payload = abi.encodeWithSignature(
-	            "getOtherAssetBalance(string,string)", 
-	            _account, 
+	            "getAssetBalance(string,string)",
+	            _account,
 	            _asset);
-	        (bool success, bytes memory ret) = 
+	        (bool success, bytes memory ret) =
 	            address(serviceContractAddress).delegatecall(payload);
 	        require(success, "Error calling service contract function");
 	        result = ret;
@@ -173,7 +185,7 @@ The code of the contract is presented on the diagram below:
 	}
 
 In the constructor we initialize the EVM address of the `ServiceContract <burrow.html#running-native-iroha-commands-in-evm>`_ which exposes an API to interact with Iroha state.
-The contract function *queryBalance* calls the *getOtherAssetBalance* method of the Iroha *ServiceContract* API.
+The contract function *queryBalance* calls the *getAssetBalance* method of the Iroha *ServiceContract* API.
 
 Case 3. Changing Iroha state
 ----------------------------
@@ -196,16 +208,16 @@ The contract code is as follows:
 	    }
 
 	    // Queries the balance in _asset of an Iroha _account
-	    function transferAsset(string memory src, string memory dst, 
-	                           string memory asset, string memory amount) public 
+	    function transferAsset(string memory src, string memory dst,
+	                           string memory asset, string memory amount) public
 	                    returns (bytes memory result) {
 	        bytes memory payload = abi.encodeWithSignature(
-	            "transferOtherAsset(string,string,string,string)", 
-	            src, 
+	            "transferAsset(string,string,string,string)",
+	            src,
 	            dst,
 	            asset,
 	            amount);
-	        (bool success, bytes memory ret) = 
+	        (bool success, bytes memory ret) =
 	            address(serviceContractAddress).delegatecall(payload);
 	        require(success, "Error calling service contract function");
 
@@ -216,7 +228,7 @@ The contract code is as follows:
 
 
 Similarly to querying Iroha state, a command can be sent to modify  the latter.
-In the example above the API method *transferOtherAssetBalance* of the `ServiceContract <burrow.html#running-native-iroha-commands-in-evm>`_ sends some *amount* of the *asset* from Iroha account *src* to the account *dst*. Of course, if the transaction creator has sufficient permissions to execute this operation.
+In the example above the API method *transferAssetBalance* of the `ServiceContract <burrow.html#running-native-iroha-commands-in-evm>`_ sends some *amount* of the *asset* from Iroha account *src* to the account *dst*. Of course, if the transaction creator has sufficient permissions to execute this operation.
 
 
 

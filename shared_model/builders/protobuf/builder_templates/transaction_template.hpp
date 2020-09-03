@@ -340,6 +340,16 @@ namespace shared_model {
         });
       }
 
+      auto setSettingValue(const interface::types::SettingKeyType &key,
+                           const interface::types::SettingValueType &value)
+          const {
+        return addCommand([&](auto proto_command) {
+          auto command = proto_command->mutable_set_setting_value();
+          command->set_key(key);
+          command->set_value(value);
+        });
+      }
+
       auto build() const {
         static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         auto result = Transaction(iroha::protocol::Transaction(transaction_));

@@ -12,11 +12,11 @@ param_chose_opt = 'Default\nBranch commit\nOn open PR\nCommit in Open PR\nBefore
 param_descriptions = """
 <p>
   <strong>Default</strong> - will automatically chose the correct one based on branch name and build number<br />
-  <strong>Branch commit</strong> - Linux/gcc v7; Test: Smoke, Unit;<br />
-  <strong>On open PR -</strong> Linux/gcc v7, MacOS/appleclang, Windows/msvc; Test: All; Coverage; Analysis: cppcheck, sonar, codestyle;<br />
+  <strong>Branch commit</strong> - Linux/gcc v9; Test: Smoke, Unit;<br />
+  <strong>On open PR -</strong> Linux/gcc v9, MacOS/appleclang, Windows/msvc; Test: All; Coverage; Analysis: cppcheck, sonar, codestyle;<br />
   <strong>Commit in Open PR</strong> - Same as Branch commit<br />
-  <strong>Before merge to trunk</strong> - Linux/gcc v7 v9, Linux/clang v7 v9, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true<br />
-  <strong>Nightly build</strong> - Linux/gcc v7 v9, Linux/clang v7 v9, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true; sanitize<br />
+  <strong>Before merge to trunk</strong> - Linux/gcc v9 v10, Linux/clang v10, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true<br />
+  <strong>Nightly build</strong> - Linux/gcc v9 v10, Linux/clang v10, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true; sanitize<br />
   <strong>Push demo</strong> - Build Release and push to hub.docker.com/r/soramitsu/iroha <br />
   <strong>Custom command</strong> - enter command below, Ex: build_type='Release'; testing=false;<br />
 </p>
@@ -41,13 +41,13 @@ cmd_description = """
 </div>
 <ul>
    <li>
-      <p><strong>x64linux_compiler_list</strong> = ['gcc7']&nbsp;</p>
+      <p><strong>x64linux_compiler_list</strong> = ['gcc9']&nbsp;</p>
       <ul>
          <li>
             <p>Linux compiler name to build</p>
          </li>
          <li>
-            <p>Ex:&nbsp;x64linux_compiler_list = ['gcc7', 'gcc9', 'clang7', 'clang9']</p>
+            <p>Ex:&nbsp;x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']</p>
          </li>
       </ul>
    </li>
@@ -175,7 +175,7 @@ cmd_description = """
             <p>Runs Sonar Analysis, runs only on Linux</p>
          </li>
          <li>
-            <p>Ex:&nbsp;sonar = true;x64linux_compiler_list= ['gcc7', 'gcc9']</p>
+            <p>Ex:&nbsp;sonar = true;x64linux_compiler_list= ['gcc9', 'gcc10']</p>
          </li>
       </ul>
    </li>

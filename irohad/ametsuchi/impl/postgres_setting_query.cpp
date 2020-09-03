@@ -63,6 +63,3 @@ PostgresSettingQuery::update(
 
   return std::move(base);
 }
-
-const shared_model::interface::types::SettingKeyType
-    iroha::ametsuchi::kMaxDescriptionSizeKey = "MaxDescriptionSize";

@@ -23,6 +23,8 @@ namespace shared_model {
 
       const interface::types::AccountDetailValueType &value() const override;
 
+      bool checkEmpty() const override;
+
       const std::optional<interface::types::AccountDetailValueType> oldValue()
           const override;
 

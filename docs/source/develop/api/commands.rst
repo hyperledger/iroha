@@ -215,7 +215,7 @@ Schema
 .. code-block:: proto
 
     message CallEngine {
-        string caller = 1;  // hex string
+        string caller = 1;
         oneof opt_callee {
             string callee = 2;  // hex string
         }
@@ -236,7 +236,7 @@ Validation
 ^^^^^^^^^^
 
 1. Caller is a valid Iroha account ID
-2. The transaction creator has a role with either CanCallEngine permission
+2. The transaction creator has a role with either can_call_engine or can_call_engine_on_my_behalf permission
 
 Possible Stateful Validation Errors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -857,7 +857,7 @@ Structure
     "Source account ID", "ID of the account to withdraw the asset from", "already existent", "makoto@soramitsu"
     "Destination account ID", "ID of the account to send the asset to", "already existent", "alex@california"
     "Asset ID", "ID of the asset to transfer", "already existent", "usd#usa"
-    "Description", "Message to attach to the transfer", "Max length of description (set in genesis block, by default is 64)", "here's my money take it"
+    "Description", "Message to attach to the transfer", "Max length of description (set in genesis block, by default is 100*1024)", "here's my money take it"
     "Amount", "amount of the asset to transfer", "0 <= precision <= 255", "200.20"
 
 Validation
@@ -867,6 +867,7 @@ Validation
 2. An amount is a positive number and asset precision is consistent with the asset definition
 3. Source account has enough amount of asset to transfer and is not zero
 4. Source account can transfer money, and destination account can receive money (their roles have these permissions)
+5. Description length is less than 100*1024 (one hundred kilobytes) and less than 'MaxDescriptionSize' setting value if set.
 
 Possible Stateful Validation Errors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -881,6 +882,7 @@ Possible Stateful Validation Errors
     "5", "No such asset found", "Cannot find such asset", "Make sure asset name and precision are correct"
     "6", "Not enough balance", "Source account's balance is too low to perform the operation", "Add asset to account or choose lower value to subtract"
     "7", "Too much asset to transfer", "Resulting asset quantity of destination account would exceed the allowed maximum", "Make sure that the final destination value is less than 2^256 / 10^asset_precision"
+    "8", "Too long description", "Too long description", "Ensure that description length matches the criteria above (or just shorten it)"
 
 .. [#f1] https://www.ietf.org/rfc/rfc1035.txt
 .. [#f2] https://www.ietf.org/rfc/rfc1123.txt
@@ -905,6 +907,7 @@ Schema
         oneof opt_old_value {
             string old_value = 4;
         }
+        bool check_empty = 5;
     }
 
 .. note::
@@ -922,6 +925,7 @@ Structure
     "Key", "key of information being set", "`[A-Za-z0-9_]{1,64}`", "Name"
     "Value", "new value for the corresponding key", "length of value ≤ 4096", "Artyom"
     "Old value", "current value for the corresponding key", "length of value ≤ 4096", "Artem"
+    "check_empty", "if true, empty old_value in command must match absent value in WSV; if false, any old_value in command matches absent in WSV (legacy)", "bool", "true"
 
 Validation
 ^^^^^^^^^^
