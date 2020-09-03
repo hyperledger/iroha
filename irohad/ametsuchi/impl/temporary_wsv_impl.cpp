@@ -85,7 +85,7 @@ namespace iroha {
 
     expected::Result<void, validation::CommandError> TemporaryWsvImpl::apply(
         const shared_model::interface::Transaction &transaction) {
-      try {
+      return retryOnException<soci::soci_error>(log_, [&] {
         return validateSignatures(transaction) |
                    [this,
                     savepoint = createSavepoint("savepoint_temp_wsv"),
@@ -104,13 +104,7 @@ namespace iroha {
           savepoint->release();
           return {};
         };
-      } catch (soci::soci_error const &e) {
-        return expected::makeError(validation::CommandError{
-            fmt::format("applying transaction {}", transaction.hash()),
-            1,
-            e.what(),
-            false});
-      }
+      });
     }
 
     std::unique_ptr<TemporaryWsv::SavepointWrapper>
