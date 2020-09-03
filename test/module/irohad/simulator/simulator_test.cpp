@@ -16,7 +16,7 @@
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
-#include "module/irohad/ametsuchi/mock_command_executor.hpp"
+#include "module/irohad/ametsuchi/mock_command_executor_factory.hpp"
 #include "module/irohad/ametsuchi/mock_temporary_factory.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/validation/mock_stateful_validator.hpp"
@@ -51,7 +51,6 @@ class SimulatorTest : public ::testing::Test {
       shared_model::interface::Block>;
 
   void SetUp() override {
-    auto command_executor = std::make_unique<MockCommandExecutor>();
     validator = std::make_shared<MockStatefulValidator>();
     factory = std::make_shared<NiceMock<MockTemporaryFactory>>();
     ordering_gate = std::make_shared<MockOrderingGate>();
@@ -65,13 +64,15 @@ class SimulatorTest : public ::testing::Test {
     EXPECT_CALL(*ordering_gate, onProposal())
         .WillOnce(Return(ordering_events.get_observable()));
 
-    simulator = std::make_shared<Simulator>(std::move(command_executor),
-                                            ordering_gate,
-                                            validator,
-                                            factory,
-                                            crypto_signer,
-                                            std::move(block_factory),
-                                            getTestLogger("Simulator"));
+    simulator =
+        Simulator::create(std::make_unique<MockCommandExecutorFactory>(),
+                          ordering_gate,
+                          validator,
+                          factory,
+                          crypto_signer,
+                          std::move(block_factory),
+                          getTestLogger("Simulator"))
+            .assumeValue();
   }
 
   std::shared_ptr<MockStatefulValidator> validator;
