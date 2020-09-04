@@ -7,9 +7,7 @@
 
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/command_executor.hpp"
-#include "ametsuchi/command_executor_factory.hpp"
 #include "common/bind.hpp"
-#include "common/result.hpp"
 #include "common/stubborn_caller.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
@@ -17,48 +15,21 @@
 
 namespace iroha {
   namespace simulator {
-    iroha::expected::Result<std::unique_ptr<Simulator>, std::string>
-    Simulator::create(
-        std::shared_ptr<iroha::ametsuchi::CommandExecutorFactory>
-            command_executor_factory,
-        std::shared_ptr<network::OrderingGate> ordering_gate,
-        std::shared_ptr<validation::StatefulValidator> stateful_validator,
-        std::shared_ptr<ametsuchi::TemporaryFactory> temporary_wsv_factory,
-        std::shared_ptr<CryptoSignerType> crypto_signer,
-        std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
-            block_factory,
-        logger::LoggerPtr log) {
-      return command_executor_factory->createCommandExecutor() |
-          [&](auto &&command_executor) {
-            return std::make_unique<Simulator>(
-                std::move(command_executor_factory),
-                std::move(command_executor),
-                std::move(ordering_gate),
-                std::move(stateful_validator),
-                std::move(temporary_wsv_factory),
-                std::move(crypto_signer),
-                std::move(block_factory),
-                std::move(log));
-          };
-    }
 
     Simulator::Simulator(
-        std::shared_ptr<iroha::ametsuchi::CommandExecutorFactory>
-            command_executor_factory,
         std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
         std::shared_ptr<network::OrderingGate> ordering_gate,
-        std::shared_ptr<validation::StatefulValidator> stateful_validator,
-        std::shared_ptr<ametsuchi::TemporaryFactory> temporary_wsv_factory,
+        std::shared_ptr<validation::StatefulValidator> statefulValidator,
+        std::shared_ptr<ametsuchi::TemporaryFactory> factory,
         std::shared_ptr<CryptoSignerType> crypto_signer,
         std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
             block_factory,
         logger::LoggerPtr log)
-        : command_executor_factory_(std::move(command_executor_factory)),
-          command_executor_(std::move(command_executor)),
+        : command_executor_(std::move(command_executor)),
           notifier_(notifier_lifetime_),
           block_notifier_(block_notifier_lifetime_),
-          validator_(std::move(stateful_validator)),
-          ametsuchi_factory_(std::move(temporary_wsv_factory)),
+          validator_(std::move(statefulValidator)),
+          ametsuchi_factory_(std::move(factory)),
           crypto_signer_(std::move(crypto_signer)),
           block_factory_(std::move(block_factory)),
           log_(std::move(log)) {
@@ -115,25 +86,18 @@ namespace iroha {
         const shared_model::interface::Proposal &proposal) {
       log_->info("process proposal");
 
-      while (true) {
-        try {
-          auto storage =
-              ametsuchi_factory_->createTemporaryWsv(command_executor_);
+      return retryOnException<iroha::ametsuchi::SessionRenewedException>(
+          log_, [&] {
+            auto storage =
+                ametsuchi_factory_->createTemporaryWsv(command_executor_);
 
-          std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
-              validated_proposal_and_errors =
-                  validator_->validate(proposal, *storage);
-          ametsuchi_factory_->prepareBlock(std::move(storage));
+            std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
+                validated_proposal_and_errors =
+                    validator_->validate(proposal, *storage);
+            ametsuchi_factory_->prepareBlock(std::move(storage));
 
-          return validated_proposal_and_errors;
-        } catch (std::runtime_error const &e) {
-          retryOnException<iroha::expected::ResultException>(log_, [this] {
-            command_executor_ =
-                command_executor_factory_->createCommandExecutor()
-                    .assumeValue();
+            return validated_proposal_and_errors;
           });
-        }
-      }
     }
 
     boost::optional<std::shared_ptr<shared_model::interface::Block>>

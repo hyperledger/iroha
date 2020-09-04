@@ -6,6 +6,8 @@
 #ifndef IROHA_AMETSUCHI_COMMAND_EXECUTOR_HPP
 #define IROHA_AMETSUCHI_COMMAND_EXECUTOR_HPP
 
+#include <stdexcept>
+
 #include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -30,6 +32,11 @@ namespace iroha {
       std::string error_extra;
 
       std::string toString() const;
+    };
+
+    class SessionRenewedException : public std::runtime_error {
+     public:
+      using std::runtime_error::runtime_error;
     };
 
     /**

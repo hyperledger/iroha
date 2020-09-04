@@ -21,8 +21,7 @@
 namespace iroha {
   namespace ametsuchi {
     class CommandExecutor;
-    class CommandExecutorFactory;
-  }  // namespace ametsuchi
+  }
 
   namespace simulator {
 
@@ -31,22 +30,9 @@ namespace iroha {
       using CryptoSignerType = shared_model::crypto::AbstractCryptoModelSigner<
           shared_model::interface::Block>;
 
-      static iroha::expected::Result<std::unique_ptr<Simulator>, std::string>
-      create(std::shared_ptr<iroha::ametsuchi::CommandExecutorFactory>
-                 command_executor_factory,
-             std::shared_ptr<network::OrderingGate> ordering_gate,
-             std::shared_ptr<validation::StatefulValidator> stateful_validator,
-             std::shared_ptr<ametsuchi::TemporaryFactory> temporary_wsv_factory,
-             std::shared_ptr<CryptoSignerType> crypto_signer,
-             std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
-                 block_factory,
-             logger::LoggerPtr log);
-
       Simulator(
           // TODO IR-598 mboldyrev 2019.08.10: remove command_executor from
           // Simulator
-          std::shared_ptr<iroha::ametsuchi::CommandExecutorFactory>
-              command_executor_factory,
           std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
           std::shared_ptr<network::OrderingGate> ordering_gate,
           std::shared_ptr<validation::StatefulValidator> statefulValidator,
@@ -74,8 +60,6 @@ namespace iroha {
 
      private:
       // internal
-      std::shared_ptr<iroha::ametsuchi::CommandExecutorFactory>
-          command_executor_factory_;
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor_;
 
       rxcpp::composite_subscription notifier_lifetime_;

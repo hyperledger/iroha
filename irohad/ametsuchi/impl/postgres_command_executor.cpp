@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 
+#include <cstddef>
 #include <exception>
 #include <forward_list>
 #include <memory>
@@ -16,6 +17,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/failover_callback.hpp"
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
@@ -89,13 +91,16 @@ namespace {
        std::make_tuple("Key (account_id)=", "already exists"),
        std::make_tuple("Key (default_role)=", "is not present in table")};
 
-  /// HACK! Tells if this exception means session reconnection.
-  void rethrowConnectionFailedErrorHack(std::exception const &e) {
-    char const *kSociConnectionFailedSubstringHack = "Connection failed.";
-    if (std::string_view{e.what()}.find(kSociConnectionFailedSubstringHack)
-        != std::string_view::npos) {
-      throw e;
-    }
+  /// HACK! Gets the FailoverCallback from session.
+  iroha::ametsuchi::FailoverCallback &getFailoverCallback(
+      soci::session &session) {
+    return static_cast<iroha::ametsuchi::FailoverCallback &>(
+        *session.get_backend()->failoverCallback_);
+  }
+
+  /// HACK! Gets number of times this session was reconnected.
+  size_t getSessionReconnectionsCount(soci::session &session) {
+    return getFailoverCallback(session).getSessionReconnectionsCount();
   }
 
   /// mapping between command name, fake error code and related real error code
@@ -361,7 +366,8 @@ namespace iroha {
       CommandStatements(soci::session &session,
                         const std::string &base_statement,
                         const std::vector<std::string> &permission_checks)
-          : statement_with_validation([&] {
+          : session_(session),
+            statement_with_validation([&] {
               // Create query with validation
               auto with_validation_str = boost::format(base_statement);
 
@@ -390,6 +396,8 @@ namespace iroha {
                                : statement_without_validation;
       }
 
+      soci::session &session_;
+
      private:
       soci::statement statement_with_validation;
       soci::statement statement_without_validation;
@@ -403,7 +411,8 @@ namespace iroha {
           std::string command_name,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter)
-          : statement_(statements->getStatement(enable_validation)),
+          : session_(statements->session_),
+            statement_(statements->getStatement(enable_validation)),
             command_name_(std::move(command_name)),
             perm_converter_(std::move(perm_converter)) {
         arguments_string_builder_.init(command_name_)
@@ -480,6 +489,8 @@ namespace iroha {
       }
 
       iroha::ametsuchi::CommandResult execute() noexcept {
+        const auto reconnections_count_before_call =
+            getSessionReconnectionsCount(session_);
         try {
           soci::row r;
           statement_.define_and_bind();
@@ -496,13 +507,17 @@ namespace iroha {
         } catch (const std::exception &e) {
           statement_.bind_clean_up();
           temp_values_.clear();
-          rethrowConnectionFailedErrorHack(e);
+          if (getSessionReconnectionsCount(session_)
+              > reconnections_count_before_call) {
+            throw SessionRenewedException{e.what()};
+          }
           return getCommandError(
               command_name_, e.what(), arguments_string_builder_.finalize());
         }
       }
 
      private:
+      soci::session &session_;
       soci::statement &statement_;
       std::string command_name_;
       std::shared_ptr<shared_model::interface::PermissionToString>
@@ -1432,6 +1447,16 @@ namespace iroha {
           specific_query_executor_{std::move(specific_query_executor)},
           vm_caller_{std::move(vm_caller)} {
       initStatements();
+
+      // after session renewal, restore prepared sstatements
+      getFailoverCallback(*sql_).setOnFinishedHandler(
+          // Hack! This session is guaranteed to outlive this
+          // PostgresSpecificQueryExecutor, so we can capture `this'.
+          [this](soci::session &session) {
+            // the session object must stay after reconnection
+            assert(&session == sql_.get());
+            initStatements();
+          });
     }
 
     PostgresCommandExecutor::~PostgresCommandExecutor() = default;
@@ -1541,6 +1566,8 @@ namespace iroha {
         const std::string &tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
+      const auto reconnections_count_before_call =
+          getSessionReconnectionsCount(*sql_);
       try {
         if (vm_caller_) {
           if (do_validation) {  // check permissions
@@ -1607,7 +1634,10 @@ namespace iroha {
           return makeCommandError("CallEngine", 1, "Engine is not configured.");
         }
       } catch (std::exception const &e) {
-        rethrowConnectionFailedErrorHack(e);
+        if (getSessionReconnectionsCount(*sql_)
+            > reconnections_count_before_call) {
+          throw SessionRenewedException{e.what()};
+        }
         return makeCommandError("CallEngine", 1, e.what());
       }
       return {};

@@ -10,7 +10,6 @@
 
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "ametsuchi/block_query_factory.hpp"
-#include "ametsuchi/command_executor_factory.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"
 #include "ametsuchi/query_executor_factory.hpp"
@@ -40,7 +39,6 @@ namespace iroha {
                     public MutableFactory,
                     public PeerQueryFactory,
                     public BlockQueryFactory,
-                    public CommandExecutorFactory,
                     public QueryExecutorFactory,
                     public SettingQueryFactory {
      public:
@@ -55,6 +53,13 @@ namespace iroha {
        */
       virtual bool insertBlock(
           std::shared_ptr<const shared_model::interface::Block> block) = 0;
+
+      /**
+       * Create new command executor that holds a database session within.
+       * @return The command executor or string error message.
+       */
+      virtual expected::Result<std::unique_ptr<CommandExecutor>, std::string>
+      createCommandExecutor() = 0;
 
       /**
        * Insert a peer into WSV

@@ -5,14 +5,11 @@
 
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 
-#include <fmt/core.h>
-#include <soci/error.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "common/stubborn_caller.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/transaction.hpp"
@@ -29,9 +26,7 @@ namespace iroha {
               std::move(command_executor))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
-      // Issuing BEGIN when already inside a transaction block will provoke a
-      // warning message. The state of the transaction is not affected.
-      retryOnException<soci::soci_error>(log_, [this]() { sql_ << "BEGIN"; });
+      sql_ << "BEGIN";
     }
 
     expected::Result<void, validation::CommandError>
@@ -85,26 +80,26 @@ namespace iroha {
 
     expected::Result<void, validation::CommandError> TemporaryWsvImpl::apply(
         const shared_model::interface::Transaction &transaction) {
-      return retryOnException<soci::soci_error>(log_, [&] {
-        return validateSignatures(transaction) |
-                   [this,
-                    savepoint = createSavepoint("savepoint_temp_wsv"),
-                    &transaction]()
-                   -> expected::Result<void, validation::CommandError> {
-          if (auto error = expected::resultToOptionalError(
-                  transaction_executor_->execute(transaction, true))) {
-            return expected::makeError(
-                validation::CommandError{error->command_error.command_name,
-                                         error->command_error.error_code,
-                                         error->command_error.error_extra,
-                                         true,
-                                         error->command_index});
-          }
-          // success
-          savepoint->release();
-          return {};
-        };
-      });
+      auto savepoint_wrapper = createSavepoint("savepoint_temp_wsv");
+
+      return validateSignatures(transaction) |
+                 [this,
+                  savepoint = std::move(savepoint_wrapper),
+                  &transaction]()
+                 -> expected::Result<void, validation::CommandError> {
+        if (auto error = expected::resultToOptionalError(
+                transaction_executor_->execute(transaction, true))) {
+          return expected::makeError(
+              validation::CommandError{error->command_error.command_name,
+                                       error->command_error.error_code,
+                                       error->command_error.error_extra,
+                                       true,
+                                       error->command_index});
+        }
+        // success
+        savepoint->release();
+        return {};
+      };
     }
 
     std::unique_ptr<TemporaryWsv::SavepointWrapper>

@@ -5,6 +5,7 @@
 
 #include "synchronizer/impl/synchronizer_impl.hpp"
 
+#include <optional>
 #include <utility>
 
 #include <rxcpp/operators/rx-tap.hpp>
@@ -12,6 +13,7 @@
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "common/bind.hpp"
+#include "common/stubborn_caller.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -95,7 +97,8 @@ namespace iroha {
 
       // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
       for (const auto &public_key : public_keys) {
-        while (true) {
+        bool try_with_current_peer = true;
+        while (try_with_current_peer) {
           bool got_some_blocks_from_this_peer = false;
           log_->debug(
               "trying to download blocks from {} to {} from peer with key {}",
@@ -113,21 +116,46 @@ namespace iroha {
                     my_height = block->height();
                   });
 
-          if (validator_->validateAndApply(network_chain, *storage)) {
-            if (my_height >= target_height) {
-              // goto is alright to break out of nested loops:
-              // https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#es76-avoid-goto
-              return mutable_factory_->commit(std::move(storage));
-            }
-            if (not got_some_blocks_from_this_peer) {
-              // if we got no new blocks from this peer we should switch to
-              // next peer
-              break;
-            }
-          } else {
-            // last block did not apply - need to ask it again from other peer
-            my_height = std::max(my_height - 1, start_height);
-            break;
+          // This retry block is a dirty hack to handle session renewal upon
+          // reconnection. It (hopefully) works like this:
+          //  - in MutableStorageImpl constructor a single transaction is
+          //  started
+          //  - in validateAndApply a savepoint is created for each block
+          //  - the only persistent change visible outside this session is
+          //  done in commit()
+          //
+          //  when connection is renewed, lost are:
+          //  - both transaction and savepoints of the previous session
+          //  - prepared statements in command executor
+          //
+          //  so all effects of database actions are lost if we could not
+          //  commit. on exception, mutable storage destructor will rollback the
+          //  tx and then we can safely try applying the chain from the same
+          //  height, as no changes were made persistent.
+          if (auto commit_result =
+                  retryOnException<iroha::ametsuchi::SessionRenewedException>(
+                      log_, [&]() -> std::optional<ametsuchi::CommitResult> {
+                        if (validator_->validateAndApply(network_chain,
+                                                         *storage)) {
+                          if (my_height >= target_height) {
+                            // goto is alright to break out of nested loops:
+                            // https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#es76-avoid-goto
+                            return mutable_factory_->commit(std::move(storage));
+                          }
+                          if (not got_some_blocks_from_this_peer) {
+                            // if we got no new blocks from this peer we should
+                            // switch to next peer
+                            try_with_current_peer = false;
+                          }
+                        } else {
+                          // last block did not apply - need to ask it again
+                          // from other peer
+                          my_height = std::max(my_height - 1, start_height);
+                          try_with_current_peer = false;
+                        }
+                        return std::nullopt;
+                      })) {
+            return std::move(commit_result).value();
           }
         }
       }
@@ -162,18 +190,23 @@ namespace iroha {
                     return false;
                   });
       if (not committed_prepared) {
-        auto storage = getStorage();
-        if (storage->apply(msg.block)) {
-          mutable_factory_->commit(std::move(storage))
-              .match(
-                  [&notify](auto &&value) { notify(std::move(value.value)); },
-                  [this](const auto &error) {
-                    this->log_->error("Failed to commit mutable storage: {}",
-                                      error.error);
-                  });
-        } else {
-          log_->warn("Block was not committed due to fail in mutable storage");
-        }
+        // Dirty hack for database session renewal workaround.
+        // See downloadAndCommitMissingBlocks() for similar case explanation.
+        retryOnException<iroha::ametsuchi::SessionRenewedException>(log_, [&] {
+          auto storage = getStorage();
+          if (storage->apply(msg.block)) {
+            mutable_factory_->commit(std::move(storage))
+                .match(
+                    [&notify](auto &&value) { notify(std::move(value.value)); },
+                    [this](const auto &error) {
+                      this->log_->error("Failed to commit mutable storage: {}",
+                                        error.error);
+                    });
+          } else {
+            log_->warn(
+                "Block was not committed due to fail in mutable storage");
+          }
+        });
       }
     }
 

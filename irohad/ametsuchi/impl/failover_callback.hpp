@@ -6,6 +6,8 @@
 #ifndef IROHA_FAILOVER_CALLBACK_HPP
 #define IROHA_FAILOVER_CALLBACK_HPP
 
+#include <cstddef>
+#include <functional>
 #include <memory>
 
 #include <soci/soci.h>
@@ -43,6 +45,11 @@ namespace iroha {
 
       void aborted() override;
 
+      size_t getSessionReconnectionsCount() const;
+
+      using OnFinishedHandler = std::function<void(soci::session &)>;
+      void setOnFinishedHandler(OnFinishedHandler handler);
+
      private:
       bool reconnectionLoop();
 
@@ -50,6 +57,8 @@ namespace iroha {
       InitFunctionType init_session_;
       const std::string connection_options_;
       std::unique_ptr<ReconnectionStrategy> reconnection_strategy_;
+      size_t session_reconnections_count_;
+      OnFinishedHandler on_finished_handler_;
       logger::LoggerPtr log_;
     };
   }  // namespace ametsuchi
