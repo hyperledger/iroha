@@ -59,20 +59,6 @@ namespace iroha {
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
 
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
-        executor = std::make_unique<PostgresCommandExecutor>(
-            std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                            pgopt_),
-            perm_converter,
-            std::make_shared<PostgresSpecificQueryExecutor>(
-                *sql,
-                *block_storage_,
-                pending_txs_storage,
-                query_response_factory,
-                perm_converter,
-                getTestLoggerManager()
-                    ->getChild("SpecificQueryExecutor")
-                    ->getLogger()),
-            std::nullopt);
       }
 
       void TearDown() override {
@@ -97,7 +83,8 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executor->execute(cmd, creator, "", 0, not do_validation);
+        return command_executor->execute(
+            cmd, creator, "", 0, not do_validation);
       }
 
       /**
@@ -222,7 +209,6 @@ namespace iroha {
 
       std::unique_ptr<shared_model::interface::Command> command;
 
-      std::unique_ptr<CommandExecutor> executor;
       std::unique_ptr<WsvQuery> wsv_query;
       std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
 

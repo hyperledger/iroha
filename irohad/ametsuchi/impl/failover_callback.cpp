@@ -31,8 +31,11 @@ void FailoverCallback::started() {
   log_->debug("Reconnection process is initiated");
 }
 
-void FailoverCallback::finished(soci::session &) {
+void FailoverCallback::finished(soci::session &session) {
   session_reconnections_count_++;
+  if (on_finished_handler_) {
+    on_finished_handler_(session);
+  }
 }
 
 void FailoverCallback::failed(bool &should_reconnect, std::string &) {

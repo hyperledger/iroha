@@ -24,22 +24,6 @@ namespace iroha {
       void SetUp() override {
         AmetsuchiTest::SetUp();
 
-        executor = std::make_unique<PostgresCommandExecutor>(
-            std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                            pgopt_),
-            perm_converter,
-            std::make_shared<PostgresSpecificQueryExecutor>(
-                *sql,
-                *block_storage_,
-                std::make_shared<MockPendingTransactionStorage>(),
-                std::make_shared<
-                    shared_model::proto::ProtoQueryResponseFactory>(),
-                perm_converter,
-                getTestLoggerManager()
-                    ->getChild("SpecificQueryExecutor")
-                    ->getLogger()),
-            std::nullopt);
-
         setting_query = std::make_unique<PostgresSettingQuery>(
             std::make_unique<soci::session>(*soci::factory_postgresql(),
                                             pgopt_),
@@ -64,14 +48,14 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executor->execute(cmd, creator, {}, 0, not do_validation);
+        return command_executor->execute(
+            cmd, creator, {}, 0, not do_validation);
       }
 
       void TearDown() override {
         AmetsuchiTest::TearDown();
       }
 
-      std::unique_ptr<CommandExecutor> executor;
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter =
               std::make_shared<shared_model::proto::ProtoPermissionToString>();
