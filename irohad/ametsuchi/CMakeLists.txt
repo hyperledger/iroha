@@ -147,7 +147,6 @@ if(USE_BURROW)
     target_link_libraries(burrow_vm_caller
         burrow_vm_caller_generated
         fmt::fmt
-        postgres_burrow_storage
         proto_command_executor
         proto_specific_query_executor
         )
@@ -168,6 +167,7 @@ target_link_libraries(ametsuchi
     rxcpp
     libs_files
     common
+    postgres_burrow_storage
     postgres_options
     shared_model_interfaces
     shared_model_plain_backend
