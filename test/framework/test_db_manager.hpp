@@ -10,11 +10,14 @@
 #include "logger/logger_manager_fwd.hpp"
 
 namespace soci {
-  class connection_pool;
   class session;
 }  // namespace soci
 
 namespace iroha {
+  namespace ametsuchi {
+    struct PoolWrapper;
+  }
+
   namespace integration_framework {
 
     /**
@@ -47,12 +50,14 @@ namespace iroha {
      private:
       class DbDropper;
 
-      TestDbManager(std::shared_ptr<soci::connection_pool> connection_pool,
-                    std::unique_ptr<DbDropper> db_dropper);
+      TestDbManager(
+          std::shared_ptr<iroha::ametsuchi::PoolWrapper> connection_pool,
+          std::unique_ptr<DbDropper> db_dropper);
 
       const std::unique_ptr<DbDropper> db_dropper_;
 
-      const std::shared_ptr<soci::connection_pool> connection_pool_;
+      // we need PoolWrapper because it holds the reconnection functors
+      const std::shared_ptr<iroha::ametsuchi::PoolWrapper> connection_pool_;
     };
   }  // namespace integration_framework
 }  // namespace iroha

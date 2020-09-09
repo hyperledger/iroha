@@ -65,9 +65,8 @@ TestDbManager::createWithRandomDbName(
                     *soci::factory_postgresql(),
                     pg_opts->maintenanceConnectionString()),
                 pg_opts->workingDbName());
-            return std::unique_ptr<TestDbManager>(
-                new TestDbManager(std::move(pool_wrapper)->connection_pool_,
-                                  std::move(db_dropper)));
+            return std::unique_ptr<TestDbManager>(new TestDbManager(
+                std::move(pool_wrapper), std::move(db_dropper)));
           };
     if (iroha::expected::hasValue(create_db_result)) {
       return std::move(create_db_result).assumeValue();
@@ -81,11 +80,11 @@ TestDbManager::createWithRandomDbName(
 TestDbManager::~TestDbManager() = default;
 
 std::unique_ptr<soci::session> TestDbManager::getSession() {
-  return std::make_unique<soci::session>(*connection_pool_);
+  return std::make_unique<soci::session>(*connection_pool_->connection_pool_);
 }
 
 TestDbManager::TestDbManager(
-    std::shared_ptr<soci::connection_pool> connection_pool,
+    std::shared_ptr<iroha::ametsuchi::PoolWrapper> connection_pool,
     std::unique_ptr<DbDropper> db_dropper)
     : db_dropper_(std::move(db_dropper)),
       connection_pool_(std::move(connection_pool)) {}
