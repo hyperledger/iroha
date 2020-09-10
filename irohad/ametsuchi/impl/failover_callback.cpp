@@ -31,12 +31,7 @@ void FailoverCallback::started() {
   log_->debug("Reconnection process is initiated");
 }
 
-void FailoverCallback::finished(soci::session &session) {
-  session_reconnections_count_++;
-  if (on_finished_handler_) {
-    on_finished_handler_(session);
-  }
-}
+void FailoverCallback::finished(soci::session &session) {}
 
 void FailoverCallback::failed(bool &should_reconnect, std::string &) {
   // don't rely on reconnection in soci because we are going to conduct
@@ -47,11 +42,16 @@ void FailoverCallback::failed(bool &should_reconnect, std::string &) {
       "reconnect");
   auto is_reconnected = reconnectionLoop();
   log_->info("re-established: {}", is_reconnected);
+
+  if (is_reconnected) {
+    session_reconnections_count_++;
+    if (on_finished_handler_) {
+      on_finished_handler_(connection_);
+    }
+  }
 }
 
-void FailoverCallback::aborted() {
-  log_->error("has invoked aborted method of FailoverCallback");
-}
+void FailoverCallback::aborted() {}
 
 size_t FailoverCallback::getSessionReconnectionsCount() const {
   return session_reconnections_count_;
