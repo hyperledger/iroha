@@ -44,6 +44,7 @@ We have documentation in several languages available and you are welcome to cont
 ### How to explore Iroha really fast?
 
 Check [getting started](https://iroha.readthedocs.io/en/stable/getting_started/index.html) section in your version of localized docs to start exploring the system.
+There is also a great [sandbox](https://katacoda.com/lebdron/scenarios/iroha-transfer-asset) to try sending assets using Python library.
 
 ### How to build Iroha?
 
