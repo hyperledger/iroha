@@ -253,9 +253,9 @@ PgConnectionInit::initializeConnectionPool(
     const std::string &pg_reconnection_options,
     logger::LoggerManagerTreePtr log_manager) {
   auto log = log_manager->getLogger();
-  auto initialize_session = [&](soci::session &session,
-                                auto on_init_db,
-                                auto on_init_connection) {
+  auto initialize_session = [&, log](soci::session &session,
+                                     auto on_init_db,
+                                     auto on_init_connection) {
     auto *backend =
         static_cast<soci::postgresql_session_backend *>(session.get_backend());
     PQsetNoticeProcessor(backend->conn_, &processPqNotice, log.get());
