@@ -15,12 +15,10 @@ using namespace iroha::ametsuchi;
 
 FailoverCallback::FailoverCallback(
     soci::session &connection,
-    InitFunctionType init,
     std::string connection_options,
     std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
     logger::LoggerPtr log)
     : connection_(connection),
-      init_session_(std::move(init)),
       connection_options_(std::move(connection_options)),
       reconnection_strategy_(std::move(reconnection_strategy)),
       session_reconnections_count_(0),
@@ -42,13 +40,6 @@ void FailoverCallback::failed(bool &should_reconnect, std::string &) {
       "reconnect");
   auto is_reconnected = reconnectionLoop();
   log_->info("re-established: {}", is_reconnected);
-
-  if (is_reconnected) {
-    session_reconnections_count_++;
-    if (on_finished_handler_) {
-      on_finished_handler_(connection_);
-    }
-  }
 }
 
 void FailoverCallback::aborted() {}
@@ -57,8 +48,9 @@ size_t FailoverCallback::getSessionReconnectionsCount() const {
   return session_reconnections_count_;
 }
 
-void FailoverCallback::setOnFinishedHandler(OnFinishedHandler handler) {
-  on_finished_handler_ = std::move(handler);
+void FailoverCallback::addOnReconnectedHandler(
+    std::weak_ptr<OnReconnectedHandler> handler) {
+  reconnection_handlers_.emplace_back(std::move(handler));
 }
 
 bool FailoverCallback::reconnectionLoop() {
@@ -155,7 +147,16 @@ bool FailoverCallback::reconnectionLoop() {
       clean_up(conn_);
       connect(conn_, parameters);
 
-      init_session_(connection_);
+      session_reconnections_count_++;
+      for (auto it = reconnection_handlers_.begin();
+           it != reconnection_handlers_.end();
+           ++it) {
+        if (auto reconnection_handler = it->lock()) {
+          (*reconnection_handler)(connection_);
+        } else {
+          it = reconnection_handlers_.erase(it);
+        }
+      }
       successful_reconnection = true;
     } catch (const std::exception &e) {
       log_->warn("attempt to reconnect has failed: {}", e.what());

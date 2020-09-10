@@ -5,12 +5,10 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 
-#include <cstddef>
 #include <exception>
 #include <forward_list>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string_view>
 
 #include <fmt/core.h>
@@ -23,6 +21,7 @@
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "ametsuchi/setting_query.hpp"
@@ -95,40 +94,6 @@ namespace {
        std::make_tuple("Key (account_id, public_key)=", "already exists"),
        std::make_tuple("Key (account_id)=", "already exists"),
        std::make_tuple("Key (default_role)=", "is not present in table")};
-
-  /// HACK! Gets the FailoverCallback from session.
-  std::optional<std::reference_wrapper<iroha::ametsuchi::FailoverCallback>>
-  getFailoverCallback(soci::session &session) {
-    auto maybe_callback = session.get_backend()->failoverCallback_;
-    if (maybe_callback) {
-      return static_cast<iroha::ametsuchi::FailoverCallback &>(*maybe_callback);
-    }
-    return std::nullopt;
-  }
-
-  /// HACK! Checks number of times this session was reconnected.
-  class ReconnectionThrowerHack {
-   public:
-    ReconnectionThrowerHack(soci::session &session)
-        : maybe_failover_callback_(getFailoverCallback(session)),
-          session_reconnections_count_(
-              maybe_failover_callback_ | [](auto callback) {
-                return callback.get().getSessionReconnectionsCount();
-              }){};
-
-    bool wasReconnected() const {
-      auto const new_session_reconnections_count =
-          maybe_failover_callback_ | [](auto callback) {
-            return callback.get().getSessionReconnectionsCount();
-          };
-      return session_reconnections_count_ < new_session_reconnections_count;
-    }
-
-   private:
-    std::optional<std::reference_wrapper<iroha::ametsuchi::FailoverCallback>>
-        maybe_failover_callback_;
-    size_t session_reconnections_count_;
-  };
 
   /// mapping between command name, fake error code and related real error code
   const std::map<std::string, std::map<int, int>> kCmdNameToErrorCode{
@@ -533,9 +498,7 @@ namespace iroha {
         } catch (const std::exception &e) {
           statement_.bind_clean_up();
           temp_values_.clear();
-          if (reconnection_checker.wasReconnected()) {
-            throw SessionRenewedException{e.what()};
-          }
+          reconnection_checker.throwIfReconnected(e.what());
           return getCommandError(
               command_name_, e.what(), arguments_string_builder_.finalize());
         }
@@ -1468,21 +1431,28 @@ namespace iroha {
         std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
         : sql_(std::move(sql)),
+          reconnection_handler_(
+              std::make_shared<FailoverCallback::OnReconnectedHandler>(
+                  // Hack! This session is guaranteed to outlive this
+                  // PostgresSpecificQueryExecutor, so we can capture `this'.
+                  [this](soci::session &session) {
+                    // the session object must stay after reconnection,
+                    // but we do not check &session == sql_.get(),
+                    // because `sql_' is a from-pool-session wrapper,
+                    // and `session' is the object stored in the pool
+                    // that is referred to by `sql_'.
+                    // I see no easy way to match these two, so lets hope it
+                    // works.
+                    initStatements();
+                  })),
           perm_converter_{std::move(perm_converter)},
           specific_query_executor_{std::move(specific_query_executor)},
           vm_caller_{std::move(vm_caller)} {
       initStatements();
 
-      // after session renewal, restore prepared sstatements
+      // after session renewal, restore prepared statements
       getFailoverCallback(*sql_) | [this](auto callback) {
-        callback.get().setOnFinishedHandler(
-            // Hack! This session is guaranteed to outlive this
-            // PostgresSpecificQueryExecutor, so we can capture `this'.
-            [this](soci::session &session) {
-              // the session object must stay after reconnection
-              assert(&session == sql_.get());
-              initStatements();
-            });
+        callback.get().addOnReconnectedHandler(reconnection_handler_);
       };
     }
 
@@ -1661,9 +1631,7 @@ namespace iroha {
           return makeCommandError("CallEngine", 1, "Engine is not configured.");
         }
       } catch (std::exception const &e) {
-        if (reconnection_checker.wasReconnected()) {
-          throw SessionRenewedException{e.what()};
-        }
+        reconnection_checker.throwIfReconnected(e.what());
         return makeCommandError("CallEngine", 1, e.what());
       }
       return {};

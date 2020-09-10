@@ -7,6 +7,7 @@
 
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/command_executor.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "common/bind.hpp"
 #include "common/stubborn_caller.hpp"
 #include "interfaces/iroha_internal/block.hpp"

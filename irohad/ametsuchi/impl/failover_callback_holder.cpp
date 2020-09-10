@@ -7,17 +7,23 @@
 
 using namespace iroha::ametsuchi;
 
+void FailoverCallbackHolder::addOnReconnectedHandler(
+    std::shared_ptr<FailoverCallback::OnReconnectedHandler> handler) {
+  reconnection_handlers_.emplace_back(std::move(handler));
+}
+
 FailoverCallback &FailoverCallbackHolder::makeFailoverCallback(
     soci::session &connection,
-    FailoverCallback::InitFunctionType init,
     std::string connection_options,
     std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
     logger::LoggerPtr log) {
-  callbacks_.push_back(
+  FailoverCallback &the_callback = *callbacks_.emplace_back(
       std::make_unique<FailoverCallback>(connection,
-                                         std::move(init),
                                          std::move(connection_options),
                                          std::move(reconnection_strategy),
                                          std::move(log)));
-  return *callbacks_.back();
+  for (auto const &handler : reconnection_handlers_) {
+    the_callback.addOnReconnectedHandler(handler);
+  }
+  return the_callback;
 }

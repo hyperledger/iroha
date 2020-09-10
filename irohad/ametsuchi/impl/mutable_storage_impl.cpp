@@ -15,6 +15,7 @@
 #include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "interfaces/commands/command.hpp"
@@ -43,7 +44,7 @@ namespace iroha {
           block_storage_(std::move(block_storage)),
           committed(false),
           log_(log_manager->getLogger()) {
-      sql_ << "BEGIN";
+      IROHA_SOCI_SQL_EXECUTE_THROW_IF_RECONNECTED(sql_, "BEGIN");
     }
 
     bool MutableStorageImpl::apply(
@@ -94,6 +95,7 @@ namespace iroha {
 
     template <typename Function>
     bool MutableStorageImpl::withSavepoint(Function &&function) {
+      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         sql_ << "SAVEPOINT savepoint_";
 
@@ -106,6 +108,7 @@ namespace iroha {
         }
         return function_executed;
       } catch (std::exception &e) {
+        reconnection_checker.throwIfReconnected(e.what());
         log_->warn("Apply has failed. Reason: {}", e.what());
         return false;
       }
@@ -145,10 +148,12 @@ namespace iroha {
         assert(ledger_state_);
         return "Tried to commit mutable storage with no blocks applied.";
       }
+      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         sql_ << "COMMIT";
         committed = true;
       } catch (std::exception &e) {
+        reconnection_checker.throwIfReconnected(e.what());
         return expected::makeError(e.what());
       }
       return MutableStorage::CommitResult{ledger_state_.value(),
@@ -157,9 +162,11 @@ namespace iroha {
 
     MutableStorageImpl::~MutableStorageImpl() {
       if (not committed) {
+        ReconnectionThrowerHack reconnection_checker{sql_};
         try {
           sql_ << "ROLLBACK";
         } catch (std::exception &e) {
+          reconnection_checker.throwIfReconnected(e.what());
           log_->warn("Apply has been failed. Reason: {}", e.what());
         }
       }

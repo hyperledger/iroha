@@ -116,6 +116,7 @@ add_library(ametsuchi
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
+    impl/soci_reconnection_hacks.cpp
     )
 
 add_library(postgres_indexer

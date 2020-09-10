@@ -9,6 +9,7 @@
 #include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -26,7 +27,7 @@ namespace iroha {
               std::move(command_executor))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
-      sql_ << "BEGIN";
+      IROHA_SOCI_SQL_EXECUTE_THROW_IF_RECONNECTED(sql_, "BEGIN");
     }
 
     expected::Result<void, validation::CommandError>
@@ -52,12 +53,14 @@ namespace iroha {
                           FROM account
                           WHERE account_id = :account_id) AS CTE3(quorum))");
 
+      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         auto keys_range_size = boost::size(keys_range);
         sql_ << (query % keys).str(), soci::into(signatories_valid),
             soci::use(keys_range_size, "signatures_count"),
             soci::use(transaction.creatorAccountId(), "account_id");
       } catch (const std::exception &e) {
+        reconnection_checker.throwIfReconnected(e.what());
         auto error_str = "Transaction " + transaction.toString()
             + " failed signatures validation with db error: " + e.what();
         // TODO [IR-1816] Akvinikym 29.10.18: substitute error code magic number
@@ -112,9 +115,11 @@ namespace iroha {
     }
 
     TemporaryWsvImpl::~TemporaryWsvImpl() {
+      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         sql_ << "ROLLBACK";
       } catch (std::exception &e) {
+        reconnection_checker.throwIfReconnected(e.what());
         log_->error("Rollback did not happen: {}", e.what());
       }
     }
@@ -127,7 +132,8 @@ namespace iroha {
           savepoint_name_{std::move(savepoint_name)},
           is_released_{false},
           log_(std::move(log)) {
-      sql_ << "SAVEPOINT " + savepoint_name_ + ";";
+      IROHA_SOCI_SQL_EXECUTE_THROW_IF_RECONNECTED(
+          sql_, "SAVEPOINT " + savepoint_name_ + ";")
     }
 
     void TemporaryWsvImpl::SavepointWrapperImpl::release() {
@@ -135,6 +141,7 @@ namespace iroha {
     }
 
     TemporaryWsvImpl::SavepointWrapperImpl::~SavepointWrapperImpl() {
+      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         if (not is_released_) {
           sql_ << "ROLLBACK TO SAVEPOINT " + savepoint_name_ + ";";
@@ -142,6 +149,7 @@ namespace iroha {
           sql_ << "RELEASE SAVEPOINT " + savepoint_name_ + ";";
         }
       } catch (std::exception &e) {
+        reconnection_checker.throwIfReconnected(e.what());
         log_->error("SQL error. Reason: {}", e.what());
       }
     }

@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <list>
 #include <memory>
 
 #include <soci/soci.h>
@@ -26,10 +27,9 @@ namespace iroha {
      */
     class FailoverCallback final : public soci::failover_callback {
      public:
-      using InitFunctionType = std::function<void(soci::session &)>;
+      using OnReconnectedHandler = std::function<void(soci::session &)>;
       FailoverCallback(
           soci::session &connection,
-          InitFunctionType init,
           std::string connection_options,
           std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
           logger::LoggerPtr log);
@@ -47,18 +47,16 @@ namespace iroha {
 
       size_t getSessionReconnectionsCount() const;
 
-      using OnFinishedHandler = std::function<void(soci::session &)>;
-      void setOnFinishedHandler(OnFinishedHandler handler);
+      void addOnReconnectedHandler(std::weak_ptr<OnReconnectedHandler> handler);
 
      private:
       bool reconnectionLoop();
 
       soci::session &connection_;
-      InitFunctionType init_session_;
+      std::list<std::weak_ptr<OnReconnectedHandler>> reconnection_handlers_;
       const std::string connection_options_;
       std::unique_ptr<ReconnectionStrategy> reconnection_strategy_;
       size_t session_reconnections_count_;
-      OnFinishedHandler on_finished_handler_;
       logger::LoggerPtr log_;
     };
   }  // namespace ametsuchi

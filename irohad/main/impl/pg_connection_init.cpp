@@ -8,6 +8,8 @@
 #include <soci/rowset.h>
 #include <boost/functional/hash.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include <memory>
+#include "ametsuchi/impl/failover_callback.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "common/irohad_version.hpp"
 #include "logger/logger.hpp"
@@ -271,17 +273,19 @@ PgConnectionInit::initializeConnectionPool(
     try_rollback(session);
   };
 
+  callback_factory.addOnReconnectedHandler(
+      std::make_shared<FailoverCallback::OnReconnectedHandler>(
+          [initialize_session](soci::session &s) {
+            return initialize_session(s, [](auto &) {}, [](auto &) {});
+          }));
+
   /// lambda contains actions which should be invoked once for each
   /// session
   auto init_failover_callback = [&](soci::session &session) {
     static size_t connection_index = 0;
-    auto restore_session = [initialize_session](soci::session &s) {
-      return initialize_session(s, [](auto &) {}, [](auto &) {});
-    };
 
     auto &callback = callback_factory.makeFailoverCallback(
         session,
-        restore_session,
         pg_reconnection_options,
         reconnection_strategy_factory.create(),
         log_manager

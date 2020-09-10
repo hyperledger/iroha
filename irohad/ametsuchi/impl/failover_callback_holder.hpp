@@ -12,14 +12,19 @@ namespace iroha {
   namespace ametsuchi {
     class FailoverCallbackHolder {
      public:
+      /// registers given handler to each newly created failover callback
+      void addOnReconnectedHandler(
+          std::shared_ptr<FailoverCallback::OnReconnectedHandler>);
+
       FailoverCallback &makeFailoverCallback(
           soci::session &connection,
-          FailoverCallback::InitFunctionType init,
           std::string connection_options,
           std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
           logger::LoggerPtr log);
 
      private:
+      std::vector<std::shared_ptr<FailoverCallback::OnReconnectedHandler>>
+          reconnection_handlers_;
       std::vector<std::unique_ptr<FailoverCallback>> callbacks_;
     };
   }  // namespace ametsuchi

@@ -9,6 +9,7 @@
 #include <optional>
 #include "ametsuchi/command_executor.hpp"
 
+#include "ametsuchi/impl/failover_callback.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 
 namespace soci {
@@ -241,6 +242,8 @@ namespace iroha {
           const std::vector<std::string> &permission_checks);
 
       std::unique_ptr<soci::session> sql_;
+      std::shared_ptr<FailoverCallback::OnReconnectedHandler>
+          reconnection_handler_;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;

@@ -11,6 +11,7 @@
 #include <rxcpp/operators/rx-tap.hpp>
 #include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/command_executor.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "common/bind.hpp"
 #include "common/stubborn_caller.hpp"
