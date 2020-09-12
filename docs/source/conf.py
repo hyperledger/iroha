@@ -5,6 +5,11 @@ import yaml
 from sphinx.highlighting import lexers
 from pygments_lexer_solidity import SolidityLexer
 lexers['solidity'] = SolidityLexer()
+from pathlib import Path
+import subprocess
+
+root_dir = Path(__file__).resolve().parents[2]
+subprocess.run('doxygen', shell=True, cwd=root_dir)
 
 sys.path.insert(0, os.path.abspath('.'))
 
