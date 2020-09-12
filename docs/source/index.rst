@@ -28,3 +28,9 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
     develop/index.rst
     community/index.rst
     faq/index.rst
+
+Doxygen Technical Documentation
+*******************************
+
+We have auto-generated Doxygen documentation describing the technical components of HL Iroha v1.
+`Here it is <doxygen/index.html>`_.
