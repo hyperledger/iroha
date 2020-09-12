@@ -10,7 +10,7 @@ idna==2.6
 imagesize==0.7.1
 Jinja2==2.10.1
 livereload==2.5.1
-MarkupSafe==1.0
+MarkupSafe
 pathtools==0.1.2
 pipreqs==0.4.9
 port-for==0.3.1
