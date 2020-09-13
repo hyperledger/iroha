@@ -6,7 +6,7 @@
 #ifndef ROCKDB_BLOCK_STORAGE_HPP
 #define ROCKDB_BLOCK_STORAGE_HPP
 
-class RockdbBlockStorage : public BlockStorage {
+class RockdbBlockStorage : public iroha::ametsuchi::BlockStorage {
 
 	public:
 		bool insert(std::shared_ptr<const shared_model::interface::Block> block) override;
@@ -30,7 +30,8 @@ class RockdbBlockStorage : public BlockStorage {
 		options.create_if_missing = true;
 		options.error_if_exists = true;
 		// open a database with a name which corresponds to a file system directory
-		rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
+		rocksdb::Status status = rocksdb::DB::Open(options, name, &db);
+
 };
 
 #endif
