@@ -191,6 +191,7 @@ add_subdirectory(libs)
 add_subdirectory(irohad)
 add_subdirectory(iroha-cli)
 add_subdirectory(shared_model)
+add_subdirectory(vendor)
 
 if(TESTING)
   enable_testing()
