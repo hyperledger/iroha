@@ -44,7 +44,10 @@ namespace iroha::ametsuchi {
   try {                                                                 \
     (session) << (statement);                                           \
   } catch (std::exception & e) {                                        \
+    /* if there was a reconnection, throw specific exception */         \
     reconnection_checker.throwIfReconnected(e.what());                  \
+    /* otherwise rethrow the original exception */                      \
+    throw e;                                                            \
   }
 
 #endif
