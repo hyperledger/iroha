@@ -60,30 +60,29 @@ namespace iroha {
                                 if (hash.vote_hashes.proposal_hash.empty()) {
                                   return ConsensusOutcomeType::kNothing;
                                 }
-                                return ConsensusOutcomeType::kElse;
+                                return ConsensusOutcomeType::kCommit;
                               },
                               [](const RejectMessage &msg) {
                                 return ConsensusOutcomeType::kReject;
                               },
                               [](const FutureMessage &msg) {
-                                return ConsensusOutcomeType::kElse;
+                                return ConsensusOutcomeType::kFuture;
                               }));
                           return rxcpp::observable<>::just(std::move(message))
                               .delay(delay, rxcpp::identity_current_thread());
                         },
                         rxcpp::identity_current_thread())
                     .flat_map([this](auto message) {
-                      return visit_in_place(
-                          message,
-                          [this](const CommitMessage &msg) {
-                            return this->handleCommit(msg);
-                          },
-                          [this](const RejectMessage &msg) {
-                            return this->handleReject(msg);
-                          },
-                          [this](const FutureMessage &msg) {
-                            return this->handleFuture(msg);
-                          });
+                      return visit_in_place(message,
+                                            [this](const CommitMessage &msg) {
+                                              return this->handleCommit(msg);
+                                            },
+                                            [this](const RejectMessage &msg) {
+                                              return this->handleReject(msg);
+                                            },
+                                            [this](const FutureMessage &msg) {
+                                              return this->handleFuture(msg);
+                                            });
                     })
                     .publish()
                     .ref_count()),

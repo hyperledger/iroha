@@ -10,7 +10,8 @@ namespace iroha {
   namespace consensus {
     namespace yac {
       enum class ConsensusOutcomeType {
-        kElse,     /// commit for current round, or future round event
+        kCommit,   /// commit for current round
+        kFuture,   /// future round event
         kNothing,  /// peers voted for an empty hash
         kReject,   /// peers voted for different hashes
       };

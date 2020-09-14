@@ -43,9 +43,6 @@
 #include "torii/query_client.hpp"
 #include "util/utility_client.hpp"
 
-// workaround for redefining -WERROR problem
-#undef RAPIDJSON_HAS_STDSTRING
-
 #include "framework/config_helper.hpp"
 
 using namespace boost::process;

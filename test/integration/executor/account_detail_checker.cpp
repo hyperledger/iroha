@@ -5,8 +5,6 @@
 
 #include "integration/executor/account_detail_checker.hpp"
 
-#define RAPIDJSON_HAS_STDSTRING 1
-
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>

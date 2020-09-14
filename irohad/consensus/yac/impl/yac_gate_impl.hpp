@@ -13,6 +13,7 @@
 #include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/yac/consensus_outcome_type.hpp"
+#include "consensus/yac/impl/consensus_outcome_delay.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -44,9 +45,8 @@ namespace iroha {
                 consensus_result_cache,
             logger::LoggerPtr log,
             std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
-                delay_func = [](ConsensusOutcomeType) {
-                  return std::chrono::milliseconds(0);
-                });
+                delay_func =
+                    ConsensusOutcomeDelay(std::chrono::milliseconds(0)));
         void vote(const simulator::BlockCreatorEvent &event) override;
 
         rxcpp::observable<GateObject> onOutcome() override;
