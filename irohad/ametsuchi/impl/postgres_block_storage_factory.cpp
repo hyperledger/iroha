@@ -5,6 +5,8 @@
 
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
 
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
+#include "common/stubborn_caller.hpp"
 #include "logger/logger.hpp"
 
 using namespace iroha::ametsuchi;
@@ -34,14 +36,19 @@ std::unique_ptr<BlockStorage> PostgresBlockStorageFactory::create() {
 iroha::expected::Result<void, std::string>
 PostgresBlockStorageFactory::createTable(soci::session &sql,
                                          const std::string &table) {
-  soci::statement st =
-      (sql.prepare << "CREATE TABLE IF NOT EXISTS " << table
-                   << "(height bigint PRIMARY KEY, block_data text not null)");
-  try {
-    st.execute(true);
-    return {};
-  } catch (const std::exception &e) {
-    return expected::makeError("Unable to create block store: "
-                               + std::string(e.what()));
-  }
+  return retryOnException<SessionRenewedException>(log_, [&] {
+    ReconnectionThrowerHack reconnection_checker{sql_};
+    try {
+      soci::statement st =
+          (sql.prepare
+           << "CREATE TABLE IF NOT EXISTS " << table
+           << "(height bigint PRIMARY KEY, block_data text not null)");
+      st.execute(true);
+      return {};
+    } catch (const std::exception &e) {
+      reconnection_checker.throwIfReconnected(e.what());
+      return expected::makeError("Unable to create block store: "
+                                 + std::string(e.what()));
+    }
+  });
 }
