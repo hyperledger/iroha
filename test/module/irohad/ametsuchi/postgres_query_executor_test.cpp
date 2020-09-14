@@ -11,8 +11,6 @@
 #include <sstream>
 #include <type_traits>
 
-#define RAPIDJSON_HAS_STDSTRING 1
-
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <boost/format.hpp>

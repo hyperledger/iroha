@@ -10,8 +10,6 @@
 #include <string>
 #include <unordered_map>
 
-// Enable std::string support in rapidjson
-#define RAPIDJSON_HAS_STDSTRING 1
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>

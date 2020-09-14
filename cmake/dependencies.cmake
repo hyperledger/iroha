@@ -40,6 +40,7 @@ find_package(RapidJSON 1.1.0 REQUIRED CONFIG)
 add_library(RapidJSON::rapidjson INTERFACE IMPORTED)
 set_target_properties(RapidJSON::rapidjson PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "${RAPIDJSON_INCLUDE_DIRS}"
+  INTERFACE_COMPILE_DEFINITIONS RAPIDJSON_HAS_STDSTRING=1
 )
 
 ##########################
