@@ -5,11 +5,14 @@
 
 #include "ametsuchi/impl/postgres_block_query.hpp"
 
-#include <boost/format.hpp>
+#include <optional>
 
+#include <boost/format.hpp>
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "common/byteutils.hpp"
 #include "common/cloneable.hpp"
+#include "common/stubborn_caller.hpp"
 #include "logger/logger.hpp"
 
 namespace iroha {
@@ -46,29 +49,38 @@ namespace iroha {
 
     std::optional<TxCacheStatusType> PostgresBlockQuery::checkTxPresence(
         const shared_model::crypto::Hash &hash) {
-      int res = -1;
       const auto &hash_str = hash.hex();
 
-      try {
-        sql_ << "SELECT status FROM tx_status_by_hash WHERE hash = :hash",
-            soci::into(res), soci::use(hash_str);
-      } catch (const std::exception &e) {
-        log_->error("Failed to execute query: {}", e.what());
-        return std::nullopt;
-      }
-
-      // res > 0 => Committed
-      // res == 0 => Rejected
-      // res < 0 => Missing
-      if (res > 0) {
-        return std::make_optional<TxCacheStatusType>(
-            tx_cache_status_responses::Committed{hash});
-      } else if (res == 0) {
-        return std::make_optional<TxCacheStatusType>(
-            tx_cache_status_responses::Rejected{hash});
-      }
-      return std::make_optional<TxCacheStatusType>(
-          tx_cache_status_responses::Missing{hash});
+      return retryOnException<SessionRenewedException>(
+                 log_,
+                 [&]() -> std::optional<int> {
+                   ReconnectionThrowerHack reconnection_checker{sql_};
+                   try {
+                     int res = -1;
+                     sql_ << "SELECT status FROM tx_status_by_hash WHERE hash "
+                             "= :hash",
+                         soci::into(res), soci::use(hash_str);
+                     return res;
+                   } catch (const std::exception &e) {
+                     reconnection_checker.throwIfReconnected(e.what());
+                     log_->error("Failed to execute query: {}", e.what());
+                     return std::nullopt;
+                   }
+                 })
+          | [&](auto res) {
+              // res > 0 => Committed
+              // res == 0 => Rejected
+              // res < 0 => Missing
+              if (res > 0) {
+                return std::make_optional<TxCacheStatusType>(
+                    tx_cache_status_responses::Committed{hash});
+              } else if (res == 0) {
+                return std::make_optional<TxCacheStatusType>(
+                    tx_cache_status_responses::Rejected{hash});
+              }
+              return std::make_optional<TxCacheStatusType>(
+                  tx_cache_status_responses::Missing{hash});
+            };
     }
 
   }  // namespace ametsuchi
