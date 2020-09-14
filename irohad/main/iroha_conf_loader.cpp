@@ -535,7 +535,7 @@ iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
     JsonDeserializerImpl parser(common_objects_factory);
     try {
       return parser.deserialize<IrohadConfig>(doc);
-    } catch (JsonDeserializerException e) {
+    } catch (JsonDeserializerException const &e) {
       return e.what();
     };
   };

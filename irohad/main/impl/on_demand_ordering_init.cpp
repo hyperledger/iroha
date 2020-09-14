@@ -212,9 +212,8 @@ namespace iroha {
                           std::inserter(*hashes, hashes->end()));
                 return hashes;
               }),
-          sync_event_notifier
-              .get_observable()
-              .map([this](synchronizer::SynchronizationEvent const &event) {
+          sync_event_notifier.get_observable().map(
+              [this](synchronizer::SynchronizationEvent const &event) {
                 consensus::Round current_round;
                 switch (event.sync_outcome) {
                   case iroha::synchronizer::SynchronizationOutcomeType::kCommit:

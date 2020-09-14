@@ -46,8 +46,7 @@ namespace iroha {
                 async_call,
             ConsistencyModel consistency_model,
             const logger::LoggerManagerTreePtr &consensus_log_manager,
-            std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
-                delay_func);
+            std::chrono::milliseconds delay);
 
         std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
 

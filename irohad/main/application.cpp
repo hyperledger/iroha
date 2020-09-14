@@ -740,30 +740,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
   auto &block =
       boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
 
-  // reject_delay and local_counter are local mutable variables of lambda
-  auto delay = [max_rounds_delay = max_rounds_delay_,
-                reject_delay = std::chrono::milliseconds(0),
-                local_counter = static_cast<uint64_t const>(0),
-                kMaxLocalCounter = static_cast<uint64_t const>(2)](
-                   ConsensusOutcomeType type) mutable {
-    const auto kMaxDelay(max_rounds_delay);
-    const auto kMaxDelayIncrement(std::chrono::milliseconds(1000));
-    if (type == ConsensusOutcomeType::kReject
-        or type == ConsensusOutcomeType::kNothing) {
-      // Increment reject_counter each local_counter calls of function
-      ++local_counter;
-      if (local_counter == kMaxLocalCounter) {
-        local_counter = 0;
-        if (reject_delay < kMaxDelay) {
-          reject_delay += std::min(kMaxDelay, kMaxDelayIncrement);
-        }
-      }
-    } else {
-      reject_delay = std::chrono::milliseconds(0);
-    }
-    return reject_delay;
-  };
-
   consensus_gate = yac_init->initConsensusGate(
       {block->height(), ordering::kFirstRejectRound},
       storage,
@@ -776,7 +752,7 @@ Irohad::RunResult Irohad::initConsensusGate() {
       async_call_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
-      delay);
+      max_rounds_delay_);
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
       consensus_gate_objects.get_subscriber());
