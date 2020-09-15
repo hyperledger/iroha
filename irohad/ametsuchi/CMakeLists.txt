@@ -37,6 +37,13 @@ target_link_libraries(flat_file_storage
     Boost::filesystem
     )
 
+add_library(soci_reconnection_hacks
+    impl/soci_reconnection_hacks.cpp
+    )
+target_link_libraries(soci_reconnection_hacks
+    SOCI::core
+    )
+
 add_library(postgres_storage
     impl/postgres_block_storage.cpp
     impl/postgres_block_storage_factory.cpp
@@ -47,6 +54,7 @@ target_link_libraries(postgres_storage
     logger
     SOCI::core
     SOCI::postgresql
+    soci_reconnection_hacks
     )
 
 target_compile_definitions(postgres_storage
@@ -116,7 +124,6 @@ add_library(ametsuchi
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
-    impl/soci_reconnection_hacks.cpp
     )
 
 add_library(postgres_indexer
@@ -177,6 +184,7 @@ target_link_libraries(ametsuchi
     failover_callback
     SOCI::postgresql
     SOCI::core
+    soci_reconnection_hacks
     postgres_query_executor
     )
 
