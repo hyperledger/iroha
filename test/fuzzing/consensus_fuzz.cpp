@@ -17,6 +17,7 @@
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/mock_yac_timer.hpp"
@@ -33,10 +34,6 @@ namespace fuzzing {
     std::shared_ptr<iroha::consensus::yac::Timer> timer_;
     std::shared_ptr<iroha::consensus::yac::YacCryptoProvider> crypto_provider_;
     std::shared_ptr<iroha::consensus::yac::CleanupStrategy> cleanup_strategy_;
-    std::function<
-        std::unique_ptr<iroha::consensus::yac::proto::Yac::StubInterface>(
-            const shared_model::interface::Peer &)>
-        client_creator_;
     const shared_model::crypto::Keypair keypair_;
     std::shared_ptr<iroha::consensus::yac::YacNetworkNotifications> yac_;
     std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
@@ -48,10 +45,6 @@ namespace fuzzing {
         : timer_(std::make_shared<iroha::consensus::yac::MockTimer>()),
           cleanup_strategy_(std::make_shared<
                             iroha::consensus::yac::BufferedCleanupStrategy>()),
-          client_creator_([](const shared_model::interface::Peer &peer) {
-            return std::make_unique<
-                iroha::consensus::yac::proto::MockYacStub>();
-          }),
           keypair_(shared_model::crypto::DefaultCryptoAlgorithmType::
                        generateKeypair()),
           async_call_(std::make_shared<
@@ -59,7 +52,10 @@ namespace fuzzing {
               logger::getDummyLoggerPtr())),
           initial_round_{1, 1} {
       network_ = std::make_shared<iroha::consensus::yac::NetworkImpl>(
-          async_call_, client_creator_, logger::getDummyLoggerPtr());
+          async_call_,
+          std::make_unique<iroha::network::MockClientFactory<
+              iroha::consensus::yac::NetworkImpl::Service>>(),
+          logger::getDummyLoggerPtr());
 
       crypto_provider_ =
           std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(

@@ -23,6 +23,7 @@
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
+#include "common/range_tools.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -189,12 +190,10 @@ namespace {
 
   template <typename T>
   auto resultWithoutNulls(T range) {
-    return range | boost::adaptors::transformed([](auto &&t) {
-             return iroha::ametsuchi::rebind(t);
-           })
-        | boost::adaptors::filtered(
-               [](const auto &t) { return static_cast<bool>(t); })
-        | boost::adaptors::transformed([](auto t) { return *t; });
+    return iroha::dereferenceOptionals(
+        range | boost::adaptors::transformed([](auto &&t) {
+          return iroha::ametsuchi::rebind(t);
+        }));
   }
 
   using OrderingField = shared_model::interface::Ordering::Field;

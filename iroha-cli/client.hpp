@@ -35,6 +35,7 @@ namespace iroha_cli {
     CliClient(std::string target_ip,
               int port,
               logger::LoggerPtr pb_qry_factory_log);
+
     /**
      * Send Transaction to Iroha Peer, i.e. target_ip:port
      * @param tx

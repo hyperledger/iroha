@@ -41,13 +41,18 @@ std::unique_ptr<GrpcChannelParams> iroha::network::getDefaultChannelParams() {
   return params;
 }
 
-grpc::ChannelArguments iroha::network::makeChannelArguments(
+grpc::ChannelArguments iroha::network::detail::makeInterPeerChannelArguments(
+    const std::set<std::string> &services, const GrpcChannelParams &params) {
+  return detail::makeChannelArguments(services, params);
+}
+
+grpc::ChannelArguments iroha::network::detail::makeChannelArguments(
     const std::set<std::string> &services, const GrpcChannelParams &params) {
   std::string retry_policy =
       params.retry_policy | [](const auto &retry_policy) {
         return fmt::format(
             R"(
-            "retryPolicy": \{
+            "retryPolicy": {{
               "maxAttempts": {},
               "initialBackoff": "{}s",
               "maxBackoff": "{}s",
@@ -55,7 +60,7 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
               "retryableStatusCodes": [
                 {}
               ]
-            \},)",
+            }},)",
             retry_policy.max_attempts,
             retry_policy.initial_backoff.count(),
             retry_policy.max_backoff.count(),
@@ -67,22 +72,22 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
       };
   static const auto make_service_id = [](const std::string &service_full_name) {
     return fmt::format(R"(
-              \{ "service": "{}" \}
+              {{ "service": "{}" }}
         )",
                        service_full_name);
   };
   std::string service_config = fmt::format(
       R"(
-        \{
-          "methodConfig": [ \{
+        {{
+          "methodConfig": [ {{
             "name": [
               {}
             ],
             {}
             "maxRequestMessageBytes": {},
             "maxResponseMessageBytes": {}
-          \} ]
-        \})",
+          }} ]
+        }})",
       boost::algorithm::join(
           services | boost::adaptors::transformed(make_service_id), ",\n"),
       retry_policy,
@@ -91,7 +96,6 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
 
   grpc::ChannelArguments args;
   args.SetServiceConfigJSON(service_config);
-  args.SetString(GRPC_SSL_TARGET_NAME_OVERRIDE_ARG, "iroha");
   return args;
 }
 
@@ -102,7 +106,7 @@ std::shared_ptr<grpc::Channel> iroha::network::createInsecureChannel(
   return grpc::CreateCustomChannel(
       address,
       grpc::InsecureChannelCredentials(),
-      makeChannelArguments({service_full_name}, params));
+      detail::makeInterPeerChannelArguments({service_full_name}, params));
 }
 
 class ChannelFactory::ChannelArgumentsProvider {
@@ -113,7 +117,7 @@ class ChannelFactory::ChannelArgumentsProvider {
   const grpc::ChannelArguments &get(const std::string &service_full_name) {
     if (service_names_.count(service_full_name) == 0) {
       service_names_.emplace(service_full_name);
-      args_ = makeChannelArguments(service_names_, *params_);
+      args_ = detail::makeInterPeerChannelArguments(service_names_, *params_);
     }
     return args_;
   }

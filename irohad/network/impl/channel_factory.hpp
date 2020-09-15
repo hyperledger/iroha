@@ -20,6 +20,15 @@
 
 namespace iroha {
   namespace network {
+    namespace detail {
+      grpc::ChannelArguments makeChannelArguments(
+          const std::set<std::string> &services,
+          const GrpcChannelParams &params);
+
+      grpc::ChannelArguments makeInterPeerChannelArguments(
+          const std::set<std::string> &services,
+          const GrpcChannelParams &params);
+    }  // namespace detail
 
     /**
      * Creates client params which enable sending and receiving messages of
@@ -27,20 +36,46 @@ namespace iroha {
      */
     std::unique_ptr<GrpcChannelParams> getDefaultChannelParams();
 
-    grpc::ChannelArguments makeChannelArguments(
-        const std::set<std::string> &services, const GrpcChannelParams &params);
-
     /**
-     * Creates channel arguments corresponding to provided params.
+     * Creates channel arguments for inter-peer communication.
      * @tparam Service type for gRPC stub, e.g. proto::Yac
      * @param params grpc channel params
      * @return gRPC channel arguments
      */
     template <typename Service>
-    grpc::ChannelArguments makeChannelArguments(
+    grpc::ChannelArguments makeInterPeerChannelArguments(
         const GrpcChannelParams &params) {
-      return makeChannelArguments(Service::service_full_name(), params);
+      return detail::makeInterPeerChannelArguments(
+          {Service::service_full_name()}, params);
     }
+
+    /**
+     * Creates a channel
+     * @tparam Service type for gRPC stub, e.g. proto::Yac
+     * @param address ip address and port for connection, ipv4:port
+     * @param params grpc channel params
+     * @return grpc channel with provided params
+     */
+    template <typename Service>
+    std::shared_ptr<grpc::Channel> createInsecureChannel(
+        const shared_model::interface::types::AddressType &address,
+        const GrpcChannelParams &params) {
+      return createInsecureChannel(
+          address, Service::service_full_name(), params);
+    }
+
+    /**
+     * Creates a channel
+     * @param address ip address and port to connect to, ipv4:port
+     * @param service_full_name gRPC service full name,
+     *  e.g. iroha.consensus.yac.proto.Yac
+     * @param params grpc channel params
+     * @return grpc channel with provided params
+     */
+    std::shared_ptr<grpc::Channel> createInsecureChannel(
+        const shared_model::interface::types::AddressType &address,
+        const std::string &service_full_name,
+        const GrpcChannelParams &params);
 
     /**
      * Creates client
@@ -52,9 +87,7 @@ namespace iroha {
     template <typename Service>
     std::unique_ptr<typename Service::StubInterface> createInsecureClient(
         const std::string &address, const GrpcChannelParams &params) {
-      auto channel =
-          createInsecureChannel(address, Service::service_full_name(), params);
-      return Service::NewStub(std::move(channel));
+      return Service::NewStub(createInsecureChannel<Service>(address, params));
     }
 
     /**
@@ -71,19 +104,6 @@ namespace iroha {
       return createInsecureClient<Service>(ip + ":" + std::to_string(port),
                                            params);
     }
-
-    /**
-     * Creates client
-     * @param address ip address and port to connect to, ipv4:port
-     * @param service_full_name gRPC service full name,
-     *  e.g. iroha.consensus.yac.proto.Yac
-     * @param params grpc channel params
-     * @return grpc channel with provided params
-     */
-    std::shared_ptr<grpc::Channel> createInsecureChannel(
-        const shared_model::interface::types::AddressType &address,
-        const std::string &service_full_name,
-        const GrpcChannelParams &params);
 
     class ChannelFactory : public ChannelProvider {
      public:

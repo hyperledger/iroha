@@ -13,7 +13,7 @@
 #include <boost/optional.hpp>
 #include "common/bind.hpp"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/channel_factory.hpp"
 #include "utility_endpoint.grpc.pb.h"
 
 using namespace iroha::utility_service;
@@ -22,11 +22,9 @@ using iroha::operator|;
 
 struct UtilityClient::StubHolder {
   StubHolder(const std::string &address)
-      : channel_(grpc::CreateCustomChannel(
-            address,
-            ::grpc::InsecureChannelCredentials(),
-            iroha::network::details::getChannelArguments<
-                proto::UtilityService_v1>())),
+      : channel_(
+            iroha::network::createInsecureChannel<proto::UtilityService_v1>(
+                address, *iroha::network::getDefaultChannelParams())),
         stub_(proto::UtilityService_v1::NewStub(channel_)) {}
 
   std::shared_ptr<grpc::Channel> channel_;

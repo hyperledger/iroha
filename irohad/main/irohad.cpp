@@ -28,6 +28,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "network/impl/channel_factory.hpp"
 #include "util/status_notifier.hpp"
 #include "util/utility_service.hpp"
 #include "validators/field_validator.hpp"
@@ -299,6 +300,7 @@ int main(int argc, char *argv[]) {
       log_manager->getChild("Irohad"),
       FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
                         : iroha::StartupWsvDataPolicy::kDrop,
+      ::iroha::network::getDefaultChannelParams(),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}),
       config.torii_tls_params,

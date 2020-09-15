@@ -13,6 +13,7 @@ target_link_libraries(server_runner
     gRPC::grpc++
     Boost::boost
     common
+    shared_model_cryptography_model
     )
 
 add_library(raw_block_loader impl/raw_block_loader.cpp)
@@ -51,6 +52,9 @@ add_library(application
 target_link_libraries(application
     PRIVATE
     default_vm_call
+    grpc_channel_factory
+    grpc_channel_pool
+    grpc_generic_client_factory
     peer_tls_certificates_providers
     permutation_generator
     tls_credentials
@@ -88,6 +92,7 @@ target_link_libraries(irohad
     raw_block_loader
     gflags
     RapidJSON::rapidjson
+    grpc_channel_factory
     keys_manager
     common
     iroha_conf_loader

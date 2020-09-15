@@ -19,7 +19,8 @@ namespace iroha {
 
       struct MockOdOsNotificationFactory : public OdOsNotificationFactory {
         MOCK_METHOD1(create,
-                     std::unique_ptr<OdOsNotification>(
+                     iroha::expected::Result<std::unique_ptr<OdOsNotification>,
+                                             std::string>(
                          const shared_model::interface::Peer &));
       };
 

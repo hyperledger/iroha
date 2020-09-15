@@ -16,6 +16,7 @@
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/result.hpp"
 #include "generator/generator.hpp"
+#include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
