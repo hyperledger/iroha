@@ -6,13 +6,13 @@
 #ifndef IROHA_STORAGE_INIT_HPP
 #define IROHA_STORAGE_INIT_HPP
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include <boost/optional/optional_fwd.hpp>
 #include "common/result_fwd.hpp"
-#include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 

@@ -21,6 +21,7 @@ target_link_libraries(irohad_utility_service
 
 add_library(irohad_utility_client utility_client.cpp)
 target_link_libraries(irohad_utility_client
+    grpc_channel_factory
     irohad_utility_proto_status_tools
     logger
     utility_endpoint

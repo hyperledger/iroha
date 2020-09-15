@@ -48,6 +48,7 @@ add_library(yac_transport
     impl/yac_crypto_provider_impl.cpp
     )
 target_link_libraries(yac_transport
+    grpc_generic_client_factory
     yac
     yac_grpc
     logger

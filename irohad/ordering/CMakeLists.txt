@@ -30,6 +30,7 @@ add_library(on_demand_ordering_service_transport_grpc
     )
 
 target_link_libraries(on_demand_ordering_service_transport_grpc
+    grpc_generic_client_factory
     shared_model_interfaces
     shared_model_interfaces_factories
     shared_model_proto_backend

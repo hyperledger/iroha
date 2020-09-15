@@ -16,6 +16,7 @@
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
@@ -66,16 +67,18 @@ namespace fuzzing {
       auto cache =
           std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage);
       completer_ = std::make_shared<iroha::TestCompleter>();
-      mst_transport_grpc_ =
-          std::make_shared<MstTransportGrpc>(async_call_,
-                                             std::move(tx_factory),
-                                             std::move(parser),
-                                             std::move(batch_factory),
-                                             std::move(cache),
-                                             completer_,
-                                             "my key"_hex_pubkey,
-                                             logger::getDummyLoggerPtr(),
-                                             logger::getDummyLoggerPtr());
+      mst_transport_grpc_ = std::make_shared<MstTransportGrpc>(
+          async_call_,
+          std::move(tx_factory),
+          std::move(parser),
+          std::move(batch_factory),
+          std::move(cache),
+          completer_,
+          "my key"_hex_pubkey,
+          logger::getDummyLoggerPtr(),
+          logger::getDummyLoggerPtr(),
+          std::make_unique<
+              iroha::network::MockClientFactory<MstTransportGrpc::Service>>());
     }
   };
 }  // namespace fuzzing

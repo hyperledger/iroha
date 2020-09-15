@@ -66,6 +66,7 @@ namespace iroha {
     struct Round;
   }  // namespace consensus
   namespace network {
+    class GenericClientFactory;
     class MstTransportGrpc;
     class OrderingServiceTransport;
     class ServerRunner;
@@ -540,6 +541,8 @@ namespace integration_framework {
         iroha::protocol::Proposal>>
         proposal_factory_;
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
+
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 

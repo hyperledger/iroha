@@ -31,7 +31,10 @@ namespace iroha {
       createClient(const shared_model::interface::Peer &peer) const {
         using iroha::expected::operator|;
         return channel_provider_->getChannel(Service::service_full_name(), peer)
-            | [](auto &&channel) { return Service::NewStub(channel); };
+                   | [](auto &&channel)
+                   -> std::unique_ptr<typename Service::StubInterface> {
+          return Service::NewStub(channel);
+        };
       }
 
      private:

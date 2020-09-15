@@ -30,6 +30,7 @@
 #include "cryptography/blob.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "framework/result_gtest_checkers.hpp"
+#include "framework/test_client_factory.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "logger/logger.hpp"
@@ -38,7 +39,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/channel_factory.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 #include "util/utility_client.hpp"
@@ -213,23 +214,32 @@ class IrohadTest : public AcceptanceFixture {
         config_copy_, path_genesis_.string(), path_keypair_node_.string(), {});
   }
 
+  static const iroha::network::GrpcChannelParams &getChannelParams() {
+    static const auto params = [] {
+      auto params = iroha::network::getDefaultTestChannelParams();
+      params->retry_policy->max_attempts = 3u;
+      params->retry_policy->initial_backoff = 1s;
+      params->retry_policy->max_backoff = 1s;
+      params->retry_policy->backoff_multiplier = 1.0f;
+      return params;
+    }();
+    return *params;
+  }
+
   torii::CommandSyncClient createToriiClient(
       bool enable_tls = false,
       const boost::optional<uint16_t> override_port = {}) {
-    uint16_t port = override_port.value_or(enable_tls ? kSecurePort : kPort);
+    const auto port = override_port.value_or(enable_tls ? kSecurePort : kPort);
 
-    std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
-    if (enable_tls) {
-      stub = iroha::network::createSecureClient<
-          iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port), root_ca_);
-    } else {
-      stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port));
-    }
+    auto client = enable_tls
+        ? iroha::network::createSecureClient<torii::CommandSyncClient::Service>(
+              kAddress, port, root_ca_, boost::none, getChannelParams())
+        : iroha::network::createInsecureClient<
+              torii::CommandSyncClient::Service>(
+              kAddress, port, getChannelParams());
 
     return torii::CommandSyncClient(
-        std::move(stub),
+        std::move(client),
         getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
   }
 
@@ -540,7 +550,10 @@ TEST_F(IrohadTest, SendQuery) {
   iroha::protocol::QueryResponse response;
   auto query =
       complete(baseQry(kAdminId).getRoles(), std::move(key_pair).assumeValue());
-  auto client = torii_utils::QuerySyncClient(kAddress, kPort);
+  auto client =
+      torii_utils::QuerySyncClient(iroha::network::createInsecureClient<
+                                   torii_utils::QuerySyncClient::Service>(
+          kAddress, kPort, getChannelParams()));
   client.Find(query.getTransport(), response);
   shared_model::proto::QueryResponse resp{std::move(response)};
 

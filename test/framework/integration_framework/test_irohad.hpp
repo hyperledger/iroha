@@ -7,6 +7,7 @@
 #define IROHA_TESTIROHAD_HPP
 
 #include "cryptography/keypair.hpp"
+#include "framework/test_client_factory.hpp"
 #include "main/application.hpp"
 #include "main/server_runner.hpp"
 
@@ -52,6 +53,7 @@ namespace integration_framework {
                  std::move(opt_alternative_peers),
                  std::move(irohad_log_manager),
                  startup_wsv_data_policy,
+                 iroha::network::getDefaultTestChannelParams(),
                  opt_mst_gossip_params,
                  torii_tls_params,
                  boost::none),
