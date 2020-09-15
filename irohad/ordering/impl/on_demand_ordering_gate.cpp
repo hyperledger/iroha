@@ -196,7 +196,7 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
   }
 
   if (not has_invalid_txs) {
-    return std::move(proposal);
+    return proposal;
   }
 
   auto unprocessed_txs =

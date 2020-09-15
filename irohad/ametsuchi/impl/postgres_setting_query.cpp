@@ -61,5 +61,5 @@ PostgresSettingQuery::update(
     return expected::makeError(e.what());
   }
 
-  return std::move(base);
+  return base;
 }
