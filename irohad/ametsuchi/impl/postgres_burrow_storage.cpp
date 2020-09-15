@@ -8,6 +8,7 @@
 #include <optional>
 
 #include <soci/soci.h>
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
 #include "common/obj_utils.hpp"
@@ -24,6 +25,7 @@ PostgresBurrowStorage::PostgresBurrowStorage(
 
 Result<std::optional<std::string>, std::string>
 PostgresBurrowStorage::getAccount(std::string_view address) {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     std::optional<std::string> data;
     sql_ << "select data from burrow_account_data "
@@ -31,12 +33,14 @@ PostgresBurrowStorage::getAccount(std::string_view address) {
         soci::use(address, "address"), soci::into(data);
     return data;
   } catch (std::exception const &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return makeError(e.what());
   }
 }
 
 Result<void, std::string> PostgresBurrowStorage::updateAccount(
     std::string_view address, std::string_view account) {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     int check = 0;
     sql_ << "insert into burrow_account_data (address, data) "
@@ -50,12 +54,14 @@ Result<void, std::string> PostgresBurrowStorage::updateAccount(
     }
     return Value<void>{};
   } catch (std::exception const &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return makeError(e.what());
   }
 }
 
 Result<void, std::string> PostgresBurrowStorage::removeAccount(
     std::string_view address) {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     int check = 0;
     sql_ << "delete from burrow_account_key_value "
@@ -69,6 +75,7 @@ Result<void, std::string> PostgresBurrowStorage::removeAccount(
     }
     return Value<void>{};
   } catch (std::exception const &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return makeError(e.what());
   }
 }
@@ -76,6 +83,7 @@ Result<void, std::string> PostgresBurrowStorage::removeAccount(
 Result<std::optional<std::string>, std::string>
 PostgresBurrowStorage::getStorage(std::string_view address,
                                   std::string_view key) {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     std::optional<std::string> value;
     sql_ << "select value from burrow_account_key_value "
@@ -83,12 +91,14 @@ PostgresBurrowStorage::getStorage(std::string_view address,
         soci::use(address, "address"), soci::use(key, "key"), soci::into(value);
     return value;
   } catch (std::exception const &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return makeError(e.what());
   }
 }
 
 Result<void, std::string> PostgresBurrowStorage::setStorage(
     std::string_view address, std::string_view key, std::string_view value) {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     int check = 0;
     sql_ << "insert into burrow_account_key_value (address, key, value) "
@@ -102,6 +112,7 @@ Result<void, std::string> PostgresBurrowStorage::setStorage(
     }
     return Value<void>{};
   } catch (std::exception const &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return makeError(e.what());
   }
 }
@@ -110,6 +121,7 @@ Result<void, std::string> PostgresBurrowStorage::storeLog(
     std::string_view address,
     std::string_view data,
     std::vector<std::string_view> topics) {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     std::optional<size_t> log_idx;
 
@@ -157,6 +169,7 @@ Result<void, std::string> PostgresBurrowStorage::storeLog(
     }
     return Value<void>{};
   } catch (std::exception const &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return makeError(e.what());
   }
 }

@@ -14,6 +14,7 @@
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/stubborn_reconnection_strategy.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
@@ -27,6 +28,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "common/bind.hpp"
 #include "common/files.hpp"
+#include "common/stubborn_caller.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
 #include "cryptography/default_hash_provider.hpp"
@@ -313,7 +315,10 @@ Irohad::RunResult Irohad::initStorage(
       const std::string persistent_table("blocks");
 
       auto create_table_result =
-          PostgresBlockStorageFactory::createTable(*sql, persistent_table);
+          retryOnException<SessionRenewedException>(log_, [&] {
+            return PostgresBlockStorageFactory::createTable(*sql,
+                                                            persistent_table);
+          });
       if (boost::get<expected::Error<std::string>>(&create_table_result)) {
         return create_table_result;
       }

@@ -115,11 +115,9 @@ namespace iroha {
     }
 
     TemporaryWsvImpl::~TemporaryWsvImpl() {
-      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         sql_ << "ROLLBACK";
       } catch (std::exception &e) {
-        reconnection_checker.throwIfReconnected(e.what());
         log_->error("Rollback did not happen: {}", e.what());
       }
     }

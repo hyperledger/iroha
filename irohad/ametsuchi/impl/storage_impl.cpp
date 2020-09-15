@@ -26,6 +26,7 @@
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
@@ -33,6 +34,7 @@
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "common/result.hpp"
+#include "common/stubborn_caller.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
@@ -335,12 +337,15 @@ namespace iroha {
         PostgresBlockIndex block_index(
             std::make_unique<PostgresIndexer>(sql),
             log_manager_->getChild("BlockIndex")->getLogger());
-        block_index.index(*block);
+        retryOnException<SessionRenewedException>(
+            log_, [&] { block_index.index(*block); });
         block_is_prepared_ = false;
 
         if (auto e = expected::resultToOptionalError(
-                PostgresWsvCommand{sql}.setTopBlockInfo(
-                    TopBlockInfo{block->height(), block->hash()}))) {
+                retryOnException<SessionRenewedException>(log_, [&] {
+                  return PostgresWsvCommand{sql}.setTopBlockInfo(
+                      TopBlockInfo{block->height(), block->hash()});
+                }))) {
           throw std::runtime_error(e.value());
         }
 

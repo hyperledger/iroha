@@ -162,11 +162,9 @@ namespace iroha {
 
     MutableStorageImpl::~MutableStorageImpl() {
       if (not committed) {
-        ReconnectionThrowerHack reconnection_checker{sql_};
         try {
           sql_ << "ROLLBACK";
         } catch (std::exception &e) {
-          reconnection_checker.throwIfReconnected(e.what());
           log_->warn("Apply has been failed. Reason: {}", e.what());
         }
       }

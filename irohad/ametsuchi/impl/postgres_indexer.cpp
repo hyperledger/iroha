@@ -7,6 +7,7 @@
 
 #include <soci/soci.h>
 #include <boost/format.hpp>
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "cryptography/hash.hpp"
 
 using namespace iroha::ametsuchi;
@@ -42,6 +43,7 @@ void PostgresIndexer::txPositions(
 }
 
 iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
+  ReconnectionThrowerHack reconnection_checker{sql_};
   try {
     assert(tx_hash_status_.hash.size() == tx_hash_status_.status.size());
     if (not tx_hash_status_.hash.empty()) {
@@ -77,6 +79,7 @@ iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
     }
 
   } catch (const std::exception &e) {
+    reconnection_checker.throwIfReconnected(e.what());
     return e.what();
   }
   return {};

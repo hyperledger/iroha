@@ -9,6 +9,7 @@
 
 #include <fmt/core.h>
 #include <boost/format.hpp>
+#include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -411,6 +412,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::setTopBlockInfo(
         const TopBlockInfo &top_block_info) const {
+      ReconnectionThrowerHack reconnection_checker{sql_};
       try {
         sql_ << "insert into top_block_info (height, hash) "
                 "values (:height, :hash) "
@@ -420,6 +422,7 @@ namespace iroha {
             soci::use(top_block_info.top_hash.hex(), "hash");
         return expected::Value<void>{};
       } catch (std::exception &e) {
+        reconnection_checker.throwIfReconnected(e.what());
         return fmt::format("Failed to set top_block_info: {}.", e.what());
       }
     }
