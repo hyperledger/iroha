@@ -17,6 +17,7 @@ add_library(block_loader
     )
 
 target_link_libraries(block_loader
+    grpc_generic_client_factory
     loader_grpc
     rxcpp
     shared_model_interfaces

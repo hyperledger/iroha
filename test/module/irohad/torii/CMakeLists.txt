@@ -21,6 +21,7 @@ target_link_libraries(torii_queries_test
     query_client
     server_runner
     processors
+    test_client_factory
     test_logger
     )
 
@@ -36,6 +37,7 @@ target_link_libraries(torii_service_query_test
     torii_service
     server_runner
     query_client
+    test_client_factory
     test_logger
     )
 

@@ -11,6 +11,7 @@
 
 #include <boost/core/noncopyable.hpp>
 #include <rxcpp/rx-observable-fwd.hpp>
+#include "common/result_fwd.hpp"
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
@@ -22,8 +23,9 @@
 
 namespace iroha {
   namespace network {
+    class GenericClientFactory;
     class ServerRunner;
-  }
+  }  // namespace network
 }  // namespace iroha
 
 namespace integration_framework {
@@ -174,15 +176,18 @@ namespace integration_framework {
           const std::shared_ptr<shared_model::interface::TransactionBatch>
               &batch);
 
-      bool sendBlockRequest(const LoaderBlockRequest &request);
+      iroha::expected::Result<void, std::string> sendBlockRequest(
+          const LoaderBlockRequest &request);
 
-      size_t sendBlocksRequest(const LoaderBlocksRequest &request);
+      iroha::expected::Result<size_t, std::string> sendBlocksRequest(
+          const LoaderBlocksRequest &request);
 
       /// Send the real peer the provided batches for proposal.
-      void proposeBatches(BatchesCollection batches);
+      iroha::expected::Result<void, std::string> proposeBatches(
+          BatchesCollection batches);
 
       /// Send the real peer the provided transactions for proposal.
-      void proposeTransactions(
+      iroha::expected::Result<void, std::string> proposeTransactions(
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>
               transactions);
 
@@ -239,6 +244,7 @@ namespace integration_framework {
           real_peer_;  ///< the real instance
 
       std::shared_ptr<AsyncCall> async_call_;
+      std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
 
       std::shared_ptr<MstTransport> mst_transport_;
       std::shared_ptr<YacTransport> yac_transport_;

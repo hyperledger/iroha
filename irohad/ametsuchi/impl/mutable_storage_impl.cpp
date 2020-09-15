@@ -8,6 +8,7 @@
 #include <fmt/core.h>
 #include <boost/variant/apply_visitor.hpp>
 #include <rxcpp/operators/rx-all.hpp>
+#include <stdexcept>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
@@ -122,12 +123,18 @@ namespace iroha {
         rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
             blocks,
         MutableStoragePredicate predicate) {
-      return blocks
-          .all([&](auto block) {
-            return withSavepoint([&] { return this->apply(block, predicate); });
-          })
-          .as_blocking()
-          .first();
+      try {
+        return blocks
+            .all([&](auto block) {
+              return withSavepoint(
+                  [&] { return this->apply(block, predicate); });
+            })
+            .as_blocking()
+            .first();
+      } catch (std::runtime_error const &e) {
+        log_->warn("Apply has been failed: {}", e.what());
+        return false;
+      }
     }
 
     boost::optional<std::shared_ptr<const iroha::LedgerState>>

@@ -11,6 +11,7 @@ target_link_libraries(irohad_test
         SOCI::postgresql
         SOCI::core
         RapidJSON::rapidjson
+        test_client_factory
         integration_framework_config_helper
         libs_files
         shared_model_proto_backend

@@ -18,7 +18,7 @@ namespace torii {
   using iroha::protocol::Transaction;
 
   CommandSyncClient::CommandSyncClient(
-      std::unique_ptr<iroha::protocol::CommandService_v1::StubInterface> stub,
+      std::shared_ptr<torii::CommandSyncClient::Service::StubInterface> stub,
       logger::LoggerPtr log)
       : stub_(std::move(stub)), log_(std::move(log)) {}
 

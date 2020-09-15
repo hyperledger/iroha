@@ -10,7 +10,7 @@
 #include "endpoint.grpc.pb.h"
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/channel_factory.hpp"
 #include "qry_responses.pb.h"
 #include "queries.pb.h"
 
@@ -38,10 +38,10 @@ class MockQueryService : public iroha::protocol::QueryService_v1::Service {
 };
 
 namespace {
-  constexpr int kAttemptsForSuccess =
-      iroha::network::details::kClientRequestRetryAttempts - 1;
-  constexpr int kAttemptsForFailure =
-      iroha::network::details::kClientRequestRetryAttempts;
+  const auto kChannelParams = iroha::network::getDefaultChannelParams();
+  const unsigned int kAttemptsForFailure =
+      kChannelParams->retry_policy->max_attempts;
+  const unsigned int kAttemptsForSuccess = kAttemptsForFailure - 1;
   constexpr auto kListenIP = "127.0.0.1";
 
   auto makeRunner() {
@@ -66,8 +66,8 @@ namespace {
                                  grpc::StatusCode code,
                                  const std::string &message) {
     auto client =
-        iroha::network::createClient<iroha::protocol::QueryService_v1>(
-            std::string(kListenIP) + ":" + std::to_string(port));
+        iroha::network::createInsecureClient<iroha::protocol::QueryService_v1>(
+            kListenIP, port, *kChannelParams);
 
     iroha::protocol::Query query;
     iroha::protocol::QueryResponse response;

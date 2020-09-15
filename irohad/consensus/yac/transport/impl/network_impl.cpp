@@ -8,11 +8,13 @@
 #include <grpc++/grpc++.h>
 #include <memory>
 
+#include <fmt/core.h>
 #include "consensus/yac/storage/yac_common.hpp"
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
+#include "network/impl/client_factory.hpp"
 #include "yac.pb.h"
 
 namespace iroha {
@@ -23,11 +25,10 @@ namespace iroha {
       NetworkImpl::NetworkImpl(
           std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
-          std::function<std::unique_ptr<proto::Yac::StubInterface>(
-              const shared_model::interface::Peer &)> client_creator,
+          std::unique_ptr<ClientFactory> client_factory,
           logger::LoggerPtr log)
           : async_call_(async_call),
-            client_creator_(client_creator),
+            client_factory_(std::move(client_factory)),
             log_(std::move(log)) {}
 
       void NetworkImpl::subscribe(
@@ -48,20 +49,28 @@ namespace iroha {
           return;
         }
 
-        createPeerConnection(to);
-
         proto::State request;
         for (const auto &vote : state) {
           auto pb_vote = request.add_votes();
           *pb_vote = PbConverters::serializeVote(vote);
         }
 
-        async_call_->Call([&](auto context, auto cq) {
-          return peers_.at(to.address())->AsyncSendState(context, request, cq);
-        });
-
-        log_->info(
-            "Send votes bundle[size={}] to {}", state.size(), to.address());
+        client_factory_->createClient(to).match(
+            [&](auto client) {
+              async_call_->Call(
+                  [client = std::move(client.value),
+                   request = std::move(request),
+                   log = log_,
+                   log_sending_msg = fmt::format(
+                       "Send votes bundle[size={}] to {}", state.size(), to)](
+                      auto context, auto cq) {
+                    log->info(log_sending_msg);
+                    return client->AsyncSendState(context, request, cq);
+                  });
+            },
+            [&](const auto &error) {
+              log_->error("Could not send state to {}: {}", to, error.error);
+            });
       }
 
       grpc::Status NetworkImpl::SendState(
@@ -93,13 +102,6 @@ namespace iroha {
           log_->error("Unable to lock the subscriber");
         }
         return grpc::Status::OK;
-      }
-
-      void NetworkImpl::createPeerConnection(
-          const shared_model::interface::Peer &peer) {
-        if (peers_.count(peer.address()) == 0) {
-          peers_[peer.address()] = client_creator_(peer);
-        }
       }
 
     }  // namespace yac

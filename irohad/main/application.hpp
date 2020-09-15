@@ -44,11 +44,14 @@ namespace iroha {
   }    // namespace consensus
   namespace network {
     class BlockLoader;
+    class ChannelPool;
+    class GenericClientFactory;
     class ConsensusGate;
     class MstTransport;
     class OrderingGate;
     class PeerCommunicationService;
     class PeerTlsCertificatesProvider;
+    struct GrpcChannelParams;
     struct TlsCredentials;
   }  // namespace network
   namespace simulator {
@@ -108,6 +111,7 @@ class Irohad {
    * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
    * @param startup_wsv_data_policy - @see StartupWsvDataPolicy
+   * @param grpc_channel_params - parameters for all grpc clients
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * @param torii_tls_params - optional TLS params for torii.
@@ -131,6 +135,8 @@ class Irohad {
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          iroha::StartupWsvDataPolicy startup_wsv_data_policy,
+         std::shared_ptr<const iroha::network::GrpcChannelParams>
+             grpc_channel_params,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none,
          const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
@@ -177,6 +183,8 @@ class Irohad {
   RunResult initTlsCredentials();
 
   RunResult initPeerCertProvider();
+
+  RunResult initClientFactory();
 
   virtual RunResult initCryptoProvider();
 
@@ -240,6 +248,7 @@ class Irohad {
   size_t stale_stream_max_rounds_;
   const boost::optional<shared_model::interface::types::PeerList>
       opt_alternative_peers_;
+  std::shared_ptr<const iroha::network::GrpcChannelParams> grpc_channel_params_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
   boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
@@ -274,11 +283,15 @@ class Irohad {
   rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
 
   // initialization objects
-  iroha::network::OnDemandOrderingInit ordering_init;
+  iroha::ordering::OnDemandOrderingInit ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
+  // IR-907 14.09.2020 @lebdron: remove it from here
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+
+  std::shared_ptr<iroha::network::GenericClientFactory>
+      inter_peer_client_factory_;
 
   // Settings
   std::shared_ptr<const shared_model::validation::Settings> settings_;

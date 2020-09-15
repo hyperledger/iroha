@@ -9,5 +9,6 @@ target_link_libraries(consensus_sunny_day
     yac
     yac_transport
     shared_model_stateless_validation
+    test_client_factory
     test_logger
     )

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <boost/optional.hpp>
+#include "common/result_fwd.hpp"
 #include "consensus/round.hpp"
 
 namespace shared_model {
@@ -75,8 +76,9 @@ namespace iroha {
          * @param peer - peer to connect
          * @return connection represented with OdOsNotification interface
          */
-        virtual std::unique_ptr<OdOsNotification> create(
-            const shared_model::interface::Peer &to) = 0;
+        virtual iroha::expected::Result<std::unique_ptr<OdOsNotification>,
+                                        std::string>
+        create(const shared_model::interface::Peer &to) = 0;
 
         virtual ~OdOsNotificationFactory() = default;
       };

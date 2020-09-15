@@ -46,16 +46,18 @@ namespace iroha {
 
     class MockBlockLoader : public BlockLoader {
      public:
-      MOCK_METHOD2(
-          retrieveBlocks,
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>(
-              const shared_model::interface::types::HeightType,
-              shared_model::interface::types::PublicKeyHexStringView));
-      MOCK_METHOD2(
-          retrieveBlock,
-          boost::optional<std::shared_ptr<shared_model::interface::Block>>(
-              shared_model::interface::types::PublicKeyHexStringView,
-              shared_model::interface::types::HeightType));
+      MOCK_METHOD2(retrieveBlocks,
+                   iroha::expected::Result<rxcpp::observable<std::shared_ptr<
+                                               shared_model::interface::Block>>,
+                                           std::string>(
+                       const shared_model::interface::types::HeightType,
+                       shared_model::interface::types::PublicKeyHexStringView));
+      MOCK_METHOD2(retrieveBlock,
+                   iroha::expected::Result<
+                       std::unique_ptr<shared_model::interface::Block>,
+                       std::string>(
+                       shared_model::interface::types::PublicKeyHexStringView,
+                       shared_model::interface::types::HeightType));
     };
 
     class MockOrderingGate : public OrderingGate {
