@@ -147,7 +147,10 @@ add_library(postgres_burrow_storage
     impl/burrow_storage.cpp
     impl/postgres_burrow_storage.cpp
     )
-target_link_libraries(postgres_burrow_storage common)
+target_link_libraries(postgres_burrow_storage
+    common
+    soci_reconnection_hacks
+    )
 
 add_library(default_vm_call INTERFACE)
 if(USE_BURROW)
