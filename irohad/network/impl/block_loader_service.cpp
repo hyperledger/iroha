@@ -69,7 +69,10 @@ grpc::Status BlockLoaderService::retrieveBlocks(
     *proto_block.mutable_block_v1() =
         static_cast<shared_model::proto::Block *>(block.get())->getTransport();
 
-    writer->Write(proto_block);
+    if (not writer->Write(proto_block)) {
+      log_->error("Broken stream to {}", context->peer());
+      break;
+    }
   }
 
   return grpc::Status::OK;

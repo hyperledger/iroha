@@ -27,6 +27,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "common/bind.hpp"
 #include "common/files.hpp"
+#include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
 #include "cryptography/default_hash_provider.hpp"
@@ -640,33 +641,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
   auto factory = std::make_unique<shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>>(validators_config_);
 
-  const uint64_t kCounter = 0, kMaxLocalCounter = 2;
-  // reject_delay and local_counter are local mutable variables of lambda
-  const auto kMaxDelay(max_rounds_delay_);
-  const auto kMaxDelayIncrement(std::chrono::milliseconds(1000));
-  auto delay = [reject_delay = std::chrono::milliseconds(0),
-                local_counter = kCounter,
-                // MSVC requires const variables to be captured
-                kMaxDelay,
-                kMaxDelayIncrement,
-                kMaxLocalCounter](const auto &commit) mutable {
-    using iroha::synchronizer::SynchronizationOutcomeType;
-    if (commit.sync_outcome == SynchronizationOutcomeType::kReject
-        or commit.sync_outcome == SynchronizationOutcomeType::kNothing) {
-      // Increment reject_counter each local_counter calls of function
-      ++local_counter;
-      if (local_counter == kMaxLocalCounter) {
-        local_counter = 0;
-        if (reject_delay < kMaxDelay) {
-          reject_delay += std::min(kMaxDelay, kMaxDelayIncrement);
-        }
-      }
-    } else {
-      reject_delay = std::chrono::milliseconds(0);
-    }
-    return reject_delay;
-  };
-
   std::shared_ptr<iroha::ordering::ProposalCreationStrategy> proposal_strategy =
       std::make_shared<ordering::KickOutProposalCreationStrategy>(
           getSupermajorityChecker(kConsensusConsistencyModel));
@@ -683,7 +657,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      proposal_factory,
                                      persistent_cache,
                                      proposal_strategy,
-                                     delay,
                                      log_manager_->getChild("Ordering"));
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
@@ -766,6 +739,7 @@ Irohad::RunResult Irohad::initConsensusGate() {
 
   auto &block =
       boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
+
   consensus_gate = yac_init->initConsensusGate(
       {block->height(), ordering::kFirstRejectRound},
       storage,
@@ -777,7 +751,8 @@ Irohad::RunResult Irohad::initConsensusGate() {
       vote_delay_,
       async_call_,
       kConsensusConsistencyModel,
-      log_manager_->getChild("Consensus"));
+      log_manager_->getChild("Consensus"),
+      max_rounds_delay_);
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
       consensus_gate_objects.get_subscriber());

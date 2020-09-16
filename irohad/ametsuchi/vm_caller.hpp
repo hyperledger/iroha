@@ -22,6 +22,8 @@ namespace iroha::ametsuchi {
 
   class VmCaller {
    public:
+    virtual ~VmCaller() = default;
+
     virtual iroha::expected::Result<std::optional<std::string>, std::string>
     call(std::string const &tx_hash,
          shared_model::interface::types::CommandIndexType cmd_index,

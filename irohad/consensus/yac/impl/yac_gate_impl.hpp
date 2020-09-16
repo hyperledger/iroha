@@ -12,6 +12,8 @@
 
 #include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/yac/consensus_outcome_type.hpp"
+#include "consensus/yac/impl/consensus_outcome_delay.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -33,14 +35,18 @@ namespace iroha {
 
       class YacGateImpl : public YacGate {
        public:
-        YacGateImpl(std::shared_ptr<HashGate> hash_gate,
-                    std::shared_ptr<YacPeerOrderer> orderer,
-                    boost::optional<ClusterOrdering> alternative_order,
-                    std::shared_ptr<YacHashProvider> hash_provider,
-                    std::shared_ptr<simulator::BlockCreator> block_creator,
-                    std::shared_ptr<consensus::ConsensusResultCache>
-                        consensus_result_cache,
-                    logger::LoggerPtr log);
+        YacGateImpl(
+            std::shared_ptr<HashGate> hash_gate,
+            std::shared_ptr<YacPeerOrderer> orderer,
+            boost::optional<ClusterOrdering> alternative_order,
+            std::shared_ptr<YacHashProvider> hash_provider,
+            std::shared_ptr<simulator::BlockCreator> block_creator,
+            std::shared_ptr<consensus::ConsensusResultCache>
+                consensus_result_cache,
+            logger::LoggerPtr log,
+            std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
+                delay_func =
+                    ConsensusOutcomeDelay(std::chrono::milliseconds(0)));
         void vote(const simulator::BlockCreatorEvent &event) override;
 
         rxcpp::observable<GateObject> onOutcome() override;

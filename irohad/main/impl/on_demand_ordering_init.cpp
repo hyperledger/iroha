@@ -11,11 +11,9 @@
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/operators/rx-skip.hpp>
 #include <rxcpp/operators/rx-start_with.hpp>
-#include <rxcpp/operators/rx-tap.hpp>
 #include <rxcpp/operators/rx-with_latest_from.hpp>
 #include <rxcpp/operators/rx-zip.hpp>
 #include "common/bind.hpp"
-#include "common/delay.hpp"
 #include "common/permutation_generator.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -187,8 +185,6 @@ namespace iroha {
             proposal_factory,
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
-        std::function<std::chrono::milliseconds(
-            const synchronizer::SynchronizationEvent &)> delay_func,
         size_t max_number_of_transactions,
         const logger::LoggerManagerTreePtr &ordering_log_manager) {
       return std::make_shared<ordering::OnDemandOrderingGate>(
@@ -216,55 +212,22 @@ namespace iroha {
                           std::inserter(*hashes, hashes->end()));
                 return hashes;
               }),
-          sync_event_notifier.get_observable()
-              .tap([this](const synchronizer::SynchronizationEvent &event) {
-                if (not last_received_round_
-                    or *last_received_round_ < event.round) {
-                  last_received_round_ = event.round;
-                } else {
-                  log_->debug("Dropping {}, since {} is already processed",
-                              event.round,
-                              *last_received_round_);
-                }
-              })
-              .lift<iroha::synchronizer::SynchronizationEvent>(
-                  iroha::makeDelay<iroha::synchronizer::SynchronizationEvent>(
-                      delay_func, rxcpp::identity_current_thread()))
-              .filter([this](const auto &event) {
-                assert(last_received_round_);
-                if (not last_received_round_) {
-                  log_->error("Cannot continue without last received round");
-                  return false;
-                }
-                if (event.round < *last_received_round_) {
-                  log_->debug("Dropping {}, since {} is already processed",
-                              event.round,
-                              *last_received_round_);
-                  return false;
-                }
-                return true;
-              })
-              .map([this](const auto &event) {
+          sync_event_notifier.get_observable().map(
+              [this](synchronizer::SynchronizationEvent const &event) {
                 consensus::Round current_round;
                 switch (event.sync_outcome) {
                   case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
-                    log_->debug("Sync event on {}: commit.",
-                                *last_received_round_);
-                    current_round =
-                        ordering::nextCommitRound(*last_received_round_);
+                    log_->debug("Sync event on {}: commit.", event.round);
+                    current_round = ordering::nextCommitRound(event.round);
                     break;
                   case iroha::synchronizer::SynchronizationOutcomeType::kReject:
-                    log_->debug("Sync event on {}: reject.",
-                                *last_received_round_);
-                    current_round =
-                        ordering::nextRejectRound(*last_received_round_);
+                    log_->debug("Sync event on {}: reject.", event.round);
+                    current_round = ordering::nextRejectRound(event.round);
                     break;
                   case iroha::synchronizer::SynchronizationOutcomeType::
                       kNothing:
-                    log_->debug("Sync event on {}: nothing.",
-                                *last_received_round_);
-                    current_round =
-                        ordering::nextRejectRound(*last_received_round_);
+                    log_->debug("Sync event on {}: nothing.", event.round);
+                    current_round = ordering::nextRejectRound(event.round);
                     break;
                   default:
                     log_->error("unknown SynchronizationOutcomeType");
@@ -320,8 +283,6 @@ namespace iroha {
         std::shared_ptr<TransportFactoryType> proposal_transport_factory,
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
-        std::function<std::chrono::milliseconds(
-            const synchronizer::SynchronizationEvent &)> delay_func,
         logger::LoggerManagerTreePtr ordering_log_manager) {
       auto ordering_service = createService(max_number_of_transactions,
                                             proposal_factory,
@@ -345,7 +306,6 @@ namespace iroha {
           std::move(proposal_factory),
           std::move(tx_cache),
           std::move(creation_strategy),
-          std::move(delay_func),
           max_number_of_transactions,
           ordering_log_manager);
     }

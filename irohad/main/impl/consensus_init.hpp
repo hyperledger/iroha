@@ -10,6 +10,7 @@
 
 #include "ametsuchi/peer_query_factory.hpp"
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/timer.hpp"
@@ -44,7 +45,8 @@ namespace iroha {
                 iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
                 async_call,
             ConsistencyModel consistency_model,
-            const logger::LoggerManagerTreePtr &consensus_log_manager);
+            const logger::LoggerManagerTreePtr &consensus_log_manager,
+            std::chrono::milliseconds delay);
 
         std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
 
