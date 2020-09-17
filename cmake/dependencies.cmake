@@ -47,12 +47,38 @@ set_target_properties(RapidJSON::rapidjson PROPERTIES
 #         libpq          #
 ##########################
 find_package(PostgreSQL REQUIRED)
+function(__postgresql_find_library _name)
+  find_library(${_name}
+   NAMES ${ARGN}
+   PATHS
+     ${PostgreSQL_ROOT_DIRECTORIES}
+   PATH_SUFFIXES
+     lib
+     ${PostgreSQL_LIBRARY_ADDITIONAL_SEARCH_SUFFIXES}
+   # Help the user find it if we cannot.
+   DOC "The ${PostgreSQL_LIBRARY_DIR_MESSAGE}"
+  )
+endfunction()
+__postgresql_find_library(PostgreSQL_COMMON_LIBRARY pgcommon)
+__postgresql_find_library(PostgreSQL_PORT_LIBRARY pgport)
 
 find_package(OpenSSL REQUIRED)
 target_link_libraries(PostgreSQL::PostgreSQL
   INTERFACE
   OpenSSL::SSL
   )
+if(PostgreSQL_COMMON_LIBRARY)
+  target_link_libraries(PostgreSQL::PostgreSQL
+    INTERFACE
+    ${PostgreSQL_COMMON_LIBRARY}
+    )
+endif()
+if(PostgreSQL_PORT_LIBRARY)
+  target_link_libraries(PostgreSQL::PostgreSQL
+    INTERFACE
+    ${PostgreSQL_PORT_LIBRARY}
+    )
+endif()
 
 ##########################
 #          SOCI          #

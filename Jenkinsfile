@@ -141,6 +141,7 @@ node ('master') {
   x64linux_compiler_list = ['gcc9']
   mac_compiler_list = []
   win_compiler_list = []
+  s390xlinux_compiler_list = []
 
   testing = true
   testList = '(module)'
@@ -154,6 +155,7 @@ node ('master') {
   codestyle = false
   coverage = false
   coverage_mac = false
+  coverage_s390x = false
   doxygen = false
 
   build_type = 'Debug'
@@ -224,6 +226,7 @@ node ('master') {
      case 'Before merge to trunk':
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
         x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
+        s390xlinux_compiler_list = ['gcc9']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -236,6 +239,7 @@ node ('master') {
         break;
      case 'Nightly build':
         x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
+        s390xlinux_compiler_list = ['gcc9']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -267,6 +271,8 @@ node ('master') {
           // A very rare scenario when linux compiler is not selected but we still need coverage
           if (x64linux_compiler_list.isEmpty() && coverage ){
             coverage_mac = true
+          } else if (mac_compiler_list.isEmpty() && coverage) {
+            coverage_s390x = true
           }
         } else {
            println("Unable to parse '${params.custom_cmd}'")
@@ -288,8 +294,9 @@ node ('master') {
        specialBranch=${specialBranch}, packageBuild=${packageBuild}, pushDockerTag=${pushDockerTag}, packagePush=${packagePush}
        testing=${testing}, testList=${testList}, parallelism=${parallelism}, useBTF=${useBTF}
        x64linux_compiler_list=${x64linux_compiler_list}, mac_compiler_list=${mac_compiler_list}, win_compiler_list = ${win_compiler_list}"
+       s390xlinux_compiler_list=${s390xlinux_compiler_list},
        sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, benchmarking=${benchmarking}, coredumps=${coredumps}, sonar=${sonar},
-       codestyle=${codestyle},coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
+       codestyle=${codestyle},coverage=${coverage}, coverage_mac=${coverage_mac}, coverage_s390x=${coverage_s390x} doxygen=${doxygen}"
        forceDockerDevelopBuild=${forceDockerDevelopBuild}, env.TAG_NAME=${env.TAG_NAME}
     """
   print scmVars
@@ -303,6 +310,7 @@ node ('master') {
 
   // Define Workers
   x64LinuxWorker = new Worker(label: 'docker-build-agent', cpusAvailable: 4)
+  s390xLinuxWorker = new Worker(label: 'linuxone', cpusAvailable: 4)
   x64MacWorker = new Worker(label: 'mac', cpusAvailable: 4)
   x64WinWorker = new Worker(label: 'windows-iroha-agent', cpusAvailable: 8)
 
@@ -382,6 +390,47 @@ node ('master') {
                          x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${default_compiler} Burrow", x64LinuxWorker, tasks)
     }
   }
+
+  def s390xLinuxBuildSteps
+  def s390xLinuxPostSteps = new Builder.PostSteps()
+  if(!s390xlinux_compiler_list.isEmpty()){
+    s390xLinuxAlwaysPostSteps = new Builder.PostSteps(
+      always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}])
+    s390xLinuxPostSteps = new Builder.PostSteps(
+      always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
+      success: [{x64LinuxBuildScript.successPostSteps(scmVars, packagePush, pushDockerTag, environmentList)}])
+    def first_compiler = s390xlinux_compiler_list[0]
+    def release_build = specialBranch && build_type == 'Debug'
+    def manifest_push = false
+    def current_parallelism = parallelism == 0 ? s390xLinuxWorker.cpusAvailable : parallelism
+
+    // register first compiler with packageBuild, and manifest push
+    registerBuildSteps([{x64LinuxBuildScript.buildSteps(
+                       current_parallelism, first_compiler, build_type, build_shared_libs, specialBranch, coverage_s390x,
+                       testing, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, packageBuild, sanitize, fuzzing, benchmarking,
+                       coredumps, useBTF, use_libursa, use_burrow, forceDockerDevelopBuild, manifest_push, environmentList)}],
+                       release_build ? s390xLinuxAlwaysPostSteps : s390xLinuxPostSteps, "s390x Linux ${build_type} ${first_compiler}", s390xLinuxWorker, tasks)
+    if (s390xlinux_compiler_list.size() > 1){
+      s390xlinux_compiler_list[1..-1].each { compiler ->
+        // register compiler without coverage, analysis, docs, and manifest push
+        registerBuildSteps([{x64LinuxBuildScript.buildSteps(
+                           current_parallelism, compiler, build_type, build_shared_libs, specialBranch, /*coverage_s390x*/false,
+                           testing, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/false, sanitize, fuzzing,
+                           benchmarking, coredumps, useBTF, use_libursa, use_burrow, /*force_docker_develop_build*/false, /*manifest_push*/false, environmentList)}],
+                           s390xLinuxAlwaysPostSteps, "s390x Linux ${build_type} ${compiler}", s390xLinuxWorker, tasks)
+      }
+    }
+    // If "master" also run Release build
+    if (release_build){
+      registerBuildSteps([{x64LinuxBuildScript.buildSteps(
+                         current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage_s390x*/false,
+                         /*testing*/false, testList, /*cppcheck*/false, /*sonar*/false, /*codestyle*/false, /*doxygen*/false, /*package_build*/true, /*sanitize*/false,
+                         /*fuzzing*/false, /*benchmarking*/false, /*coredumps*/false, /*use_btf*/false, use_libursa, use_burrow, /*force_docker_develop_build*/false,
+                         /*manifest_push*/false, environmentList)}],
+                         x64LinuxPostSteps, "s390x Linux Release ${first_compiler}", s390xLinuxWorker, tasks)
+    }
+  }
+
   def x64MacBuildSteps
   def x64MacPostSteps = new Builder.PostSteps()
   if (!mac_compiler_list.isEmpty()) {
