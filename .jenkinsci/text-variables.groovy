@@ -52,6 +52,17 @@ cmd_description = """
       </ul>
    </li>
    <li>
+      <p><strong>s390xlinux_compiler_list</strong> = []&nbsp;</p>
+      <ul>
+         <li>
+            <p>Linux (IBMZ s390x) compiler name to build</p>
+         </li>
+         <li>
+            <p>Ex:&nbsp;s390xlinux_compiler_list=['gcc9']</p>
+         </li>
+      </ul>
+   </li>
+   <li>
       <p><strong>mac_compiler_list</strong> = [ ]&nbsp;</p>
       <ul>
          <li>

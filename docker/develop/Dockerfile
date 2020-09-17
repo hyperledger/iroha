@@ -16,7 +16,7 @@ RUN set -e; \
     apt-get update && \
     apt-get -y --no-install-recommends install libtool \
         # compilers (gcc-9, gcc-10)
-        build-essential g++-9 g++-10 ninja-build \
+        build-essential g++-9 g++-10 cmake ninja-build \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # code coverage
@@ -24,7 +24,7 @@ RUN set -e; \
         # Python3
         python3-pip python-is-python3 \
         # other
-        curl file gdb gdbserver ccache python3-dev \
+        curl file gdb gdbserver ccache python3-dev libssl-dev \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
     apt-get -y clean && \
     rm -rf /var/lib/apt/lists/*
@@ -40,25 +40,21 @@ RUN set -e; \
     fi
 
 # golang stuff
-RUN curl https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz | tar -C /opt -xz
+RUN curl https://dl.google.com/go/go1.14.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
 ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 RUN go get github.com/golang/protobuf/protoc-gen-go
 
-# install cmake 3.14.0
-RUN set -e; \
-    curl -L -o /tmp/cmake.sh https://github.com/Kitware/CMake/releases/download/v3.14.0/cmake-3.14.0-Linux-x86_64.sh; \
-    sh /tmp/cmake.sh --prefix=/usr/local --skip-license; \
-    rm /tmp/cmake.sh
-
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -e; \
+    export VCPKG_FORCE_SYSTEM_BINARIES=1; \
     sh /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
-    chmod +x /opt/dependencies/installed/x64-linux/tools/protobuf/protoc*; \
+    chmod +x /opt/dependencies/installed/*/tools/protobuf/protoc*; \
+    unset VCPKG_FORCE_SYSTEM_BINARIES; \
     rm -rf /tmp/vcpkg*
 
 # install sonar cli
@@ -85,15 +81,17 @@ RUN set -e; \
 
 # python bindings dependencies
 RUN set -e; \
+    export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1; \
     pip3 install setuptools wheel; \
-    pip3 install grpcio_tools pysha3 iroha==0.0.5.4
+    pip3 install grpcio_tools pysha3 iroha==0.0.5.4; \
+    unset GRPC_PYTHON_BUILD_SYSTEM_OPENSSL
 
 # install rust
 RUN set -e; \
-    curl -L -o /tmp/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz https://static.rust-lang.org/dist/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz; \
-    tar xf /tmp/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz -C /tmp; \
-    /tmp/rust-1.37.0-x86_64-unknown-linux-gnu/install.sh; \
-    rm -rf /tmp/rust-1.37.0-x86_64-unknown-linux-gnu*
+    curl -L -o /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu.tar.gz https://static.rust-lang.org/dist/rust-1.37.0-$(uname -m)-unknown-linux-gnu.tar.gz; \
+    tar xf /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu.tar.gz -C /tmp; \
+    /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu/install.sh; \
+    rm -rf /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu*
 
 # non-interactive adduser
 #   -m = create home dir
