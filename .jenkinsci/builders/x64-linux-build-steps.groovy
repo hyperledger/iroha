@@ -45,7 +45,7 @@ def buildSteps(int parallelism, String compiler, String build_type, boolean buil
       boolean fuzzing, boolean benchmarking, boolean coredumps, boolean useBTF, boolean use_libursa, boolean use_burrow,
       boolean forceDockerDevelopBuild, boolean manifest_push, List environment) {
   withEnv(environment) {
-    def scmVars, build, utils, doxygen, buildDir, compilers, cmakeBooleanOption, platform, cmakeBuildOptions, cmakeOptions, iC
+    def scmVars, build, utils, doxygen, buildDir, compilers, cmakeBooleanOption, platform, cmakeBuildOptions, cmakeOptions, iC, postgresIP
     stage('Prepare Linux environment') {
       scmVars = checkout scm
       build = load '.jenkinsci/build.groovy'
@@ -78,13 +78,18 @@ def buildSteps(int parallelism, String compiler, String build_type, boolean buil
           docker network create ${env.IROHA_NETWORK}
           docker run -td -e POSTGRES_USER=${env.IROHA_POSTGRES_USER} \
              -e POSTGRES_PASSWORD=${env.IROHA_POSTGRES_PASSWORD} --name ${env.IROHA_POSTGRES_HOST} \
-             --network=${env.IROHA_NETWORK} postgres:9.5 -c 'max_prepared_transactions=100'
+             --network=${env.IROHA_NETWORK} postgres:9.5-alpine -c 'max_prepared_transactions=100'
         fi
       """
+      postgresIP = sh(script: "docker inspect ${env.IROHA_POSTGRES_HOST} --format '{{ (index .NetworkSettings.Networks \"${env.IROHA_NETWORK}\").IPAddress  }}'", returnStdout: true).trim()
+
       def referenceBranchOrCommit = 'master'
       if (scmVars.GIT_LOCAL_BRANCH == referenceBranchOrCommit && scmVars.GIT_PREVIOUS_COMMIT) {
         referenceBranchOrCommit = scmVars.GIT_PREVIOUS_COMMIT
       }
+      // fix for podman=1.9.3, `COPY vcpkg /tmp/vcpkg-vars` have different hash after each git clone
+      //  Explicitly setting Access and Modification Time
+      sh "find vcpkg/ -exec touch -amt 203801011205.09 {} +"
       iC = dockerUtils.dockerPullOrBuild("${platform}-develop-build",
           "${env.GIT_RAW_BASE_URL}/${scmVars.GIT_COMMIT}/docker/develop/Dockerfile",
           "${env.GIT_RAW_BASE_URL}/${referenceBranchOrCommit}/docker/develop/Dockerfile",
@@ -99,9 +104,10 @@ def buildSteps(int parallelism, String compiler, String build_type, boolean buil
     + " -e IROHA_POSTGRES_USER=${env.IROHA_POSTGRES_USER}"
     + " -e IROHA_POSTGRES_PASSWORD=${env.IROHA_POSTGRES_PASSWORD}"
     + " --network=${env.IROHA_NETWORK}"
-    + " -v /var/jenkins/ccache:${env.CCACHE_DEBUG_DIR}") {
+    + " -v /data/jenkins/ccache:${env.CCACHE_DEBUG_DIR}:z"
+    + " --add-host ${env.IROHA_POSTGRES_HOST}:${postgresIP}") {
       utils.ccacheSetup(5)
-      stage ("Build ${compiler}"){
+      stage ("Build ${compiler} ${platform}"){
         // Remove artifacts from the previous build
         build.removeDirectory(buildDir)
         build.cmakeConfigure(buildDir, "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \

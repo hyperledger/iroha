@@ -17,7 +17,7 @@ def uploadArtifacts(filePaths, uploadPath, artifactServers=['nexus.iroha.tech'])
   }
   def shaSumBinary = 'sha256sum'
   def md5SumBinary = 'md5sum'
-  def gpgKeyBinary = 'gpg --armor --detach-sign --no-tty --batch --yes --passphrase-fd 0'
+  def gpgKeyBinary = 'gpg --pinentry-mode loopback --armor --detach-sign --no-tty --batch --yes --passphrase-fd 0'
   if (agentType == 'Darwin') {
     shaSumBinary = 'shasum -a 256'
     md5SumBinary = 'md5 -r'
