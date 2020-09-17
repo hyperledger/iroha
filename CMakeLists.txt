@@ -24,6 +24,18 @@ endif()
 SET(CMAKE_CXX_OUTPUT_EXTENSION_REPLACE 1)
 SET(CMAKE_INSTALL_RPATH "../lib")
 
+if(CMAKE_BUILD_TYPE MATCHES "Release")
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT lto_supported OUTPUT error)
+
+  if(lto_supported)
+    message(STATUS "IPO / LTO enabled")
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+  else()
+    message(STATUS "IPO / LTO not supported: <${error}>")
+  endif()
+endif()
+
 if(WIN32)
     # We have to set _WIN32_WINNT for gRPC
     if(${CMAKE_SYSTEM_VERSION} EQUAL 10) # Windows 10
