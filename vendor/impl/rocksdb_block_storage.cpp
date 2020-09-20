@@ -1,4 +1,4 @@
-#include <string> 
+#include <string>
 #include "rocksdb_block_storage.hpp"
 
 /**
@@ -14,8 +14,8 @@ bool RockdbBlockStorage::insert(std::shared_ptr<const shared_model::interface::B
 
 boost::optional<std::unique_ptr<shared_model::interface::Block>> RockdbBlockStorage::fetch(
 		shared_model::interface::types::HeightType height) const {
-	auto block_data;
-	rocksdb::Status s = db->Get(rocksdb::ReadOptions(), std::to_string(block->height()), &block_data);
+	std::string block_data;
+	rocksdb::Status s = db->Get(rocksdb::ReadOptions(), std::to_string(height), &block_data);
 	return iroha::hexstringToBytestring(block_data) |
           [&, this](auto byte_block) {
             iroha::protocol::Block_v1 b1;
@@ -65,6 +65,6 @@ void RockdbBlockStorage::forEach(FunctionType function) const {
 	rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
 	for (it->SeekToFirst(); it->Valid(); it->Next()) {
 		//convert Srting block to BLock data-type. Need to change this.
-		function(RockdbBlockStorage::fetch(std::stoi(it->key())));
+		function(std::move(RockdbBlockStorage::fetch(std::stoi(it->key().ToString())).get()));
 	}
 }

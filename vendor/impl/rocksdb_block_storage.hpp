@@ -27,11 +27,16 @@ class RockdbBlockStorage : public iroha::ametsuchi::BlockStorage {
 
 		rocksdb::DB *db;
 		rocksdb::Options options;
-		options.create_if_missing = true;
-		options.error_if_exists = true;
-		// open a database with a name which corresponds to a file system directory
-		rocksdb::Status status = rocksdb::DB::Open(options, name, &db);
+		rocksdb::Status status;
 
+	// RocksDB Block Constructor constructor
+	public:
+		RockdbBlockStorage() {
+			options.create_if_missing = true;
+			options.error_if_exists = true;
+			// open a database with a name which corresponds to a file system directory
+			status = rocksdb::DB::Open(options, name, &db);
+		}
 };
 
 #endif
