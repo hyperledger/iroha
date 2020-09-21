@@ -27,24 +27,17 @@ Iroha is _Crash Fault Tolerant_ and has its own consensus algorithm - [YAC](http
 
 ## Documentation
 
-Our documentation is hosted at ReadTheDocs service here: [http://iroha.readthedocs.io](http://iroha.readthedocs.io).
-We have documentation in several languages available and you are welcome to contribute on [POEditor website](https://poeditor.com/join/project/SFpZw7o33o)!
+Our documentation is hosted at ReadTheDocs service here: [http://iroha.readthedocs.io](http://iroha.readthedocs.io) and supports different Iroha versions.
 
-#### Here is the build status of different translations
-<center>
+#### We have documentation translations!
 
-| Build Status | **English** <br> [![Documentation Status](https://readthedocs.org/projects/iroha/badge/?version=master)](https://iroha.readthedocs.io/en/master/?badge=master) </br> | **German** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-de/badge/?version=master)](https://iroha.readthedocs.io/de/master/?badge=master) </br> | **Spanish** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-es/badge/?version=latest)](https://iroha.readthedocs.io/es/latest/?badge=latest) </br> | **French** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-fr/badge/?version=latest)](https://iroha.readthedocs.io/fr/latest/?badge=latest) </br> | **Japanese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ja/badge/?version=latest)](https://iroha.readthedocs.io/ja/latest/?badge=latest) </br> |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Korean** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ko/badge/?version=latest)](https://iroha.readthedocs.io/ko/latest/?badge=latest) </br> | **Dutch** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-nl/badge/?version=latest)](https://iroha.readthedocs.io/nl/latest/?badge=latest) </br> | **Portuguese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-pt/badge/?version=latest)](https://iroha.readthedocs.io/pt/latest/?badge=latest) </br> | **Russian** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ru/badge/?version=latest)](https://iroha.readthedocs.io/ru/latest/?badge=latest) </br> | **Ukrainian** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-uk/badge/?version=latest)](https://iroha.readthedocs.io/uk/latest/?badge=latest) </br> | **Simplified Chinese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-zh/badge/?version=latest)](https://iroha.readthedocs.io/zh_CN/latest/?badge=latest) </br> |
-
-</center>
-
-> We are currently researching better ideas for translation platforms. That is why the documentation in outdated at the moment. Please, refer to the English documentation for now.
+Here is our [localisations repository](https://github.com/hyperledger/iroha-docs-l10n).
+Check it out and help us translate Iroha docs into your local language.
 
 ### How to explore Iroha really fast?
 
 Check [getting started](https://iroha.readthedocs.io/en/stable/getting_started/index.html) section in your version of localized docs to start exploring the system.
-There is also a great [sandbox](https://katacoda.com/lebdron/scenarios/iroha-transfer-asset) to try sending assets using Python library.
+There is also a great [sandbox](https://katacoda.com/hyperledger-iroha/scenarios/iroha-transfer-asset) to try sending assets using Python library.
 
 ### How to build Iroha?
 
