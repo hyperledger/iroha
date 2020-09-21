@@ -8,6 +8,12 @@ The following is a short set of guidelines for contributing to Iroha.
 How Can I Contribute?
 ---------------------
 
+Translating Documentation
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+`Here <https://github.com/hyperledger/iroha-docs-l10n>`_ you can translate Iroha documentation into your language – community will be grateful for your help!
+Instructions are included – just follow the `link to the repository <https://github.com/hyperledger/iroha-docs-l10n>`_.
+
 Reporting Bugs
 ~~~~~~~~~~~~~~
 
