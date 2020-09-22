@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 
 #include <soci/soci.h>
 
@@ -29,7 +30,7 @@ namespace iroha::ametsuchi {
    public:
     ReconnectionThrowerHack(soci::session &session);
 
-    void throwIfReconnected(char const *message) const;
+    void throwIfReconnected(std::string_view message) const;
 
    private:
     std::optional<std::reference_wrapper<FailoverCallback>>

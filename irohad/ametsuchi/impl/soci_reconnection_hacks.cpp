@@ -5,6 +5,9 @@
 
 #include "ametsuchi/impl/soci_reconnection_hacks.hpp"
 
+#include <algorithm>
+#include <string_view>
+
 #include <soci/callbacks.h>
 #include <soci/soci.h>
 #include "ametsuchi/impl/failover_callback.hpp"
@@ -30,12 +33,25 @@ ReconnectionThrowerHack::ReconnectionThrowerHack(soci::session &session)
             return callback.get().getSessionReconnectionsCount();
           }){};
 
-void ReconnectionThrowerHack::throwIfReconnected(char const *message) const {
+void ReconnectionThrowerHack::throwIfReconnected(
+    std::string_view message) const {
+  // check message blacklist
+  std::array<std::string_view, 2> const kExceptionBlacklist = {
+      "contains unexpected zero page", "Connection failed."};
+
+  if (std::any_of(kExceptionBlacklist.begin(),
+                  kExceptionBlacklist.end(),
+                  [&](std::string_view substr) {
+                    return message.find(substr) != std::string_view::npos;
+                  })) {
+    throw SessionRenewedException{message.data()};
+  }
+
   maybe_failover_callback_ | [&](auto callback) {
     auto const new_session_reconnections_count =
         callback.get().getSessionReconnectionsCount();
     if (session_reconnections_count_ < new_session_reconnections_count) {
-      throw SessionRenewedException{message};
+      throw SessionRenewedException{message.data()};
     }
   };
 }
