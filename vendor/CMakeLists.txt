@@ -3,5 +3,6 @@ add_library(rocksdb_block_storage
 	)
 
 target_link_libraries(rocksdb_block_storage
+	common
 	Boost::filesystem
 	RocksDB::rocksdb )
