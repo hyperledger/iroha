@@ -1,8 +1,4 @@
-#include <string>
 #include "rocksdb_block_storage.hpp"
-#include "common/bind.hpp"
-
-using iroha::operator|;
 
 /**
  * Append block, if the storage doesn't already contain the same block
@@ -19,6 +15,9 @@ boost::optional<std::unique_ptr<shared_model::interface::Block>> RockdbBlockStor
 		shared_model::interface::types::HeightType height) const {
 	std::string block_data;
 	rocksdb::Status s = db->Get(rocksdb::ReadOptions(), std::to_string(height), &block_data);
+	using BlockTransportFactory = shared_model::proto::ProtoBlockFactory;
+	std::shared_ptr<BlockTransportFactory> block_factory_;
+	logger::LoggerPtr log_;
 
 	return iroha::hexstringToBytestring(block_data) |
           [&, this](auto byte_block) {

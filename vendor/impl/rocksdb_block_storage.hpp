@@ -1,7 +1,16 @@
 #include <rocksdb/db.h>
+#include <string>
 #include <boost/filesystem.hpp>
 #include <gtest/gtest.h>
 #include "ametsuchi/block_storage.hpp"
+#include "common/bind.hpp"
+#include "backend/protobuf/block.hpp"
+#include "ametsuchi/block_storage_factory.hpp"
+#include "backend/protobuf/proto_block_factory.hpp"
+#include "interfaces/iroha_internal/abstract_transport_factory.hpp"
+#include "logger/logger.hpp"
+
+using iroha::operator|;
 
 #ifndef ROCKDB_BLOCK_STORAGE_HPP
 #define ROCKDB_BLOCK_STORAGE_HPP

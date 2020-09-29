@@ -3,6 +3,8 @@ add_library(rocksdb_block_storage
 	)
 
 target_link_libraries(rocksdb_block_storage
+	shared_model_proto_backend
 	common
+	logger
 	Boost::filesystem
 	RocksDB::rocksdb )
