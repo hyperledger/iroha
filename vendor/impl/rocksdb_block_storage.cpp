@@ -4,14 +4,14 @@
  * Append block, if the storage doesn't already contain the same block
  * @return true if inserted successfully, false otherwise
  */
-bool RockdbBlockStorage::insert(std::shared_ptr<const shared_model::interface::Block> block) {
+bool RocksdbBlockStorage::insert(std::shared_ptr<const shared_model::interface::Block> block) {
 	auto height = std::to_string(block->height());
 	auto b = block->blob().hex();
 	rocksdb::Status s = db->Put(rocksdb::WriteOptions(), height, b);
 	return s.ok();
 }
 
-boost::optional<std::unique_ptr<shared_model::interface::Block>> RockdbBlockStorage::fetch(
+boost::optional<std::unique_ptr<shared_model::interface::Block>> RocksdbBlockStorage::fetch(
 		shared_model::interface::types::HeightType height) const {
 	std::string block_data;
 	rocksdb::Status s = db->Get(rocksdb::ReadOptions(), std::to_string(height), &block_data);
@@ -43,7 +43,7 @@ boost::optional<std::unique_ptr<shared_model::interface::Block>> RockdbBlockStor
           };
 }
 
-size_t RockdbBlockStorage::size() const {
+size_t RocksdbBlockStorage::size() const {
 	size_t count = 0;
 	rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
 	for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -53,7 +53,7 @@ size_t RockdbBlockStorage::size() const {
 }
 
 
-void RockdbBlockStorage::clear() {
+void RocksdbBlockStorage::clear() {
 	rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
 	for (it->SeekToFirst(); it->Valid(); it->Next()) {
 		db->Delete(rocksdb::WriteOptions(), it->key());
@@ -64,10 +64,10 @@ void RockdbBlockStorage::clear() {
 /**
  * Iterates through all the stored blocks
  */
-void RockdbBlockStorage::forEach(FunctionType function) const {
+void RocksdbBlockStorage::forEach(FunctionType function) const {
 	rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
 	for (it->SeekToFirst(); it->Valid(); it->Next()) {
 		//convert Srting block to BLock data-type. Need to change this.
-		function(std::move(RockdbBlockStorage::fetch(std::stoi(it->key().ToString())).get()));
+		function(std::move(RocksdbBlockStorage::fetch(std::stoi(it->key().ToString())).get()));
 	}
 }

@@ -12,10 +12,10 @@
 
 using iroha::operator|;
 
-#ifndef ROCKDB_BLOCK_STORAGE_HPP
-#define ROCKDB_BLOCK_STORAGE_HPP
+#ifndef ROCKSDB_BLOCK_STORAGE_HPP
+#define ROCKSDB_BLOCK_STORAGE_HPP
 
-class RockdbBlockStorage : public iroha::ametsuchi::BlockStorage {
+class RocksdbBlockStorage : public iroha::ametsuchi::BlockStorage {
 
 	public:
 		bool insert(std::shared_ptr<const shared_model::interface::Block> block) override;
@@ -40,7 +40,7 @@ class RockdbBlockStorage : public iroha::ametsuchi::BlockStorage {
 
 	// RocksDB Block Constructor constructor
 	public:
-		RockdbBlockStorage() {
+		RocksdbBlockStorage() {
 			options.create_if_missing = true;
 			options.error_if_exists = true;
 			// open a database with a name which corresponds to a file system directory
