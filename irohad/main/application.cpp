@@ -8,8 +8,6 @@
 #include <optional>
 
 #include <boost/filesystem.hpp>
-#include <rxcpp/operators/rx-concat.hpp>
-#include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -284,18 +282,27 @@ Irohad::RunResult Irohad::initStorage(
                                 log_manager_->getChild("Storage"))
                | [&](auto &&v) -> RunResult {
       storage = std::move(v);
+
+      using shared_model::crypto::Hash;
+      using shared_model::interface::Block;
+
       finalized_txs_ =
           storage->on_commit()
-              .flat_map([](auto const &block) {
-                return rxcpp::observable<>::iterate(
-                           block->transactions()
-                           | boost::adaptors::transformed(
-                                 [](auto const &tx) { return tx.hash(); }))
-                    .concat(rxcpp::observable<>::iterate(
-                        block->rejected_transactions_hashes()));
+              .template lift<Hash>([](rxcpp::subscriber<Hash> dest) {
+                return rxcpp::make_subscriber<std::shared_ptr<Block const>>(
+                    dest, [=](std::shared_ptr<Block const> const &block) {
+                      for (auto const &completed_tx : block->transactions()) {
+                        dest.on_next(completed_tx.hash());
+                      }
+                      for (auto const &rejected_tx_hash :
+                           block->rejected_transactions_hashes()) {
+                        dest.on_next(rejected_tx_hash);
+                      }
+                    });
               })
               .publish()
               .ref_count();
+
       log_->info("[Init] => storage");
       return {};
     };
