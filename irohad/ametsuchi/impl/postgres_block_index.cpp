@@ -85,7 +85,7 @@ void PostgresBlockIndex::index(const shared_model::interface::Block &block) {
                           tx.value().commands());
     indexer_->txPositions(creator_id,
                           tx.value().hash(),
-                          boost::none,
+                          std::nullopt,
                           tx.value().createdTime(),
                           position);
   }

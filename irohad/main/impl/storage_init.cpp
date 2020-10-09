@@ -83,7 +83,7 @@ iroha::initStorage(
     std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage,
     std::shared_ptr<shared_model::interface::QueryResponseFactory>
         query_response_factory,
-    boost::optional<std::string> block_storage_dir,
+    std::optional<std::string> block_storage_dir,
     std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
         vm_caller_ref,
     logger::LoggerManagerTreePtr log_manager) {

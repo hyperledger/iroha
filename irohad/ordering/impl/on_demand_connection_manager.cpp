@@ -78,7 +78,7 @@ std::optional<std::shared_ptr<const OnDemandConnectionManager::ProposalType>>
 OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
-    return boost::none;
+    return std::nullopt;
   }
 
   log_->debug("onRequestProposal, {}", round);

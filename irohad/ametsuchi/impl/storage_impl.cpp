@@ -221,7 +221,7 @@ namespace iroha {
       return iroha::expected::Value<void>{};
     }
 
-    boost::optional<std::shared_ptr<const iroha::LedgerState>>
+    std::optional<std::shared_ptr<const iroha::LedgerState>>
     StorageImpl::getLedgerState() const {
       return ledger_state_;
     }
@@ -261,7 +261,7 @@ namespace iroha {
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
-      boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
+      std::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
       {
         soci::session sql{*pool_wrapper->connection_pool_};
         PostgresWsvQuery wsv_query(
@@ -272,7 +272,7 @@ namespace iroha {
             [&](auto &&top_block_info) {
               return wsv_query.getPeers() |
                   [&top_block_info](auto &&ledger_peers) {
-                    return boost::make_optional(
+                    return std::make_optional(
                         std::make_shared<const iroha::LedgerState>(
                             std::move(ledger_peers),
                             top_block_info.height,

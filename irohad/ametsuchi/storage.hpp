@@ -98,7 +98,7 @@ namespace iroha {
        */
       virtual expected::Result<void, std::string> dropBlockStorage() = 0;
 
-      virtual boost::optional<std::shared_ptr<const iroha::LedgerState>>
+      virtual std::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const = 0;
 
       virtual void freeConnections() = 0;

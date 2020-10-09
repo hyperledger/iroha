@@ -55,7 +55,7 @@ namespace iroha {
                            std::shared_ptr<BlockTransportFactory> block_factory,
                            std::string table,
                            bool drop_table_at_destruction,
-                           boost::optional<HeightRange> height_range,
+                           std::optional<HeightRange> height_range,
                            logger::LoggerPtr log);
 
       static iroha::expected::Result<std::optional<HeightRange>, std::string>
@@ -63,7 +63,7 @@ namespace iroha {
 
       void dropTable();
 
-      mutable boost::optional<HeightRange> block_height_range_;
+      mutable std::optional<HeightRange> block_height_range_;
       std::shared_ptr<PoolWrapper> pool_wrapper_;
       std::shared_ptr<BlockTransportFactory> block_factory_;
       std::string table_name_;

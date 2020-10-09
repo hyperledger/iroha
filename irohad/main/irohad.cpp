@@ -257,6 +257,11 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  std::optional<iroha::GossipPropagationStrategyParams> opt_mst_gossip_params;
+  if (config.mst_support) {
+    opt_mst_gossip_params = iroha::GossipPropagationStrategyParams{};
+  }
+
   // Configuring iroha daemon
   auto irohad = std::make_unique<Irohad>(
       config.block_store_path,
@@ -279,8 +284,7 @@ int main(int argc, char *argv[]) {
       FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
                         : iroha::StartupWsvDataPolicy::kDrop,
       ::iroha::network::getDefaultChannelParams(),
-      std::make_optional(config.mst_support,
-                           iroha::GossipPropagationStrategyParams{}),
+      opt_mst_gossip_params,
       config.torii_tls_params,
       std::nullopt);
 

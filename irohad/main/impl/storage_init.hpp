@@ -11,7 +11,6 @@
 #include <optional>
 #include <string>
 
-#include <boost/optional/optional_fwd.hpp>
 #include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -37,7 +36,7 @@ namespace iroha {
       std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage,
       std::shared_ptr<shared_model::interface::QueryResponseFactory>
           query_response_factory,
-      boost::optional<std::string> block_storage_dir,
+      std::optional<std::string> block_storage_dir,
       std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
           vm_caller_ref,
       logger::LoggerManagerTreePtr log_manager);

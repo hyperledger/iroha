@@ -31,7 +31,7 @@ namespace iroha {
       void txPositions(
           shared_model::interface::types::AccountIdType const &account,
           shared_model::interface::types::HashType const &hash,
-          boost::optional<shared_model::interface::types::AssetIdType>
+          std::optional<shared_model::interface::types::AssetIdType>
               &&asset_id,
           shared_model::interface::types::TimestampType const ts,
           TxPosition const &position) override;
@@ -48,7 +48,7 @@ namespace iroha {
         std::vector<shared_model::interface::types::AccountIdType> account;
         std::vector<std::string> hash;
         std::vector<
-            boost::optional<shared_model::interface::types::AssetIdType>>
+            std::optional<shared_model::interface::types::AssetIdType>>
             asset_id;
         std::vector<shared_model::interface::types::TimestampType> ts;
         std::vector<size_t> height;

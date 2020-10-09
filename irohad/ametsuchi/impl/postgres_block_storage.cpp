@@ -37,7 +37,7 @@ PostgresBlockStorage::PostgresBlockStorage(
     std::shared_ptr<BlockTransportFactory> block_factory,
     std::string table_name,
     bool drop_table_at_destruction,
-    boost::optional<HeightRange> height_range,
+    std::optional<HeightRange> height_range,
     logger::LoggerPtr log)
     : block_height_range_(std::move(height_range)),
       pool_wrapper_(std::move(pool_wrapper)),
@@ -151,7 +151,7 @@ void PostgresBlockStorage::clear() {
   soci::statement st = (sql.prepare << "TRUNCATE " << table_name_);
   try {
     st.execute(true);
-    block_height_range_ = boost::none;
+    block_height_range_ = std::nullopt;
   } catch (const std::exception &e) {
     log_->warn("Failed to clear {} table, reason {}", table_name_, e.what());
   }

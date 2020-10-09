@@ -7,6 +7,7 @@
 
 #include <soci/soci.h>
 #include <boost/format.hpp>
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "cryptography/hash.hpp"
 
 using namespace iroha::ametsuchi;
@@ -30,7 +31,7 @@ void PostgresIndexer::rejectedTxHash(const HashType &rejected_tx_hash) {
 void PostgresIndexer::txPositions(
     shared_model::interface::types::AccountIdType const &account,
     HashType const &hash,
-    boost::optional<AssetIdType> &&asset_id,
+    std::optional<AssetIdType> &&asset_id,
     TimestampType const ts,
     TxPosition const &position) {
   tx_positions_.account.emplace_back(account);

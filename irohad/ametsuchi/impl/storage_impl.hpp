@@ -93,7 +93,7 @@ namespace iroha {
 
       expected::Result<void, std::string> dropBlockStorage() override;
 
-      boost::optional<std::shared_ptr<const iroha::LedgerState>>
+      std::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const override;
 
       void freeConnections() override;

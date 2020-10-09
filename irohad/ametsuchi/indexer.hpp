@@ -42,7 +42,7 @@ namespace iroha {
       virtual void txPositions(
           shared_model::interface::types::AccountIdType const &creator,
           shared_model::interface::types::HashType const &hash,
-          boost::optional<shared_model::interface::types::AssetIdType>
+          std::optional<shared_model::interface::types::AssetIdType>
               &&asset_id,
           shared_model::interface::types::TimestampType const ts,
           TxPosition const &position) = 0;
