@@ -10,7 +10,6 @@
 #include "util/proto_status_tools.hpp"
 
 #include <grpc++/grpc++.h>
-#include <boost/optional.hpp>
 #include "common/bind.hpp"
 #include "logger/logger.hpp"
 #include "network/impl/channel_factory.hpp"

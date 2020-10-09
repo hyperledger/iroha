@@ -6,9 +6,8 @@
 #ifndef IROHA_CONFIG_HELPER_HPP
 #define IROHA_CONFIG_HELPER_HPP
 
+#include <optional>
 #include <string>
-
-#include <boost/optional.hpp>
 
 namespace integration_framework {
   extern const std::string kDefaultWorkingDatabaseName;

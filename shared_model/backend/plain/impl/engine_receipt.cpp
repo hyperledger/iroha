@@ -5,6 +5,8 @@
 
 #include "backend/plain/engine_receipt.hpp"
 
+#include <cassert>
+
 using namespace shared_model::interface::types;
 using namespace shared_model::plain;
 

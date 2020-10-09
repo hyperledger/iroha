@@ -9,7 +9,6 @@
 #include "ametsuchi/setting_query.hpp"
 
 #include <gmock/gmock.h>
-#include <boost/optional.hpp>
 
 namespace iroha {
   namespace ametsuchi {

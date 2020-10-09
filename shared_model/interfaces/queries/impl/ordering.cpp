@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cassert>
 #include <cstring>
 
 #include "interfaces/queries/ordering.hpp"
@@ -22,14 +23,14 @@ namespace {
                 "String names must be the same size.");
 
   char const *fromField2Str(Ordering::Field const val) {
-    BOOST_ASSERT_MSG(val < Ordering::Field::kMaxValueCount,
-                     "val can not be greater or equal than kMaxValueCount");
+    assert(val < Ordering::Field::kMaxValueCount
+           && "val can not be greater or equal than kMaxValueCount");
     return kFieldStrRepres[(size_t)val];
   }
 
   char const *fromDirection2Str(Ordering::Direction const val) {
-    BOOST_ASSERT_MSG(val < Ordering::Direction::kMaxValueCount,
-                     "val can not be greater or equal than kMaxValueCount");
+    assert(val < Ordering::Direction::kMaxValueCount
+           && "val can not be greater or equal than kMaxValueCount");
     return kDirectionStrRepres[(size_t)val];
   }
 

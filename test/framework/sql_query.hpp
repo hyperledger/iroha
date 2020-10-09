@@ -9,7 +9,6 @@
 #include <string>
 
 #include <soci/soci.h>
-#include <boost/optional.hpp>
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"

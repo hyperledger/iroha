@@ -11,7 +11,6 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <boost/optional.hpp>
 #include <boost/range/any_range.hpp>
 
 const std::string kTestString("test");

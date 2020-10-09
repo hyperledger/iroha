@@ -9,9 +9,9 @@
 #include <bitset>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 
 #include <boost/noncopyable.hpp>
-#include <boost/optional/optional.hpp>
 
 namespace integration_framework {
 

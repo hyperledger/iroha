@@ -10,7 +10,6 @@
 
 #include "util/proto_status_tools.hpp"
 
-#include <boost/optional.hpp>
 #include <rxcpp/rx.hpp>
 #include "common/run_loop_handler.hpp"
 #include "logger/logger.hpp"

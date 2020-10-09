@@ -9,7 +9,6 @@
 #include "ametsuchi/wsv_command.hpp"
 
 #include <gmock/gmock.h>
-#include <boost/optional.hpp>
 #include "ametsuchi/temporary_wsv.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"

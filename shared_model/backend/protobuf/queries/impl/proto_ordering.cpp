@@ -77,8 +77,8 @@ void OrderingImpl::copy(OrderingImpl const &src) {
 
 void OrderingImpl::appendUnsafe(ModelType::Field field,
                                 ModelType::Direction direction) {
-  BOOST_ASSERT_MSG(count_ <= (size_t)ModelType::Field::kMaxValueCount,
-                   "Count can not be more than max_count. Check logic.");
+  assert(count_ <= (size_t)ModelType::Field::kMaxValueCount
+         && "Count can not be more than max_count. Check logic.");
 
   if (field >= ModelType::Field::kUnknownValue) {
     return;

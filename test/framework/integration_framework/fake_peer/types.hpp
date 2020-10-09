@@ -10,7 +10,6 @@
 #include <memory>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {

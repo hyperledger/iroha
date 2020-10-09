@@ -12,8 +12,6 @@
 #include <string>
 #include <string_view>
 
-#include <boost/optional.hpp>
-
 namespace iroha {
   namespace to_string {
     namespace detail {
@@ -79,13 +77,6 @@ namespace iroha {
       return detail::toStringDereferenced(o);
     }
 
-    template <typename T>
-    inline auto toString(const T &o) -> std::enable_if_t<
-        boost::optional_detail::is_optional_related<T>::value,
-        std::string> {
-      return detail::toStringDereferenced(o);
-    }
-
     /// Print a plain collection.
     template <typename T, typename = decltype(*std::declval<T>().begin())>
     inline std::string toString(const T &c) {
@@ -111,12 +102,6 @@ namespace iroha {
         } else {
           return kNotSet;
         }
-      }
-
-      template <>
-      inline std::string toStringDereferenced<boost::none_t>(
-          const boost::none_t &) {
-        return kNotSet;
       }
 
       template <>

@@ -5,9 +5,6 @@
 
 #include "backend/protobuf/query_responses/proto_engine_receipt.hpp"
 
-#include <boost/optional.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-
 #include "backend/protobuf/query_responses/proto_engine_log.hpp"
 
 using namespace shared_model::proto;

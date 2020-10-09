@@ -8,7 +8,6 @@
 
 #include <memory>
 
-#include <boost/optional.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/query_executor.hpp"

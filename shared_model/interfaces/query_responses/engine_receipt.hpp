@@ -8,7 +8,6 @@
 
 #include <iosfwd>
 
-#include <boost/optional.hpp>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/query_responses/engine_log.hpp"

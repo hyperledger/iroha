@@ -6,7 +6,6 @@
 #ifndef IROHA_SHARED_MODEL_INTERFACE_ENGINE_LOG_HPP
 #define IROHA_SHARED_MODEL_INTERFACE_ENGINE_LOG_HPP
 
-#include <boost/optional.hpp>
 #include <vector>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"

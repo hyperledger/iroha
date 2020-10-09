@@ -5,6 +5,7 @@
 
 #include "interfaces/commands/call_engine.hpp"
 
+#include <cassert>
 #include <ciso646>
 
 #include "common/optional_reference_equal.hpp"

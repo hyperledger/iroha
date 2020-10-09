@@ -10,7 +10,6 @@
 #include <memory>
 #include <string>
 
-#include <boost/optional.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include "ametsuchi/impl/postgres_options.hpp"

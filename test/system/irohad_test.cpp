@@ -16,7 +16,6 @@
 #include <soci/postgresql/soci-postgresql.h>
 #include <soci/soci.h>
 #include <boost/filesystem.hpp>
-#include <boost/optional.hpp>
 #include <boost/process.hpp>
 #include <boost/variant.hpp>
 

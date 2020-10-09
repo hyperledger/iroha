@@ -6,7 +6,6 @@
 #ifndef IROHA_TEST_CLIENT_FACTORY_HPP
 #define IROHA_TEST_CLIENT_FACTORY_HPP
 
-#include <boost/optional.hpp>
 #include "interfaces/common_objects/types.hpp"
 #include "network/impl/client_factory_impl.hpp"
 #include "network/impl/generic_client_factory.hpp"
