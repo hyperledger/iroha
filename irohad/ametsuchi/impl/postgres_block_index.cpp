@@ -5,9 +5,7 @@
 
 #include "ametsuchi/impl/postgres_block_index.hpp"
 
-#include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/tx_cache_response.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/commands/command_variant.hpp"
@@ -45,24 +43,21 @@ void PostgresBlockIndex::makeAccountAssetIndex(
     TxPosition position,
     const shared_model::interface::Transaction::CommandsType &commands) {
   bool creator_was_added = false;
-  for (const auto &transfer :
-       commands | boost::adaptors::transformed(getTransferAsset)
-           | boost::adaptors::filtered(
-                 [](const auto &opt_tx) { return static_cast<bool>(opt_tx); })
-           | boost::adaptors::transformed(
-                 [](const auto &opt_tx) -> const auto & { return *opt_tx; })) {
-    const auto &src_id = transfer.get().srcAccountId();
-    const auto &dest_id = transfer.get().destAccountId();
+  for (const auto &command : commands) {
+    if (auto opt_transfer = getTransferAsset(command)) {
+      const auto &src_id = opt_transfer->get().srcAccountId();
+      const auto &dest_id = opt_transfer->get().destAccountId();
 
-    const auto ids = {src_id, dest_id};
-    const auto asset_id = transfer.get().assetId();
-    // flat map accounts to unindexed keys
-    for (const auto &id : ids) {
-      indexer_->txPositions(id, hash, asset_id, ts, position);
-      creator_was_added |= id == account_id;
-    }
-    if (not creator_was_added) {
-      indexer_->txPositions(account_id, hash, asset_id, ts, position);
+      const auto ids = {src_id, dest_id};
+      const auto asset_id = opt_transfer->get().assetId();
+      // flat map accounts to unindexed keys
+      for (const auto &id : ids) {
+        indexer_->txPositions(id, hash, asset_id, ts, position);
+        creator_was_added |= id == account_id;
+      }
+      if (not creator_was_added) {
+        indexer_->txPositions(account_id, hash, asset_id, ts, position);
+      }
     }
   }
 }
