@@ -30,26 +30,26 @@ namespace framework {
     using shared_model::interface::types::SettingValueType;
 
     template <typename T, typename F>
-    auto SqlQuery::execute(F &&f) -> boost::optional<soci::rowset<T>> {
+    auto SqlQuery::execute(F &&f) -> std::optional<soci::rowset<T>> {
       try {
         return soci::rowset<T>{std::forward<F>(f)()};
       } catch (const std::exception &e) {
         log_->error("Failed to execute query: {}", e.what());
-        return boost::none;
+        return std::nullopt;
       }
     }
 
     template <typename T>
-    boost::optional<std::shared_ptr<T>> SqlQuery::fromResult(
+    std::optional<std::shared_ptr<T>> SqlQuery::fromResult(
         shared_model::interface::CommonObjectsFactory::FactoryResult<
             std::unique_ptr<T>> &&result) {
       return std::move(result).match(
           [](auto &&v) {
-            return boost::make_optional(std::shared_ptr<T>(std::move(v.value)));
+            return std::make_optional(std::shared_ptr<T>(std::move(v.value)));
           },
-          [&](const auto &e) -> boost::optional<std::shared_ptr<T>> {
+          [&](const auto &e) -> std::optional<std::shared_ptr<T>> {
             log_->error("{}", e.error);
-            return boost::none;
+            return std::nullopt;
           });
     }
 
@@ -80,13 +80,13 @@ namespace framework {
                 soci::use(perm_str, "permission"));
       });
 
-      return flatMapValue<boost::optional<bool>>(
+      return flatMapValue<std::optional<bool>>(
                  result,
-                 [](auto &count) { return boost::make_optional(count == 1); })
+                 [](auto &count) { return std::make_optional(count == 1); })
           .value_or(false);
     }
 
-    boost::optional<std::vector<RoleIdType>> SqlQuery::getAccountRoles(
+    std::optional<std::vector<RoleIdType>> SqlQuery::getAccountRoles(
         const AccountIdType &account_id) {
       using T = boost::tuple<RoleIdType>;
       auto result = execute<T>([&] {
@@ -99,7 +99,7 @@ namespace framework {
           result, [&](auto &role_id) { return role_id; });
     }
 
-    boost::optional<shared_model::interface::RolePermissionSet>
+    std::optional<shared_model::interface::RolePermissionSet>
     SqlQuery::getRolePermissions(const RoleIdType &role_name) {
       using iroha::operator|;
       using T = boost::tuple<std::string>;
@@ -111,7 +111,7 @@ namespace framework {
       });
 
       return result | [&](auto &&st)
-                 -> boost::optional<
+                 -> std::optional<
                      shared_model::interface::RolePermissionSet> {
         auto range = boost::make_iterator_range(st);
 
@@ -125,7 +125,7 @@ namespace framework {
       };
     }
 
-    boost::optional<std::vector<RoleIdType>> SqlQuery::getRoles() {
+    std::optional<std::vector<RoleIdType>> SqlQuery::getRoles() {
       using T = boost::tuple<RoleIdType>;
       auto result = execute<T>(
           [&] { return (sql_.prepare << "SELECT role_id FROM role"); });
@@ -134,7 +134,7 @@ namespace framework {
           result, [&](auto &role_id) { return role_id; });
     }
 
-    boost::optional<std::shared_ptr<shared_model::interface::Account>>
+    std::optional<std::shared_ptr<shared_model::interface::Account>>
     SqlQuery::getAccount(const AccountIdType &account_id) {
       using T = boost::tuple<DomainIdType, QuorumType, JsonType>;
       auto result = execute<T>([&] {
@@ -145,19 +145,19 @@ namespace framework {
       });
 
       return flatMapValue<
-          boost::optional<std::shared_ptr<shared_model::interface::Account>>>(
+          std::optional<std::shared_ptr<shared_model::interface::Account>>>(
           result, [&](auto &domain_id, auto quorum, auto &data) {
             return this->fromResult(
                 factory_->createAccount(account_id, domain_id, quorum, data));
           });
     }
 
-    boost::optional<std::string> SqlQuery::getAccountDetail(
+    std::optional<std::string> SqlQuery::getAccountDetail(
         const std::string &account_id,
         const AccountDetailKeyType &key,
         const AccountIdType &writer) {
       using T = boost::tuple<DetailType>;
-      boost::optional<soci::rowset<T>> result;
+      std::optional<soci::rowset<T>> result;
 
       if (key.empty() and writer.empty()) {
         // retrieve all values for a specified account
@@ -213,11 +213,11 @@ namespace framework {
         });
       }
 
-      return flatMapValue<boost::optional<std::string>>(
-          result, [&](auto &json) { return boost::make_optional(json); });
+      return flatMapValue<std::optional<std::string>>(
+          result, [&](auto &json) { return std::make_optional(json); });
     }
 
-    boost::optional<SettingValueType> SqlQuery::getSettingValue(
+    std::optional<SettingValueType> SqlQuery::getSettingValue(
         const SettingKeyType &setting_key) {
       using T = boost::tuple<SettingValueType>;
       auto result = execute<T>([&] {
@@ -227,13 +227,13 @@ namespace framework {
                 soci::use(setting_key, "setting_key"));
       });
 
-      return flatMapValue<boost::optional<SettingValueType>>(
+      return flatMapValue<std::optional<SettingValueType>>(
           result, [&](auto &setting_value) {
-            return boost::make_optional(setting_value);
+            return std::make_optional(setting_value);
           });
     }
 
-    boost::optional<std::shared_ptr<shared_model::interface::Asset>>
+    std::optional<std::shared_ptr<shared_model::interface::Asset>>
     SqlQuery::getAsset(const AssetIdType &asset_id) {
       using T = boost::tuple<DomainIdType, PrecisionType>;
       auto result = execute<T>([&] {
@@ -245,14 +245,14 @@ namespace framework {
       });
 
       return flatMapValue<
-          boost::optional<std::shared_ptr<shared_model::interface::Asset>>>(
+          std::optional<std::shared_ptr<shared_model::interface::Asset>>>(
           result, [&](auto &domain_id, auto precision) {
             return this->fromResult(
                 factory_->createAsset(asset_id, domain_id, precision));
           });
     }
 
-    boost::optional<
+    std::optional<
         std::vector<std::shared_ptr<shared_model::interface::AccountAsset>>>
     SqlQuery::getAccountAssets(const AccountIdType &account_id) {
       using T = boost::tuple<AssetIdType, std::string>;
@@ -271,7 +271,7 @@ namespace framework {
           });
     }
 
-    boost::optional<std::shared_ptr<shared_model::interface::AccountAsset>>
+    std::optional<std::shared_ptr<shared_model::interface::AccountAsset>>
     SqlQuery::getAccountAsset(const AccountIdType &account_id,
                               const AssetIdType &asset_id) {
       using T = boost::tuple<std::string>;
@@ -284,7 +284,7 @@ namespace framework {
             soci::use(asset_id));
       });
 
-      return flatMapValue<boost::optional<
+      return flatMapValue<std::optional<
           std::shared_ptr<shared_model::interface::AccountAsset>>>(
           result, [&](auto &amount) {
             return this->fromResult(factory_->createAccountAsset(
@@ -292,7 +292,7 @@ namespace framework {
           });
     }
 
-    boost::optional<std::shared_ptr<shared_model::interface::Domain>>
+    std::optional<std::shared_ptr<shared_model::interface::Domain>>
     SqlQuery::getDomain(const DomainIdType &domain_id) {
       using T = boost::tuple<RoleIdType>;
       auto result = execute<T>([&] {
@@ -302,7 +302,7 @@ namespace framework {
       });
 
       return flatMapValue<
-          boost::optional<std::shared_ptr<shared_model::interface::Domain>>>(
+          std::optional<std::shared_ptr<shared_model::interface::Domain>>>(
           result, [&](auto &default_role) {
             return this->fromResult(
                 factory_->createDomain(domain_id, default_role));

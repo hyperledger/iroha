@@ -67,7 +67,7 @@ namespace integration_framework {
     FakePeer::FakePeer(
         const std::string &listen_ip,
         size_t internal_port,
-        const boost::optional<Keypair> &key,
+        const std::optional<Keypair> &key,
         std::shared_ptr<shared_model::interface::Peer> real_peer,
         const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
             &common_objects_factory,
@@ -188,11 +188,12 @@ namespace integration_framework {
       return *this;
     }
 
-    boost::optional<const BlockStorage &> FakePeer::getBlockStorage() const {
+    std::optional<std::reference_wrapper<BlockStorage const>>
+    FakePeer::getBlockStorage() const {
       if (block_storage_) {
         return *block_storage_;
       }
-      return boost::none;
+      return std::nullopt;
     }
 
     ProposalStorage &FakePeer::getProposalStorage() {
@@ -393,7 +394,7 @@ namespace integration_framework {
       };
     }
 
-    boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+    std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
     FakePeer::sendProposalRequest(iroha::consensus::Round round,
                                   std::chrono::milliseconds timeout) const {
       using iroha::ordering::transport::OnDemandOsClientGrpcFactory;

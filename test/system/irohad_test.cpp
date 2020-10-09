@@ -63,7 +63,7 @@ static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
         std::make_shared<logger::LoggerManagerTree>(logger::LoggerConfig{
             logger::LogLevel::kTrace, logger::getDefaultLogPatterns()});
     irohad_test_logger_manager->registerChild(
-        "UtilityClient", logger::LogLevel::kTrace, boost::none);
+        "UtilityClient", logger::LogLevel::kTrace, std::nullopt);
   }
   return irohad_test_logger_manager->getChild("IrohadTest");
 }
@@ -162,10 +162,10 @@ class IrohadTest : public AcceptanceFixture {
     ASSERT_TRUE(iroha_process_->running());
   }
 
-  void launchIroha(const boost::optional<std::string> &config_path,
-                   const boost::optional<std::string> &genesis_block,
-                   const boost::optional<std::string> &keypair_path,
-                   const boost::optional<std::string> &additional_params) {
+  void launchIroha(const std::optional<std::string> &config_path,
+                   const std::optional<std::string> &genesis_block,
+                   const std::optional<std::string> &keypair_path,
+                   const std::optional<std::string> &additional_params) {
     launchIroha(
         params(config_path, genesis_block, keypair_path, additional_params));
   }
@@ -197,10 +197,10 @@ class IrohadTest : public AcceptanceFixture {
     boost::filesystem::remove(config_copy_);
   }
 
-  std::string params(const boost::optional<std::string> &config_path,
-                     const boost::optional<std::string> &genesis_block,
-                     const boost::optional<std::string> &keypair_path,
-                     const boost::optional<std::string> &additional_params) {
+  std::string params(const std::optional<std::string> &config_path,
+                     const std::optional<std::string> &genesis_block,
+                     const std::optional<std::string> &keypair_path,
+                     const std::optional<std::string> &additional_params) {
     std::string res;
     config_path | [&res](auto &&s) { res += " --config " + s; };
     genesis_block | [&res](auto &&s) { res += " --genesis_block " + s; };
@@ -228,12 +228,12 @@ class IrohadTest : public AcceptanceFixture {
 
   torii::CommandSyncClient createToriiClient(
       bool enable_tls = false,
-      const boost::optional<uint16_t> override_port = {}) {
+      const std::optional<uint16_t> override_port = {}) {
     const auto port = override_port.value_or(enable_tls ? kSecurePort : kPort);
 
     auto client = enable_tls
         ? iroha::network::createSecureClient<torii::CommandSyncClient::Service>(
-              kAddress, port, root_ca_, boost::none, getChannelParams())
+              kAddress, port, root_ca_, std::nullopt, getChannelParams())
         : iroha::network::createInsecureClient<
               torii::CommandSyncClient::Service>(
               kAddress, port, getChannelParams());
@@ -257,19 +257,19 @@ class IrohadTest : public AcceptanceFixture {
     ASSERT_TRUE(boost::filesystem::create_directory(test_data_path_))
         << "Could not create directory " << test_data_path_ << ".";
 
-    ASSERT_TRUE(keys_manager_admin_.createKeys(boost::none));
-    ASSERT_TRUE(keys_manager_node_.createKeys(boost::none));
-    ASSERT_TRUE(keys_manager_testuser_.createKeys(boost::none));
+    ASSERT_TRUE(keys_manager_admin_.createKeys(std::nullopt));
+    ASSERT_TRUE(keys_manager_node_.createKeys(std::nullopt));
+    ASSERT_TRUE(keys_manager_testuser_.createKeys(std::nullopt));
 
-    auto admin_keys_result = keys_manager_admin_.loadKeys(boost::none);
+    auto admin_keys_result = keys_manager_admin_.loadKeys(std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(admin_keys_result);
     auto admin_keys = std::move(admin_keys_result).assumeValue();
 
-    auto node0_keys_result = keys_manager_node_.loadKeys(boost::none);
+    auto node0_keys_result = keys_manager_node_.loadKeys(std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(node0_keys_result);
     auto node0_keys = std::move(node0_keys_result).assumeValue();
 
-    auto user_keys_result = keys_manager_testuser_.loadKeys(boost::none);
+    auto user_keys_result = keys_manager_testuser_.loadKeys(std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(user_keys_result);
     auto user_keys = std::move(user_keys_result).assumeValue();
 
@@ -432,7 +432,7 @@ class IrohadTest : public AcceptanceFixture {
   const uint16_t kPort;
   const uint16_t kSecurePort;
 
-  boost::optional<child> iroha_process_;
+  std::optional<child> iroha_process_;
 
   /**
    * Command client resubscription settings
@@ -486,7 +486,7 @@ TEST_F(IrohadTest, RunIrohad) {
 TEST_F(IrohadTest, SendTx) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
+  auto key_pair = keys_manager_admin_.loadKeys(std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   SCOPED_TRACE("From send transaction test");
@@ -504,7 +504,7 @@ TEST_F(IrohadTest, SendTx) {
 TEST_F(IrohadTest, SendTxSecure) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
+  auto key_pair = keys_manager_admin_.loadKeys(std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   SCOPED_TRACE("From secure send transaction test");
@@ -521,7 +521,7 @@ TEST_F(IrohadTest, SendTxSecure) {
 TEST_F(IrohadTest, SendTxInsecureWithTls) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
+  auto key_pair = keys_manager_admin_.loadKeys(std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   auto tx = createDefaultTx(std::move(key_pair).assumeValue());
@@ -544,7 +544,7 @@ TEST_F(IrohadTest, SendTxInsecureWithTls) {
 TEST_F(IrohadTest, SendQuery) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
+  auto key_pair = keys_manager_admin_.loadKeys(std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   iroha::protocol::QueryResponse response;
@@ -574,7 +574,7 @@ TEST_F(IrohadTest, SendQuery) {
 TEST_F(IrohadTest, RestartWithOverwriteLedger) {
   launchIroha();
 
-  auto key_pair_result = keys_manager_admin_.loadKeys(boost::none);
+  auto key_pair_result = keys_manager_admin_.loadKeys(std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(key_pair_result);
   auto key_pair = std::move(key_pair_result).assumeValue();
 
@@ -606,7 +606,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
 TEST_F(IrohadTest, RestartWithoutResetting) {
   launchIroha();
 
-  auto key_pair_result = keys_manager_admin_.loadKeys(boost::none);
+  auto key_pair_result = keys_manager_admin_.loadKeys(std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(key_pair_result);
   auto key_pair = std::move(key_pair_result).assumeValue();
 

@@ -121,5 +121,5 @@ INSTANTIATE_TEST_SUITE_P(
     Common,
     AddAssetQuantityPermissionTest,
     command_permission_test::getParams(
-        boost::none, Role::kAddDomainAssetQty, Role::kAddAssetQty, boost::none),
+        std::nullopt, Role::kAddDomainAssetQty, Role::kAddAssetQty, std::nullopt),
     command_permission_test::paramToString);

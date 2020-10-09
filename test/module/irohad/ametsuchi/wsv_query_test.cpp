@@ -88,7 +88,7 @@ namespace iroha {
 
       auto result = query->getSignatories("account");
       ASSERT_TRUE(result);
-      auto signatories = result.get();
+      auto signatories = result.value();
       ASSERT_THAT(signatories,
                   testing::UnorderedElementsAre(pub_key1, pub_key2));
     }

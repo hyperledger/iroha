@@ -57,7 +57,7 @@ class NetworkUtil {
   }
 
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers_;
-  boost::optional<ClusterOrdering> order_;
+  std::optional<ClusterOrdering> order_;
 };
 
 class YacSynchronizationTest : public YacTest {
@@ -101,7 +101,7 @@ class YacSynchronizationTest : public YacTest {
 
   NetworkUtil network_util_{1};
   const size_t number_of_committed_rounds_ = 10;
-  boost::optional<YacHash> top_hash_;
+  std::optional<YacHash> top_hash_;
   const std::vector<size_t> voters_{{1, 2, 3, 4, 5, 6}};
 };
 

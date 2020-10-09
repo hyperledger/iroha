@@ -97,7 +97,7 @@ class SynchronizerTest : public ::testing::Test {
         .WillOnce(Return(gate_outcome.get_observable()));
 
     ON_CALL(*block_query_factory, createBlockQuery())
-        .WillByDefault(Return(boost::make_optional(
+        .WillByDefault(Return(std::make_optional(
             std::shared_ptr<iroha::ametsuchi::BlockQuery>(block_query))));
     ON_CALL(*block_query, getTopBlockHeight())
         .WillByDefault(Return(kInitTopBlockHeight));

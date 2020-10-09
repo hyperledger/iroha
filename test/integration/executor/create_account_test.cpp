@@ -34,14 +34,14 @@ const AccountIdType &getNewId() {
 class CreateAccountTest : public ExecutorTestBase {
  public:
   void checkAccount(
-      const boost::optional<AccountIdType> &account_id = boost::none,
+      const std::optional<AccountIdType> &account_id = std::nullopt,
       PublicKeyHexStringView pubkey = kNewPubkey) {
     auto account_id_val = account_id.value_or(getNewId());
     ASSERT_NO_FATAL_FAILURE(checkSignatories(account_id_val, {pubkey}););
   }
 
   void checkNoSuchAccount(
-      const boost::optional<AccountIdType> &account_id = boost::none) {
+      const std::optional<AccountIdType> &account_id = std::nullopt) {
     auto account_id_val = account_id.value_or(getNewId());
     checkQueryError<shared_model::interface::NoAccountErrorResponse>(
         getItf().executeQuery(
@@ -167,5 +167,5 @@ INSTANTIATE_TEST_SUITE_P(
     Common,
     CreateAccountPermissionTest,
     command_permission_test::getParams(
-        boost::none, boost::none, Role::kCreateAccount, boost::none),
+        std::nullopt, std::nullopt, Role::kCreateAccount, std::nullopt),
     command_permission_test::paramToString);

@@ -49,16 +49,16 @@ namespace integration_framework {
      *   @see iroha::torii::TlsParams
      */
     IrohaInstance(bool mst_support,
-                  const boost::optional<std::string> &block_store_path,
+                  const std::optional<std::string> &block_store_path,
                   const std::string &listen_ip,
                   size_t torii_port,
                   size_t internal_port,
                   logger::LoggerManagerTreePtr irohad_log_manager,
                   logger::LoggerPtr log,
                   iroha::StartupWsvDataPolicy startup_wsv_data_policy,
-                  const boost::optional<std::string> &dbname = boost::none,
-                  const boost::optional<iroha::torii::TlsParams> &tls_params =
-                      boost::none);
+                  const std::optional<std::string> &dbname = std::nullopt,
+                  const std::optional<iroha::torii::TlsParams> &tls_params =
+                      std::nullopt);
 
     /// Initialize Irohad. Throws on error.
     void init();
@@ -86,16 +86,16 @@ namespace integration_framework {
     void terminateAndCleanup();
 
     // config area
-    const boost::optional<std::string> block_store_dir_;
+    const std::optional<std::string> block_store_dir_;
     const std::string working_dbname_;
     const std::string listen_ip_;
     const size_t torii_port_;
-    boost::optional<iroha::torii::TlsParams> torii_tls_params_;
+    std::optional<iroha::torii::TlsParams> torii_tls_params_;
     const size_t internal_port_;
     const std::chrono::milliseconds proposal_delay_;
     const std::chrono::milliseconds vote_delay_;
     const std::chrono::minutes mst_expiration_time_;
-    boost::optional<iroha::GossipPropagationStrategyParams>
+    std::optional<iroha::GossipPropagationStrategyParams>
         opt_mst_gossip_params_;
     const std::chrono::milliseconds max_rounds_delay_;
     const size_t stale_stream_max_rounds_;

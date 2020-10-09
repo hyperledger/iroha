@@ -19,7 +19,7 @@ namespace executor_testing {
 
     struct SpecificCommandPermissionTestData {
       shared_model::interface::RolePermissionSet actor_role_permissions;
-      boost::optional<shared_model::interface::permissions::Grantable>
+      std::optional<shared_model::interface::permissions::Grantable>
           actor_grantable_permission;
       bool validation_enabled;
       shared_model::interface::types::AccountIdType actor;
@@ -30,13 +30,13 @@ namespace executor_testing {
     decltype(::testing::Combine(
         executor_testing::getExecutorTestParams(),
         ::testing::ValuesIn({SpecificCommandPermissionTestData{}})))
-    getParams(boost::optional<shared_model::interface::permissions::Role>
+    getParams(std::optional<shared_model::interface::permissions::Role>
                   permission_for_myself,
-              boost::optional<shared_model::interface::permissions::Role>
+              std::optional<shared_model::interface::permissions::Role>
                   permission_for_my_domain,
-              boost::optional<shared_model::interface::permissions::Role>
+              std::optional<shared_model::interface::permissions::Role>
                   permission_for_everyone,
-              boost::optional<shared_model::interface::permissions::Grantable>
+              std::optional<shared_model::interface::permissions::Grantable>
                   grantable_permission,
               bool always_allowed_for_myself = false);
 

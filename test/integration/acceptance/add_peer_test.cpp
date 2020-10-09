@@ -118,7 +118,7 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
   auto &itf = prepareState();
 
   // then create a fake peer
-  auto new_peer = itf.addFakePeer(boost::none);
+  auto new_peer = itf.addFakePeer(std::nullopt);
   auto mst_states_observable = new_peer->getMstStatesObservable().replay();
   mst_states_observable.connect();
   auto new_peer_server = new_peer->run();
@@ -162,7 +162,7 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
 TEST_F(FakePeerFixture, RealPeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // create the initial fake peer
-  auto initial_peer = itf_->addFakePeer(boost::none);
+  auto initial_peer = itf_->addFakePeer(std::nullopt);
 
   // create a genesis block without only initial fake peer in it
   shared_model::interface::RolePermissionSet all_perms{};

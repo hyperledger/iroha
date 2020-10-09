@@ -39,7 +39,7 @@ class YacPeerOrdererTest : public ::testing::Test {
     wsv = make_shared<MockPeerQuery>();
     pbfactory = make_shared<MockPeerQueryFactory>();
     EXPECT_CALL(*pbfactory, createPeerQuery())
-        .WillRepeatedly(testing::Return(boost::make_optional(
+        .WillRepeatedly(testing::Return(std::make_optional(
             std::shared_ptr<iroha::ametsuchi::PeerQuery>(wsv))));
     orderer = PeerOrdererImpl(pbfactory);
   }
@@ -77,7 +77,7 @@ TEST_F(YacPeerOrdererTest, PeerOrdererOrderingWhenInvokeNormalCase) {
 
 TEST_F(YacPeerOrdererTest, PeerOrdererOrderingWhenEmptyPeerList) {
   auto order = orderer.getOrdering(YacHash(), {});
-  ASSERT_EQ(order, boost::none);
+  ASSERT_EQ(order, std::nullopt);
 }
 
 /**

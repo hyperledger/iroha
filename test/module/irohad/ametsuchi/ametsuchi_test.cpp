@@ -467,7 +467,7 @@ TEST_F(AmetsuchiTest, TestRestoreWsvFromBlockStorage) {
   initializeStorage();
 
   // block storage should not be altered
-  EXPECT_EQ(storage->getLedgerState(), boost::none);
+  EXPECT_EQ(storage->getLedgerState(), std::nullopt);
   EXPECT_EQ(block_storage_->size(), height);
   EXPECT_EQ(block_storage_->fetch(height).value()->hash(), top_hash);
 

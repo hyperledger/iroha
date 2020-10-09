@@ -61,12 +61,12 @@ TEST_F(YacProposalStorageTest, YacProposalStorageWhenCommitCase) {
   for (size_t num_inserted = 0; num_inserted < number_of_peers;) {
     auto insert_result = storage.insert(valid_votes.at(num_inserted++));
     if (num_inserted < supermajority) {
-      EXPECT_EQ(boost::none, insert_result)
+      EXPECT_EQ(std::nullopt, insert_result)
           << "Got an Answer after inserting " << num_inserted
           << " votes, before the supermajority reached at " << supermajority;
     } else {
       // after supermajority reached we have a CommitMessage
-      ASSERT_NE(boost::none, insert_result)
+      ASSERT_NE(std::nullopt, insert_result)
           << "Did not get an Answer after inserting " << num_inserted
           << " votes and the supermajority reached at " << supermajority;
       ASSERT_EQ(num_inserted,
@@ -83,7 +83,7 @@ TEST_F(YacProposalStorageTest, YacProposalStorageWhenInsertNotUnique) {
 
   for (PeersNumberType i = 0; i < number_of_peers; ++i) {
     auto fixed_index = 0;
-    ASSERT_EQ(boost::none, storage.insert(valid_votes.at(fixed_index)));
+    ASSERT_EQ(std::nullopt, storage.insert(valid_votes.at(fixed_index)));
   }
 }
 
@@ -105,13 +105,13 @@ TEST_F(YacProposalStorageTest, YacProposalStorageWhenRejectCase) {
   while (num_inserted < number_of_peers) {
     auto insert_result = storage.insert(valid_votes.at(num_inserted++));
     if (num_inserted < super_reject) {
-      EXPECT_EQ(boost::none, insert_result)
+      EXPECT_EQ(std::nullopt, insert_result)
           << "Got an Answer after inserting " << num_inserted
           << " votes, before the supermajority reject reached at "
           << super_reject;
     } else {
       // after supermajority reached we have a CommitMessage
-      ASSERT_NE(boost::none, insert_result)
+      ASSERT_NE(std::nullopt, insert_result)
           << "Did not get an Answer after inserting " << num_inserted
           << " votes and the supermajority reject reached at " << super_reject;
       ASSERT_EQ(num_inserted,

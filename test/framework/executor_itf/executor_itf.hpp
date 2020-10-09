@@ -129,7 +129,7 @@ namespace iroha {
        * @param query The query to execute.
        * @param account_id The issuer account id.
        * @param query_counter The value to set to query counter field. If
-       * boost::none provided, the built-in query counter value will be used.
+       * std::nullopt provided, the built-in query counter value will be used.
        * @return Result of query execution.
        */
       template <typename SpecificQuery,
@@ -138,8 +138,8 @@ namespace iroha {
       iroha::ametsuchi::QueryExecutorResult executeQuery(
           const SpecificQuery &specific_query,
           const std::string &account_id,
-          boost::optional<shared_model::interface::types::CounterType>
-              query_counter = boost::none) {
+          std::optional<shared_model::interface::types::CounterType>
+              query_counter = std::nullopt) {
         shared_model::interface::Query::QueryVariantType variant{
             detail::getInterfaceQueryRef(specific_query)};
         shared_model::interface::MockQuery query;
@@ -199,7 +199,7 @@ namespace iroha {
        * @param query The query to execute.
        * @param account_id The issuer account id.
        * @param query_counter The value to set to query counter field. If
-       * boost::none provided, the built-in query counter value will be used.
+       * std::nullopt provided, the built-in query counter value will be used.
        * @return Result of query execution.
        */
       template <typename T,

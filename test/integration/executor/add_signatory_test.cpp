@@ -98,7 +98,7 @@ INSTANTIATE_TEST_SUITE_P(
     Common,
     AddSignatoryPermissionTest,
     command_permission_test::getParams(Role::kAddSignatory,
-                                       boost::none,
-                                       boost::none,
+                                       std::nullopt,
+                                       std::nullopt,
                                        Grantable::kAddMySignatory),
     command_permission_test::paramToString);

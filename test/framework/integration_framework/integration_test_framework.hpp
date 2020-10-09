@@ -138,12 +138,12 @@ namespace integration_framework {
      */
     explicit IntegrationTestFramework(
         size_t maximum_proposal_size,
-        const boost::optional<std::string> &dbname = boost::none,
+        const std::optional<std::string> &dbname = std::nullopt,
         iroha::StartupWsvDataPolicy startup_wsv_data_policy =
             iroha::StartupWsvDataPolicy::kDrop,
         bool cleanup_on_exit = true,
         bool mst_support = false,
-        const boost::optional<std::string> block_store_path = boost::none,
+        const std::optional<std::string> block_store_path = std::nullopt,
         milliseconds proposal_waiting = milliseconds(20000),
         milliseconds block_waiting = milliseconds(20000),
         milliseconds tx_response_waiting = milliseconds(10000),
@@ -153,7 +153,7 @@ namespace integration_framework {
 
     /// Add a fake peer with given key.
     std::shared_ptr<fake_peer::FakePeer> addFakePeer(
-        const boost::optional<shared_model::crypto::Keypair> &key);
+        const std::optional<shared_model::crypto::Keypair> &key);
 
     /// Add the given amount of fake peers with generated default keys and
     /// "honest" behaviours.
@@ -335,7 +335,7 @@ namespace integration_framework {
      * @param timeout - the timeout for waiting the proposal
      * @return the proposal if received one
      */
-    boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+    std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
     requestProposal(const iroha::consensus::Round &round,
                     std::chrono::milliseconds timeout);
 
@@ -546,7 +546,7 @@ namespace integration_framework {
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
-    boost::optional<shared_model::crypto::Keypair> my_key_;
+    std::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:

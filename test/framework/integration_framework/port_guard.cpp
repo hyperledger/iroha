@@ -30,13 +30,13 @@ namespace integration_framework {
     all_used_ports_ &= ~instance_used_ports_;
   }
 
-  boost::optional<PortGuard::PortType> PortGuard::tryGetPort(
+  std::optional<PortGuard::PortType> PortGuard::tryGetPort(
       const PortType min_value, const PortType max_value) {
     std::lock_guard<std::mutex> lock(all_used_ports_mutex_);
     PortType tested_port = min_value;
     while (all_used_ports_.test(tested_port)) {
       if (tested_port == max_value) {
-        return boost::none;
+        return std::nullopt;
       }
       ++tested_port;
     }

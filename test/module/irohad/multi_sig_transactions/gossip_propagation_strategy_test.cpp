@@ -73,7 +73,7 @@ PropagationData subscribeAndEmit(GossipPropagationStrategy &strategy,
  * @param take is amount taken from the strategy emitter
  * @return emitted data
  */
-PropagationData subscribeAndEmit(boost::optional<PropagationData> data,
+PropagationData subscribeAndEmit(std::optional<PropagationData> data,
                                  std::chrono::milliseconds period,
                                  uint32_t amount,
                                  uint32_t take) {
@@ -81,7 +81,7 @@ PropagationData subscribeAndEmit(boost::optional<PropagationData> data,
   EXPECT_CALL(*query, getLedgerPeers()).WillRepeatedly(testing::Return(data));
   auto pbfactory = std::make_shared<MockPeerQueryFactory>();
   EXPECT_CALL(*pbfactory, createPeerQuery())
-      .WillRepeatedly(testing::Return(boost::make_optional(
+      .WillRepeatedly(testing::Return(std::make_optional(
           std::shared_ptr<iroha::ametsuchi::PeerQuery>(query))));
   iroha::GossipPropagationStrategyParams gossip_params;
   gossip_params.emission_period = period;
@@ -166,7 +166,7 @@ TEST(GossipPropagationStrategyTest, EmptyEmitting) {
  * @then ensure that empty peer list is emitted
  */
 TEST(GossipPropagationStrategyTest, ErrorEmitting) {
-  auto emitted = subscribeAndEmit(boost::none, 1ms, 1, 13);
+  auto emitted = subscribeAndEmit(std::nullopt, 1ms, 1, 13);
   ASSERT_EQ(emitted.size(), 0);
 }
 
@@ -192,7 +192,7 @@ TEST(GossipPropagationStrategyTest, MultipleSubsEmission) {
   auto query = std::make_shared<MockPeerQuery>();
   auto pbfactory = std::make_shared<MockPeerQueryFactory>();
   EXPECT_CALL(*pbfactory, createPeerQuery())
-      .WillRepeatedly(testing::Return(boost::make_optional(
+      .WillRepeatedly(testing::Return(std::make_optional(
           std::shared_ptr<iroha::ametsuchi::PeerQuery>(query))));
   EXPECT_CALL(*query, getLedgerPeers()).WillRepeatedly(testing::Return(peers));
   iroha::GossipPropagationStrategyParams gossip_params;

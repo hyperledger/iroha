@@ -50,7 +50,7 @@ namespace binary_test {
     bool initialized(const unsigned &transactions_expected = 0,
                      const unsigned &queries_expected = 0);
 
-    boost::optional<shared_model::crypto::Keypair> admin_key;
+    std::optional<shared_model::crypto::Keypair> admin_key;
     std::vector<shared_model::proto::Transaction> transactions;
     std::vector<shared_model::proto::Query> queries;
 

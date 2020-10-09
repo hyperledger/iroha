@@ -36,7 +36,7 @@ const std::string kAmount = "1.0";
 static void BM_AddAssetQuantity(benchmark::State &state) {
   integration_framework::IntegrationTestFramework itf(
       kProposalSize,
-      boost::none,
+      std::nullopt,
       iroha::StartupWsvDataPolicy::kDrop,
       false,
       false,

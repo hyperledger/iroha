@@ -38,7 +38,7 @@ namespace fuzzing {
           std::make_shared<iroha::network::BlockLoaderService>(
               block_query_factory_, block_cache_, logger::getDummyLoggerPtr());
       EXPECT_CALL(*block_query_factory_, createBlockQuery())
-          .WillRepeatedly(Return(boost::make_optional(
+          .WillRepeatedly(Return(std::make_optional(
               std::shared_ptr<iroha::ametsuchi::BlockQuery>(storage_))));
       EXPECT_CALL(*storage_, getBlock(_)).WillRepeatedly(Invoke([](auto) {
         return iroha::expected::makeValue(

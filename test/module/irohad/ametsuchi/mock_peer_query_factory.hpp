@@ -16,7 +16,7 @@ namespace iroha {
     class MockPeerQueryFactory : public PeerQueryFactory {
      public:
       MOCK_CONST_METHOD0(createPeerQuery,
-                         boost::optional<std::shared_ptr<PeerQuery>>());
+                         std::optional<std::shared_ptr<PeerQuery>>());
     };
 
   }  // namespace ametsuchi

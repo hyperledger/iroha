@@ -149,7 +149,7 @@ int main(int argc, char *argv[]) {
     auto keysManager =
         iroha::KeysManagerImpl(FLAGS_account_name, keys_manager_log);
     if (not(FLAGS_pass_phrase.size() == 0
-                ? keysManager.createKeys(boost::none)
+                ? keysManager.createKeys(std::nullopt)
                 : keysManager.createKeys(FLAGS_pass_phrase))) {
       logger->error("Keys already exist");
       return EXIT_FAILURE;
@@ -223,7 +223,7 @@ int main(int argc, char *argv[]) {
                                    keys_manager_log);
     auto keypair = FLAGS_pass_phrase.size() != 0
         ? manager.loadKeys(FLAGS_pass_phrase)
-        : manager.loadKeys(boost::none);
+        : manager.loadKeys(std::nullopt);
     if (auto e = iroha::expected::resultToOptionalError(keypair)) {
       logger->error(
           "Keypair error: {}.\n"

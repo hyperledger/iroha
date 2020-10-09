@@ -15,7 +15,7 @@ namespace integration_framework {
 
   std::string getPostgresCredsOrDefault();
 
-  boost::optional<std::string> getPostgresCredsFromEnv();
+  std::optional<std::string> getPostgresCredsFromEnv();
 
   std::string getRandomDbName();
 }  // namespace integration_framework

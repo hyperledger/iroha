@@ -24,7 +24,7 @@ namespace integration_framework {
               std::make_unique<shared_model::proto::ProtoProposalFactory<
                   shared_model::validation::DefaultProposalValidator>>(
                   iroha::test::kTestsValidatorsConfig)) {
-      setDefaultProvider([](auto &) { return boost::none; });
+      setDefaultProvider([](auto &) { return std::nullopt; });
     }
 
     OrderingProposalRequestResult ProposalStorage::getProposal(
@@ -37,7 +37,7 @@ namespace integration_framework {
           if (it->second) {
             return it->second;
           } else {
-            return boost::none;
+            return std::nullopt;
           }
         }
       }
@@ -83,12 +83,12 @@ namespace integration_framework {
       }
     }
 
-    boost::optional<std::unique_ptr<shared_model::proto::Proposal>>
+    std::optional<std::unique_ptr<shared_model::proto::Proposal>>
     ProposalStorage::makeProposalFromPendingTxs(
         shared_model::interface::types::HeightType height) {
       std::lock_guard<std::mutex> lock(pending_txs_mutex_);
       if (pending_txs_.empty()) {
-        return boost::none;
+        return std::nullopt;
       }
 
       std::unique_ptr<shared_model::proto::Proposal> proposal{

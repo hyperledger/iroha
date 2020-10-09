@@ -51,7 +51,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
     ON_CALL(*tx_cache,
             check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
         .WillByDefault(
-            Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
+            Return(std::make_optional<ametsuchi::TxCacheStatusType>(
                 iroha::ametsuchi::tx_cache_status_responses::Missing())));
     ordering_gate = std::make_shared<OnDemandOrderingGate>(
         ordering_service,
@@ -134,7 +134,7 @@ TEST_F(OnDemandOrderingGateTest, propagateBatch) {
 TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   auto mproposal = std::make_unique<MockProposal>();
   auto proposal = mproposal.get();
-  boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
+  std::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
       oproposal(std::move(mproposal));
   std::vector<std::shared_ptr<MockTransaction>> txs{
       std::make_shared<MockTransaction>()};
@@ -170,7 +170,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
 TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
   auto mproposal = std::make_unique<MockProposal>();
   auto proposal = mproposal.get();
-  boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
+  std::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
       oproposal(std::move(mproposal));
   std::vector<std::shared_ptr<MockTransaction>> txs{
       std::make_shared<MockTransaction>()};
@@ -204,7 +204,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
  * @then new empty proposal round based on the received height is initiated
  */
 TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
-  boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
+  std::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
       proposal;
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
@@ -228,7 +228,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
  * @then new empty proposal round based on the received height is initiated
  */
 TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
-  boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
+  std::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
       proposal;
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
@@ -262,7 +262,7 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
   // initialize mock proposal
   auto proposal = std::make_shared<const NiceMock<MockProposal>>();
   ON_CALL(*proposal, transactions()).WillByDefault(Return(tx_range));
-  auto arriving_proposal = boost::make_optional(
+  auto arriving_proposal = std::make_optional(
       std::static_pointer_cast<const shared_model::interface::Proposal>(
           std::move(proposal)));
 
@@ -272,7 +272,7 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
       .WillOnce(Return(ByMove(std::move(arriving_proposal))));
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
-      .WillOnce(Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
+      .WillOnce(Return(std::make_optional<ametsuchi::TxCacheStatusType>(
           iroha::ametsuchi::tx_cache_status_responses::Committed())));
   // expect proposal to be created without any transactions because it was
   // removed by tx cache
@@ -319,7 +319,7 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
   auto proposal = std::make_shared<MockProposal>();
   ON_CALL(*proposal, transactions()).WillByDefault(Return(txs));
 
-  auto arriving_proposal = boost::make_optional(
+  auto arriving_proposal = std::make_optional(
       std::static_pointer_cast<const shared_model::interface::Proposal>(
           std::move(proposal)));
 
@@ -329,7 +329,7 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
       .WillOnce(Return(ByMove(std::move(arriving_proposal))));
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
-      .WillRepeatedly(Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
+      .WillRepeatedly(Return(std::make_optional<ametsuchi::TxCacheStatusType>(
           iroha::ametsuchi::tx_cache_status_responses::Missing())));
 
   auto ufactory_proposal = std::make_unique<MockProposal>();

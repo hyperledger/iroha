@@ -15,7 +15,7 @@ namespace iroha {
      public:
       MOCK_METHOD2(
           processVerifiedProposal,
-          boost::optional<std::shared_ptr<shared_model::interface::Block>>(
+          std::optional<std::shared_ptr<shared_model::interface::Block>>(
               const std::shared_ptr<
                   iroha::validation::VerifiedProposalAndErrors> &,
               const TopBlockInfo &));

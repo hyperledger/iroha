@@ -16,12 +16,12 @@ namespace iroha {
     class MockTxPresenceCache : public TxPresenceCache {
      public:
       MOCK_CONST_METHOD1(check,
-                         boost::optional<TxCacheStatusType>(
+                         std::optional<TxCacheStatusType>(
                              const shared_model::crypto::Hash &hash));
 
       MOCK_CONST_METHOD1(
           check,
-          boost::optional<TxPresenceCache::BatchStatusCollectionType>(
+          std::optional<TxPresenceCache::BatchStatusCollectionType>(
               const shared_model::interface::TransactionBatch &));
     };
 

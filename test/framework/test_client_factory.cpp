@@ -52,9 +52,9 @@ namespace iroha {
     std::shared_ptr<grpc::Channel> createSecureChannel(
         const shared_model::interface::types::AddressType &address,
         const std::string &service_full_name,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
+        std::optional<shared_model::interface::types::TLSCertificateType>
             peer_cert,
-        boost::optional<TlsCredentials> my_creds,
+        std::optional<TlsCredentials> my_creds,
         const GrpcChannelParams &params) {
       auto options = grpc::SslCredentialsOptions();
       if (peer_cert) {

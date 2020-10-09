@@ -100,7 +100,7 @@ INSTANTIATE_TEST_SUITE_P(
     Common,
     CallEnginePermissionTest,
     command_permission_test::getParams(Role::kCallEngine,
-                                       boost::none,
-                                       boost::none,
+                                       std::nullopt,
+                                       std::nullopt,
                                        Grantable::kCallEngineOnMyBehalf),
     command_permission_test::paramToString);

@@ -17,11 +17,11 @@ namespace iroha {
      public:
       MockPeerQuery() = default;
 
-      MOCK_METHOD0(getLedgerPeers, boost::optional<std::vector<wPeer>>());
+      MOCK_METHOD0(getLedgerPeers, std::optional<std::vector<wPeer>>());
 
       MOCK_CONST_METHOD1(
           getLedgerPeerByPublicKey,
-          boost::optional<PeerQuery::wPeer>(
+          std::optional<PeerQuery::wPeer>(
               shared_model::interface::types::PublicKeyHexStringView));
     };
 

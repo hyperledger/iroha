@@ -61,7 +61,7 @@ namespace integration_framework {
       FakePeer(
           const std::string &listen_ip,
           size_t internal_port,
-          const boost::optional<shared_model::crypto::Keypair> &key,
+          const std::optional<shared_model::crypto::Keypair> &key,
           std::shared_ptr<shared_model::interface::Peer> real_peer,
           const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               &common_objects_factory,
@@ -96,7 +96,8 @@ namespace integration_framework {
       FakePeer &removeBlockStorage();
 
       /// Get the block storage previously assigned to this peer, if any.
-      boost::optional<const BlockStorage &> getBlockStorage() const;
+      std::optional<std::reference_wrapper<BlockStorage const>>
+      getBlockStorage() const;
 
       ProposalStorage &getProposalStorage();
 
@@ -199,7 +200,7 @@ namespace integration_framework {
        * @param timeout - time to wait for the reply.
        * @return The proposal if it was received
        */
-      boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+      std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
       sendProposalRequest(iroha::consensus::Round round,
                           std::chrono::milliseconds timeout) const;
 

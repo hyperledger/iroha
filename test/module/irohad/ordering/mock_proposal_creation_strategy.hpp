@@ -16,7 +16,7 @@ namespace iroha {
      public:
       MOCK_METHOD2(onCollaborationOutcome, void(RoundType, size_t));
       MOCK_METHOD1(shouldCreateRound, bool(RoundType));
-      MOCK_METHOD1(onProposalRequest, boost::optional<RoundType>(RoundType));
+      MOCK_METHOD1(onProposalRequest, std::optional<RoundType>(RoundType));
     };
   }  // namespace ordering
 }  // namespace iroha

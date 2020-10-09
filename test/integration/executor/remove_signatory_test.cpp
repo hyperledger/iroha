@@ -133,7 +133,7 @@ INSTANTIATE_TEST_SUITE_P(
     Common,
     RemoveSignatoryPermissionTest,
     command_permission_test::getParams(Role::kRemoveSignatory,
-                                       boost::none,
-                                       boost::none,
+                                       std::nullopt,
+                                       std::nullopt,
                                        Grantable::kRemoveMySignatory),
     command_permission_test::paramToString);

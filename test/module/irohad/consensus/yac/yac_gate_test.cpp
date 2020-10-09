@@ -121,7 +121,7 @@ class YacGateTest : public ::testing::Test {
   }
 
   iroha::consensus::Round round{2, 1};
-  boost::optional<ClusterOrdering> alternative_order;
+  std::optional<ClusterOrdering> alternative_order;
   std::string expected_signed{"expected_signed"};
   Hash prev_hash{"prev hash"};
   YacHash expected_hash;
@@ -215,7 +215,7 @@ TEST_F(YacGateTest, CacheReleased) {
   outcome_notifier.get_subscriber().on_next(expected_commit);
   round.reject_round++;
 
-  gate->vote({boost::none, round, ledger_state});
+  gate->vote({std::nullopt, round, ledger_state});
 
   ASSERT_EQ(block_cache->get(), nullptr);
 }
@@ -230,7 +230,7 @@ TEST_F(YacGateTest, YacGateSubscribtionTestFailCase) {
   EXPECT_CALL(*hash_gate, vote(_, _, _)).Times(0);
 
   // generate order of peers
-  EXPECT_CALL(*peer_orderer, getOrdering(_, _)).WillOnce(Return(boost::none));
+  EXPECT_CALL(*peer_orderer, getOrdering(_, _)).WillOnce(Return(std::nullopt));
 
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
@@ -255,7 +255,7 @@ TEST_F(YacGateTest, AgreementOnNone) {
 
   ASSERT_EQ(block_cache->get(), nullptr);
 
-  gate->vote({boost::none, round, ledger_state});
+  gate->vote({std::nullopt, round, ledger_state});
 
   ASSERT_EQ(block_cache->get(), nullptr);
 }
@@ -520,7 +520,7 @@ TEST_F(YacGateOlderTest, OlderVote) {
   EXPECT_CALL(*hash_provider, makeHash(_)).Times(0);
 
   block_notifier.get_subscriber().on_next(BlockCreatorEvent{
-      boost::none, {round.block_round - 1, round.reject_round}, ledger_state});
+      std::nullopt, {round.block_round - 1, round.reject_round}, ledger_state});
 }
 
 /**
@@ -631,7 +631,7 @@ TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsedOnce) {
     InSequence s;  // ensures the call order
     EXPECT_CALL(*hash_gate, vote(expected_hash, _, alternative_order)).Times(1);
     EXPECT_CALL(*hash_gate,
-                vote(expected_hash, _, boost::optional<ClusterOrdering>{}))
+                vote(expected_hash, _, std::optional<ClusterOrdering>{}))
         .Times(1);
   }
 

@@ -39,7 +39,7 @@ namespace integration_framework {
     PortType getPort(PortType min_value, PortType max_value = kMaxPort);
 
     /// Request a port in given boundaries, including them.
-    boost::optional<PortType> tryGetPort(PortType min_value,
+    std::optional<PortType> tryGetPort(PortType min_value,
                                          PortType max_value = kMaxPort);
 
    private:

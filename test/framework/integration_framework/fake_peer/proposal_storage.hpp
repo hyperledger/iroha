@@ -70,7 +70,7 @@ namespace integration_framework {
 
      private:
       /// Create a proposal from pending transactions, if any.
-      boost::optional<std::unique_ptr<Proposal>> makeProposalFromPendingTxs(
+      std::optional<std::unique_ptr<Proposal>> makeProposalFromPendingTxs(
           shared_model::interface::types::HeightType height);
 
       OrderingProposalRequestResult getDefaultProposal(

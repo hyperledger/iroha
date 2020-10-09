@@ -82,9 +82,9 @@ decltype(::testing::Combine(
     ::testing::ValuesIn(
         {query_permission_test::SpecificQueryPermissionTestData{}})))
 query_permission_test::getParams(
-    boost::optional<Role> permission_to_query_myself,
-    boost::optional<Role> permission_to_query_my_domain,
-    boost::optional<Role> permission_to_query_everyone) {
+    std::optional<Role> permission_to_query_myself,
+    std::optional<Role> permission_to_query_my_domain,
+    std::optional<Role> permission_to_query_everyone) {
   std::vector<SpecificQueryPermissionTestData> perm_params;
   const EnumMap<Spectator, std::string> spectators_map{
       {Spectator::kMe, kUserId},
@@ -103,7 +103,7 @@ query_permission_test::getParams(
   };
 
   auto add_perm_case_if_provided = [&](SpectatorPermissions perm_type,
-                                       boost::optional<Role> permission) {
+                                       std::optional<Role> permission) {
     if (permission) {
       add_perm_case(perm_type, RolePermissionSet{permission.value()});
     }

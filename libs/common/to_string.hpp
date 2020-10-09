@@ -60,6 +60,10 @@ namespace iroha {
       return detail::toStringDereferenced(o);
     }
 
+    inline std::string toString(const std::nullopt_t &o) {
+      return detail::kNotSet;
+    }
+
     template <typename... T>
     inline std::string toString(const std::unique_ptr<T...> &o) {
       return detail::toStringDereferenced(o);

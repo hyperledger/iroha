@@ -25,15 +25,15 @@ namespace integration_framework {
 
   IrohaInstance::IrohaInstance(
       bool mst_support,
-      const boost::optional<std::string> &block_store_path,
+      const std::optional<std::string> &block_store_path,
       const std::string &listen_ip,
       size_t torii_port,
       size_t internal_port,
       logger::LoggerManagerTreePtr irohad_log_manager,
       logger::LoggerPtr log,
       iroha::StartupWsvDataPolicy startup_wsv_data_policy,
-      const boost::optional<std::string> &dbname,
-      const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
+      const std::optional<std::string> &dbname,
+      const std::optional<iroha::torii::TlsParams> &torii_tls_params)
       : block_store_dir_(block_store_path),
         working_dbname_(dbname.value_or(getRandomDbName())),
         listen_ip_(listen_ip),
@@ -48,13 +48,16 @@ namespace integration_framework {
         vote_delay_(100ms),
         // amount of minutes in a day
         mst_expiration_time_(std::chrono::minutes(24 * 60)),
-        opt_mst_gossip_params_(boost::make_optional(
-            mst_support,
-            [] {
-              iroha::GossipPropagationStrategyParams params;
-              params.emission_period = kMstEmissionPeriod;
-              return params;
-            }())),
+        opt_mst_gossip_params_([mst_support] {
+          std::optional<iroha::GossipPropagationStrategyParams>
+              opt_mst_gossip_params;
+          if (mst_support) {
+            iroha::GossipPropagationStrategyParams params;
+            params.emission_period = kMstEmissionPeriod;
+            opt_mst_gossip_params = params;
+          }
+          return opt_mst_gossip_params;
+        }()),
         max_rounds_delay_(0ms),
         stale_stream_max_rounds_(2),
         irohad_log_manager_(std::move(irohad_log_manager)),
@@ -117,7 +120,7 @@ namespace integration_framework {
         key_pair,
         max_rounds_delay_,
         stale_stream_max_rounds_,
-        boost::none,
+        std::nullopt,
         irohad_log_manager_,
         log_,
         startup_wsv_data_policy_,

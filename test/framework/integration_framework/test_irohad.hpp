@@ -17,7 +17,7 @@ namespace integration_framework {
    */
   class TestIrohad : public Irohad {
    public:
-    TestIrohad(const boost::optional<std::string> &block_store_dir,
+    TestIrohad(const std::optional<std::string> &block_store_dir,
                std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
@@ -29,15 +29,15 @@ namespace integration_framework {
                const shared_model::crypto::Keypair &keypair,
                std::chrono::milliseconds max_rounds_delay,
                size_t stale_stream_max_rounds,
-               boost::optional<shared_model::interface::types::PeerList>
+               std::optional<shared_model::interface::types::PeerList>
                    opt_alternative_peers,
                logger::LoggerManagerTreePtr irohad_log_manager,
                logger::LoggerPtr log,
                iroha::StartupWsvDataPolicy startup_wsv_data_policy,
-               const boost::optional<iroha::GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params = boost::none,
-               const boost::optional<iroha::torii::TlsParams>
-                   &torii_tls_params = boost::none)
+               const std::optional<iroha::GossipPropagationStrategyParams>
+                   &opt_mst_gossip_params = std::nullopt,
+               const std::optional<iroha::torii::TlsParams>
+                   &torii_tls_params = std::nullopt)
         : Irohad(block_store_dir,
                  std::move(pg_opt),
                  listen_ip,
@@ -56,7 +56,7 @@ namespace integration_framework {
                  iroha::network::getDefaultTestChannelParams(),
                  opt_mst_gossip_params,
                  torii_tls_params,
-                 boost::none),
+                 std::nullopt),
           log_(std::move(log)) {}
 
     auto &getCommandService() {

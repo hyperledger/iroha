@@ -111,7 +111,7 @@ TEST(CacheTest, FindValues) {
     cache.addItem(std::to_string(i), response);
   }
   auto item = cache.findItem("2");
-  ASSERT_NE(item, boost::none);
+  ASSERT_NE(item, std::nullopt);
   ASSERT_EQ(item->tx_status(), TxStatus::STATEFUL_VALIDATION_SUCCESS);
 }
 
@@ -123,7 +123,7 @@ TEST(CacheTest, FindValues) {
 TEST(CacheTest, FindInEmptyCache) {
   Cache<std::string, ToriiResponse> cache;
   auto item = cache.findItem("0");
-  ASSERT_EQ(item, boost::none);
+  ASSERT_EQ(item, std::nullopt);
 }
 
 /**
@@ -143,7 +143,7 @@ TEST(CacheTest, FindVeryOldTransaction) {
     response.set_tx_status(TxStatus::STATEFUL_VALIDATION_FAILED);
     cache.addItem("abcdefg" + std::to_string(i), response);
   }
-  ASSERT_EQ(cache.findItem("0"), boost::none);
+  ASSERT_EQ(cache.findItem("0"), std::nullopt);
 }
 
 /// Custom key type for the test

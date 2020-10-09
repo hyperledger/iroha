@@ -122,12 +122,12 @@ namespace integration_framework {
       cv_.notify_one();
     }
 
-    boost::optional<T> try_pop() {
+    std::optional<T> try_pop() {
       std::unique_lock<std::mutex> lock(queue_mutex_);
       if (queue_.empty()) {
         if (not cv_.wait_for(
                 lock, timeout_, [this] { return not queue_.empty(); })) {
-          return boost::none;
+          return std::nullopt;
         }
       }
       T obj(std::move(queue_.front()));
@@ -144,11 +144,11 @@ namespace integration_framework {
 
   IntegrationTestFramework::IntegrationTestFramework(
       size_t maximum_proposal_size,
-      const boost::optional<std::string> &dbname,
+      const std::optional<std::string> &dbname,
       iroha::StartupWsvDataPolicy startup_wsv_data_policy,
       bool cleanup_on_exit,
       bool mst_support,
-      const boost::optional<std::string> block_store_path,
+      const std::optional<std::string> block_store_path,
       milliseconds proposal_waiting,
       milliseconds block_waiting,
       milliseconds tx_response_waiting,
@@ -249,7 +249,7 @@ namespace integration_framework {
   }
 
   std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
-      const boost::optional<Keypair> &key) {
+      const std::optional<Keypair> &key) {
     BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
     const auto port = port_guard_->getPort(kDefaultInternalPort);
     auto fake_peer = std::make_shared<FakePeer>(
@@ -691,7 +691,7 @@ namespace integration_framework {
     return *this;
   }
 
-  boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+  std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
   IntegrationTestFramework::requestProposal(
       const iroha::consensus::Round &round, std::chrono::milliseconds timeout) {
     auto on_demand_os_transport =
@@ -785,7 +785,7 @@ namespace integration_framework {
       std::function<void(const shared_model::proto::TransactionResponse &)>
           validation) {
     // fetch first response associated with the tx from related queue
-    boost::optional<TxResponseType> opt_response;
+    std::optional<TxResponseType> opt_response;
     const auto it = responses_queues_.find(tx_hash.hex());
     if (it != responses_queues_.end()) {
       opt_response = it->second->try_pop();

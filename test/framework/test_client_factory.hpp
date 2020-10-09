@@ -43,9 +43,9 @@ namespace iroha {
     std::unique_ptr<typename Service::StubInterface> createSecureClient(
         const std::string &ip,
         size_t port,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
+        std::optional<shared_model::interface::types::TLSCertificateType>
             peer_cert,
-        boost::optional<TlsCredentials> my_creds,
+        std::optional<TlsCredentials> my_creds,
         const GrpcChannelParams &params) {
       return Service::NewStub(
           createSecureChannel(ip + ":" + std::to_string(port),
@@ -68,9 +68,9 @@ namespace iroha {
     std::shared_ptr<grpc::Channel> createSecureChannel(
         const shared_model::interface::types::AddressType &address,
         const std::string &service_full_name,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
+        std::optional<shared_model::interface::types::TLSCertificateType>
             peer_cert,
-        boost::optional<TlsCredentials> my_creds,
+        std::optional<TlsCredentials> my_creds,
         const GrpcChannelParams &params);
 
   }  // namespace network

@@ -19,7 +19,7 @@ namespace framework {
      *         otherwise none
      */
     template <typename ResultType>
-    boost::optional<ValueOf<std::decay_t<ResultType>>> val(
+    std::optional<ValueOf<std::decay_t<ResultType>>> val(
         ResultType &&res) noexcept {
       if (auto *val = boost::get<ValueOf<std::decay_t<ResultType>>>(&res)) {
         return std::move(*val);
@@ -32,7 +32,7 @@ namespace framework {
      *         otherwise none
      */
     template <typename ResultType>
-    boost::optional<ErrorOf<std::decay_t<ResultType>>> err(
+    std::optional<ErrorOf<std::decay_t<ResultType>>> err(
         ResultType &&res) noexcept {
       if (auto *val = boost::get<ErrorOf<std::decay_t<ResultType>>>(&res)) {
         return std::move(*val);

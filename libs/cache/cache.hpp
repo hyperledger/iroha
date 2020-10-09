@@ -10,6 +10,7 @@
 
 #include <unordered_map>
 
+#include <boost/assert.hpp>
 #include "common/ring_buffer.hpp"
 
 namespace iroha {
@@ -84,12 +85,12 @@ namespace iroha {
         }
       }
 
-      boost::optional<ValueType> findItemImpl(const KeyType &key) const {
+      std::optional<ValueType> findItemImpl(const KeyType &key) const {
         auto const hash = toHash(key);
         auto it = keys_.find(hash);
 
         if (keys_.end() == it) {
-          return boost::none;
+          return std::nullopt;
         } else {
           return values_.getItem(it->second).value;
         }

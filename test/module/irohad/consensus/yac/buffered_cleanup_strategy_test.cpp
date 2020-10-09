@@ -40,7 +40,7 @@ class BufferedCleanupStrategyTest : public ::testing::Test {
  */
 TEST_F(BufferedCleanupStrategyTest, RejectFirstCase) {
   ASSERT_TRUE(strategy_->shouldCreateRound({1, 1}));
-  ASSERT_EQ(boost::none, strategy_->finalize({1, 1}, makeMockReject()));
+  ASSERT_EQ(std::nullopt, strategy_->finalize({1, 1}, makeMockReject()));
 
   ASSERT_TRUE(strategy_->shouldCreateRound({1, 2}));
 

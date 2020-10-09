@@ -19,7 +19,7 @@ namespace iroha {
         MOCK_METHOD3(vote,
                      void(YacHash,
                           ClusterOrdering,
-                          boost::optional<ClusterOrdering>));
+                          std::optional<ClusterOrdering>));
 
         MOCK_METHOD0(onOutcome, rxcpp::observable<Answer>());
 

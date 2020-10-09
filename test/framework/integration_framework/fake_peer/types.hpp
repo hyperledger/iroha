@@ -80,12 +80,12 @@ namespace integration_framework {
     using LoaderBlockRequest = shared_model::interface::types::HeightType;
     using LoaderBlocksRequest = shared_model::interface::types::HeightType;
     using LoaderBlockRequestResult =
-        boost::optional<std::shared_ptr<const shared_model::proto::Block>>;
+        std::optional<std::shared_ptr<const shared_model::proto::Block>>;
     using LoaderBlocksRequestResult =
         std::vector<std::shared_ptr<const shared_model::proto::Block>>;
     using OrderingProposalRequest = iroha::consensus::Round;
     using OrderingProposalRequestResult =
-        boost::optional<std::shared_ptr<const shared_model::proto::Proposal>>;
+        std::optional<std::shared_ptr<const shared_model::proto::Proposal>>;
     using BatchesCollection =
         std::vector<std::shared_ptr<shared_model::interface::TransactionBatch>>;
 

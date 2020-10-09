@@ -76,7 +76,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
    */
   void validatePageResponse(
       const shared_model::interface::AccountAssetResponse &response,
-      boost::optional<size_t> requested_page_start,
+      std::optional<size_t> requested_page_start,
       size_t page_size) {
     size_t page_start = requested_page_start.value_or(0);
     ASSERT_LE(page_start, assets_added_) << "Bad test.";
@@ -105,7 +105,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
   }
 
   void validatePageResponse(const QueryExecutorResult &response,
-                            boost::optional<size_t> page_start,
+                            std::optional<size_t> page_start,
                             size_t page_size) {
     checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
         response, [&, this](const auto &response) {
@@ -123,7 +123,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
   /**
    * Query account assets.
    */
-  QueryExecutorResult queryPage(boost::optional<size_t> page_start,
+  QueryExecutorResult queryPage(std::optional<size_t> page_start,
                                 size_t page_size,
                                 AccountIdType command_issuer = kAdminId) {
     std::optional<AssetIdType> first_asset_id;
@@ -141,7 +141,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
    * Query account assets and validate the response.
    */
   QueryExecutorResult queryPageAndValidateResponse(
-      boost::optional<size_t> page_start, size_t page_size) {
+      std::optional<size_t> page_start, size_t page_size) {
     auto response = queryPage(page_start, page_size);
     validatePageResponse(response, page_start, page_size);
     return response;
@@ -184,7 +184,7 @@ TEST_P(GetAccountAssetsBasicTest, NoPageMetaData) {
   QueryExecutorResult response = getItf().executeQuery(
       *getItf().getMockQueryFactory()->constructGetAccountAssets(kUserId,
                                                                  std::nullopt));
-  validatePageResponse(response, boost::none, 10);
+  validatePageResponse(response, std::nullopt, 10);
 }
 
 /**
@@ -194,7 +194,7 @@ TEST_P(GetAccountAssetsBasicTest, NoPageMetaData) {
  */
 TEST_P(GetAccountAssetsBasicTest, FirstPage) {
   ASSERT_NO_FATAL_FAILURE(prepareState(10));
-  queryPageAndValidateResponse(boost::none, 5);
+  queryPageAndValidateResponse(std::nullopt, 5);
 }
 
 /**
@@ -252,9 +252,9 @@ TEST_P(GetAccountAssetsPermissionTest, QueryPermissionTest) {
   createAndAddAssets(2);
   auto pagination_meta = makePaginationMeta(assets_added_, std::nullopt);
   checkResponse<shared_model::interface::AccountAssetResponse>(
-      queryPage(boost::none, assets_added_, getSpectator()),
+      queryPage(std::nullopt, assets_added_, getSpectator()),
       [this](const shared_model::interface::AccountAssetResponse &response) {
-        this->validatePageResponse(response, boost::none, assets_added_);
+        this->validatePageResponse(response, std::nullopt, assets_added_);
       });
 }
 

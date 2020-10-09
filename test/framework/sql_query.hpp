@@ -56,7 +56,7 @@ namespace framework {
        * @param domain_id - id in the system
        * @return Domain if exist, nullopt otherwise
        */
-      boost::optional<std::shared_ptr<shared_model::interface::Domain>>
+      std::optional<std::shared_ptr<shared_model::interface::Domain>>
       getDomain(const shared_model::interface::types::DomainIdType &domain_id);
 
       /**
@@ -64,7 +64,7 @@ namespace framework {
        * @param account_id
        * @return
        */
-      boost::optional<std::vector<shared_model::interface::types::RoleIdType>>
+      std::optional<std::vector<shared_model::interface::types::RoleIdType>>
       getAccountRoles(
           const shared_model::interface::types::AccountIdType &account_id);
       /**
@@ -72,14 +72,14 @@ namespace framework {
        * @param role_name
        * @return
        */
-      boost::optional<shared_model::interface::RolePermissionSet>
+      std::optional<shared_model::interface::RolePermissionSet>
       getRolePermissions(
           const shared_model::interface::types::RoleIdType &role_name);
 
       /**
        * @return All roles currently in the system
        */
-      boost::optional<std::vector<shared_model::interface::types::RoleIdType>>
+      std::optional<std::vector<shared_model::interface::types::RoleIdType>>
       getRoles();
 
       /**
@@ -87,7 +87,7 @@ namespace framework {
        * @param account_id
        * @return
        */
-      boost::optional<std::shared_ptr<shared_model::interface::Account>>
+      std::optional<std::shared_ptr<shared_model::interface::Account>>
       getAccount(
           const shared_model::interface::types::AccountIdType &account_id);
 
@@ -96,7 +96,7 @@ namespace framework {
        * @param asset_id
        * @return
        */
-      boost::optional<std::shared_ptr<shared_model::interface::Asset>> getAsset(
+      std::optional<std::shared_ptr<shared_model::interface::Asset>> getAsset(
           const shared_model::interface::types::AssetIdType &asset_id);
 
       /**
@@ -104,7 +104,7 @@ namespace framework {
        * @param account_id
        * @return
        */
-      boost::optional<
+      std::optional<
           std::vector<std::shared_ptr<shared_model::interface::AccountAsset>>>
       getAccountAssets(
           const shared_model::interface::types::AccountIdType &account_id);
@@ -114,7 +114,7 @@ namespace framework {
        * @param asset_id
        * @return
        */
-      boost::optional<std::shared_ptr<shared_model::interface::AccountAsset>>
+      std::optional<std::shared_ptr<shared_model::interface::AccountAsset>>
       getAccountAsset(
           const shared_model::interface::types::AccountIdType &account_id,
           const shared_model::interface::types::AssetIdType &asset_id);
@@ -128,7 +128,7 @@ namespace framework {
        * returned; default empty
        * @return optional of account details
        */
-      boost::optional<std::string> getAccountDetail(
+      std::optional<std::string> getAccountDetail(
           const shared_model::interface::types::AccountIdType &account_id,
           const shared_model::interface::types::AccountDetailKeyType &key = "",
           const shared_model::interface::types::AccountIdType &writer = "");
@@ -138,7 +138,7 @@ namespace framework {
        * @param setting_key
        * @return if key exist then value otherwise none
        */
-      boost::optional<shared_model::interface::types::SettingValueType>
+      std::optional<shared_model::interface::types::SettingValueType>
       getSettingValue(
           const shared_model::interface::types::SettingKeyType &setting_key);
 
@@ -152,7 +152,7 @@ namespace framework {
        * message, and returns an optional rowset<T>
        */
       template <typename T, typename F>
-      auto execute(F &&f) -> boost::optional<soci::rowset<T>>;
+      auto execute(F &&f) -> std::optional<soci::rowset<T>>;
 
       /**
        * Transforms result to optional
@@ -163,7 +163,7 @@ namespace framework {
        * @return optional<T>
        */
       template <typename T>
-      boost::optional<std::shared_ptr<T>> fromResult(
+      std::optional<std::shared_ptr<T>> fromResult(
           shared_model::interface::CommonObjectsFactory::FactoryResult<
               std::unique_ptr<T>> &&result);
     };

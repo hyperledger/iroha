@@ -16,7 +16,7 @@ namespace iroha {
     class MockSettingQuery : public SettingQuery {
      public:
       MOCK_METHOD1(getSettingValue,
-                   boost::optional<SettingValueType>(const SettingKeyType &));
+                   std::optional<SettingValueType>(const SettingKeyType &));
     };
   }  // namespace ametsuchi
 }  // namespace iroha

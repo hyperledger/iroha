@@ -40,7 +40,7 @@ namespace integration_framework {
               "Got a Loader.retrieveBlock call, but have no block storage!");
           return {};
         }
-        const auto block = block_storage->getBlockByHeight(request);
+        const auto block = block_storage->get().getBlockByHeight(request);
         if (!block) {
           getLogger()->debug(
               "Got a Loader.retrieveBlock call for {}, but have no such block!",
@@ -63,7 +63,7 @@ namespace integration_framework {
         BlockStorage::HeightType current_height = request;
         std::shared_ptr<const shared_model::proto::Block> block;
         LoaderBlocksRequestResult blocks;
-        while ((block = block_storage->getBlockByHeight(current_height++))
+        while ((block = block_storage->get().getBlockByHeight(current_height++))
                != nullptr) {
           blocks.emplace_back(block);
         }

@@ -636,7 +636,7 @@ namespace iroha {
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
       auto asset = sql_query->getAsset(asset_id);
       ASSERT_TRUE(asset);
-      ASSERT_EQ(asset_id, asset.get()->assetId());
+      ASSERT_EQ(asset_id, asset.value()->assetId());
     }
 
     /**
@@ -733,7 +733,7 @@ namespace iroha {
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
       auto asset = sql_query->getAsset(asset_id);
       ASSERT_TRUE(asset);
-      ASSERT_EQ(asset_id, asset.get()->assetId());
+      ASSERT_EQ(asset_id, asset.value()->assetId());
     }
 
     class CreateDomain : public CommandExecutorTest {
@@ -760,7 +760,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain2_id, role)));
       auto dom = sql_query->getDomain(domain2_id);
       ASSERT_TRUE(dom);
-      ASSERT_EQ(dom.get()->domainId(), domain2_id);
+      ASSERT_EQ(dom.value()->domainId(), domain2_id);
     }
 
     /**
@@ -819,7 +819,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain2_id, role)));
       auto dom = sql_query->getDomain(domain2_id);
       ASSERT_TRUE(dom);
-      ASSERT_EQ(dom.get()->domainId(), domain2_id);
+      ASSERT_EQ(dom.value()->domainId(), domain2_id);
     }
 
     class DetachRole : public CommandExecutorTest {
@@ -1196,20 +1196,20 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructSubtractAssetQuantity(
               asset_id, asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1225,7 +1225,7 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
 
       auto cmd_result =
           execute(*mock_command_factory->constructSubtractAssetQuantity(
@@ -1237,7 +1237,7 @@ namespace iroha {
 
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1257,7 +1257,7 @@ namespace iroha {
 
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
@@ -1266,7 +1266,7 @@ namespace iroha {
 
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructSubtractAssetQuantity(
@@ -1275,7 +1275,7 @@ namespace iroha {
 
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1299,7 +1299,7 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset2_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
 
       auto cmd_result =
           execute(*mock_command_factory->constructSubtractAssetQuantity(
@@ -1311,7 +1311,7 @@ namespace iroha {
 
       account_asset = sql_query->getAccountAsset(account_id, asset2_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1380,20 +1380,20 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructSubtractAssetQuantity(
               asset_id, asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     class TransferAccountAssetTest : public CommandExecutorTest {
@@ -1447,14 +1447,14 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructTransferAsset(
               account_id,
@@ -1464,10 +1464,10 @@ namespace iroha {
               asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       account_asset = sql_query->getAccountAsset(account2_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1491,7 +1491,7 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructTransferAsset(
               account_id, account2_id, asset_id, "desc", asset_amount_one_zero),
@@ -1499,10 +1499,10 @@ namespace iroha {
           account2_id));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       account_asset = sql_query->getAccountAsset(account2_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1518,7 +1518,7 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
 
       auto cmd_result = execute(*mock_command_factory->constructTransferAsset(
           account_id, account2_id, asset_id, "desc", asset_amount_one_zero));
@@ -1647,7 +1647,7 @@ namespace iroha {
 
       auto account_asset = sql_query->getAccountAsset(account2_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(account_asset.get()->balance(),
+      ASSERT_EQ(account_asset.value()->balance(),
                 shared_model::interface::Amount{"1.1"});
     }
 
@@ -1741,14 +1741,14 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructTransferAsset(
               account_id,
@@ -1758,10 +1758,10 @@ namespace iroha {
               asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       account_asset = sql_query->getAccountAsset(account2_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     /**
@@ -1781,14 +1781,14 @@ namespace iroha {
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
+      ASSERT_EQ("2.0", account_asset.value()->balance().toStringRepr());
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructTransferAsset(
               account_id,
@@ -1798,10 +1798,10 @@ namespace iroha {
               asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
       account_asset = sql_query->getAccountAsset(account2_id, asset_id);
       ASSERT_TRUE(account_asset);
-      ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
+      ASSERT_EQ(asset_amount_one_zero, account_asset.value()->balance());
     }
 
     class CompareAndSetAccountDetail : public CommandExecutorTest {
@@ -1832,7 +1832,7 @@ namespace iroha {
               account_id, "key", "value", std::nullopt, true)));
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv.value(), R"({"id@domain": {"key": "value"}})");
     }
 
     /**
@@ -1857,7 +1857,7 @@ namespace iroha {
                   account_id));
       auto kv = sql_query->getAccountDetail(account2_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv.value(), R"({"id@domain": {"key": "value"}})");
     }
 
     /**
@@ -1874,7 +1874,7 @@ namespace iroha {
                   account_id));
       auto kv = sql_query->getAccountDetail(account2_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv.value(), R"({"id@domain": {"key": "value"}})");
     }
 
     /**
@@ -1894,7 +1894,7 @@ namespace iroha {
 
       auto kv = sql_query->getAccountDetail(account2_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), "{}");
+      ASSERT_EQ(kv.value(), "{}");
     }
 
     /**
@@ -1927,7 +1927,7 @@ namespace iroha {
 
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv.value(), R"({"id@domain": {"key": "value"}})");
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
@@ -1940,7 +1940,7 @@ namespace iroha {
               true)));
       auto kv1 = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv1);
-      ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value1"}})");
+      ASSERT_EQ(kv1.value(), R"({"id@domain": {"key": "value1"}})");
     }
 
     /**
@@ -1956,7 +1956,7 @@ namespace iroha {
 
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv.value(), R"({"id@domain": {"key": "value"}})");
 
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
@@ -1990,7 +1990,7 @@ namespace iroha {
 
       auto ad = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(ad);
-      ASSERT_EQ(ad.get(),
+      ASSERT_EQ(ad.value(),
                 R"({"id@domain": {"key": "value", "key1": "value1"}})");
     }
 
@@ -2056,7 +2056,7 @@ namespace iroha {
 
       auto kv1 = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv1);
-      ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv1.value(), R"({"id@domain": {"key": "value"}})");
     }
 
     /**
@@ -2071,7 +2071,7 @@ namespace iroha {
               account_id, "key", "value", std::nullopt, true)));
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
-      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+      ASSERT_EQ(kv.value(), R"({"id@domain": {"key": "value"}})");
     }
 
     class SetSettingValueTest : public CommandExecutorTest {};
@@ -2089,7 +2089,7 @@ namespace iroha {
 
       auto setting_value = sql_query->getSettingValue(key);
       ASSERT_TRUE(setting_value);
-      ASSERT_EQ(setting_value.get(), value);
+      ASSERT_EQ(setting_value.value(), value);
     }
 
     /**
@@ -2105,16 +2105,16 @@ namespace iroha {
 
       auto setting_value = sql_query->getSettingValue(key);
       ASSERT_TRUE(setting_value);
-      ASSERT_EQ(setting_value.get(), value);
+      ASSERT_EQ(setting_value.value(), value);
 
       value = "512";
-      ASSERT_NE(setting_value.get(), value);
+      ASSERT_NE(setting_value.value(), value);
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructSetSettingValue(key, value), true));
 
       setting_value = sql_query->getSettingValue(key);
       ASSERT_TRUE(setting_value);
-      ASSERT_EQ(setting_value.get(), value);
+      ASSERT_EQ(setting_value.value(), value);
     }
 
   }  // namespace ametsuchi

@@ -17,12 +17,12 @@ namespace iroha {
      */
     template <typename T>
     struct TxPresenceCacheStub final : public TxPresenceCache {
-      boost::optional<TxCacheStatusType> check(
+      std::optional<TxCacheStatusType> check(
           const shared_model::crypto::Hash &hash) const override {
-        return boost::make_optional<TxCacheStatusType>(T{hash});
+        return std::make_optional<TxCacheStatusType>(T{hash});
       }
 
-      boost::optional<BatchStatusCollectionType> check(
+      std::optional<BatchStatusCollectionType> check(
           const shared_model::interface::TransactionBatch &batch)
           const override {
         BatchStatusCollectionType result;

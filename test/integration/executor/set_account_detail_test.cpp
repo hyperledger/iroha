@@ -188,8 +188,8 @@ TEST_P(SetAccountDetailPermissionTest, CommandPermissionTest) {
 INSTANTIATE_TEST_SUITE_P(
     Common,
     SetAccountDetailPermissionTest,
-    command_permission_test::getParams(boost::none,
-                                       boost::none,
+    command_permission_test::getParams(std::nullopt,
+                                       std::nullopt,
                                        Role::kSetDetail,
                                        Grantable::kSetMyAccountDetail,
                                        true),

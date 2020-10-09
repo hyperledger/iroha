@@ -16,7 +16,7 @@ namespace iroha {
     class MockBlockQueryFactory : public BlockQueryFactory {
      public:
       MOCK_CONST_METHOD0(createBlockQuery,
-                         boost::optional<std::shared_ptr<BlockQuery>>());
+                         std::optional<std::shared_ptr<BlockQuery>>());
     };
 
   }  // namespace ametsuchi

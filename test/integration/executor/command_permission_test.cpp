@@ -102,10 +102,10 @@ decltype(::testing::Combine(
     ::testing::ValuesIn(
         {command_permission_test::SpecificCommandPermissionTestData{}})))
 command_permission_test::getParams(
-    boost::optional<Role> permission_for_myself,
-    boost::optional<Role> permission_for_my_domain,
-    boost::optional<Role> permission_for_everyone,
-    boost::optional<Grantable> grantable_permission,
+    std::optional<Role> permission_for_myself,
+    std::optional<Role> permission_for_my_domain,
+    std::optional<Role> permission_for_everyone,
+    std::optional<Grantable> grantable_permission,
     bool always_allowed_for_myself) {
   std::vector<SpecificCommandPermissionTestData> perm_params;
   const EnumMap<Actor, std::string> actors_map{
@@ -113,11 +113,11 @@ command_permission_test::getParams(
       {Actor::kSameDomain, kSameDomainUserId},
       {Actor::kSecondDomain, kSecondDomainUserId}};
   const RolePermissionSet kNoRolePerms;
-  const boost::optional<Grantable> kNoGrantablePerm;
+  const std::optional<Grantable> kNoGrantablePerm;
 
   auto add_case = [&](ActorRolePermissions role_perm_type,
                       RolePermissionSet role_permissions,
-                      boost::optional<Grantable> granted_permission,
+                      std::optional<Grantable> granted_permission,
                       Actor actor,
                       bool validation_enabled = true) {
     const bool has_granted_permission{granted_permission};
@@ -146,7 +146,7 @@ command_permission_test::getParams(
 
   auto add_role_cases_if_permission_provided =
       [&](ActorRolePermissions role_perm_type,
-          boost::optional<Role> permission) {
+          std::optional<Role> permission) {
         if (permission) {
           add_role_cases(role_perm_type, RolePermissionSet{permission.value()});
         }

@@ -51,12 +51,12 @@ class BlockLoaderTest : public testing::Test {
     peer_query = std::make_shared<MockPeerQuery>();
     peer_query_factory = std::make_shared<MockPeerQueryFactory>();
     EXPECT_CALL(*peer_query_factory, createPeerQuery())
-        .WillRepeatedly(testing::Return(boost::make_optional(
+        .WillRepeatedly(testing::Return(std::make_optional(
             std::shared_ptr<iroha::ametsuchi::PeerQuery>(peer_query))));
     storage = std::make_shared<MockBlockQuery>();
     block_query_factory = std::make_shared<MockBlockQueryFactory>();
     EXPECT_CALL(*block_query_factory, createBlockQuery())
-        .WillRepeatedly(testing::Return(boost::make_optional(
+        .WillRepeatedly(testing::Return(std::make_optional(
             std::shared_ptr<iroha::ametsuchi::BlockQuery>(storage))));
     block_cache = std::make_shared<iroha::consensus::ConsensusResultCache>();
     auto validator_ptr =

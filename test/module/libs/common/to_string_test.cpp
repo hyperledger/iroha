@@ -71,7 +71,7 @@ TEST(ToStringTest, WrappedDereferenceable) {
   MockToStringable *raw_obj = o1.get();
   EXPECT_EQ(toString(o1), kTestString);
   // wrap it into optional
-  auto o2 = boost::make_optional(std::move(o1));
+  auto o2 = std::make_optional(std::move(o1));
   EXPECT_CALL(*raw_obj, toString()).WillOnce(::testing::Return(kTestString));
   EXPECT_EQ(toString(o2), kTestString);
   // wrap it into shared_ptr
@@ -79,7 +79,7 @@ TEST(ToStringTest, WrappedDereferenceable) {
   EXPECT_CALL(*raw_obj, toString()).WillOnce(::testing::Return(kTestString));
   EXPECT_EQ(toString(o3), kTestString);
   // wrap it into one more optional
-  auto o4 = boost::make_optional(std::move(o3));
+  auto o4 = std::make_optional(std::move(o3));
   EXPECT_CALL(*raw_obj, toString()).WillOnce(::testing::Return(kTestString));
   EXPECT_EQ(toString(o4), kTestString);
 }
@@ -94,8 +94,8 @@ TEST(ToStringTest, UnsetDereferenceable) {
   test(std::unique_ptr<int>{});
   test(std::shared_ptr<int>{});
   test(static_cast<int *>(0));
-  test(boost::optional<int>());
-  test(boost::none);
+  test(std::optional<int>());
+  test(std::nullopt);
 }
 
 /**

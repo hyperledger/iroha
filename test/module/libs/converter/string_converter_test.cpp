@@ -23,7 +23,7 @@ TEST(StringConverterTest, ConvertHexToBinary) {
 /**
  * @given invalid hex string
  * @when string is converted to binary string
- * @then boost::none is returned
+ * @then std::nullopt is returned
  */
 TEST(StringConverterTest, InvalidHexToBinary) {
   std::string invalid_hex = "au";

@@ -53,12 +53,12 @@ TEST_F(YacBlockStorageTest, YacBlockStorageWhenNormalDataInput) {
   for (size_t num_inserted = 0; num_inserted < number_of_peers;) {
     auto insert_result = storage.insert(valid_votes.at(num_inserted++));
     if (num_inserted < supermajority) {
-      EXPECT_EQ(boost::none, insert_result)
+      EXPECT_EQ(std::nullopt, insert_result)
           << "Got an Answer after inserting " << num_inserted
           << " votes, before the supermajority reached at " << supermajority;
     } else {
       // after supermajority reached we have a CommitMessage
-      ASSERT_NE(boost::none, insert_result)
+      ASSERT_NE(std::nullopt, insert_result)
           << "Did not get an Answer after inserting " << num_inserted
           << " votes and the supermajority reached at " << supermajority;
       ASSERT_EQ(num_inserted,
@@ -72,7 +72,7 @@ TEST_F(YacBlockStorageTest, YacBlockStorageWhenNotCommittedAndCommitAcheive) {
   log_->info("-----------| Insert vote => insert commit |-----------");
 
   auto insert_1 = storage.insert(valid_votes.at(0));
-  ASSERT_EQ(boost::none, insert_1);
+  ASSERT_EQ(std::nullopt, insert_1);
 
   decltype(YacBlockStorageTest::valid_votes) for_insert(valid_votes.begin() + 1,
                                                         valid_votes.end());

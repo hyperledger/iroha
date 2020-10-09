@@ -18,7 +18,7 @@ namespace iroha {
        public:
         MOCK_METHOD2(
             getOrdering,
-            boost::optional<ClusterOrdering>(
+            std::optional<ClusterOrdering>(
                 const YacHash &,
                 std::vector<
                     std::shared_ptr<shared_model::interface::Peer>> const &));

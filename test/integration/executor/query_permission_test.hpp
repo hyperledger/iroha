@@ -27,11 +27,11 @@ namespace executor_testing {
     decltype(::testing::Combine(
         executor_testing::getExecutorTestParams(),
         ::testing::ValuesIn({SpecificQueryPermissionTestData{}})))
-    getParams(boost::optional<shared_model::interface::permissions::Role>
+    getParams(std::optional<shared_model::interface::permissions::Role>
                   permission_to_query_myself,
-              boost::optional<shared_model::interface::permissions::Role>
+              std::optional<shared_model::interface::permissions::Role>
                   permission_to_query_my_domain,
-              boost::optional<shared_model::interface::permissions::Role>
+              std::optional<shared_model::interface::permissions::Role>
                   permission_to_query_everyone);
 
     template <typename SpecificQueryFixture>

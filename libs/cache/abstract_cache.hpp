@@ -6,7 +6,7 @@
 #ifndef IROHA_ABSTRACT_CACHE_HPP
 #define IROHA_ABSTRACT_CACHE_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include <list>
 #include <shared_mutex>
 #include <string>
@@ -64,7 +64,7 @@ namespace iroha {
        * @param hash - key to find
        * @return Optional of ValueType
        */
-      boost::optional<ValueType> findItem(const KeyType &key) const {
+      std::optional<ValueType> findItem(const KeyType &key) const {
         std::shared_lock<std::shared_timed_mutex> lock(access_mutex_);
         return constUnderlying().findItemImpl(key);
       }

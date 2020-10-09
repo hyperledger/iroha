@@ -24,7 +24,7 @@ namespace integration_framework {
     return getPostgresCredsFromEnv().value_or(kDefaultPostgresCreds);
   }
 
-  boost::optional<std::string> getPostgresCredsFromEnv() {
+  std::optional<std::string> getPostgresCredsFromEnv() {
     auto pg_host = std::getenv("IROHA_POSTGRES_HOST");
     auto pg_port = std::getenv("IROHA_POSTGRES_PORT");
     auto pg_user = std::getenv("IROHA_POSTGRES_USER");

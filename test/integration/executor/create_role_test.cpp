@@ -111,8 +111,8 @@ TEST_P(CreateRolePermissionTest, CommandPermissionTest) {
 
 INSTANTIATE_TEST_SUITE_P(Common,
                          CreateRolePermissionTest,
-                         command_permission_test::getParams(boost::none,
-                                                            boost::none,
+                         command_permission_test::getParams(std::nullopt,
+                                                            std::nullopt,
                                                             Role::kCreateRole,
-                                                            boost::none),
+                                                            std::nullopt),
                          command_permission_test::paramToString);

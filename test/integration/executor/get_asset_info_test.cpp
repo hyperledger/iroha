@@ -74,7 +74,7 @@ TEST_P(GetAssetInfoPermissionTest, QueryPermissionTest) {
 
 INSTANTIATE_TEST_SUITE_P(Common,
                          GetAssetInfoPermissionTest,
-                         query_permission_test::getParams({boost::none},
-                                                          {boost::none},
+                         query_permission_test::getParams({std::nullopt},
+                                                          {std::nullopt},
                                                           {Role::kReadAssets}),
                          query_permission_test::paramToString);

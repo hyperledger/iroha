@@ -23,7 +23,7 @@ namespace integration_framework {
           std::make_shared<BatchesCollection>(std::move(batches)));
     }
 
-    boost::optional<
+    std::optional<
         std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>>
     OnDemandOsNetworkNotifier::onRequestProposal(
         iroha::consensus::Round round) {
