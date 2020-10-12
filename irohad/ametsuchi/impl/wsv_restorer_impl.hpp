@@ -11,7 +11,23 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "common/result.hpp"
 
+namespace shared_model {
+  namespace interface {
+    class Block;
+  }
+  namespace validation {
+    template <typename Model>
+    class AbstractValidator;
+  }
+}  // namespace shared_model
+
 namespace iroha {
+  namespace protocol {
+    class Block_v1;
+  }
+  namespace validation {
+    class ChainValidator;
+  }
   namespace ametsuchi {
 
     /**
@@ -20,6 +36,13 @@ namespace iroha {
      */
     class WsvRestorerImpl : public WsvRestorer {
      public:
+      WsvRestorerImpl(
+          std::unique_ptr<shared_model::validation::AbstractValidator<
+              shared_model::interface::Block>> interface_validator,
+          std::unique_ptr<shared_model::validation::AbstractValidator<
+              iroha::protocol::Block_v1>> proto_validator,
+          std::shared_ptr<validation::ChainValidator> validator);
+
       virtual ~WsvRestorerImpl() = default;
       /**
        * Recover WSV (World State View).
@@ -29,6 +52,15 @@ namespace iroha {
        * string
        */
       CommitResult restoreWsv(Storage &storage) override;
+
+     private:
+      std::unique_ptr<shared_model::validation::AbstractValidator<
+          shared_model::interface::Block>>
+          interface_validator_;
+      std::unique_ptr<shared_model::validation::AbstractValidator<
+          iroha::protocol::Block_v1>>
+          proto_validator_;
+      std::shared_ptr<validation::ChainValidator> validator_;
     };
 
   }  // namespace ametsuchi

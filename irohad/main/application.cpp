@@ -180,6 +180,8 @@ Irohad::RunResult Irohad::init() {
   // clang-format off
   return initSettings()
   | [this]{ return initValidatorsConfigs();}
+  | [this]{ return initBatchParser();}
+  | [this]{ return initValidators();}
   | [this]{ return initWsvRestorer(); // Recover WSV from the existing ledger
                                       // to be sure it is consistent
   }
@@ -189,8 +191,6 @@ Irohad::RunResult Irohad::init() {
   | [this]{ return initPeerCertProvider();}
   | [this]{ return initClientFactory();}
   | [this]{ return initCryptoProvider();}
-  | [this]{ return initBatchParser();}
-  | [this]{ return initValidators();}
   | [this]{ return initNetworkClient();}
   | [this]{ return initFactories();}
   | [this]{ return initPersistentCache();}
@@ -908,7 +908,15 @@ Irohad::RunResult Irohad::initQueryService() {
 }
 
 Irohad::RunResult Irohad::initWsvRestorer() {
-  wsv_restorer_ = std::make_shared<iroha::ametsuchi::WsvRestorerImpl>();
+  auto interface_validator =
+      std::make_unique<shared_model::validation::DefaultSignedBlockValidator>(
+          block_validators_config_);
+  auto proto_validator =
+      std::make_unique<shared_model::validation::ProtoBlockValidator>();
+  wsv_restorer_ = std::make_shared<iroha::ametsuchi::WsvRestorerImpl>(
+      std::move(interface_validator),
+      std::move(proto_validator),
+      chain_validator);
   return {};
 }
 
