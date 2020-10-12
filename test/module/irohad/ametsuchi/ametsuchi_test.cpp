@@ -24,6 +24,7 @@
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "validation/chain_validator.hpp"
 
 using namespace common_constants;
 using namespace iroha::ametsuchi;
@@ -445,6 +446,19 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
   wrapper.unsubscribe();
 }
 
+class IdentityChainValidator : public iroha::validation::ChainValidator {
+ public:
+  bool validateAndApply(
+      rxcpp::observable<std::shared_ptr<shared_model::interface::Block>> blocks,
+      MutableStorage &storage) const override {
+    return storage.apply(blocks, [](auto const &, auto &) { return true; });
+  }
+};
+using MockBlockIValidator =
+    shared_model::validation::MockValidator<shared_model::interface::Block>;
+using MockBlockPValidator =
+    shared_model::validation::MockValidator<iroha::protocol::Block_v1>;
+
 /**
  * @given empty WSV and a genesis block in block storage
  * @when WSV is restored from block storage
@@ -476,7 +490,12 @@ TEST_F(AmetsuchiTest, TestRestoreWsvFromBlockStorage) {
   EXPECT_FALSE(res);
 
   // recover WSV from block storage and check it is recovered
-  WsvRestorerImpl wsvRestorer;
+  auto chain_validator = std::make_shared<IdentityChainValidator>();
+  auto interface_validator = std::make_unique<MockBlockIValidator>();
+  auto proto_validator = std::make_unique<MockBlockPValidator>();
+  WsvRestorerImpl wsvRestorer(std::move(interface_validator),
+                              std::move(proto_validator),
+                              chain_validator);
   wsvRestorer.restoreWsv(*storage).match([](const auto &) {},
                                          [&](const auto &error) {
                                            FAIL() << "Failed to recover WSV: "
@@ -519,7 +538,12 @@ class RestoreWsvTest : public AmetsuchiTest {
   }
 
   void restoreWsv() {
-    WsvRestorerImpl wsvRestorer;
+    auto chain_validator = std::make_shared<IdentityChainValidator>();
+    auto interface_validator = std::make_unique<MockBlockIValidator>();
+    auto proto_validator = std::make_unique<MockBlockPValidator>();
+    WsvRestorerImpl wsvRestorer(std::move(interface_validator),
+                                std::move(proto_validator),
+                                chain_validator);
     wsvRestorer.restoreWsv(*storage).match([](const auto &) {},
                                            [&](const auto &error) {
                                              FAIL() << "Failed to recover WSV: "
@@ -528,7 +552,12 @@ class RestoreWsvTest : public AmetsuchiTest {
   }
 
   void checkRestoreWsvError(const std::string error_substr) {
-    WsvRestorerImpl wsvRestorer;
+    auto chain_validator = std::make_shared<IdentityChainValidator>();
+    auto interface_validator = std::make_unique<MockBlockIValidator>();
+    auto proto_validator = std::make_unique<MockBlockPValidator>();
+    WsvRestorerImpl wsvRestorer(std::move(interface_validator),
+                                std::move(proto_validator),
+                                chain_validator);
     wsvRestorer.restoreWsv(*storage).match(
         [](const auto &) { FAIL() << "Should have failed to recover WSV."; },
         [&](const auto &error) {
