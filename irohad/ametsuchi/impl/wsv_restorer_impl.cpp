@@ -5,16 +5,20 @@
 
 #include "wsv_restorer_impl.hpp"
 
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_query.hpp"
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/storage.hpp"
+#include "backend/protobuf/block.hpp"
 #include "common/bind.hpp"
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
+#include "validation/chain_validator.hpp"
+#include "validators/abstract_validator.hpp"
 
 using shared_model::interface::types::HeightType;
 
@@ -73,6 +77,9 @@ namespace {
    * @param storage - current storage
    * @param mutable_storage - mutable storage without blocks
    * @param block_query - current block storage
+   * @param interface_validator - block interface validator
+   * @param proto_validator - block proto backend validator
+   * @param validator - chain validator
    * @param starting_height - the first block to apply
    * @param ending_height - the last block to apply (inclusive)
    * @return commit status after applying the blocks
@@ -80,40 +87,85 @@ namespace {
   iroha::ametsuchi::CommitResult reindexBlocks(
       iroha::ametsuchi::Storage &storage,
       std::unique_ptr<iroha::ametsuchi::MutableStorage> &mutable_storage,
-      std::shared_ptr<iroha::ametsuchi::BlockQuery> &block_query,
+      iroha::ametsuchi::BlockQuery &block_query,
+      shared_model::validation::AbstractValidator<
+          shared_model::interface::Block> &interface_validator,
+      shared_model::validation::AbstractValidator<iroha::protocol::Block_v1>
+          &proto_validator,
+      iroha::validation::ChainValidator &validator,
       HeightType starting_height,
       HeightType ending_height) {
-    for (auto i = starting_height; i <= ending_height; ++i) {
-      auto result = block_query->getBlock(i).match(
-          [&mutable_storage](
-              auto &&block) -> iroha::expected::Result<void, std::string> {
-            if (not mutable_storage->apply(std::move(block).value)) {
-              return iroha::expected::makeError("Cannot apply block!");
-            }
-            return iroha::expected::Value<void>();
-          },
-          [](auto &&err) -> iroha::expected::Result<void, std::string> {
-            return std::move(err).error.message;
-          });
+    auto blocks = rxcpp::observable<>::create<
+        std::shared_ptr<shared_model::interface::Block>>([&block_query,
+                                                          &interface_validator,
+                                                          &proto_validator,
+                                                          starting_height,
+                                                          ending_height](
+                                                             auto s) {
+      for (auto height = starting_height; height <= ending_height; ++height) {
+        auto result = block_query.getBlock(height);
+        if (auto e = iroha::expected::resultToOptionalError(result)) {
+          s.on_error(std::make_exception_ptr(
+              std::runtime_error(std::move(e).value().message)));
+          return;
+        }
 
-      if (auto e = iroha::expected::resultToOptionalError(result)) {
-        return std::move(e).value();
+        auto block = std::move(result).assumeValue();
+        if (height != block->height()) {
+          s.on_error(std::make_exception_ptr(std::runtime_error(
+              "inconsistent block height in block storage")));
+          return;
+        }
+
+        // do not validate genesis block - transactions may not have creators,
+        // block is not signed
+        if (height != 1) {
+          if (auto error = proto_validator.validate(
+                  static_cast<shared_model::proto::Block *>(block.get())
+                      ->getTransport())) {
+            s.on_error(
+                std::make_exception_ptr(std::runtime_error(error->toString())));
+            return;
+          }
+
+          if (auto error = interface_validator.validate(*block)) {
+            s.on_error(
+                std::make_exception_ptr(std::runtime_error(error->toString())));
+            return;
+          }
+        }
+
+        s.on_next(std::move(block));
       }
+      s.on_completed();
+    });
+    if (validator.validateAndApply(blocks, *mutable_storage)) {
+      return storage.commit(std::move(mutable_storage));
+    } else {
+      return iroha::expected::makeError("Cannot validate and apply blocks!");
     }
-
-    return storage.commit(std::move(mutable_storage));
   }
 }  // namespace
 
 namespace iroha::ametsuchi {
+  WsvRestorerImpl::WsvRestorerImpl(
+      std::unique_ptr<shared_model::validation::AbstractValidator<
+          shared_model::interface::Block>> interface_validator,
+      std::unique_ptr<shared_model::validation::AbstractValidator<
+          iroha::protocol::Block_v1>> proto_validator,
+      std::shared_ptr<validation::ChainValidator> validator)
+      : interface_validator_{std::move(interface_validator)},
+        proto_validator_{std::move(proto_validator)},
+        validator_{std::move(validator)} {}
+
   CommitResult WsvRestorerImpl::restoreWsv(Storage &storage) {
     return storage.createCommandExecutor() |
-               [&storage](auto &&command_executor) -> CommitResult {
+               [this, &storage](auto &&command_executor) -> CommitResult {
       BlockStorageStubFactory storage_factory;
 
       return storage.createMutableStorage(std::move(command_executor),
                                           storage_factory)
-                 | [&storage](auto &&mutable_storage) -> CommitResult {
+                 | [this, &storage](auto &&mutable_storage) -> CommitResult {
         auto block_query = storage.getBlockQuery();
         if (not block_query) {
           return expected::makeError("Cannot create BlockQuery");
@@ -171,7 +223,10 @@ namespace iroha::ametsuchi {
 
         return reindexBlocks(storage,
                              mutable_storage,
-                             block_query,
+                             *block_query,
+                             *interface_validator_,
+                             *proto_validator_,
+                             *validator_,
                              wsv_ledger_height + 1,
                              last_block_in_storage);
       };
