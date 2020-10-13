@@ -49,6 +49,12 @@ namespace config_members {
   extern const char *PublicKey;
   extern const char *TlsCertificatePath;
   extern const char *UtilityService;
+  extern const char *kCrypto;
+  extern const char *kProviders;
+  extern const char *kCryptoType;
+  extern const char *kSigner;
+  extern const char *kCryptoProviderDefault;
+  extern const char *PrivateKey;
 
 }  // namespace config_members
 
