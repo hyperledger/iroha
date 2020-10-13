@@ -25,6 +25,7 @@ namespace iroha {
       // --- public key and signature types ---
       //
       ed25519pub = 0xed,
+      ed25519_sha3_256 = 0x15a16d,
 
     };
   }  // namespace multihash

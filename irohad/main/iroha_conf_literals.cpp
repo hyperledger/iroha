@@ -49,4 +49,10 @@ namespace config_members {
   const char *InitialPeers = "initial_peers";
   const char *TlsCertificatePath = "tls_certificate_path";
   const char *UtilityService = "utility_service";
+  const char *kCrypto = "crypto";
+  const char *kProviders = "providers";
+  const char *kCryptoType = "crypto_type";
+  const char *kSigner = "signer";
+  const char *kCryptoProviderDefault = "default";
+  const char *PrivateKey = "private_key";
 }  // namespace config_members
