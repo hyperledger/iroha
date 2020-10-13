@@ -54,6 +54,12 @@ namespace config_members {
   extern const char *PythonPaths;
   extern const char *ModuleName;
   extern const char *InitArgument;
+  extern const char *kCrypto;
+  extern const char *kProviders;
+  extern const char *kCryptoType;
+  extern const char *kSigner;
+  extern const char *kCryptoProviderDefault;
+  extern const char *PrivateKey;
 
 }  // namespace config_members
 

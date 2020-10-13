@@ -14,7 +14,9 @@
 #include "common/result_fwd.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "logger/logger_fwd.hpp"
 #include "logger/logger_manager.hpp"
+#include "multihash/type.hpp"
 #include "torii/tls_params.hpp"
 
 struct IrohadConfig {
@@ -78,16 +80,38 @@ struct IrohadConfig {
   boost::optional<shared_model::interface::types::PeerList> initial_peers;
   boost::optional<UtilityService> utility_service;
   boost::optional<std::vector<DataModelModule>> data_model_modules;
+
+  // This is a part of cryto providers feature:
+  // https://github.com/MBoldyrev/iroha/tree/feature/hsm-utimaco.
+  // This brings unnecessary complexity, but the aim is that this config section
+  // should require no modifications from users when the feature branch is
+  // merged.
+  struct Crypto {
+    struct Default {
+      static char const *kName;
+      iroha::multihash::Type type;
+      std::optional<std::string> private_key;
+    };
+
+    using ProviderId = std::string;
+    using ProviderList = std::unordered_map<ProviderId, Default>;
+
+    ProviderList providers;
+    ProviderId signer;
+  };
+
+  boost::optional<Crypto> crypto;
 };
 
 /**
  * parse and assert trusted peers json in `iroha.conf`
- * @param conf_path is a path to iroha's config
+ * @param conf_text is the contents of iroha's config file
  * @return a parsed equivalent of that file
  */
 iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
     const std::string &conf_path,
     std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-        common_objects_factory);
+        common_objects_factory,
+    std::optional<logger::LoggerPtr> log);
 
 #endif  // IROHA_CONF_LOADER_HPP

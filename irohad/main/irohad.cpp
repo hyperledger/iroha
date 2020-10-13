@@ -18,9 +18,11 @@
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/bind.hpp"
 #include "common/files.hpp"
+#include "common/hexutils.hpp"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/application.hpp"
@@ -33,6 +35,11 @@
 #include "util/utility_service.hpp"
 #include "validators/field_validator.hpp"
 
+#if defined(USE_LIBURSA)
+#include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
+#define ED25519_PROVIDER shared_model::crypto::CryptoProviderEd25519Ursa
+#endif
+
 static const std::string kListenIp = "0.0.0.0";
 static const std::string kLogSettingsFromConfigFile = "config_file";
 static const uint32_t kMstExpirationTimeDefault = 1440;
@@ -42,37 +49,9 @@ static const std::string kDefaultWorkingDatabaseName{"iroha_default"};
 static const std::chrono::milliseconds kExitCheckPeriod{1000};
 
 /**
- * Gflag validator.
- * Validator for the configuration file path input argument.
- * Path is considered to be valid if it is not empty.
- * @param flag_name - flag name. Must be 'config' in this case
- * @param path      - file name. Should be path to the config file
- * @return true if argument is valid
- */
-bool validate_config(const char *flag_name, std::string const &path) {
-  return not path.empty();
-}
-
-/**
- * Gflag validator.
- * Validator for the keypair files path input argument.
- * Path is considered to be valid if it is not empty.
- * @param flag_name - flag name. Must be 'keypair_name' in this case
- * @param path      - file name. Should be path to the keypair files
- * @return true if argument is valid
- */
-bool validate_keypair_name(const char *flag_name, std::string const &path) {
-  return not path.empty();
-}
-
-/**
  * Creating input argument for the configuration file location.
  */
 DEFINE_string(config, "", "Specify iroha provisioning path.");
-/**
- * Registering validator for the configuration file location.
- */
-DEFINE_validator(config, &validate_config);
 
 /**
  * Creating input argument for the genesis block file location.
@@ -83,10 +62,6 @@ DEFINE_string(genesis_block, "", "Specify file with initial block");
  * Creating input argument for the keypair files location.
  */
 DEFINE_string(keypair_name, "", "Specify name of .pub and .priv files");
-/**
- * Registering validator for the keypair files location.
- */
-DEFINE_validator(keypair_name, &validate_keypair_name);
 
 /**
  * Creating boolean flag for overwriting already existing block storage
@@ -125,6 +100,51 @@ std::mutex shutdown_wait_mutex;
 std::lock_guard<std::mutex> shutdown_wait_locker(shutdown_wait_mutex);
 std::shared_ptr<iroha::utility_service::StatusNotifier> daemon_status_notifier =
     std::make_shared<iroha::utility_service::StatusNotifier>();
+
+static shared_model::crypto::Keypair getKeypairFromConfig(
+    IrohadConfig::Crypto const &config) {
+  auto const provider_it = config.providers.find(config.signer);
+  if (provider_it == config.providers.end()) {
+    throw std::runtime_error{
+        fmt::format("crypto provider `{}' is not specified", config.signer)};
+  }
+  auto const &signer = provider_it->second;
+
+  auto make_seed_from_hex = [](auto const &hex) {
+    return shared_model::crypto::Seed{
+        iroha::hexstringToBytestringResult(hex).assumeValue()};
+  };
+
+  switch (signer.type) {
+    case iroha::multihash::Type::ed25519_sha3_256:
+      return shared_model::crypto::CryptoProviderEd25519Sha3::generateKeypair(
+          make_seed_from_hex(signer.private_key.value()));
+#if defined(USE_LIBURSA)
+    case iroha::multihash::Type::ed25519pub:
+      return ED25519_PROVIDER::generateKeypair(
+          make_seed_from_hex(signer.private_key.value()));
+#endif
+    default:
+      daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+      throw std::runtime_error{"unsupported crypto algorithm"};
+  }
+}
+
+static shared_model::crypto::Keypair getKeypairFromFile(
+    std::string const &keypair_name, logger::LoggerManagerTreePtr log_manager) {
+  iroha::KeysManagerImpl keys_manager{
+      keypair_name, log_manager->getChild("KeysManager")->getLogger()};
+
+  using shared_model::crypto::Keypair;
+  return keys_manager.loadKeys(boost::none)
+      .match([](auto &&keypair_val) { return std::move(keypair_val).value; },
+             [&](auto const &e) -> Keypair {
+               daemon_status_notifier->notify(
+                   ::iroha::utility_service::Status::kFailed);
+               throw std::runtime_error{
+                   fmt::format("Failed to load keypair: {}", e.error)};
+             });
+}
 
 void initUtilityService(
     const IrohadConfig::UtilityService &config,
@@ -199,22 +219,16 @@ int main(int argc, char *argv[]) {
     log = log_manager->getChild("Init")->getLogger();
   }
 
-  // Check if validators are registered.
-  if (not config_validator_registered
-      or not keypair_name_validator_registered) {
-    // Abort execution if not
-    if (log) {
-      log->error("Flag validator is not registered");
-    }
-    return EXIT_FAILURE;
-  }
-
   // Reading iroha configuration file
+  std::optional<logger::LoggerPtr> maybe_log;
+  if (log) {
+    maybe_log = log;
+  }
   auto config_result =
-      parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
+      parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), maybe_log);
   if (auto e = iroha::expected::resultToOptionalError(config_result)) {
     if (log) {
-      log->error("Failed reading the configuration file: {}", e.value());
+      log->error("Failed reading the configuration: {}", e.value());
     }
     return EXIT_FAILURE;
   }
@@ -247,17 +261,9 @@ int main(int argc, char *argv[]) {
   daemon_status_notifier->notify(
       ::iroha::utility_service::Status::kInitialization);
 
-  // Reading public and private key files
-  iroha::KeysManagerImpl keysManager(
-      FLAGS_keypair_name, log_manager->getChild("KeysManager")->getLogger());
-  auto keypair = keysManager.loadKeys(boost::none);
-  // Check if both keys are read properly
-  if (auto e = iroha::expected::resultToOptionalError(keypair)) {
-    // Abort execution if not
-    log->error("Failed to load keypair: {}", e.value());
-    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
-    return EXIT_FAILURE;
-  }
+  auto keypair = config.crypto
+      ? getKeypairFromConfig(config.crypto.value())
+      : getKeypairFromFile(FLAGS_keypair_name, log_manager);
 
   std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt;
   if (config.database_config) {
@@ -292,7 +298,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(config.vote_delay),
       std::chrono::minutes(
           config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
-      std::move(keypair).assumeValue(),
+      std::move(keypair),
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
