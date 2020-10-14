@@ -15,7 +15,7 @@ mod tests {
     const MAX_FAULTS: usize = 1;
 
     #[test]
-    //TODO: use cucumber to write `gherkin` instead of code.
+    //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer() {
         // Given
         let configuration =

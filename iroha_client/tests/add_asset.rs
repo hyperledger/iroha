@@ -11,7 +11,7 @@ use tempfile::TempDir;
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
 #[test]
-//TODO: use cucumber to write `gherkin` instead of code.
+//TODO: use cucumber_rust to write `gherkin` instead of code.
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     // Given
     thread::spawn(create_and_start_iroha);
