@@ -8,9 +8,8 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use std::{thread, time::Duration};
+use std::{thread, time::Duration, convert::Infallible};
 use tempfile::TempDir;
-use std::{convert::Infallible};
 
 const CONFIGURATION_PATH: &str = "tests/single_config.json";
 
