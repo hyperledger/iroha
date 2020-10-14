@@ -1,6 +1,6 @@
 use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
-use cucumber::{Cucumber, World};
+use cucumber_rust::{Cucumber, World};
 use futures::executor;
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
@@ -8,7 +8,7 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use std::{thread, time::Duration};
+use std::{convert::Infallible, thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/single_config.json";
@@ -24,32 +24,33 @@ pub struct IrohaWorld {
 
 #[async_trait(?Send)]
 impl World for IrohaWorld {
-    async fn new() -> Self {
+    type Error = Infallible;
+    async fn new() -> Result<Self, Infallible> {
         let mut configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         let free_port = port_check::free_local_port().expect("Failed to allocate a free port.");
         println!("Free port: {}", free_port);
         configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
         let iroha_client = Client::new(&configuration);
-        IrohaWorld {
+        Ok(IrohaWorld {
             client: iroha_client,
             peer_id: PeerId::new(&configuration.torii_api_url, &configuration.public_key),
             block_build_time: 300,
             iroha_port: free_port,
             result: Option::None,
             join_handle: Option::None,
-        }
+        })
     }
 }
 
 mod iroha_steps {
     use super::*;
-    use cucumber::Steps;
+    use cucumber_rust::Steps;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
         steps
-            .given_sync("Iroha Peer is up", |mut world, _step| {
+            .given("Iroha Peer is up", |mut world, _step| {
                 let iroha_port = world.iroha_port;
                 world.join_handle = Some(task::spawn(async move {
                     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
@@ -67,7 +68,7 @@ mod iroha_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time));
                 world
             })
-            .then_sync("Iroha Peer is down", |mut world, _step| {
+            .then("Iroha Peer is down", |mut world, _step| {
                 if let Some(join_handle) = world.join_handle {
                     executor::block_on(async {
                         join_handle.cancel().await;
@@ -83,11 +84,11 @@ mod iroha_steps {
 
 mod asset_steps {
     use super::*;
-    use cucumber::Steps;
+    use cucumber_rust::Steps;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps.given_regex_sync(
+        steps.given_regex(
             r"^Peer has Asset Definition with name (.+) and domain (.+)$",
             | mut world,
             matches,
@@ -110,7 +111,7 @@ mod asset_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             }
-        ).given_regex_sync(
+        ).given_regex(
             r"^(.+) Account in domain (.+) has (\d+) amount of Asset with definition (.+) in domain (.+)$",
             | mut world,
             matches,
@@ -136,7 +137,7 @@ mod asset_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             }
-        ).then_regex_sync(
+        ).then_regex(
             r"^Peer has Asset with definition (.+) in domain (.+) and under account (.+) in domain (.+)$",
             | mut world,
             matches,
@@ -159,7 +160,7 @@ mod asset_steps {
                 }
                 world
             }
-        ).then_regex_sync(
+        ).then_regex(
             r"^(.+) Account in domain (.+) has (\d+) amount of Asset with definition (.+) in domain (.+)$",
             | mut world,
             matches,
@@ -195,12 +196,12 @@ mod asset_steps {
 
 mod account_steps {
     use super::*;
-    use cucumber::Steps;
+    use cucumber_rust::Steps;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
         steps
-            .given_regex_sync(
+            .given_regex(
                 r"^Peer has Account with name (.+) and domain (.+)$",
                 | mut world,
                 matches,
@@ -221,7 +222,7 @@ mod account_steps {
                     world
                 }
         )
-            .given_regex_sync(
+            .given_regex(
                 r"^(.+) Account in domain (.+) has (\d) quantity of Asset with definition (.+) in domain (.+)$",
                 |
                 mut world,
@@ -255,7 +256,7 @@ mod account_steps {
                     world
                 }
         )
-            .then_regex_sync(
+            .then_regex(
                 r"^Peer has Account with name (.+) and domain (.+)$",
                 | mut world,
                 matches,
@@ -282,12 +283,12 @@ mod account_steps {
 
 mod domain_steps {
     use super::*;
-    use cucumber::Steps;
+    use cucumber_rust::Steps;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
         steps
-            .given_regex_sync(
+            .given_regex(
                 r"^Peer has Domain with name (.+)$",
                 |mut world, matches, _step| {
                     let domain_name = matches[1].trim();
@@ -304,7 +305,7 @@ mod domain_steps {
                     world
                 },
             )
-            .then_regex_sync(
+            .then_regex(
                 r"^Peer has Domain with name (.+)$",
                 |mut world, matches, _step| {
                     let domain_name = matches[1].trim();
@@ -328,12 +329,12 @@ mod domain_steps {
 
 mod query_steps {
     use super::*;
-    use cucumber::Steps;
+    use cucumber_rust::Steps;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
         steps
-            .when_regex_sync(
+            .when_regex(
                 r"^(.+) Account from (.+) domain requests all domains$",
                 |mut world, matches, _step| {
                     let account_name = matches[1].trim();
@@ -355,7 +356,7 @@ mod query_steps {
                     world
                 },
             )
-            .when_regex_sync(
+            .when_regex(
                 r"^(.+) Account from (.+) domain requests all assets$",
                 |mut world, matches, _step| {
                     let account_name = matches[1].trim();
@@ -377,7 +378,7 @@ mod query_steps {
                     world
                 },
             )
-            .when_regex_sync(
+            .when_regex(
                 r"^(.+) Account from (.+) domain requests all accounts$",
                 |mut world, matches, _step| {
                     let account_name = matches[1].trim();
@@ -399,7 +400,7 @@ mod query_steps {
                     world
                 },
             )
-            .when_regex_sync(
+            .when_regex(
                 r"^(.+) Account from (.+) domain requests all asset definitions$",
                 |mut world, matches, _step| {
                     let account_name = matches[1].trim();
@@ -421,7 +422,7 @@ mod query_steps {
                     world
                 },
             )
-            .then_regex_sync(
+            .then_regex(
                 r"^QueryResult has Domain with name (.+)$",
                 |world, matches, _step| {
                     let domain_name = matches[1].trim();
@@ -438,7 +439,7 @@ mod query_steps {
                     world
                 },
             )
-            .then_regex_sync(
+            .then_regex(
                 r"^QueryResult has Account with name (.+)$",
                 |world, matches, _step| {
                     let account_name = matches[1].trim();
@@ -460,7 +461,7 @@ mod query_steps {
                     world
                 },
             )
-            .then_regex_sync(
+            .then_regex(
                 r"^QueryResult has Asset Definition with name (.+) and domain (.+)$",
                 |world, matches, _step| {
                     let asset_definition_name = matches[1].trim();
@@ -493,7 +494,7 @@ mod query_steps {
                     world
                 },
             )
-            .then_regex_sync(
+            .then_regex(
                 r"^QueryResult has Asset with definition (.+) in domain (.+)$",
                 |world, matches, _step| {
                     let asset_definition_name = matches[1].trim();
@@ -532,11 +533,11 @@ mod query_steps {
 
 mod peer_steps {
     use super::*;
-    use cucumber::Steps;
+    use cucumber_rust::Steps;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps.when_regex_sync(
+        steps.when_regex(
             r"(.+) Account from (.+) domain registers new Trusted Peer with URL (.+) and Public Key (.+)$",
             | mut world,
             matches,
@@ -562,7 +563,7 @@ mod peer_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain sets Maximum Faulty Peers Amount to (\d+)$",
             | mut world,
             matches,
@@ -583,7 +584,7 @@ mod peer_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain sets Commit Time to (\d+) milliseconds$",
             | mut world,
             matches,
@@ -606,7 +607,7 @@ mod peer_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain sets Transaction Receipt Time to (\d+) milliseconds$",
             | mut world,
             matches,
@@ -629,7 +630,7 @@ mod peer_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain sets Block Time to (\d+) milliseconds$",
             | mut world,
             matches,
@@ -652,7 +653,7 @@ mod peer_steps {
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain requests List of Trusted Peers$",
             | mut world,
             matches,
@@ -672,7 +673,7 @@ mod peer_steps {
                 }
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain requests Maximum Faulty Peers Amount$",
             | mut world,
             matches,
@@ -692,7 +693,7 @@ mod peer_steps {
                 }
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain requests Commit Time$",
             | mut world,
             matches,
@@ -713,7 +714,7 @@ mod peer_steps {
                 }
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain requests Transaction Receipt Time$",
             | mut world,
             matches,
@@ -734,7 +735,7 @@ mod peer_steps {
                 }
                 world
             })
-        .when_regex_sync(
+        .when_regex(
             r"(.+) Account from (.+) domain requests Block Time$",
             | mut world,
             matches,
@@ -755,7 +756,7 @@ mod peer_steps {
                 }
                 world
             })
-        .then_regex_sync(
+        .then_regex(
             r"QueryResult contains Trusted Peer with URL (.+) and Public Key (.+)$",
             | world,
             matches,
@@ -768,7 +769,7 @@ mod peer_steps {
                 }
                 world
             })
-        .then_regex_sync(
+        .then_regex(
             r"QueryResult contains Parameter Maximum Faulty Peers Amount with value (\d+)$",
             | world,
             matches,
@@ -779,7 +780,7 @@ mod peer_steps {
                 }
                 world
             })
-        .then_regex_sync(
+        .then_regex(
             r"QueryResult contains Parameter Commit Time with value (\d+)$",
             | world,
             matches,
@@ -790,7 +791,7 @@ mod peer_steps {
                 }
                 world
             })
-        .then_regex_sync(
+        .then_regex(
             r"QueryResult contains Parameter Transaction Receipt Time with value (\d+)$",
             | world,
             matches,
@@ -801,7 +802,7 @@ mod peer_steps {
                 }
                 world
             })
-        .then_regex_sync(
+        .then_regex(
             r"QueryResult contains Parameter Block Time with value (\d+)$",
             | world,
             matches,
