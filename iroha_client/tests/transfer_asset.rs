@@ -13,7 +13,7 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[test]
-    //TODO: use cucumber to write `gherkin` instead of code.
+    //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn client_can_transfer_asset_to_another_account() {
         // Given
         thread::spawn(create_and_start_iroha);
