@@ -236,15 +236,19 @@ To build Iroha, use these commands:
 
 .. code-block:: shell
 
-  cmake -H. -Bbuild -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja"
-  cmake --build build --target irohad -- -j<number of threads>
+  mkdir build
+  cd build
+  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
+  cmake --build . --target irohad -- -j<number of threads>
 
 .. warning:: If you want to use tests later, instead of building `irohad` target, you need to use this:
 
 .. code-block:: shell
 
-  cmake -H. -Bbuild -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja"
-  cmake --build build --target all -- -j<number of threads>
+  mkdir build
+  cd build
+  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
+  cmake --build . --target all -- -j<number of threads>
 
 .. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
   environment please use the path you have got in previous steps.

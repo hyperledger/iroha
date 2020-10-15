@@ -89,6 +89,22 @@ namespace framework {
                      std::unique_ptr<VerificationStrategy<T>> strategy)
           : unwrapped_(unwrapped_observable), strategy_(std::move(strategy)) {}
 
+      TestSubscriber(const TestSubscriber &) = delete;
+
+      TestSubscriber(TestSubscriber &&o) noexcept
+          : unwrapped_(std::move(o.unwrapped_)),
+            strategy_(std::move(o.strategy_)),
+            subscription_(std::move(o.subscription_)) {}
+
+      TestSubscriber &operator=(const TestSubscriber &) = delete;
+
+      TestSubscriber &operator=(TestSubscriber &&o) noexcept {
+        std::swap(unwrapped_, o.unwrapped_);
+        std::swap(strategy_, o.strategy_);
+        std::swap(subscription_, o.subscription_);
+        return *this;
+      }
+
       /**
        * Method provide subscription
        * for wrapped observable with checking invariant.
@@ -99,28 +115,35 @@ namespace framework {
           std::function<void(std::exception_ptr)> error =
               [](std::exception_ptr) {},
           std::function<void()> completed = []() {}) {
+        auto strategy = std::weak_ptr<VerificationStrategy<T>>(strategy_);
         unwrapped_.subscribe(subscription_,
-                             [this, subscriber](T val) {
-                               // verify before invariant
-                               this->strategy_->on_next_before(val);
+                             [strategy, subscriber](T val) {
+                               if (auto s = strategy.lock()) {
+                                 // verify before invariant
+                                 s->on_next_before(val);
 
-                               // invoke subscriber
-                               subscriber(val);
+                                 // invoke subscriber
+                                 subscriber(val);
 
-                               // verify after invariant
-                               this->strategy_->on_next_after(val);
+                                 // verify after invariant
+                                 s->on_next_after(val);
+                               }
                              },
-                             [this, error](std::exception_ptr ep) {
-                               // invoke subscriber
-                               error(ep);
+                             [strategy, error](std::exception_ptr ep) {
+                               if (auto s = strategy.lock()) {
+                                 // invoke subscriber
+                                 error(ep);
 
-                               this->strategy_->on_error(ep);
+                                 s->on_error(ep);
+                               }
                              },
-                             [this, completed]() {
-                               // invoke subscriber
-                               completed();
+                             [strategy, completed]() {
+                               if (auto s = strategy.lock()) {
+                                 // invoke subscriber
+                                 completed();
 
-                               this->strategy_->on_completed();
+                                 s->on_completed();
+                               }
                              });
 
         return *this;
@@ -144,7 +167,7 @@ namespace framework {
 
      private:
       Observable unwrapped_;
-      std::unique_ptr<VerificationStrategy<T>> strategy_;
+      std::shared_ptr<VerificationStrategy<T>> strategy_;
       rxcpp::composite_subscription subscription_;
     };
 

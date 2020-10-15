@@ -45,8 +45,8 @@ namespace iroha {
       const size_t kMaxPayloadSize =
           std::min(kTargetCapacityVarIntChunks,
                    std::min(kMaxVarIntLength, buffer.size()));
-      auto const *const beg = &buffer[0];
-      auto const *const end = &buffer[kMaxPayloadSize];
+      auto const *const beg = buffer.data();
+      auto const *const end = beg + kMaxPayloadSize;
       auto const *ptr = beg;
       bool is_last_block_read = false;
       size_t bytes_read = 0;

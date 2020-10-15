@@ -23,7 +23,7 @@ namespace shared_model {
       if (block.block_version_case() == iroha::protocol::Block::kBlockV1) {
         const auto &payload = block.block_v1().payload();
 
-        for (const auto &hash : payload.rejected_transactions_hashes()
+        for (auto hash : payload.rejected_transactions_hashes()
                  | boost::adaptors::indexed(1)) {
           if (not validateHexString(hash.value())) {
             error_creator.addChildError(

@@ -9,6 +9,7 @@ using ::testing::Return;
 using ::testing::ReturnRef;
 using ::testing::ReturnRefOfCopy;
 
+using namespace shared_model;
 using namespace shared_model::interface;
 
 template <typename QueryMock, typename ExpectationsSetter>

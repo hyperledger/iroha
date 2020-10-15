@@ -82,8 +82,7 @@ namespace shared_model {
         case iroha::protocol::Command::kCreateRole: {
           const auto &cr = command.create_role();
           ValidationErrorCreator error_creator;
-          for (const auto &perm :
-               cr.permissions() | boost::adaptors::indexed(1)) {
+          for (auto perm : cr.permissions() | boost::adaptors::indexed(1)) {
             if (not iroha::protocol::RolePermission_IsValid(perm.value())) {
               error_creator.addReason(
                   fmt::format("Permission #{} is invalid.", perm.index()));

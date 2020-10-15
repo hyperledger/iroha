@@ -13,7 +13,6 @@
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
-#include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "module/shared_model/interface_mocks.hpp"

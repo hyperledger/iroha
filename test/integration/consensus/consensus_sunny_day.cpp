@@ -41,7 +41,7 @@ static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
 static size_t num_peers = 1, my_num = 0;
 
 auto mk_local_peer(uint64_t num) {
-  auto address = "0.0.0.0:" + std::to_string(num);
+  auto address = "127.0.0.1:" + std::to_string(num);
   return iroha::consensus::yac::makePeer(address);
 }
 

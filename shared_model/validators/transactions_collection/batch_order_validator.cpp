@@ -84,7 +84,7 @@ std::optional<ValidationError> BatchOrderValidator::validate(
   const bool may_skip_batch_meta_hashes =
       not batch_is_atomic and partial_ordered_batches_are_valid_;
   auto batch_hash_it = batch_hashes.begin();
-  for (const auto &tx : transactions | boost::adaptors::indexed(1)) {
+  for (auto tx : transactions | boost::adaptors::indexed(1)) {
     ValidationErrorCreator tx_error_creator;
     if (may_skip_batch_meta_hashes) {
       auto matching_batch_hash_it = std::find(
@@ -124,7 +124,7 @@ std::optional<ValidationError> BatchOrderValidator::validate(
                      size_t,
                      shared_model::crypto::Hash::Hasher>
       batch_meta_hashes;
-  for (const auto &hash : batch_hashes | boost::adaptors::indexed(1)) {
+  for (auto hash : batch_hashes | boost::adaptors::indexed(1)) {
     ValidationErrorCreator hash_error_creator;
     auto emplace_result = batch_meta_hashes.emplace(hash.value(), hash.index());
     if (not emplace_result.second) {

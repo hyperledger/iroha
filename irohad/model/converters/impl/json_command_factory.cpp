@@ -526,8 +526,8 @@ namespace iroha {
       // Abstract
       Document JsonCommandFactory::serializeAbstractCommand(
           std::shared_ptr<Command> command) {
-        return makeMethodInvoke(*this,
-                                command)(serializers_.at(typeid(*command)));
+        auto cmd = command.get();
+        return makeMethodInvoke(*this, command)(serializers_.at(typeid(*cmd)));
       }
 
       optional_ptr<model::Command>

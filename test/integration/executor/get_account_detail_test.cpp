@@ -312,6 +312,8 @@ struct GetAccountDetailRecordIdTest
         requestedWriter(), requestedKey(), std::nullopt, page_size);
   }
 
+  using GetAccountDetailTest::validatePageResponse;
+
   void validatePageResponse(
       const QueryExecutorResult &response,
       std::optional<shared_model::plain::AccountDetailRecordId> first_record_id,

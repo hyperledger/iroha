@@ -50,17 +50,11 @@
     "provisioners": [
         {
             "type": "file",
-            "source": "./files/packages.config",
-            "destination": "C:\\Windows\\Temp\\"
-        },
-        {
-            "type": "file",
-            "source": "../../.jenkinsci/helpers/hash.py",
-            "destination": "C:\\Windows\\Temp\\"
-        },
-        {
-            "type": "file",
-            "source": "./scripts",
+            "sources": [
+                "./files/packages.config",
+                "../../.jenkinsci/helpers/hash.py",
+                "./scripts"
+            ],
             "destination": "C:\\Windows\\Temp\\"
         },
         {
