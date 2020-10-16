@@ -19,7 +19,7 @@ impl MerkleTree {
     /// Builds a Merkle Tree from an array of `Hash` values values. For example of `Block` and `Transaction` hashes.
     pub fn build(self, hashes: &[Hash]) -> Self {
         let mut hashes: Vec<Hash> = hashes.to_vec();
-        hashes.sort();
+        hashes.sort_unstable();
         let mut nodes: VecDeque<Node> =
             hashes.into_iter().map(|hash| Node::Leaf { hash }).collect();
         if nodes.len() % 2 != 0 {
