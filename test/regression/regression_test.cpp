@@ -3,11 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/variant.hpp>
+#include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "builders/protobuf/queries.hpp"
@@ -143,6 +147,87 @@ TEST(RegressionTest, StateRecovery) {
         .recoverState(kAdminKeypair)
         .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
   }
+}
+
+/**
+ * @given ITF instance
+ * @when instance is shutdown without blocks erase, block is modified
+ * @then another ITF instance fails to start up
+ */
+TEST(RegressionTest, PoisonedBlock) {
+  auto time_now = iroha::time::now();
+  auto tx1 = shared_model::proto::TransactionBuilder()
+                 .createdTime(time_now)
+                 .creatorAccountId(kAdminId)
+                 .addAssetQuantity(kAssetId, "133.0")
+                 .quorum(1)
+                 .build()
+                 .signAndAddSignature(kAdminKeypair)
+                 .finish();
+  auto hash1 = tx1.hash();
+  auto tx2 = shared_model::proto::TransactionBuilder()
+                 .createdTime(time_now + 1)
+                 .creatorAccountId(kAdminId)
+                 .subtractAssetQuantity(kAssetId, "1.0")
+                 .quorum(1)
+                 .build()
+                 .signAndAddSignature(kAdminKeypair)
+                 .finish();
+  auto hash2 = tx2.hash();
+  auto check_one = [](auto &res) { ASSERT_EQ(res->transactions().size(), 1); };
+  const std::string dbname = "d"
+      + boost::uuids::to_string(boost::uuids::random_generator()())
+            .substr(0, 8);
+  std::string const block_store_path = (boost::filesystem::temp_directory_path()
+                                        / boost::filesystem::unique_path())
+                                           .string();
+  {
+    integration_framework::IntegrationTestFramework(
+        1,
+        dbname,
+        iroha::StartupWsvDataPolicy::kDrop,
+        false,
+        false,
+        block_store_path)
+        .setInitialState(kAdminKeypair)
+        .sendTx(tx1)
+        .checkProposal(check_one)
+        .checkVerifiedProposal(check_one)
+        .checkBlock(check_one)
+        .sendTx(tx2)
+        .checkProposal(check_one)
+        .checkVerifiedProposal(check_one)
+        .checkBlock(check_one);
+  }
+  size_t block_n = 2;
+
+  auto block_path = boost::filesystem::path{block_store_path}
+      / iroha::ametsuchi::FlatFile::id_to_name(block_n);
+  auto content = iroha::readTextFile(block_path).assumeValue();
+  boost::replace_first(content, "133.0", "266.0");
+
+  boost::filesystem::ofstream block_file(block_path);
+  block_file << content;
+  block_file.close();
+  {
+    try {
+      integration_framework::IntegrationTestFramework(
+          1,
+          dbname,
+          iroha::StartupWsvDataPolicy::kDrop,
+          false,
+          false,
+          block_store_path)
+          .recoverState(kAdminKeypair);
+      ADD_FAILURE() << "No exception thrown";
+    } catch (std::runtime_error const &e) {
+      using ::testing::HasSubstr;
+      EXPECT_THAT(e.what(), HasSubstr("Cannot validate and apply blocks"));
+    } catch (...) {
+      ADD_FAILURE() << "Unexpected exception thrown";
+    }
+  }
+  boost::filesystem::remove_all(block_store_path);
 }
 
 /**
