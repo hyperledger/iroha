@@ -23,6 +23,7 @@
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
+#include "cryptography/private_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/application.hpp"
@@ -110,19 +111,17 @@ static shared_model::crypto::Keypair getKeypairFromConfig(
   }
   auto const &signer = provider_it->second;
 
-  auto make_seed_from_hex = [](auto const &hex) {
-    return shared_model::crypto::Seed{
-        iroha::hexstringToBytestringResult(hex).assumeValue()};
-  };
+  shared_model::crypto::PrivateKey private_key{
+      iroha::hexstringToBytestringResult(signer.private_key.value())
+          .assumeValue()};
 
   switch (signer.type) {
     case iroha::multihash::Type::ed25519_sha3_256:
       return shared_model::crypto::CryptoProviderEd25519Sha3::generateKeypair(
-          make_seed_from_hex(signer.private_key.value()));
+          private_key);
 #if defined(USE_LIBURSA)
     case iroha::multihash::Type::ed25519pub:
-      return ED25519_PROVIDER::generateKeypair(
-          make_seed_from_hex(signer.private_key.value()));
+      return ED25519_PROVIDER::generateKeypair(private_key);
 #endif
     default:
       daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
