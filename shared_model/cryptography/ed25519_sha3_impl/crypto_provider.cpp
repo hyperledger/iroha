@@ -46,6 +46,14 @@ namespace shared_model {
                      PrivateKey(keypair.privkey.to_string()));
     }
 
+    Keypair CryptoProviderEd25519Sha3::generateKeypair(const PrivateKey &key) {
+      assert(key.size() == kPrivateKeyLength);
+      auto keypair = iroha::create_keypair(
+          iroha::blob_t<kPrivateKeyLength>::from_raw(key.blob().data()));
+      return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
+                     key);
+    }
+
     constexpr size_t CryptoProviderEd25519Sha3::kHashLength;
     constexpr size_t CryptoProviderEd25519Sha3::kPublicKeyLength;
     constexpr size_t CryptoProviderEd25519Sha3::kPrivateKeyLength;
