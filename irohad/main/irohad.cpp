@@ -238,7 +238,10 @@ int main(int argc, char *argv[]) {
   daemon_status_notifier->notify(
       ::iroha::utility_service::Status::kInitialization);
 
-  auto keypair = config.crypto
+  BOOST_ASSERT_MSG(not FLAGS_keypair_name.empty() or config.crypto,
+                   "keypair must be specified somewhere");
+
+  auto keypair = FLAGS_keypair_name.empty()
       ? getKeypairFromConfig(config.crypto.value())
       : getKeypairFromFile(FLAGS_keypair_name, log_manager);
 
