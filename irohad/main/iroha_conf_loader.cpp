@@ -52,7 +52,7 @@ using iroha::operator|;
 char const *IrohadConfig::Crypto::Default::kName =
     config_members::kCryptoProviderDefault;
 
-class JsonDeserializerException : public std::runtime_error {
+class ConfigParsingException : public std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
@@ -80,7 +80,7 @@ inline void assert_fatal(bool condition,
                          std::string_view printable_path,
                          std::string error) {
   if (!condition) {
-    throw JsonDeserializerException(
+    throw ConfigParsingException(
         fmt::format("{}: {}", printable_path, error));
   }
 }
@@ -414,7 +414,7 @@ class JsonDeserializerImpl {
   template <typename TDest>
   typename std::enable_if_t<not IsIntegerLike<TDest>, bool> loadInto(TDest &) {
     BOOST_THROW_EXCEPTION(
-        std::runtime_error("Wrong type. Should never reach here."));
+        ConfigParsingException("Wrong type. Should never reach here."));
     return false;
   }
 
@@ -563,7 +563,7 @@ JsonDeserializerImpl::loadInto<std::shared_ptr<shared_model::interface::Peer>>(
         .match([&tls_certificate_str](
                    const auto &v) { tls_certificate_str = v.value; },
                [&](const auto &e) {
-                 throw JsonDeserializerException{
+                 throw ConfigParsingException{
                      fmt::format("Error reading file specified in {}: {}",
                                  printable_path_,
                                  e.error)};
@@ -577,7 +577,7 @@ JsonDeserializerImpl::loadInto<std::shared_ptr<shared_model::interface::Peer>>(
                    tls_certificate_str)
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&](const auto &error) {
-               throw JsonDeserializerException(
+               throw ConfigParsingException(
                    fmt::format("Failed to create a peer at {}: {}",
                                printable_path_,
                                error.error));
@@ -608,7 +608,7 @@ inline bool JsonDeserializerImpl::loadInto(
   } else if (type == config_members::InLengerCerts) {
     dest = IrohadConfig::InterPeerTls::FromWsv{};
   } else {
-    throw JsonDeserializerException{std::string{
+    throw ConfigParsingException{std::string{
         "Unimplemented peer certificate provider type: '" + type + "'"}};
   }
   return true;
@@ -763,7 +763,7 @@ void reportJsonParsingError(const rapidjson::Document &doc,
     const size_t print_offset =
         std::max(error_offset, kBadJsonPrintOffsset) - kBadJsonPrintOffsset;
     std::string json_error_buf = text.substr(print_offset, kBadJsonPrintLength);
-    throw JsonDeserializerException{fmt::format(
+    throw ConfigParsingException{fmt::format(
         "JSON parse error (near `{}'): {}",
         json_error_buf,
         std::string(rapidjson::GetParseError_En(doc.GetParseError())))};
@@ -796,7 +796,7 @@ iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
 
     JsonDeserializerImpl parser(common_objects_factory, doc, std::move(log));
     return parser.deserialize<IrohadConfig>();
-  } catch (JsonDeserializerException const &e) {
+  } catch (ConfigParsingException const &e) {
     return e.what();
   };
 }

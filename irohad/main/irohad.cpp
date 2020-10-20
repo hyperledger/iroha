@@ -187,270 +187,284 @@ int main(int argc, char *argv[]) {
   logger::LoggerManagerTreePtr log_manager;
   logger::LoggerPtr log;
 
-  // If the global log level override was set in the command line arguments,
-  // create a logger manager with the given log level for all subsystems:
-  if (FLAGS_verbosity != kLogSettingsFromConfigFile) {
-    logger::LoggerConfig cfg;
-    cfg.log_level = config_members::LogLevels.at(FLAGS_verbosity);
-    log_manager = std::make_shared<logger::LoggerManagerTree>(std::move(cfg));
-    log = log_manager->getChild("Init")->getLogger();
-  }
+  try {
+    // If the global log level override was set in the command line arguments,
+    // create a logger manager with the given log level for all subsystems:
+    if (FLAGS_verbosity != kLogSettingsFromConfigFile) {
+      logger::LoggerConfig cfg;
+      cfg.log_level = config_members::LogLevels.at(FLAGS_verbosity);
+      log_manager = std::make_shared<logger::LoggerManagerTree>(std::move(cfg));
+      log = log_manager->getChild("Init")->getLogger();
+    }
 
-  // Reading iroha configuration file
-  std::optional<logger::LoggerPtr> maybe_log;
-  if (log) {
-    maybe_log = log;
-  }
-  auto config_result =
-      parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), maybe_log);
-  if (auto e = iroha::expected::resultToOptionalError(config_result)) {
+    // Reading iroha configuration file
+    std::optional<logger::LoggerPtr> maybe_log;
     if (log) {
-      log->error("Failed reading the configuration: {}", e.value());
+      maybe_log = log;
     }
-    return EXIT_FAILURE;
-  }
-  auto config = std::move(config_result).assumeValue();
-
-  if (not log_manager) {
-    log_manager = config.logger_manager.value_or(getDefaultLogManager());
-    log = log_manager->getChild("Init")->getLogger();
-  }
-  log->info("Irohad version: {}", iroha::kGitPrettyVersion);
-  log->info("config initialized");
-
-  if (config.initial_peers and config.initial_peers->empty()) {
-    log->critical(
-        "Got an empty initial peers list in configuration file. You have to "
-        "either specify some peers or avoid overriding the peers from genesis "
-        "block!");
-    return EXIT_FAILURE;
-  }
-
-  if (config.utility_service) {
-    initUtilityService(config.utility_service.value(),
-                       [] {
-                         exit_requested.set_value();
-                         std::lock_guard<std::mutex>{shutdown_wait_mutex};
-                       },
-                       log_manager);
-  }
-
-  daemon_status_notifier->notify(
-      ::iroha::utility_service::Status::kInitialization);
-
-  BOOST_ASSERT_MSG(not FLAGS_keypair_name.empty() or config.crypto,
-                   "keypair must be specified somewhere");
-
-  auto keypair = FLAGS_keypair_name.empty()
-      ? getKeypairFromConfig(config.crypto.value())
-      : getKeypairFromFile(FLAGS_keypair_name, log_manager);
-
-  std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt;
-  if (config.database_config) {
-    pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
-        config.database_config->host,
-        config.database_config->port,
-        config.database_config->user,
-        config.database_config->password,
-        config.database_config->working_dbname,
-        config.database_config->maintenance_dbname,
-        log);
-  } else if (config.pg_opt) {
-    log->warn("Using deprecated database connection string!");
-    pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
-        config.pg_opt.value(), kDefaultWorkingDatabaseName, log);
-  } else {
-    log->critical("Missing database configuration!");
-    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
-    return EXIT_FAILURE;
-  }
-
-  // Configuring iroha daemon
-  auto irohad = std::make_unique<Irohad>(
-      config.block_store_path,
-      std::move(pg_opt),
-      kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
-                  // config file and/or command-line arguments?
-      config.torii_port,
-      config.internal_port,
-      config.max_proposal_size,
-      std::chrono::milliseconds(config.proposal_delay),
-      std::chrono::milliseconds(config.vote_delay),
-      std::chrono::minutes(
-          config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
-      std::move(keypair),
-      std::chrono::milliseconds(
-          config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
-      config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
-      std::move(config.initial_peers),
-      log_manager->getChild("Irohad"),
-      FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
-                        : iroha::StartupWsvDataPolicy::kDrop,
-      ::iroha::network::getDefaultChannelParams(),
-      boost::make_optional(config.mst_support,
-                           iroha::GossipPropagationStrategyParams{}),
-      config.torii_tls_params,
-      boost::none);
-
-  // Check if iroha daemon storage was successfully initialized
-  if (not irohad->storage) {
-    // Abort execution if not
-    log->error("Failed to initialize storage");
-    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
-    return EXIT_FAILURE;
-  }
-
-  /*
-   * The logic implemented below is reflected in the following truth table.
-   *
-  +------------+--------------+------------------+---------------+---------+
-  | Blockstore | New genesis  | Overwrite ledger | Genesis block | Message |
-  | presence   | block is set | flag is set      | that is used  |         |
-  +------------+--------------+------------------+---------------+---------+
-  | 0          | 1            | 0                | new           |         |
-  | 0          | 1            | 1                | new           | warning |
-  | 1          | 1            | 0                | old           | warning |
-  | 1          | 1            | 1                | new           |         |
-  | 0          | 0            | 0                | none          | error   |
-  | 0          | 0            | 1                | none          | error   |
-  | 1          | 0            | 0                | old           |         |
-  | 1          | 0            | 1                | old           | warning |
-  +------------+--------------+------------------+---------------+---------+
-   */
-
-  /// if there are any blocks in blockstore, then true
-  bool blockstore = irohad->storage->getBlockQuery()->getTopBlockHeight() != 0;
-
-  /// genesis block file is specified as launch parameter
-  bool genesis = not FLAGS_genesis_block.empty();
-
-  /// overwrite ledger flag was set as launch parameter
-  bool overwrite = FLAGS_overwrite_ledger;
-
-  if (genesis) {  // genesis block file is specified
-    if (blockstore and not overwrite) {
-      log->warn(
-          "Passed genesis block will be ignored without --overwrite_ledger "
-          "flag. Restoring existing state.");
-    } else {
-      auto block_result =
-          iroha::readTextFile(FLAGS_genesis_block) | [](const auto &json) {
-            return iroha::main::BlockLoader::parseBlock(json);
-          };
-
-      if (auto e = iroha::expected::resultToOptionalError(block_result)) {
-        log->error("Failed to parse genesis block: {}", e.value());
-        return EXIT_FAILURE;
+    auto config_result =
+        parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), maybe_log);
+    if (auto e = iroha::expected::resultToOptionalError(config_result)) {
+      if (log) {
+        log->error("Failed reading the configuration: {}", e.value());
       }
-      auto block = std::move(block_result).assumeValue();
-
-      if (not blockstore and overwrite) {
-        log->warn(
-            "Blockstore is empty - there is nothing to overwrite. Inserting "
-            "new genesis block.");
-      }
-
-      // clear previous storage if any
-      irohad->dropStorage();
-
-      const auto txs_num = block->transactions().size();
-      if (auto e = iroha::expected::resultToOptionalError(
-              irohad->storage->insertBlock(std::move(block)))) {
-        log->critical("Could not apply genesis block: {}", e.value());
-        return EXIT_FAILURE;
-      }
-      log->info("Genesis block inserted, number of transactions: {}", txs_num);
-    }
-  } else {  // genesis block file is not specified
-    if (not blockstore) {
-      log->error(
-          "Cannot restore nor create new state. Blockstore is empty. No "
-          "genesis block is provided. Please pecify new genesis block using "
-          "--genesis_block parameter.");
       return EXIT_FAILURE;
+    }
+    auto config = std::move(config_result).assumeValue();
+
+    if (not log_manager) {
+      log_manager = config.logger_manager.value_or(getDefaultLogManager());
+      log = log_manager->getChild("Init")->getLogger();
+    }
+    log->info("Irohad version: {}", iroha::kGitPrettyVersion);
+    log->info("config initialized");
+
+    if (config.initial_peers and config.initial_peers->empty()) {
+      log->critical(
+          "Got an empty initial peers list in configuration file. You have to "
+          "either specify some peers or avoid overriding the peers from "
+          "genesis "
+          "block!");
+      return EXIT_FAILURE;
+    }
+
+    if (config.utility_service) {
+      initUtilityService(
+          config.utility_service.value(),
+          [] {
+            exit_requested.set_value();
+            std::lock_guard<std::mutex>{shutdown_wait_mutex};
+          },
+          log_manager);
+    }
+
+    daemon_status_notifier->notify(
+        ::iroha::utility_service::Status::kInitialization);
+
+    BOOST_ASSERT_MSG(not FLAGS_keypair_name.empty() or config.crypto,
+                     "keypair must be specified somewhere");
+
+    auto keypair = FLAGS_keypair_name.empty()
+        ? getKeypairFromConfig(config.crypto.value())
+        : getKeypairFromFile(FLAGS_keypair_name, log_manager);
+
+    std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt;
+    if (config.database_config) {
+      pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
+          config.database_config->host,
+          config.database_config->port,
+          config.database_config->user,
+          config.database_config->password,
+          config.database_config->working_dbname,
+          config.database_config->maintenance_dbname,
+          log);
+    } else if (config.pg_opt) {
+      log->warn("Using deprecated database connection string!");
+      pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
+          config.pg_opt.value(), kDefaultWorkingDatabaseName, log);
     } else {
-      if (overwrite) {
-        // no genesis, blockstore present, overwrite specified -> new block
-        // store, world state should be reset
-        irohad->resetWsv();
-        if (not FLAGS_reuse_state) {
+      log->critical("Missing database configuration!");
+      daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+      return EXIT_FAILURE;
+    }
+
+    // Configuring iroha daemon
+    auto irohad = std::make_unique<Irohad>(
+        config.block_store_path,
+        std::move(pg_opt),
+        kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
+                    // config file and/or command-line arguments?
+        config.torii_port,
+        config.internal_port,
+        config.max_proposal_size,
+        std::chrono::milliseconds(config.proposal_delay),
+        std::chrono::milliseconds(config.vote_delay),
+        std::chrono::minutes(
+            config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
+        std::move(keypair),
+        std::chrono::milliseconds(
+            config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
+        config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
+        std::move(config.initial_peers),
+        log_manager->getChild("Irohad"),
+        FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
+                          : iroha::StartupWsvDataPolicy::kDrop,
+        ::iroha::network::getDefaultChannelParams(),
+        boost::make_optional(config.mst_support,
+                             iroha::GossipPropagationStrategyParams{}),
+        config.torii_tls_params,
+        boost::none);
+
+    // Check if iroha daemon storage was successfully initialized
+    if (not irohad->storage) {
+      // Abort execution if not
+      log->error("Failed to initialize storage");
+      daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+      return EXIT_FAILURE;
+    }
+
+    /*
+     * The logic implemented below is reflected in the following truth table.
+     *
+    +------------+--------------+------------------+---------------+---------+
+    | Blockstore | New genesis  | Overwrite ledger | Genesis block | Message |
+    | presence   | block is set | flag is set      | that is used  |         |
+    +------------+--------------+------------------+---------------+---------+
+    | 0          | 1            | 0                | new           |         |
+    | 0          | 1            | 1                | new           | warning |
+    | 1          | 1            | 0                | old           | warning |
+    | 1          | 1            | 1                | new           |         |
+    | 0          | 0            | 0                | none          | error   |
+    | 0          | 0            | 1                | none          | error   |
+    | 1          | 0            | 0                | old           |         |
+    | 1          | 0            | 1                | old           | warning |
+    +------------+--------------+------------------+---------------+---------+
+     */
+
+    /// if there are any blocks in blockstore, then true
+    bool blockstore =
+        irohad->storage->getBlockQuery()->getTopBlockHeight() != 0;
+
+    /// genesis block file is specified as launch parameter
+    bool genesis = not FLAGS_genesis_block.empty();
+
+    /// overwrite ledger flag was set as launch parameter
+    bool overwrite = FLAGS_overwrite_ledger;
+
+    if (genesis) {  // genesis block file is specified
+      if (blockstore and not overwrite) {
+        log->warn(
+            "Passed genesis block will be ignored without --overwrite_ledger "
+            "flag. Restoring existing state.");
+      } else {
+        auto block_result =
+            iroha::readTextFile(FLAGS_genesis_block) | [](const auto &json) {
+              return iroha::main::BlockLoader::parseBlock(json);
+            };
+
+        if (auto e = iroha::expected::resultToOptionalError(block_result)) {
+          log->error("Failed to parse genesis block: {}", e.value());
+          return EXIT_FAILURE;
+        }
+        auto block = std::move(block_result).assumeValue();
+
+        if (not blockstore and overwrite) {
           log->warn(
-              "No new genesis block is specified - blockstore will not be "
-              "overwritten. If you want overwrite ledger state, please "
-              "specify new genesis block using --genesis_block parameter. "
-              "If you want to reuse existing state data (WSV), consider the "
-              "--reuse_state flag.");
+              "Blockstore is empty - there is nothing to overwrite. Inserting "
+              "new genesis block.");
+        }
+
+        // clear previous storage if any
+        irohad->dropStorage();
+
+        const auto txs_num = block->transactions().size();
+        if (auto e = iroha::expected::resultToOptionalError(
+                irohad->storage->insertBlock(std::move(block)))) {
+          log->critical("Could not apply genesis block: {}", e.value());
+          return EXIT_FAILURE;
+        }
+        log->info("Genesis block inserted, number of transactions: {}",
+                  txs_num);
+      }
+    } else {  // genesis block file is not specified
+      if (not blockstore) {
+        log->error(
+            "Cannot restore nor create new state. Blockstore is empty. No "
+            "genesis block is provided. Please pecify new genesis block using "
+            "--genesis_block parameter.");
+        return EXIT_FAILURE;
+      } else {
+        if (overwrite) {
+          // no genesis, blockstore present, overwrite specified -> new block
+          // store, world state should be reset
+          irohad->resetWsv();
+          if (not FLAGS_reuse_state) {
+            log->warn(
+                "No new genesis block is specified - blockstore will not be "
+                "overwritten. If you want overwrite ledger state, please "
+                "specify new genesis block using --genesis_block parameter. "
+                "If you want to reuse existing state data (WSV), consider the "
+                "--reuse_state flag.");
+          }
         }
       }
     }
-  }
 
-  // check if at least one block is available in the ledger
-  auto block_query = irohad->storage->getBlockQuery();
-  if (not block_query) {
-    log->error("Cannot create BlockQuery");
-    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
-    return EXIT_FAILURE;
-  }
-  const bool blocks_exist{iroha::expected::hasValue(
-      block_query->getBlock(block_query->getTopBlockHeight()))};
-  block_query.reset();
+    // check if at least one block is available in the ledger
+    auto block_query = irohad->storage->getBlockQuery();
+    if (not block_query) {
+      log->error("Cannot create BlockQuery");
+      daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+      return EXIT_FAILURE;
+    }
+    const bool blocks_exist{iroha::expected::hasValue(
+        block_query->getBlock(block_query->getTopBlockHeight()))};
+    block_query.reset();
 
-  if (not blocks_exist) {
-    log->error(
-        "Unable to start the ledger. There are no blocks in the ledger. Please "
-        "ensure that you are not trying to start the newer version of "
-        "the ledger over incompatible version of the storage or there is "
-        "enough disk space. Try to specify --genesis_block and "
-        "--overwrite_ledger parameters at the same time.");
-    return EXIT_FAILURE;
-  }
+    if (not blocks_exist) {
+      log->error(
+          "Unable to start the ledger. There are no blocks in the ledger. "
+          "Please "
+          "ensure that you are not trying to start the newer version of "
+          "the ledger over incompatible version of the storage or there is "
+          "enough disk space. Try to specify --genesis_block and "
+          "--overwrite_ledger parameters at the same time.");
+      return EXIT_FAILURE;
+    }
 
-  // init pipeline components
-  auto init_result = irohad->init();
-  if (auto error =
-          boost::get<iroha::expected::Error<std::string>>(&init_result)) {
-    log->critical("Irohad startup failed: {}", error->error);
-    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
-    return EXIT_FAILURE;
-  }
+    // init pipeline components
+    auto init_result = irohad->init();
+    if (auto error =
+            boost::get<iroha::expected::Error<std::string>>(&init_result)) {
+      log->critical("Irohad startup failed: {}", error->error);
+      daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+      return EXIT_FAILURE;
+    }
 
-  auto handler = [](int s) { caught_signal = s; };
-  std::signal(SIGINT, handler);
-  std::signal(SIGTERM, handler);
+    auto handler = [](int s) { caught_signal = s; };
+    std::signal(SIGINT, handler);
+    std::signal(SIGTERM, handler);
 #ifdef SIGQUIT
-  std::signal(SIGQUIT, handler);
+    std::signal(SIGQUIT, handler);
 #endif
 
-  // runs iroha
-  log->info("Running iroha");
-  auto run_result = irohad->run();
-  if (auto error =
-          boost::get<iroha::expected::Error<std::string>>(&run_result)) {
-    log->critical("Irohad startup failed: {}", error->error);
+    // runs iroha
+    log->info("Running iroha");
+    auto run_result = irohad->run();
+    if (auto error =
+            boost::get<iroha::expected::Error<std::string>>(&run_result)) {
+      log->critical("Irohad startup failed: {}", error->error);
+      daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+      return EXIT_FAILURE;
+    }
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kRunning);
+
+    auto exit_future = exit_requested.get_future();
+    while (exit_future.wait_for(kExitCheckPeriod)
+           != std::future_status::ready) {
+      if (caught_signal != 0) {
+        log->warn("Caught signal {}, exiting.", caught_signal);
+        break;
+      }
+    }
+    daemon_status_notifier->notify(
+        ::iroha::utility_service::Status::kTermination);
+
+    // We do not care about shutting down grpc servers
+    // They do all necessary work in their destructors
+    log->info("shutting down...");
+
+    irohad.reset();
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kStopped);
+
+    gflags::ShutDownCommandLineFlags();
+
+    return 0;
+  } catch (std::exception const &e) {
     daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+    if (log) {
+      log->critical("unhandled exception: {}", e.what());
+    }
     return EXIT_FAILURE;
   }
-  daemon_status_notifier->notify(::iroha::utility_service::Status::kRunning);
-
-  auto exit_future = exit_requested.get_future();
-  while (exit_future.wait_for(kExitCheckPeriod) != std::future_status::ready) {
-    if (caught_signal != 0) {
-      log->warn("Caught signal {}, exiting.", caught_signal);
-      break;
-    }
-  }
-  daemon_status_notifier->notify(
-      ::iroha::utility_service::Status::kTermination);
-
-  // We do not care about shutting down grpc servers
-  // They do all necessary work in their destructors
-  log->info("shutting down...");
-
-  irohad.reset();
-  daemon_status_notifier->notify(::iroha::utility_service::Status::kStopped);
-
-  gflags::ShutDownCommandLineFlags();
-
-  return 0;
 }
