@@ -195,8 +195,22 @@ class JsonDeserializerImpl {
 
   bool iterateDictChildren(
       std::function<void(std::string_view, JsonDeserializerImpl)> f) {
-    bool have_dict = false;
+    if (json_) {
+      assert_fatal(json_->get().IsObject(), "must be a JSON object.");
+      auto const json_obj = json_->get().GetObject();
+      for (const auto &child_json : json_obj) {
+        auto const key = child_json.name.GetString();
+        f(key,
+          JsonDeserializerImpl{common_objects_factory_,
+                               std::nullopt,
+                               child_json.value,
+                               makePrintableDictChildKey(key),
+                               log_});
+      }
+      return true;
+    }
     if (env_path_) {
+      bool have_dict = false;
       for (int i = 0;; ++i) {
         auto array_el_env_val_prefix = makeEnvDictChildKey(i);
         auto array_el_env_key_key =
@@ -214,22 +228,9 @@ class JsonDeserializerImpl {
               makePrintableDictChildKey(array_el_env_key_val.value()),
               log_});
       }
+      return have_dict;
     }
-    if (json_) {
-      assert_fatal(json_->get().IsObject(), "must be a JSON object.");
-      have_dict = true;
-      auto const json_obj = json_->get().GetObject();
-      for (const auto &child_json : json_obj) {
-        auto const key = child_json.name.GetString();
-        f(key,
-          JsonDeserializerImpl{common_objects_factory_,
-                               std::nullopt,
-                               child_json.value,
-                               makePrintableDictChildKey(key),
-                               log_});
-      }
-    }
-    return have_dict;
+    return false;
   }
 
   /**
@@ -273,13 +274,13 @@ class JsonDeserializerImpl {
   typename std::enable_if_t<IsInt64Like<TDest> and not std::is_signed_v<TDest>,
                             bool>
   loadInto(TDest &dest) {
-    if (auto from_env = getOptEnvRaw()) {
-      dest = std::strtoull(from_env->data(), nullptr, 10);
-      return true;
-    }
     if (json_) {
       assert_fatal(json_->get().IsUint64(), "must be an unsigned integer");
       dest = json_->get().GetUint64();
+      return true;
+    }
+    if (auto from_env = getOptEnvRaw()) {
+      dest = std::strtoull(from_env->data(), nullptr, 10);
       return true;
     }
     return false;
@@ -289,13 +290,13 @@ class JsonDeserializerImpl {
   typename std::enable_if_t<IsInt64Like<TDest> and std::is_signed_v<TDest>,
                             bool>
   loadInto(TDest &dest) {
-    if (auto from_env = getOptEnvRaw()) {
-      dest = std::strtoull(from_env->data(), nullptr, 10);
-      return true;
-    }
     if (json_) {
       assert_fatal(json_->get().IsInt64(), "must be a signed integer");
       dest = json_->get().GetInt64();
+      return true;
+    }
+    if (auto from_env = getOptEnvRaw()) {
+      dest = std::strtoull(from_env->data(), nullptr, 10);
       return true;
     }
     return false;
@@ -321,11 +322,11 @@ class JsonDeserializerImpl {
                       and fitsType<int64_t>(std::numeric_limits<TBase>::max()),
                   "destination type does not fit int64_t");
     int64_t val;
-    if (auto from_env = getOptEnvRaw()) {
-      val = std::strtoull(from_env->data(), nullptr, 10);
-    } else if (json_) {
+    if (json_) {
       assert_fatal(json_->get().IsInt64(), "must be an integer");
       val = json_->get().GetInt64();
+    } else if (auto from_env = getOptEnvRaw()) {
+      val = std::strtoull(from_env->data(), nullptr, 10);
     } else {
       return false;
     }
@@ -355,18 +356,6 @@ class JsonDeserializerImpl {
       return false;
     };
 
-    if (env_path_) {
-      for (int i = 0;; ++i) {
-        auto array_el_env_key_prefix = makeEnvDictChildKey(i);
-        if (not load_elem(JsonDeserializerImpl{common_objects_factory_,
-                                               array_el_env_key_prefix,
-                                               std::nullopt,
-                                               makePrintableArrayElemPath(i),
-                                               log_})) {
-          break;
-        }
-      }
-    }
     if (json_) {
       assert_fatal(json_->get().IsArray(), "must be an array.");
       const auto arr = json_->get().GetArray();
@@ -378,6 +367,18 @@ class JsonDeserializerImpl {
                                        log_});
       }
       return true;  // empty vector in JSON is loaded
+    }
+    if (env_path_) {
+      for (int i = 0;; ++i) {
+        auto array_el_env_key_prefix = makeEnvDictChildKey(i);
+        if (not load_elem(JsonDeserializerImpl{common_objects_factory_,
+                                               array_el_env_key_prefix,
+                                               std::nullopt,
+                                               makePrintableArrayElemPath(i),
+                                               log_})) {
+          break;
+        }
+      }
     }
     return not dest.empty();
   }
@@ -466,12 +467,12 @@ class JsonDeserializerImpl {
 
 template <>
 inline bool JsonDeserializerImpl::loadInto(std::string &dest) {
-  if (auto from_env = getOptEnvRaw()) {
-    dest = std::move(from_env).value();
-    return true;
-  } else if (json_) {
+  if (json_) {
     assert_fatal(json_->get().IsString(), "must be a string");
     dest = json_->get().GetString();
+    return true;
+  } else if (auto from_env = getOptEnvRaw()) {
+    dest = std::move(from_env).value();
     return true;
   }
   return false;
@@ -500,7 +501,11 @@ inline bool JsonDeserializerImpl::loadInto(logger::LogPatterns &dest) {
 
 template <>
 inline bool JsonDeserializerImpl::loadInto(bool &dest) {
-  if (auto from_env = getOptEnvRaw()) {
+  if (json_) {
+    assert_fatal(json_->get().IsBool(), "must be a boolean");
+    dest = json_->get().GetBool();
+    return true;
+  } else if (auto from_env = getOptEnvRaw()) {
     static std::vector<std::string_view> kTextFalse{"false", "f", "0"};
     static std::vector<std::string_view> kTextTrue{"true", "t", "1"};
     std::string from_env_lower;
@@ -521,10 +526,6 @@ inline bool JsonDeserializerImpl::loadInto(bool &dest) {
       return true;
     }
     return false;
-  } else if (json_) {
-    assert_fatal(json_->get().IsBool(), "must be a boolean");
-    dest = json_->get().GetBool();
-    return true;
   }
   return false;
 }
