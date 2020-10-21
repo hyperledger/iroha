@@ -157,21 +157,27 @@ class IrohadTest : public AcceptanceFixture {
   }
 
   void launchIroha() {
-    launchIroha(setDefaultParams());
+    launchIroha(setDefaultParams(), boost::none);
   }
 
-  void launchIroha(const std::string &parameters) {
-    iroha_process_.emplace(irohad_executable.string() + parameters);
+  void launchIroha(
+      const std::string &parameters,
+      boost::optional<boost::process::environment> env = boost::none) {
+    iroha_process_.emplace(irohad_executable.string() + parameters,
+                           env.value_or(boost::this_process::environment()));
     waitForIroha();
     ASSERT_TRUE(iroha_process_->running());
   }
 
-  void launchIroha(const boost::optional<std::string> &config_path,
-                   const boost::optional<std::string> &genesis_block,
-                   const boost::optional<std::string> &keypair_path,
-                   const boost::optional<std::string> &additional_params) {
+  void launchIroha(
+      const boost::optional<std::string> &config_path,
+      const boost::optional<std::string> &genesis_block,
+      const boost::optional<std::string> &keypair_path,
+      const boost::optional<std::string> &additional_params,
+      boost::optional<boost::process::environment> env = boost::none) {
     launchIroha(
-        params(config_path, genesis_block, keypair_path, additional_params));
+        params(config_path, genesis_block, keypair_path, additional_params),
+        std::move(env));
   }
 
   int getBlockCount() {
@@ -415,7 +421,7 @@ class IrohadTest : public AcceptanceFixture {
     ASSERT_EQ(response.tx_status(), iroha::protocol::TxStatus::COMMITTED);
   }
 
- private:
+ protected:
   void setPaths() {
     path_irohad_ = boost::filesystem::path(PATHIROHAD);
     irohad_executable = path_irohad_ / "irohad";
@@ -627,4 +633,68 @@ TEST_F(IrohadTest, RestartWithoutResetting) {
 
   SCOPED_TRACE("From restart without resetting test");
   sendDefaultTxAndCheck(key_pair);
+}
+
+/**
+ * @given Iroha started without config and keypair files
+ * @when a client sends a transaction to Iroha
+ * @then the transaction is committed
+ *  AND the Iroha accepts and able to commit new transactions
+ */
+TEST_F(IrohadTest, StartWithoutConfigAndKeyFile) {
+  setPaths();
+  prepareTestData();
+
+  {
+    rapidjson::Document doc;
+    std::ifstream ifs_iroha(path_config_.string());
+    rapidjson::IStreamWrapper isw(ifs_iroha);
+    doc.ParseStream(isw);
+    ASSERT_FALSE(doc.HasParseError())
+        << "Failed to parse irohad config at " << path_config_.string();
+
+    db_name_ = integration_framework::getRandomDbName();
+    pgopts_ = "dbname=" + db_name_ + " "
+        + integration_framework::getPostgresCredsFromEnv().value_or(
+              doc[config_members::PgOpt].GetString());
+
+    boost::process::environment env;
+    env["IROHA_PG_OPT"] = pgopts_;
+    env["IROHA_UTILITY_SERVICE_IP"] = kLocalHost.c_str();
+    env["IROHA_UTILITY_SERVICE_PORT"] = std::to_string(kUtilityServicePort);
+    env["IROHA_TORII_PORT"] =
+        std::to_string(doc[config_members::ToriiPort].GetInt64());
+    env["IROHA_INTERNAL_PORT"] =
+        std::to_string(doc[config_members::InternalPort].GetInt64());
+    env["IROHA_MAX_PROPOSAL_SIZE"] =
+        std::to_string(doc[config_members::MaxProposalSize].GetInt64());
+    env["IROHA_PROPOSAL_DELAY"] =
+        std::to_string(doc[config_members::ProposalDelay].GetInt64());
+    env["IROHA_VOTE_DELAY"] =
+        std::to_string(doc[config_members::VoteDelay].GetInt64());
+    env["IROHA_MST_ENABLE"] = "false";
+    env["IROHA_MST_EXPIRATION_TIME"] =
+        std::to_string(doc[config_members::MstExpirationTime].GetInt64());
+    env["IROHA_CRYPTO_PROVIDERS_0_KEY"] = "p1";
+    env["IROHA_CRYPTO_PROVIDERS_0_CRYPTO_TYPE"] = "ed25519_sha3_256";
+    env["IROHA_CRYPTO_PROVIDERS_0_PRIVATE_KEY"] =
+        keys_manager_node_.loadKeys(boost::none)
+            .assumeValue()
+            .privateKey()
+            .hex();
+    env["IROHA_CRYPTO_PROVIDERS_0_TYPE"] = "default";
+    env["IROHA_CRYPTO_SIGNER"] = "p1";
+
+    launchIroha(params(boost::none,
+                       path_genesis_.string(),
+                       boost::none,
+                       std::string{"--verbosity=trace"}),
+                env);
+  }
+
+  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
+  IROHA_ASSERT_RESULT_VALUE(key_pair);
+
+  SCOPED_TRACE("From send transaction test");
+  sendDefaultTxAndCheck(std::move(key_pair).assumeValue());
 }

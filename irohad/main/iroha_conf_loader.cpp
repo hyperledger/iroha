@@ -80,8 +80,7 @@ inline void assert_fatal(bool condition,
                          std::string_view printable_path,
                          std::string error) {
   if (!condition) {
-    throw ConfigParsingException(
-        fmt::format("{}: {}", printable_path, error));
+    throw ConfigParsingException(fmt::format("{}: {}", printable_path, error));
   }
 }
 
@@ -177,13 +176,13 @@ class JsonDeserializerImpl {
         log_};
   }
 
-  template<typename T>
-  std::string makePrintableDictChildKey(T const& child_key) {
+  template <typename T>
+  std::string makePrintableDictChildKey(T const &child_key) {
     return fmt::format("{}/{}", printable_path_, child_key);
   }
 
-  template<typename T>
-  std::string makeEnvDictChildKey(T const& child_key) {
+  template <typename T>
+  std::string makeEnvDictChildKey(T const &child_key) {
     assert(env_path_);
     return ::makeEnvDictChildKey(env_path_.value(), child_key);
   }
