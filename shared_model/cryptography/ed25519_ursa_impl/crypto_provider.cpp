@@ -125,7 +125,8 @@ namespace shared_model {
       return result;
     }
 
-    Keypair CryptoProviderEd25519Ursa::generateKeypair(const PrivateKey &private_key) {
+    Keypair CryptoProviderEd25519Ursa::generateKeypair(
+        const PrivateKey &private_key) {
       ByteBuffer public_key;
       ByteBuffer ursa_private_key{
           (int64_t)private_key.blob().size(),
