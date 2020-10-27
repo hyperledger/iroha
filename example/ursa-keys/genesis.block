@@ -10,7 +10,7 @@
                           "addPeer":{
                              "peer":{
                                 "address":"127.0.0.1:10001",
-                                "peerKey":"60eb82baacbc940e710a40f21f962a3651013b90c23ece31606752f298c38d90"
+                                "peerKey":"ed012060eb82baacbc940e710a40f21f962a3651013b90c23ece31606752f298c38d90"
                              }
                           }
                        },
@@ -89,14 +89,14 @@
                           "createAccount":{
                              "accountName":"admin",
                              "domainId":"test",
-                             "publicKey":"53abb2f4c98a20379f74f1f3af055abf9d6f5d105d416af5a470007592a44718"
+                             "publicKey":"ed012053abb2f4c98a20379f74f1f3af055abf9d6f5d105d416af5a470007592a44718"
                           }
                        },
                        {
                           "createAccount":{
                              "accountName":"test",
                              "domainId":"test",
-                             "publicKey":"8a98ea710bc30ef47d1d32b5f05640781455ebd5ae6d7612c88c7b985f82dd08"
+                             "publicKey":"ed01208a98ea710bc30ef47d1d32b5f05640781455ebd5ae6d7612c88c7b985f82dd08"
                           }
                        },
                        {
