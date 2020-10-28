@@ -38,8 +38,6 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
   endif()
 endif()
 
-set(CPACK_DEB_COMPONENT_INSTALL ON)
-
 if(WIN32)
     # We have to set _WIN32_WINNT for gRPC
     if(${CMAKE_SYSTEM_VERSION} EQUAL 10) # Windows 10

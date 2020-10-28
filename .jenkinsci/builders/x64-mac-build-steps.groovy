@@ -98,7 +98,7 @@ def successPostSteps(scmVars, boolean packagePush, List environment) {
         if (packagePush) {
           def artifacts = load ".jenkinsci/artifacts.groovy"
           def commit = scmVars.GIT_COMMIT
-          // if we use several compilers only the last compiler, used for the build, will be used for iroha.deb and iroha.tar.gz archives
+          // if we use several compilers only the last compiler, used for the build, will be used for iroha.tar.gz archive
           sh """
             ls -lah ./build
             mv ./build/iroha-*.tar.gz ./build/iroha.tar.gz
