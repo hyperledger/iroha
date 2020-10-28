@@ -83,12 +83,12 @@ namespace shared_model {
         return Keypair{PublicKeyHexStringView{""sv}, PrivateKey{""}};
       }
 
-      std::string multuhash_public_key;
+      std::string multihash_public_key;
       iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
                                         ursaToIrohaBuffer(public_key),
-                                        multuhash_public_key);
+                                        multihash_public_key);
 
-      Keypair result(PublicKeyHexStringView{multuhash_public_key},
+      Keypair result(PublicKeyHexStringView{multihash_public_key},
                      PrivateKey{ursaToIrohaBuffer(private_key)});
 
       ursa_ed25519_bytebuffer_free(public_key);
@@ -112,16 +112,42 @@ namespace shared_model {
         return Keypair{PublicKeyHexStringView{""sv}, PrivateKey{""}};
       }
 
-      std::string multuhash_public_key;
+      std::string multihash_public_key;
       iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
                                         ursaToIrohaBuffer(public_key),
-                                        multuhash_public_key);
+                                        multihash_public_key);
 
-      Keypair result(PublicKeyHexStringView{multuhash_public_key},
+      Keypair result(PublicKeyHexStringView{multihash_public_key},
                      PrivateKey{ursaToIrohaBuffer(private_key)});
 
       ursa_ed25519_bytebuffer_free(public_key);
       ursa_ed25519_bytebuffer_free(private_key);
+      return result;
+    }
+
+    Keypair CryptoProviderEd25519Ursa::generateKeypair(
+        const PrivateKey &private_key) {
+      ByteBuffer public_key;
+      ByteBuffer ursa_private_key{
+          (int64_t)private_key.blob().size(),
+          const_cast<uint8_t *>(private_key.blob().data())};
+
+      ExternError err;
+
+      if (!ursa_ed25519_get_public_key(&ursa_private_key, &public_key, &err)) {
+        // handle error
+        ursa_ed25519_string_free(err.message);
+        return Keypair{PublicKeyHexStringView{""sv}, PrivateKey{""}};
+      }
+
+      std::string multihash_public_key;
+      iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
+                                        ursaToIrohaBuffer(public_key),
+                                        multihash_public_key);
+
+      Keypair result(PublicKeyHexStringView{multihash_public_key}, private_key);
+
+      ursa_ed25519_bytebuffer_free(public_key);
       return result;
     }
   }  // namespace crypto
