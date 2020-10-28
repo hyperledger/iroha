@@ -179,11 +179,12 @@ def successPostSteps(scmVars, boolean packagePush, String dockerTag, List enviro
         // if we use several compilers only the last compiler, used for the build, will be used for iroha.deb and iroha.tar.gz archives
         sh """
           ls -lah ./build
-          mv ./build/iroha-*.deb ./build/iroha.deb
+          mv ./build/iroha-*-irohad.deb ./build/iroha.deb
+          mv ./build/iroha-*-iroha_shepherd.deb ./build/iroha_shepherd.deb
           mv ./build/iroha-*.tar.gz ./build/iroha.tar.gz
-          cp ./build/iroha.deb docker/release/iroha.deb
+          cp ./build/iroha*.deb docker/release
           mkdir -p build/artifacts
-          mv ./build/iroha.deb ./build/iroha.tar.gz build/artifacts
+          mv ./build/iroha*.deb ./build/iroha.tar.gz build/artifacts
         """
         // publish docker
         def iCRelease = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${commit}-${env.BUILD_NUMBER}-release", "--no-cache -f docker/release/Dockerfile ${WORKSPACE}/docker/release")
@@ -192,7 +193,7 @@ def successPostSteps(scmVars, boolean packagePush, String dockerTag, List enviro
         sh "docker rmi ${iCRelease.id}"
 
         // publish packages
-        filePaths = [ './build/artifacts/iroha.deb', './build/artifacts/iroha.tar.gz' ]
+        filePaths = [ './build/artifacts/iroha.deb', './build/artifacts/iroha_shepherd.deb', './build/artifacts/iroha.tar.gz' ]
         artifacts.uploadArtifacts(filePaths, sprintf('/iroha/linux/%4$s/%1$s-%2$s-%3$s', [scmVars.GIT_LOCAL_BRANCH, sh(script: 'date "+%Y%m%d"', returnStdout: true).trim(), commit.substring(0,6), platform]))
       } else {
         archiveArtifacts artifacts: 'build/iroha*.tar.gz', allowEmptyArchive: true
