@@ -205,7 +205,7 @@ cmd_description = """
       <p><strong>doxygen</strong> = false (or = true if master ) </p>
       <ul>
          <li>
-            <p>Build doxygen, if specialBranch== true will publish, if not specialBranch will upload it to jenkins,</p>
+            <p>Build doxygen, docs will be uploaded to jenkins,</p>
          </li>
          <li>
             <p>Ex:&nbsp;doxygen=true</p>
