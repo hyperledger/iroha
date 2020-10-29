@@ -154,7 +154,7 @@ def buildSteps(int parallelism, String compiler, String build_type, boolean buil
       }
       stage('Build docs'){
         if (docs) {
-          doxygen.doDoxygen(specialBranch, scmVars.GIT_LOCAL_BRANCH)
+          doxygen.doDoxygen()
         }
       }
     } // end iC.inside
