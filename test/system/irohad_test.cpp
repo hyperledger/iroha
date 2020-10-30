@@ -135,14 +135,25 @@ class IrohadTest : public AcceptanceFixture {
                     doc.GetAllocator());
     }
     doc[config_members::PgOpt].SetString(pgopts_.data(), pgopts_.size());
+
+    writeJsonToFile(doc, config_copy_);
+
+    prepareTestData();
+  }
+
+  /**
+   * write Json doc to text file
+   * @param doc to write
+   * @param path of output file
+   */
+  void writeJsonToFile(rapidjson::Document const &doc,
+                       std::string const &path) {
     rapidjson::StringBuffer sb;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
     doc.Accept(writer);
-    std::string config_copy_string = sb.GetString();
-    std::ofstream copy_file(config_copy_);
-    copy_file.write(config_copy_string.data(), config_copy_string.size());
-
-    prepareTestData();
+    std::string s = sb.GetString();
+    std::ofstream output_file(path);
+    output_file.write(s.data(), s.size());
   }
 
   void waitForIroha() {
@@ -676,6 +687,52 @@ TEST_F(IrohadTest, StartWithoutConfigAndKeyFile) {
   launchIroha(params(boost::none,
                      path_genesis_.string(),
                      boost::none,
+                     std::string{"--verbosity=trace"}),
+              env);
+
+  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
+  IROHA_ASSERT_RESULT_VALUE(key_pair);
+
+  SCOPED_TRACE("From send transaction test");
+  sendDefaultTxAndCheck(std::move(key_pair).assumeValue());
+}
+
+/**
+ * @given Iroha started with a config file and environment variables. Some
+ * parameters are given only in config or in environment, and some in both.
+ * The valid configuration is created when both parameter sources are combined
+ * and config file overrides environment.
+ * @when client sends a transaction to Iroha
+ * @then the transaction is committed
+ *  AND Iroha accepts and able to commit new transactions
+ */
+TEST_F(IrohadTest, StartWithConfigAndEnvironmentParams) {
+  rapidjson::Document doc;
+  doc.Parse(iroha::readTextFile(config_copy_).assumeValue());
+  boost::process::environment env{boost::this_process::environment()};
+
+  // pg_opt must be taken from environment
+  env["IROHA_PG_OPT"] = pgopts_;
+  ASSERT_TRUE(doc.RemoveMember("pg_opt"));
+
+  // valid utility service port must be taken from config
+  env["IROHA_UTILITY_SERVICE_PORT"] = std::to_string(kUtilityServicePort + 1);
+
+  // the rest of parameters are taken from config file
+
+  writeJsonToFile(doc, config_copy_);
+
+  rapidjson::StringBuffer sb;
+
+  std::ifstream ifs_iroha(config_copy_);
+  rapidjson::IStreamWrapper isw(ifs_iroha);
+  doc.ParseStream(isw);
+  ASSERT_FALSE(doc.HasParseError())
+      << "Failed to parse irohad config at " << config_copy_;
+
+  launchIroha(params(config_copy_,
+                     path_genesis_.string(),
+                     path_keypair_node_.string(),
                      std::string{"--verbosity=trace"}),
               env);
 
