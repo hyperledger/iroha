@@ -10,18 +10,20 @@
 
 def uploadArtifacts(filePaths, uploadPath, artifactServers=['nexus.iroha.tech']) {
   def filePathsConverted = []
-  def agentType = sh(script: 'uname', returnStdout: true).trim()
+  def agentType = sh(script: 'uname -sm', returnStdout: true).trim()
   filePaths.each {
     def fp = sh(script: "ls -d ${it} | tr '\n' ','", returnStdout: true).trim()
     filePathsConverted.addAll(fp.split(','))
   }
   def shaSumBinary = 'sha256sum'
   def md5SumBinary = 'md5sum'
-  def gpgKeyBinary = 'gpg --pinentry-mode loopback --armor --detach-sign --no-tty --batch --yes --passphrase-fd 0'
-  if (agentType == 'Darwin') {
+  def gpgKeyBinary = 'gpg --armor --detach-sign --no-tty --batch --yes --passphrase-fd 0'
+  if (agentType == 'Darwin x86_64') {
     shaSumBinary = 'shasum -a 256'
     md5SumBinary = 'md5 -r'
     gpgKeyBinary = 'GPG_TTY=\$(tty) gpg --pinentry-mode loopback --armor --detach-sign --no-tty --batch --yes --passphrase-fd 0'
+  } else if (agentType == 'Linux s390x') {
+    gpgKeyBinary = 'gpg --pinentry-mode loopback --armor --detach-sign --no-tty --batch --yes --passphrase-fd 0'
   }
   sh "> \$(pwd)/batch.txt"
 
