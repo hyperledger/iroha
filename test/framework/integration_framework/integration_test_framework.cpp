@@ -55,6 +55,7 @@
 #include "network/impl/async_grpc_client.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "network/impl/client_factory.hpp"
+#include "network/peer_communication_service.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 #include "torii/command_client.hpp"
@@ -389,12 +390,14 @@ namespace integration_framework {
   void IntegrationTestFramework::subscribeQueuesAndRun() {
     // subscribing for components
 
-    auto requested_proposals = iroha_instance_->getIrohaInstance()
-                                   ->getPeerCommunicationService()
-                                   ->onProposal();
+    rxcpp::observable<iroha::network::OrderingEvent> requested_proposals =
+        iroha_instance_->getIrohaInstance()
+            ->getPeerCommunicationService()
+            ->onProposal();
 
-    auto received_proposals = requested_proposals.filter(
-        [](const auto &event) { return event.proposal; });
+    rxcpp::observable<iroha::network::OrderingEvent> received_proposals =
+        requested_proposals.filter(
+            [](const auto &event) { return event.proposal; });
 
     received_proposals.subscribe([this](const auto &event) {
       proposal_queue_->push(getProposalUnsafe(event));
@@ -409,16 +412,23 @@ namespace integration_framework {
       return rxcpp::observable<>::empty<std::tuple_element_t<0, decltype(t)>>();
     };
 
-    iroha_instance_->getIrohaInstance()
-        ->getPeerCommunicationService()
-        ->onVerifiedProposal()
-        .zip(requested_proposals)
-        .flat_map(proposal_flat_map)
-        .subscribe([this](auto verified_proposal_and_errors) {
-          verified_proposal_queue_->push(
-              getVerifiedProposalUnsafe(verified_proposal_and_errors));
-          log_->info("verified proposal");
-        });
+    rxcpp::observable<iroha::simulator::VerifiedProposalCreatorEvent>
+        verified_proposals = iroha_instance_->getIrohaInstance()
+                                 ->getPeerCommunicationService()
+                                 ->onVerifiedProposal();
+
+    rxcpp::observable<std::tuple<iroha::simulator::VerifiedProposalCreatorEvent,
+                                 iroha::network::OrderingEvent>>
+        verified_proposals_with_events =
+            verified_proposals.zip(requested_proposals);
+    rxcpp::observable<iroha::simulator::VerifiedProposalCreatorEvent>
+        nonempty_proposals =
+            verified_proposals_with_events.flat_map(proposal_flat_map);
+    nonempty_proposals.subscribe([this](auto verified_proposal_and_errors) {
+      verified_proposal_queue_->push(
+          getVerifiedProposalUnsafe(verified_proposal_and_errors));
+      log_->info("verified proposal");
+    });
 
     iroha_instance_->getIrohaInstance()->getStorage()->on_commit().subscribe(
         [this](auto committed_block) {
@@ -527,12 +537,19 @@ namespace integration_framework {
     // Required for StatusBus synchronization
     boost::barrier bar1(2);
     auto bar2 = std::make_shared<boost::barrier>(2);
-    iroha_instance_->getIrohaInstance()
-        ->getStatusBus()
-        ->statuses()
-        .filter([&](auto s) { return s->transactionHash() == tx.hash(); })
-        .take(1)
-        .subscribe([&bar1, b2 = std::weak_ptr<boost::barrier>(bar2)](auto s) {
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionResponse>>
+        statuses =
+            iroha_instance_->getIrohaInstance()->getStatusBus()->statuses();
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionResponse>>
+        filtered_statuses = statuses.filter(
+            [&](auto s) { return s->transactionHash() == tx.hash(); });
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionResponse>>
+        first_status = filtered_statuses.take(1);
+    first_status.subscribe(
+        [&bar1, b2 = std::weak_ptr<boost::barrier>(bar2)](auto s) {
           bar1.wait();
           if (auto lock = b2.lock()) {
             lock->wait();
@@ -589,11 +606,14 @@ namespace integration_framework {
     bool processed = false;
 
     // subscribe on status bus and save all stateless statuses into a vector
-    std::vector<shared_model::proto::TransactionResponse> statuses;
-    iroha_instance_->getIrohaInstance()
-        ->getStatusBus()
-        ->statuses()
-        .filter([&transactions](auto s) {
+    std::vector<shared_model::proto::TransactionResponse> observed_statuses;
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionResponse>>
+        statuses =
+            iroha_instance_->getIrohaInstance()->getStatusBus()->statuses();
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionResponse>>
+        filtered_statuses = statuses.filter([&transactions](auto s) {
           // filter statuses for transactions from sequence
           auto it = std::find_if(
               transactions.begin(), transactions.end(), [&s](const auto tx) {
@@ -609,18 +629,21 @@ namespace integration_framework {
                     and s->transactionHash() == tx->hash();
               });
           return it != transactions.end();
-        })
-        .take(transactions.size())
-        .subscribe(
-            [&statuses](auto s) {
-              statuses.push_back(*std::static_pointer_cast<
-                                 shared_model::proto::TransactionResponse>(s));
-            },
-            [&cv, &m, &processed] {
-              std::lock_guard<std::mutex> lock(m);
-              processed = true;
-              cv.notify_all();
-            });
+        });
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionResponse>>
+        first_statuses = filtered_statuses.take(transactions.size());
+    first_statuses.subscribe(
+        [&observed_statuses](auto s) {
+          observed_statuses.push_back(
+              *std::static_pointer_cast<
+                  shared_model::proto::TransactionResponse>(s));
+        },
+        [&cv, &m, &processed] {
+          std::lock_guard<std::mutex> lock(m);
+          processed = true;
+          cv.notify_all();
+        });
 
     // put all transactions to the TxList and send them to iroha
     iroha::protocol::TxList tx_list;
@@ -635,7 +658,7 @@ namespace integration_framework {
     std::unique_lock<std::mutex> lk(m);
     cv.wait(lk, [&] { return processed; });
 
-    validation(statuses);
+    validation(observed_statuses);
     return *this;
   }
 

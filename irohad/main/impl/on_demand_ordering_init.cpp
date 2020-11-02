@@ -5,19 +5,14 @@
 
 #include "main/impl/on_demand_ordering_init.hpp"
 
-#include <numeric>
-
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/operators/rx-skip.hpp>
 #include <rxcpp/operators/rx-start_with.hpp>
 #include <rxcpp/operators/rx-with_latest_from.hpp>
 #include <rxcpp/operators/rx-zip.hpp>
-#include "common/bind.hpp"
 #include "common/permutation_generator.hpp"
-#include "datetime/time.hpp"
-#include "interfaces/common_objects/peer.hpp"
-#include "interfaces/common_objects/types.hpp"
+#include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "network/impl/client_factory_impl.hpp"
@@ -28,8 +23,17 @@
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "ordering/impl/ordering_gate_cache/on_demand_cache.hpp"
+#include "synchronizer/synchronizer_common.hpp"
 
 using namespace iroha::ordering;
+
+namespace {
+  /// indexes to permutations for corresponding rounds
+  enum RoundType { kCurrentRound, kNextRound, kRoundAfterNext, kCount };
+
+  template <RoundType V>
+  using RoundTypeConstant = std::integral_constant<RoundType, V>;
+}  // namespace
 
 OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
     : sync_event_notifier(sync_event_notifier_lifetime_),
@@ -72,18 +76,31 @@ auto OnDemandOrderingInit::createConnectionManager(
   const size_t kBeforePreviousTop = 0, kPreviousTop = 1;
 
   // flat map hashes from committed blocks
-  auto all_hashes = commit_notifier.get_observable()
-                        .map([](auto block) { return block->hash(); })
-                        // prepend hashes for the first two rounds
-                        .start_with(initial_hashes.at(kBeforePreviousTop),
-                                    initial_hashes.at(kPreviousTop));
+  rxcpp::observable<std::shared_ptr<shared_model::interface::Block const>>
+      blocks = commit_notifier.get_observable();
+  rxcpp::observable<shared_model::crypto::Hash> block_hashes = blocks.map(
+      [](std::shared_ptr<shared_model::interface::Block const> const &block) {
+        return block->hash();
+      });
+  // prepend hashes for the first two rounds
+  rxcpp::observable<shared_model::crypto::Hash> all_hashes =
+      block_hashes.start_with(initial_hashes.at(kBeforePreviousTop),
+                              initial_hashes.at(kPreviousTop));
 
   // emit last k + 1 hashes, where k is the delay parameter
   // current implementation assumes k = 2
   // first hash is used for kCurrentRound
   // second hash is used for kNextRound
   // third hash is used for kRoundAfterNext
-  auto latest_hashes = all_hashes.zip(all_hashes.skip(1), all_hashes.skip(2));
+  rxcpp::observable<shared_model::crypto::Hash> hashes_without_first =
+      all_hashes.skip(1);
+  rxcpp::observable<shared_model::crypto::Hash> hashes_without_first_two =
+      all_hashes.skip(2);
+  rxcpp::observable<std::tuple<shared_model::crypto::Hash,
+                               shared_model::crypto::Hash,
+                               shared_model::crypto::Hash>>
+      latest_hashes =
+          all_hashes.zip(hashes_without_first, hashes_without_first_two);
 
   auto map_peers =
       [this](auto &&latest_data) -> OnDemandConnectionManager::CurrentPeers {
@@ -92,7 +109,10 @@ auto OnDemandOrderingInit::createConnectionManager(
 
     iroha::consensus::Round current_round = latest_commit.round;
 
-    current_peers_ = latest_commit.ledger_state->ledger_peers;
+    auto &current_peers = latest_commit.ledger_state->ledger_peers;
+
+    /// permutations for peers lists
+    std::array<std::vector<size_t>, kCount> permutations;
 
     // generate permutation of peers list from corresponding round
     // hash
@@ -102,7 +122,7 @@ auto OnDemandOrderingInit::createConnectionManager(
 
       auto prng = iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
       iroha::generatePermutation(
-          permutations_[round()], std::move(prng), current_peers_.size());
+          permutations[round()], std::move(prng), current_peers.size());
     };
 
     generate_permutation(RoundTypeConstant<kCurrentRound>{});
@@ -122,13 +142,12 @@ auto OnDemandOrderingInit::createConnectionManager(
         BOOST_ASSERT_MSG(false, "Unknown value");
     }
 
-    auto getOsPeer = [this, &current_round](auto block_round_advance,
-                                            auto reject_round) {
-      auto &permutation = permutations_[block_round_advance];
+    auto getOsPeer = [&](auto block_round_advance, auto reject_round) {
+      auto &permutation = permutations[block_round_advance];
       // since reject round can be greater than number of peers, wrap it
       // with number of peers
       auto &peer =
-          current_peers_[permutation[reject_round % permutation.size()]];
+          current_peers[permutation[reject_round % permutation.size()]];
       log_->debug(
           "For {}, using OS on peer: {}",
           iroha::consensus::Round{
@@ -170,9 +189,15 @@ auto OnDemandOrderingInit::createConnectionManager(
     return peers;
   };
 
-  auto peers = sync_event_notifier.get_observable()
-                   .with_latest_from(latest_hashes)
-                   .map(map_peers);
+  rxcpp::observable<synchronizer::SynchronizationEvent> sync_events =
+      sync_event_notifier.get_observable();
+  rxcpp::observable<std::tuple<synchronizer::SynchronizationEvent,
+                               std::tuple<shared_model::crypto::Hash,
+                                          shared_model::crypto::Hash,
+                                          shared_model::crypto::Hash>>>
+      sync_events_with_hashes = sync_events.with_latest_from(latest_hashes);
+  rxcpp::observable<OnDemandConnectionManager::CurrentPeers> peers =
+      sync_events_with_hashes.map(map_peers);
 
   return std::make_unique<OnDemandConnectionManager>(
       createNotificationFactory(std::move(async_call),
@@ -198,7 +223,8 @@ auto OnDemandOrderingInit::createGate(
       std::move(ordering_service),
       std::move(network_client),
       commit_notifier.get_observable().map(
-          [this](auto block)
+          [this](std::shared_ptr<shared_model::interface::Block const> const
+                     &block)
               -> std::shared_ptr<
                   const cache::OrderingGateCache::HashesSetType> {
             // take committed & rejected transaction hashes from committed
@@ -206,16 +232,14 @@ auto OnDemandOrderingInit::createGate(
             log_->debug("Committed block handle: height {}.", block->height());
             auto hashes =
                 std::make_shared<cache::OrderingGateCache::HashesSetType>();
-            const auto &committed = block->transactions();
-            std::transform(
-                committed.begin(),
-                committed.end(),
-                std::inserter(*hashes, hashes->end()),
-                [](const auto &transaction) { return transaction.hash(); });
-            const auto &rejected = block->rejected_transactions_hashes();
-            std::copy(rejected.begin(),
-                      rejected.end(),
-                      std::inserter(*hashes, hashes->end()));
+            for (shared_model::interface::Transaction const &tx :
+                 block->transactions()) {
+              hashes->insert(tx.hash());
+            }
+            for (shared_model::crypto::Hash const &hash :
+                 block->rejected_transactions_hashes()) {
+              hashes->insert(hash);
+            }
             return hashes;
           }),
       sync_event_notifier.get_observable().map(

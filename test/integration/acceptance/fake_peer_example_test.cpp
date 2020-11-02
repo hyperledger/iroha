@@ -13,6 +13,7 @@
 #include <rxcpp/operators/rx-tap.hpp>
 #include <rxcpp/operators/rx-timeout.hpp>
 #include "ametsuchi/block_query.hpp"
+#include "ametsuchi/storage.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"
