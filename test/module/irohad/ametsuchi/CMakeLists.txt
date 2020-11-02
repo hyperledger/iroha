@@ -9,6 +9,7 @@ target_link_libraries(ametsuchi_test
     ametsuchi_fixture
     common_test_constants
     flat_file_storage
+    rocksdb_block_storage
     shared_model_stateless_validation
     test_logger
     )
@@ -99,6 +100,12 @@ target_link_libraries(in_memory_block_storage_test
 
 addtest(flat_file_block_storage_test flat_file_block_storage_test.cpp)
 target_link_libraries(flat_file_block_storage_test
+    ametsuchi
+    test_logger
+    )
+
+addtest(rocksdb_block_storage_test rocksdb_block_storage_test.cpp)
+target_link_libraries(rocksdb_block_storage_test
     ametsuchi
     test_logger
     )

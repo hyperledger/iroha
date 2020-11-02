@@ -1,3 +1,11 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef ROCKSDB_BLOCK_STORAGE_HPP
+#define ROCKSDB_BLOCK_STORAGE_HPP
+
 #include <rocksdb/db.h>
 #include <string>
 #include <boost/filesystem.hpp>
@@ -12,10 +20,9 @@
 
 using iroha::operator|;
 
-#ifndef ROCKSDB_BLOCK_STORAGE_HPP
-#define ROCKSDB_BLOCK_STORAGE_HPP
-
-class RocksdbBlockStorage : public iroha::ametsuchi::BlockStorage {
+namespace iroha {
+  namespace ametsuchi {
+class RocksdbBlockStorage : public BlockStorage {
 
 	public:
 		bool insert(std::shared_ptr<const shared_model::interface::Block> block) override;
@@ -35,17 +42,18 @@ class RocksdbBlockStorage : public iroha::ametsuchi::BlockStorage {
 			.string();
 
 		rocksdb::DB *db;
-		rocksdb::Options options;
-		rocksdb::Status status;
 
 	// RocksDB Block Constructor constructor
 	public:
 		RocksdbBlockStorage() {
+			rocksdb::Options options;
 			options.create_if_missing = true;
 			options.error_if_exists = true;
 			// open a database with a name which corresponds to a file system directory
-			status = rocksdb::DB::Open(options, name, &db);
+			rocksdb::Status status = rocksdb::DB::Open(options, name, &db);
 		}
 };
+  }  // namespace ametsuchi
+}  // namespace iroha
 
 #endif

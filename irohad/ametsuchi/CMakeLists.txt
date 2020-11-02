@@ -37,6 +37,22 @@ target_link_libraries(flat_file_storage
     Boost::filesystem
     )
 
+add_library(rocksdb_block_storage
+	impl/rocksdb_block_storage.cpp
+	impl/rocksdb_block_storage_factory.cpp
+	)
+
+target_link_libraries(rocksdb_block_storage
+    libs_files
+	shared_model_proto_backend
+	common
+	logger
+    Boost::boost
+	Boost::filesystem
+	RocksDB::rocksdb
+    )
+
+
 add_library(postgres_storage
     impl/postgres_block_storage.cpp
     impl/postgres_block_storage_factory.cpp
@@ -155,6 +171,7 @@ target_link_libraries(ametsuchi
     default_vm_call
     pg_connection_init
     flat_file_storage
+    rocksdb_block_storage
     k_times_reconnection_strategy
     postgres_indexer
     postgres_storage

@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "vendor/impl/rocksdb_block_storage.hpp"
-#include "vendor/impl/rocksdb_block_storage_factory.hpp"
+#include "ametsuchi/impl/rocksdb_block_storage.hpp"
+#include "ametsuchi/impl/rocksdb_block_storage_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "common/result.hpp"
 #include "framework/config_helper.hpp"

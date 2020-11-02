@@ -1,9 +1,17 @@
-#include "rocksdb_block_storage.hpp"
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "ametsuchi/impl/rocksdb_block_storage.hpp"
+
+using namespace iroha::ametsuchi;
 
 /**
  * Append block, if the storage doesn't already contain the same block
  * @return true if inserted successfully, false otherwise
  */
+
 bool RocksdbBlockStorage::insert(std::shared_ptr<const shared_model::interface::Block> block) {
 	auto height = std::to_string(block->height());
 	auto b = block->blob().hex();

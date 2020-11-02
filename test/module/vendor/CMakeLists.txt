@@ -18,13 +18,3 @@ target_link_libraries(rocksdb_test
     Boost::filesystem
     RocksDB::rocksdb
     )
-
-addtest(rocksdb_block_storage_test rocksdb_block_storage_test.cpp)
-target_link_libraries(rocksdb_block_storage_test
-    rocksdb_block_storage
-    shared_model_proto_backend
-    common
-    logger
-    Boost::filesystem
-    RocksDB::rocksdb
-    )
