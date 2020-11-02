@@ -49,43 +49,52 @@ namespace iroha {
           : log_(std::move(log)),
             current_hash_(),
             alternative_order_(std::move(alternative_order)),
-            published_events_(
-                hash_gate->onOutcome()
-                    .concat_map(
-                        [delay_func = std::move(delay_func)](auto message) {
-                          auto delay = delay_func(visit_in_place(
-                              message,
-                              [](const CommitMessage &msg) {
-                                auto const hash = getHash(msg.votes).value();
-                                if (hash.vote_hashes.proposal_hash.empty()) {
-                                  return ConsensusOutcomeType::kNothing;
-                                }
-                                return ConsensusOutcomeType::kCommit;
-                              },
-                              [](const RejectMessage &msg) {
-                                return ConsensusOutcomeType::kReject;
-                              },
-                              [](const FutureMessage &msg) {
-                                return ConsensusOutcomeType::kFuture;
-                              }));
-                          return rxcpp::observable<>::just(std::move(message))
-                              .delay(delay, rxcpp::identity_current_thread());
+            published_events_([&] {
+              rxcpp::observable<Answer> outcomes = hash_gate->onOutcome();
+              rxcpp::observable<Answer> delayed_outcomes = outcomes.concat_map(
+                  [delay_func = std::move(delay_func)](auto message) {
+                    auto delay = delay_func(visit_in_place(
+                        message,
+                        [](const CommitMessage &msg) {
+                          auto const hash = getHash(msg.votes).value();
+                          if (hash.vote_hashes.proposal_hash.empty()) {
+                            return ConsensusOutcomeType::kNothing;
+                          }
+                          return ConsensusOutcomeType::kCommit;
                         },
-                        rxcpp::identity_current_thread())
-                    .flat_map([this](auto message) {
-                      return visit_in_place(message,
-                                            [this](const CommitMessage &msg) {
-                                              return this->handleCommit(msg);
-                                            },
-                                            [this](const RejectMessage &msg) {
-                                              return this->handleReject(msg);
-                                            },
-                                            [this](const FutureMessage &msg) {
-                                              return this->handleFuture(msg);
-                                            });
-                    })
-                    .publish()
-                    .ref_count()),
+                        [](const RejectMessage &msg) {
+                          return ConsensusOutcomeType::kReject;
+                        },
+                        [](const FutureMessage &msg) {
+                          return ConsensusOutcomeType::kFuture;
+                        }));
+                    rxcpp::observable<Answer> just_message =
+                        rxcpp::observable<>::just(std::move(message));
+                    rxcpp::observable<Answer> delayed_message =
+                        just_message.delay(delay,
+                                           rxcpp::identity_current_thread());
+                    return delayed_message;
+                  },
+                  rxcpp::identity_current_thread());
+              rxcpp::observable<GateObject> events =
+                  delayed_outcomes.flat_map([this](auto message) {
+                    return visit_in_place(message,
+                                          [this](const CommitMessage &msg) {
+                                            return this->handleCommit(msg);
+                                          },
+                                          [this](const RejectMessage &msg) {
+                                            return this->handleReject(msg);
+                                          },
+                                          [this](const FutureMessage &msg) {
+                                            return this->handleFuture(msg);
+                                          });
+                  });
+              rxcpp::connectable_observable<GateObject> published_events =
+                  events.publish();
+              rxcpp::observable<GateObject> published_ref_counted_events =
+                  published_events.ref_count();
+              return published_ref_counted_events;
+            }()),
             orderer_(std::move(orderer)),
             hash_provider_(std::move(hash_provider)),
             block_creator_(std::move(block_creator)),

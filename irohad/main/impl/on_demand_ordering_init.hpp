@@ -6,26 +6,63 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_INIT_HPP
 #define IROHA_ON_DEMAND_ORDERING_INIT_HPP
 
+#include <chrono>
+#include <vector>
+
 #include <rxcpp/rx-lite.hpp>
-#include "ametsuchi/storage.hpp"
-#include "ametsuchi/tx_presence_cache.hpp"
-#include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
+#include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
-#include "network/impl/async_grpc_client.hpp"
-#include "network/ordering_gate.hpp"
-#include "network/peer_communication_service.hpp"
-#include "ordering.grpc.pb.h"
-#include "ordering/impl/on_demand_os_server_grpc.hpp"
-#include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
-#include "ordering/on_demand_ordering_service.hpp"
-#include "ordering/ordering_service_proposal_creation_strategy.hpp"
+
+namespace google {
+  namespace protobuf {
+    class Empty;
+  }
+}  // namespace google
+
+namespace grpc {
+  class Service;
+}
+
+namespace shared_model {
+  namespace interface {
+    class Proposal;
+    class Transaction;
+    class Block;
+    template <typename Interface, typename Transport>
+    class AbstractTransportFactory;
+    class UnsafeProposalFactory;
+    class TransactionBatchParser;
+    class TransactionBatchFactory;
+  }  // namespace interface
+}  // namespace shared_model
 
 namespace iroha {
   namespace network {
     class GenericClientFactory;
+    template <typename Response>
+    class AsyncGrpcClient;
+    class OrderingGate;
+  }  // namespace network
+  namespace protocol {
+    class Proposal;
+    class Transaction;
+  }  // namespace protocol
+  namespace ametsuchi {
+    class TxPresenceCache;
+  }
+  namespace synchronizer {
+    struct SynchronizationEvent;
   }
   namespace ordering {
+    class OnDemandOrderingService;
+    class ProposalCreationStrategy;
+    namespace transport {
+      class OdOsNotification;
+    }
+    namespace cache {
+      class OrderingGateCache;
+    }
 
     /**
      * Encapsulates initialization logic for on-demand ordering gate and service
@@ -116,8 +153,9 @@ namespace iroha {
           size_t max_number_of_transactions,
           std::chrono::milliseconds delay,
           std::vector<shared_model::interface::types::HashType> initial_hashes,
-          std::shared_ptr<transport::OnDemandOsServerGrpc::TransportFactoryType>
-              transaction_factory,
+          std::shared_ptr<shared_model::interface::AbstractTransportFactory<
+              shared_model::interface::Transaction,
+              iroha::protocol::Transaction>> transaction_factory,
           std::shared_ptr<shared_model::interface::TransactionBatchParser>
               batch_parser,
           std::shared_ptr<shared_model::interface::TransactionBatchFactory>
@@ -133,31 +171,17 @@ namespace iroha {
           std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       /// gRPC service for ordering service
-      std::shared_ptr<proto::OnDemandOrdering::Service> service;
+      std::shared_ptr<grpc::Service> service;
 
       /// commit notifier from peer communication service
-      rxcpp::subjects::subject<decltype(
-          std::declval<network::PeerCommunicationService>()
-              .onSynchronization())::value_type>
+      rxcpp::subjects::subject<synchronizer::SynchronizationEvent>
           sync_event_notifier;
-      rxcpp::subjects::subject<decltype(
-          std::declval<iroha::ametsuchi::Storage>().on_commit())::value_type>
+      rxcpp::subjects::subject<
+          std::shared_ptr<shared_model::interface::Block const>>
           commit_notifier;
 
      private:
       logger::LoggerPtr log_;
-
-      std::vector<std::shared_ptr<shared_model::interface::Peer>>
-          current_peers_;
-
-      /// indexes to permutations for corresponding rounds
-      enum RoundType { kCurrentRound, kNextRound, kRoundAfterNext, kCount };
-
-      template <RoundType V>
-      using RoundTypeConstant = std::integral_constant<RoundType, V>;
-
-      /// permutations for peers lists
-      std::array<std::vector<size_t>, kCount> permutations_;
     };
   }  // namespace ordering
 }  // namespace iroha

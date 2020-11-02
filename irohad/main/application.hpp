@@ -54,6 +54,10 @@ namespace iroha {
     struct GrpcChannelParams;
     struct TlsCredentials;
   }  // namespace network
+  namespace protocol {
+    class Query;
+    class BlocksQuery;
+  }  // namespace protocol
   namespace simulator {
     class Simulator;
   }
@@ -83,6 +87,9 @@ namespace shared_model {
     class QueryResponseFactory;
     class TransactionBatchFactory;
   }  // namespace interface
+  namespace validation {
+    struct Settings;
+  }
 }  // namespace shared_model
 
 class Irohad {

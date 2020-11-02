@@ -11,6 +11,7 @@
 #include <rxcpp/operators/rx-take.hpp>
 #include <rxcpp/operators/rx-timeout.hpp>
 #include "ametsuchi/block_query.hpp"
+#include "ametsuchi/storage.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
