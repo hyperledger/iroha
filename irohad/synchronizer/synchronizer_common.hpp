@@ -8,11 +8,10 @@
 
 #include <utility>
 
-#include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
-#include "interfaces/iroha_internal/block.hpp"
 
 namespace iroha {
+  struct LedgerState;
   namespace synchronizer {
 
     /**
