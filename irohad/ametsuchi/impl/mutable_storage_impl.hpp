@@ -44,7 +44,9 @@ namespace iroha {
       boost::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const;
 
-      expected::Result<CommitResult, std::string> commit() && override;
+      expected::Result<CommitResult, std::string> commit(
+          BlockStorage &block_storage)
+          && override;
 
       ~MutableStorageImpl() override;
 

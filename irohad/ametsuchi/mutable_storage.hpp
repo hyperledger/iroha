@@ -68,9 +68,10 @@ namespace iroha {
               blocks,
           MutableStoragePredicate predicate) = 0;
 
-      /// Apply the local changes made to this MutableStorage to the global WSV.
+      /// Apply the local changes made to this MutableStorage to block_storage
+      /// and the global WSV.
       virtual expected::Result<MutableStorage::CommitResult, std::string>
-      commit() && = 0;
+      commit(BlockStorage &block_storage) && = 0;
 
       virtual ~MutableStorage() = default;
     };
