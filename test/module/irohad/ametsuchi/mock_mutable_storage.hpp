@@ -27,13 +27,14 @@ namespace iroha {
                    bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(applyPrepared,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD0(
-          do_commit,
-          expected::Result<MutableStorage::CommitResult, std::string>());
+      MOCK_METHOD1(do_commit,
+                   expected::Result<MutableStorage::CommitResult, std::string>(
+                       BlockStorage &));
 
-      expected::Result<MutableStorage::CommitResult, std::string> commit()
+      expected::Result<MutableStorage::CommitResult, std::string> commit(
+          BlockStorage &block_storage)
           && override {
-        return do_commit();
+        return do_commit(block_storage);
       }
     };
 

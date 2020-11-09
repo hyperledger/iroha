@@ -143,7 +143,7 @@ namespace iroha {
     }
 
     expected::Result<MutableStorage::CommitResult, std::string>
-    MutableStorageImpl::commit() && {
+    MutableStorageImpl::commit(BlockStorage &block_storage) && {
       if (committed) {
         assert(not committed);
         return "Tried to commit mutable storage twice.";
@@ -152,14 +152,25 @@ namespace iroha {
         assert(ledger_state_);
         return "Tried to commit mutable storage with no blocks applied.";
       }
-      try {
-        sql_ << "COMMIT";
-        committed = true;
-      } catch (std::exception &e) {
-        return expected::makeError(e.what());
-      }
-      return MutableStorage::CommitResult{ledger_state_.value(),
-                                          std::move(block_storage_)};
+      return block_storage_->forEach(
+                 [&block_storage](
+                     auto const &block) -> expected::Result<void, std::string> {
+                   if (not block_storage.insert(block)) {
+                     return fmt::format("Failed to insert block {}", *block);
+                   }
+                   return {};
+                 })
+                 | [this]() -> expected::Result<MutableStorage::CommitResult,
+                                                std::string> {
+        try {
+          sql_ << "COMMIT";
+          committed = true;
+        } catch (std::exception &e) {
+          return expected::makeError(e.what());
+        }
+        return MutableStorage::CommitResult{ledger_state_.value(),
+                                            std::move(block_storage_)};
+      };
     }
 
     MutableStorageImpl::~MutableStorageImpl() {
