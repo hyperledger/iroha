@@ -192,15 +192,19 @@ TEST_F(PostgresBlockStorageTest, ForEach) {
 
   size_t count = 0;
 
-  block_storage_->forEach([&count, &block, &another_block](const auto &b) {
-    ++count;
-    if (b->height() == block.height()) {
-      ASSERT_EQ(b->blob(), block.blob());
-    } else if (b->height() == another_block.height()) {
-      ASSERT_EQ(b->blob(), another_block.blob());
-    } else {
-      FAIL() << "Unexpected block height returned: " << b->height();
-    }
+  block_storage_->forEach([&count, &block, &another_block](const auto &b)
+                              -> iroha::expected::Result<void, std::string> {
+    [&] {
+      ++count;
+      if (b->height() == block.height()) {
+        ASSERT_EQ(b->blob(), block.blob());
+      } else if (b->height() == another_block.height()) {
+        ASSERT_EQ(b->blob(), another_block.blob());
+      } else {
+        FAIL() << "Unexpected block height returned: " << b->height();
+      }
+    }();
+    return {};
   });
 
   ASSERT_EQ(2, count);

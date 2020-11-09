@@ -178,9 +178,13 @@ TEST_F(FlatFileBlockStorageTest, ForEach) {
 
   size_t count = 0;
 
-  block_storage->forEach([&count, &raw_block](const auto &block) {
-    ++count;
-    ASSERT_EQ(raw_block, block.get());
+  block_storage->forEach([&count, &raw_block](const auto &block)
+                             -> iroha::expected::Result<void, std::string> {
+    [&] {
+      ++count;
+      ASSERT_EQ(raw_block, block.get());
+    }();
+    return {};
   });
 
   ASSERT_EQ(1, count);

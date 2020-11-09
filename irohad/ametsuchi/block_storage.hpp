@@ -10,7 +10,8 @@
 #include <functional>
 #include <memory>
 
-#include <boost/optional.hpp>
+#include <boost/optional/optional_fwd.hpp>
+#include "common/result_fwd.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 
 namespace iroha {
@@ -46,13 +47,14 @@ namespace iroha {
       virtual void clear() = 0;
 
       /// type of function which can be applied to the elements of the storage
-      using FunctionType = std::function<void(
+      using FunctionType = std::function<expected::Result<void, std::string>(
           std::shared_ptr<const shared_model::interface::Block>)>;
 
       /**
        * Iterates through all the stored blocks
        */
-      virtual void forEach(FunctionType function) const = 0;
+      virtual expected::Result<void, std::string> forEach(
+          FunctionType function) const = 0;
 
       virtual ~BlockStorage() = default;
     };

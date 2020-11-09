@@ -32,7 +32,8 @@ namespace iroha {
 
       void clear() override;
 
-      void forEach(FunctionType function) const override;
+      expected::Result<void, std::string> forEach(
+          FunctionType function) const override;
 
      private:
       std::unique_ptr<FlatFile> flat_file_storage_;

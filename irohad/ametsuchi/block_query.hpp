@@ -9,7 +9,7 @@
 #include <optional>
 
 #include "ametsuchi/tx_cache_response.hpp"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 
 namespace iroha {

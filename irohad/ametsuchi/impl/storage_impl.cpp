@@ -300,7 +300,14 @@ namespace iroha {
       return std::move(*mutable_storage).commit() |
                  [this](auto commit_result) -> CommitResult {
         commit_result.block_storage->forEach(
-            [this](const auto &block) { this->storeBlock(block); });
+            [this](const auto &block)
+                -> iroha::expected::Result<void, std::string> {
+              auto maybe_error = this->storeBlock(block);
+              if (iroha::expected::hasError(maybe_error)) {
+                return maybe_error.assumeError();
+              }
+              return {};
+            });
 
         ledger_state_ = commit_result.ledger_state;
         return expected::makeValue(std::move(commit_result.ledger_state));

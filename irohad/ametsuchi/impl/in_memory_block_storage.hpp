@@ -28,7 +28,8 @@ namespace iroha {
 
       void clear() override;
 
-      void forEach(FunctionType function) const override;
+      expected::Result<void, std::string> forEach(
+          FunctionType function) const override;
 
      private:
       std::map<shared_model::interface::types::HeightType,

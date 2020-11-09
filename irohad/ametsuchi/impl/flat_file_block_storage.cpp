@@ -65,11 +65,18 @@ void FlatFileBlockStorage::clear() {
   flat_file_storage_->dropAll();
 }
 
-void FlatFileBlockStorage::forEach(
+iroha::expected::Result<void, std::string> FlatFileBlockStorage::forEach(
     iroha::ametsuchi::BlockStorage::FunctionType function) const {
   for (auto block_id : flat_file_storage_->blockIdentifiers()) {
-    auto block = fetch(block_id);
-    BOOST_ASSERT(block);
-    function(std::move(*block));
+    auto maybe_block = fetch(block_id);
+    if (maybe_block) {
+      auto maybe_error = function(std::move(maybe_block).value());
+      if (iroha::expected::hasError(maybe_error)) {
+        return maybe_error.assumeError();
+      }
+    } else {
+      return fmt::format("Failed to fetch block {}", block_id);
+    }
   }
+  return {};
 }
