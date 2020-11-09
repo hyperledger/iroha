@@ -157,14 +157,25 @@ void PostgresBlockStorage::clear() {
   }
 }
 
-void PostgresBlockStorage::forEach(
+iroha::expected::Result<void, std::string> PostgresBlockStorage::forEach(
     iroha::ametsuchi::BlockStorage::FunctionType function) const {
-  block_height_range_ | [this, &function](auto range) {
+  return block_height_range_ |
+             [this,
+              &function](auto range) -> expected::Result<void, std::string> {
     soci::session sql(*pool_wrapper_->connection_pool_);
     while (range.min <= range.max) {
-      function(*this->fetch(range.min));
+      auto maybe_block = this->fetch(range.min);
+      if (maybe_block) {
+        auto maybe_error = function(std::move(maybe_block).value());
+        if (iroha::expected::hasError(maybe_error)) {
+          return maybe_error.assumeError();
+        }
+      } else {
+        return fmt::format("Failed to fetch block {}", range.min);
+      }
       ++range.min;
     }
+    return {};
   };
 }
 

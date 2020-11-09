@@ -32,8 +32,13 @@ void InMemoryBlockStorage::clear() {
   block_store_.clear();
 }
 
-void InMemoryBlockStorage::forEach(FunctionType function) const {
+iroha::expected::Result<void, std::string> InMemoryBlockStorage::forEach(
+    FunctionType function) const {
   for (const auto &pair : block_store_) {
-    function(pair.second);
+    auto maybe_error = function(pair.second);
+    if (iroha::expected::hasError(maybe_error)) {
+      return maybe_error.assumeError();
+    }
   }
+  return {};
 }

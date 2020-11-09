@@ -57,7 +57,10 @@ namespace {
      * Does not iterate any blocks - it is not required to insert any additional
      * blocks to the existing storage
      */
-    void forEach(FunctionType function) const override {}
+    iroha::expected::Result<void, std::string> forEach(
+        FunctionType function) const override {
+      return {};
+    }
   };
 
   /**
