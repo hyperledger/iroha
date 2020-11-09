@@ -297,19 +297,18 @@ namespace iroha {
 
     CommitResult StorageImpl::commit(
         std::unique_ptr<MutableStorage> mutable_storage) {
-      return std::move(*mutable_storage).commit() |
-                 [this](auto commit_result) -> CommitResult {
-        commit_result.block_storage->forEach(
-            [this](const auto &block)
-                -> iroha::expected::Result<void, std::string> {
-              auto maybe_error = this->storeBlock(block);
-              if (iroha::expected::hasError(maybe_error)) {
-                return maybe_error.assumeError();
-              }
-              return {};
-            });
-
+      auto old_height = block_store_->size();
+      return std::move(*mutable_storage).commit(*block_store_) |
+                 [this, old_height](auto commit_result) -> CommitResult {
         ledger_state_ = commit_result.ledger_state;
+        auto new_height = block_store_->size();
+        for (auto height = old_height + 1; height <= new_height; ++height) {
+          auto maybe_block = block_store_->fetch(height);
+          if (not maybe_block) {
+            return fmt::format("Failed to fetch block {}", height);
+          }
+          notifier_.get_subscriber().on_next(*std::move(maybe_block));
+        }
         return expected::makeValue(std::move(commit_result.ledger_state));
       };
     }
@@ -338,6 +337,11 @@ namespace iroha {
               "commitPrepared: connection to database is not initialised");
           return expected::makeError(std::move(msg));
         }
+
+        if (not block_store_->insert(block)) {
+          return fmt::format("Failed to insert block {}", *block);
+        }
+
         soci::session sql(*connection_);
         sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
         PostgresBlockIndex block_index(
@@ -352,23 +356,22 @@ namespace iroha {
           throw std::runtime_error(e.value());
         }
 
-        return storeBlock(block) | [this, &sql, &block]() -> CommitResult {
-          decltype(
-              std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
-          {
-            auto peer_query = PostgresWsvQuery(
-                sql, this->log_manager_->getChild("WsvQuery")->getLogger());
-            if (not(opt_ledger_peers = peer_query.getPeers())) {
-              return expected::makeError(
-                  std::string{"Failed to get ledger peers! Will retry."});
-            }
-          }
-          assert(opt_ledger_peers);
+        notifier_.get_subscriber().on_next(block);
 
-          ledger_state_ = std::make_shared<const LedgerState>(
-              std::move(*opt_ledger_peers), block->height(), block->hash());
-          return expected::makeValue(ledger_state_.value());
-        };
+        decltype(std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
+        {
+          auto peer_query = PostgresWsvQuery(
+              sql, this->log_manager_->getChild("WsvQuery")->getLogger());
+          if (not(opt_ledger_peers = peer_query.getPeers())) {
+            return expected::makeError(
+                std::string{"Failed to get ledger peers! Will retry."});
+          }
+        }
+        assert(opt_ledger_peers);
+
+        ledger_state_ = std::make_shared<const LedgerState>(
+            std::move(*opt_ledger_peers), block->height(), block->hash());
+        return expected::makeValue(ledger_state_.value());
       } catch (const std::exception &e) {
         std::string msg((boost::format("failed to apply prepared block %s: %s")
                          % block->hash().hex() % e.what())
