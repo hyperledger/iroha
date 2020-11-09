@@ -104,10 +104,14 @@ TEST_F(InMemoryBlockStorageTest, ForEach) {
 
   size_t count = 0;
 
-  block_storage_.forEach([this, &count](const auto &block) {
-    ++count;
-    ASSERT_TRUE(block);
-    ASSERT_EQ(*block_, *block);
+  block_storage_.forEach([this, &count](const auto &block)
+                             -> iroha::expected::Result<void, std::string> {
+    [&] {
+      ++count;
+      ASSERT_TRUE(block);
+      ASSERT_EQ(*block_, *block);
+    }();
+    return {};
   });
 
   ASSERT_EQ(1, count);

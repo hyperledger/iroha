@@ -22,7 +22,8 @@ namespace iroha {
               shared_model::interface::types::HeightType));
       MOCK_CONST_METHOD0(size, size_t(void));
       MOCK_METHOD0(clear, void(void));
-      MOCK_CONST_METHOD1(forEach, void(FunctionType));
+      MOCK_CONST_METHOD1(forEach,
+                         expected::Result<void, std::string>(FunctionType));
     };
   }  // namespace ametsuchi
 }  // namespace iroha
