@@ -90,6 +90,7 @@ inline logger::LogLevel getLogLevel(std::string level_str,
   assert_fatal(it != config_members::LogLevels.end(),
                printable_path,
                fmt::format("wrong log level `{}': must be one of `{}'",
+                           level_str,
                            fmt::join(config_members::LogLevels
                                          | boost::adaptors::map_keys,
                                      "', `")));
@@ -192,8 +193,8 @@ class JsonDeserializerImpl {
     return fmt::format("{}[{}]", printable_path_, index);
   }
 
-  bool iterateDictChildren(
-      std::function<void(std::string_view, JsonDeserializerImpl)> f) {
+  template <typename F>
+  bool iterateDictChildren(F f) {
     if (json_) {
       assert_fatal(json_->get().IsObject(), "must be a JSON object.");
       auto const json_obj = json_->get().GetObject();
@@ -424,27 +425,18 @@ class JsonDeserializerImpl {
    * logger config. The parent logger JSON object is searched for the children
    * config section, and the children configs are parsed and created if the
    * section is present.
-   * @param path - current config node path used to denote the possible error
-   *    place.
    * @param parent_config - the parent logger config
-   * @param parent_obj - the parent logger json configuration
    */
   bool addChildrenLoggerConfigs(logger::LoggerManagerTree &parent_config);
 
   /**
    * Overrides the logger configuration with the values from JSON object.
-   * @param path - current config node path used to denote the possible error
-   *    place.
    * @param cfg - the configuration to use as base
-   * @param obj - the JSON object to take overrides from
    */
-  bool updateLoggerConfig(logger::LoggerConfig &cfg);
+  void updateLoggerConfig(logger::LoggerConfig &cfg);
 
   /**
    * Gets an optional value by a key from a JSON object.
-   * @param path - current config node path used to denote the possible error
-   *    place.
-   * @param obj - the source JSON object
    * @param key - the key for the requested value
    * @return the value if present in the JSON object, otherwise boost::none.
    */
@@ -534,9 +526,7 @@ inline bool JsonDeserializerImpl::loadInto(
     std::unique_ptr<logger::LoggerManagerTree> &dest) {
   logger::LoggerConfig root_config{logger::kDefaultLogLevel,
                                    logger::LogPatterns{}};
-  if (not updateLoggerConfig(root_config)) {
-    return false;
-  }
+  updateLoggerConfig(root_config);
   dest = std::make_unique<logger::LoggerManagerTree>(
       std::make_shared<const logger::LoggerConfig>(std::move(root_config)));
   addChildrenLoggerConfigs(*dest);
@@ -740,15 +730,13 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
  * logger config. The parent logger JSON object is searched for the children
  * config section, and the children configs are parsed and created if the
  * section is present.
- * @param path - current config node path used to denote the possible error
- *    place.
  * @param parent_config - the parent logger config
- * @param parent_obj - the parent logger json configuration
  */
 bool JsonDeserializerImpl::addChildrenLoggerConfigs(
     logger::LoggerManagerTree &parent_config) {
-  return iterateDictChildren(
-      [&](std::string_view child_name, JsonDeserializerImpl child_conf_raw) {
+  return getDictChild(config_members::LogChildrenSection)
+      .iterateDictChildren([&](std::string_view child_name,
+                               JsonDeserializerImpl child_conf_raw) {
         auto child_conf = parent_config.registerChild(
             std::string{child_name},
             child_conf_raw.getOptValByKey<logger::LogLevel>(
@@ -761,15 +749,11 @@ bool JsonDeserializerImpl::addChildrenLoggerConfigs(
 
 /**
  * Overrides the logger configuration with the values from JSON object.
- * @param path - current config node path used to denote the possible error
- *    place.
  * @param cfg - the configuration to use as base
- * @param obj - the JSON object to take overrides from
  */
-bool JsonDeserializerImpl::updateLoggerConfig(logger::LoggerConfig &cfg) {
-  return getDictChild(config_members::LogLevel).loadInto(cfg.log_level)
-      or getDictChild(config_members::LogPatternsSection)
-             .loadInto(cfg.patterns);
+void JsonDeserializerImpl::updateLoggerConfig(logger::LoggerConfig &cfg) {
+  getDictChild(config_members::LogLevel).loadInto(cfg.log_level);
+  getDictChild(config_members::LogPatternsSection).loadInto(cfg.patterns);
 }
 
 void reportJsonParsingError(const rapidjson::Document &doc,
