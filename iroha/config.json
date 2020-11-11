@@ -8,7 +8,20 @@
     "BLOCK_TIME_MS": 1000,
     "COMMIT_TIME_MS": 1000,
     "TX_RECEIPT_TIME_MS": 100,
-    "MAX_FAULTY_PEERS": 1
+    "MAX_FAULTY_PEERS": 1,
+    "TRUSTED_PEERS": [{
+      "address": "localhost:1337",
+      "public_key": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+    },{
+      "address": "localhost:1339",
+      "public_key": "ed20cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"
+    },{
+      "address": "localhost:1340",
+      "public_key": "ed20faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"
+    },{
+      "address": "localhost:1340",
+      "public_key": "ed208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"
+    }]
   },
   "KURA_CONFIGURATION": {
     "KURA_INIT_MODE": "strict",
