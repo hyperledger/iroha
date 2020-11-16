@@ -293,6 +293,8 @@ Main Parameters
 
 .. note:: If you would like to use HL Ursa cryptography for your build, please install `Rust <https://www.rust-lang.org/tools/install>`_ in addition to other dependencies. Learn more about HL Ursa integration `here <../integrations/index.html#hyperledger-ursa>`_.
 
+  If you want to use HL Burrow integration, do not forget to first install `Go <https://golang.org/doc/install>`_ and then `protoc-gen-go <https://developers.google.com/protocol-buffers/docs/reference/go-generated>`_. Learn more about `HL Burrow Integration <../integrations/index.html#hyperledger-burrow>`_.
+
 Packaging Specific Parameters
 """""""""""""""""""""""""""""
 
