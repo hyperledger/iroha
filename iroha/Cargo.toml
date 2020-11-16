@@ -39,7 +39,7 @@ url = "2.1"
 ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-heim = "0.0.10"
+heim = "0.0.11"
 log = { version = "0.4", features = ["std", "serde"] }
 
 [dev-dependencies]
