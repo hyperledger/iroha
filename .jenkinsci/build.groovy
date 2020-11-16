@@ -27,11 +27,8 @@ def cmakeBuildWindows(String buildDir, String cmakeOptions) {
 
 def cppCheck(String buildDir, int parallelism) {
   // github.com/jenkinsci/cppcheck-plugin/pull/36
-  sh "cppcheck -j${parallelism} --enable=all -i${buildDir} --template='{file},,{line},,{severity},,{id},,{message}' . 2> cppcheck.txt"
-  warnings (
-    parserConfigurations: [[parserName: 'Cppcheck', pattern: "cppcheck.txt"]], categoriesPattern: '',
-    defaultEncoding: '', excludePattern: '', healthy: '', includePattern: '', messagesPattern: '', unHealthy: ''
-  )
+  sh "cppcheck -j${parallelism} --enable=all -i${buildDir} --template='{file},,{line},,{severity},,{id},,{message}' --xml --xml-version=2 . 2> cppcheck.xml"
+  recordIssues(tools: [cppCheck(pattern: 'cppcheck.xml')])
 }
 
 def sonarScanner(scmVars, environment) {
