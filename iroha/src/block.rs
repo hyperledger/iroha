@@ -104,10 +104,9 @@ impl BlockHeader {
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
     pub fn validate(self, world_state_view: &WorldStateView) -> ValidBlock {
-        let mut world_state_view = world_state_view.clone();
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(&mut world_state_view) {
+            match transaction.validate(world_state_view) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
@@ -158,10 +157,9 @@ impl ValidBlock {
 
     /// Validate block transactions against current state of the world.
     pub fn validate(self, world_state_view: &WorldStateView) -> ValidBlock {
-        let mut world_state_view = world_state_view.clone();
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(&mut world_state_view) {
+            match transaction.validate(world_state_view) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }

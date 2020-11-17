@@ -77,10 +77,7 @@ impl AcceptedTransaction {
     /// `WorldStateView`.
     ///
     /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn validate(
-        self,
-        world_state_view: &mut WorldStateView,
-    ) -> Result<ValidTransaction, String> {
+    pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
         let account_id = self.payload.account_id.clone();
         world_state_view
@@ -95,7 +92,6 @@ impl AcceptedTransaction {
                 .clone()
                 .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
-        *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
             payload: self.payload,
             signatures: self.signatures,
@@ -116,10 +112,7 @@ impl ValidTransaction {
     /// `WorldStateView`.
     ///
     /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn validate(
-        self,
-        world_state_view: &mut WorldStateView,
-    ) -> Result<ValidTransaction, String> {
+    pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
         let account_id = self.payload.account_id.clone();
         world_state_view
@@ -134,7 +127,6 @@ impl ValidTransaction {
                 .clone()
                 .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
         }
-        *world_state_view = world_state_view_temp;
         Ok(ValidTransaction {
             payload: self.payload,
             signatures: self.signatures,
