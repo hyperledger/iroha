@@ -86,8 +86,10 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
   auto val_size =
       sizeof(std::remove_reference<decltype(block)>::type::value_type);
 
-  file.write(reinterpret_cast<const char *>(block.data()),
-             block.size() * val_size);
+  if (not file.write(reinterpret_cast<const char *>(block.data()),
+                     block.size() * val_size)) {
+    return false;
+  }
 
   available_blocks_.insert(id);
   return true;
