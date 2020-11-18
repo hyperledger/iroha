@@ -6,6 +6,7 @@ use self::message::*;
 use crate::{
     block::PendingBlock,
     event::{Entity, EventsSender, Occurrence},
+    permissions::PermissionsValidatorBox,
     prelude::*,
 };
 use async_std::sync::RwLock;
@@ -51,6 +52,7 @@ pub struct Sumeragi {
     /// Number of view changes after the previous block was committed
     number_of_view_changes: u32,
     invalidated_blocks_hashes: Vec<Hash>,
+    permissions_validator: PermissionsValidatorBox,
 }
 
 impl Sumeragi {
@@ -61,6 +63,7 @@ impl Sumeragi {
         events_sender: EventsSender,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
+        permissions_validator: PermissionsValidatorBox,
         //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self, String> {
         Ok(Self {
@@ -87,6 +90,7 @@ impl Sumeragi {
             block_height: 0,
             number_of_view_changes: 0,
             invalidated_blocks_hashes: Vec::new(),
+            permissions_validator,
         })
     }
 
@@ -132,7 +136,7 @@ impl Sumeragi {
             self.events_sender
                 .send(Occurrence::Created(Entity::Block(Vec::from(&block))))
                 .await;
-            let block = block.validate(&*wsv.read().await);
+            let block = block.validate(&*wsv.read().await, &self.permissions_validator);
             self.events_sender
                 .send(Occurrence::Updated(Entity::Block(Vec::from(&block))))
                 .await;
@@ -671,7 +675,7 @@ pub mod message {
                         if let Err(e) = Message::BlockSigned(
                             self.block
                                 .clone()
-                                .validate(&*wsv)
+                                .validate(&*wsv, &sumeragi.permissions_validator)
                                 .sign(&sumeragi.key_pair)?
                                 .into(),
                         )
@@ -1552,6 +1556,7 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
+                    AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1677,6 +1682,7 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
+                    AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1825,6 +1831,7 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
+                    AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1984,6 +1991,7 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
+                    AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -2141,6 +2149,7 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
+                    AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));

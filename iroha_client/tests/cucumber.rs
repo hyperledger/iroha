@@ -61,7 +61,7 @@ mod iroha_steps {
                         .kura_block_store_path(temp_dir.path());
                     configuration.torii_configuration.torii_p2p_url =
                         format!("127.0.0.1:{}", iroha_port);
-                    let iroha = Iroha::new(configuration.clone());
+                    let iroha = Iroha::new(configuration.clone(), AllowAll.into());
                     iroha.start().await.expect("Failed to start Iroha.");
                     loop {}
                 }));

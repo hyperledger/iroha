@@ -1,7 +1,7 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
-use crate::{merkle::MerkleTree, prelude::*};
+use crate::{merkle::MerkleTree, permissions::PermissionsValidatorBox, prelude::*};
 use iroha_crypto::{KeyPair, Signatures};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
@@ -104,10 +104,14 @@ impl BlockHeader {
 
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
-    pub fn validate(self, world_state_view: &WorldStateView) -> ValidBlock {
+    pub fn validate(
+        self,
+        world_state_view: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+    ) -> ValidBlock {
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(world_state_view) {
+            match transaction.validate(world_state_view, permissions_validator) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
@@ -157,10 +161,14 @@ impl ValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
-    pub fn validate(self, world_state_view: &WorldStateView) -> ValidBlock {
+    pub fn validate(
+        self,
+        world_state_view: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+    ) -> ValidBlock {
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(world_state_view) {
+            match transaction.validate(world_state_view, permissions_validator) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }

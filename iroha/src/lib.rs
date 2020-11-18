@@ -32,6 +32,7 @@ pub mod maintenance;
 mod merkle;
 pub mod modules;
 pub mod peer;
+pub mod permissions;
 pub mod query;
 mod queue;
 pub mod sumeragi;
@@ -55,6 +56,7 @@ use async_std::{
     task,
 };
 use iroha_data_model::prelude::*;
+use permissions::PermissionsValidatorBox;
 use std::{sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -101,7 +103,7 @@ pub struct Iroha {
 
 impl Iroha {
     /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
-    pub fn new(config: Configuration) -> Self {
+    pub fn new(config: Configuration, permissions_checker: PermissionsValidatorBox) -> Self {
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         log::info!("Configuration: {:?}", config);
         let (transactions_sender, transactions_receiver) = sync::channel(100);
@@ -135,6 +137,7 @@ impl Iroha {
                 events_sender,
                 world_state_view.clone(),
                 transactions_sender,
+                permissions_checker,
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -273,6 +276,7 @@ pub mod prelude {
     #[doc(inline)]
     pub use crate::{
         block::{CommittedBlock, PendingBlock, ValidBlock},
+        permissions::AllowAll,
         query::Query,
         tx::{AcceptedTransaction, ValidTransaction},
         wsv::WorldStateView,
