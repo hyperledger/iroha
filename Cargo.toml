@@ -13,4 +13,5 @@ members = [
   "iroha_network",
   "iroha_substrate",
   "iroha_http_server",
+  "iroha_permissions_validators",
 ]
