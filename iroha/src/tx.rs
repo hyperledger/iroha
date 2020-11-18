@@ -2,7 +2,7 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use crate::{isi::Execute, prelude::*};
+use crate::{isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
@@ -68,7 +68,11 @@ impl AcceptedTransaction {
     /// `WorldStateView`.
     ///
     /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidTransaction, String> {
+    pub fn validate(
+        self,
+        world_state_view: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+    ) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
         let account_id = self.payload.account_id.clone();
         world_state_view
@@ -79,9 +83,15 @@ impl AcceptedTransaction {
                 self.hash().as_ref(),
             )?;
         for instruction in &self.payload.instructions {
+            let account_id = self.payload.account_id.clone();
             world_state_view_temp = instruction
                 .clone()
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
+                .execute(account_id.clone(), &world_state_view_temp)?;
+            permissions_validator.check_instruction(
+                account_id.clone(),
+                instruction.clone(),
+                &world_state_view,
+            )?;
         }
         Ok(ValidTransaction {
             payload: self.payload,
@@ -98,30 +108,20 @@ pub struct ValidTransaction {
 }
 
 impl ValidTransaction {
-    // TODO: Should not be in `ValidTransaction`.
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
     /// `WorldStateView`.
     ///
     /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidTransaction, String> {
-        let mut world_state_view_temp = world_state_view.clone();
-        let account_id = self.payload.account_id.clone();
-        world_state_view
-            .read_account(&account_id)
-            .ok_or(format!("Account with id {} not found", account_id))?
-            .verify_signature(
-                self.signatures.first().ok_or("No signatures found.")?,
-                self.hash().as_ref(),
-            )?;
-        for instruction in &self.payload.instructions {
-            world_state_view_temp = instruction
-                .clone()
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
-        }
-        Ok(ValidTransaction {
+    pub fn validate(
+        self,
+        world_state_view: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+    ) -> Result<ValidTransaction, String> {
+        AcceptedTransaction {
             payload: self.payload,
             signatures: self.signatures,
-        })
+        }
+        .validate(world_state_view, permissions_validator)
     }
 
     /// Apply instructions to the `WorldStateView`.
@@ -157,7 +157,10 @@ mod event {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::init::{self, config::InitConfiguration};
+    use crate::{
+        init::{self, config::InitConfiguration},
+        permissions::AllowAll,
+    };
     use std::collections::BTreeSet;
 
     #[test]
@@ -170,18 +173,21 @@ mod tests {
         let accepted_tx = signed_tx.accept().expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
-            .validate(&mut WorldStateView::new(Peer::with(
-                PeerId {
-                    address: "127.0.0.1:8080".to_string(),
-                    public_key: KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                },
-                init::domains(&InitConfiguration {
-                    root_public_key: root_key_pair.public_key.clone(),
-                }),
-                BTreeSet::new(),
-            )))
+            .validate(
+                &WorldStateView::new(Peer::with(
+                    PeerId {
+                        address: "127.0.0.1:8080".to_string(),
+                        public_key: KeyPair::generate()
+                            .expect("Failed to generate KeyPair.")
+                            .public_key,
+                    },
+                    init::domains(&InitConfiguration {
+                        root_public_key: root_key_pair.public_key.clone(),
+                    }),
+                    BTreeSet::new(),
+                )),
+                &AllowAll.into(),
+            )
             .expect("Failed to validate.")
             .hash();
         assert_eq!(tx_hash, signed_tx_hash);

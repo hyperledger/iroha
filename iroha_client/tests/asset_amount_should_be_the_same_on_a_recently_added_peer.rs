@@ -94,7 +94,7 @@ mod tests {
             .max_faulty_peers(MAX_FAULTS);
         let configuration_clone = configuration.clone();
         task::spawn(async move {
-            let iroha = Iroha::new(configuration);
+            let iroha = Iroha::new(configuration, AllowAll.into());
             iroha.start().await.expect("Failed to start Iroha.");
             //Prevents temp_dir from clean up until the end of the tests.
             #[allow(clippy::empty_loop)]
@@ -186,7 +186,7 @@ mod tests {
                 configuration
                     .sumeragi_configuration
                     .max_faulty_peers(MAX_FAULTS);
-                let iroha = Iroha::new(configuration);
+                let iroha = Iroha::new(configuration, AllowAll.into());
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 #[allow(clippy::empty_loop)]

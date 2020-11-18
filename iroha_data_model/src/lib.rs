@@ -136,10 +136,20 @@ impl From<Parameter> for ValueBox {
     }
 }
 
+pub mod permissions {
+    //! Structures, traits and impls related to `Permission`s.
+
+    /// Raw byte representation of Permission.
+    pub type PermissionRaw = Vec<u8>;
+}
+
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
 
-    use crate::{asset::AssetsMap, IdBox, Identifiable, IdentifiableBox, Name, PublicKey};
+    use crate::{
+        asset::AssetsMap, permissions::PermissionRaw, IdBox, Identifiable, IdentifiableBox, Name,
+        PublicKey,
+    };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
     //TODO: get rid of it?
@@ -151,6 +161,7 @@ pub mod account {
     /// (`Account`) pairs.
     pub type AccountsMap = BTreeMap<Id, Account>;
     type Signatories = Vec<PublicKey>;
+    type Permissions = Vec<PermissionRaw>;
 
     /// Account entity is an authority which is used to execute `Iroha Special Insturctions`.
     #[derive(
@@ -164,6 +175,8 @@ pub mod account {
         /// `Account`'s signatories.
         //TODO: signatories are not public keys - rename this field.
         pub signatories: Signatories,
+        /// Permissions of this account
+        pub permissions: Permissions,
     }
 
     /// Identification of an Account. Consists of Account's name and Domain's name.
@@ -203,6 +216,7 @@ pub mod account {
                 id,
                 assets: AssetsMap::new(),
                 signatories: Signatories::new(),
+                permissions: Permissions::new(),
             }
         }
 
@@ -214,6 +228,7 @@ pub mod account {
                 id,
                 assets: AssetsMap::new(),
                 signatories,
+                permissions: Permissions::new(),
             }
         }
         /// Verify if the signature is produced by the owner of this account.
@@ -305,7 +320,7 @@ pub mod asset {
     /// (`AssetDefinition`) pairs.
     pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinition>;
     /// Collection of `Bytes` represented parameters and their names.
-    type Store = BTreeMap<Name, Bytes>;
+    pub type Store = BTreeMap<Name, Bytes>;
 
     /// Asset definition defines type of that asset.
     #[derive(

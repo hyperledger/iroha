@@ -146,12 +146,15 @@ fn validate_transaction(criterion: &mut Criterion) {
         &key_pair.public_key,
     )));
     criterion.bench_function("validate", |b| {
-        b.iter(
-            || match transaction.clone().validate(&mut world_state_view) {
+        b.iter(|| {
+            match transaction
+                .clone()
+                .validate(&mut world_state_view, &AllowAll.into())
+            {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            },
-        );
+            }
+        });
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -246,7 +249,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     )));
     let block = PendingBlock::new(vec![transaction])
         .chain_first()
-        .validate(&world_state_view);
+        .validate(&world_state_view, &AllowAll.into());
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("sign_block", |b| {
@@ -317,7 +320,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction]).chain_first();
     criterion.bench_function("validate_block", |b| {
-        b.iter(|| block.clone().validate(&world_state_view));
+        b.iter(|| block.clone().validate(&world_state_view, &AllowAll.into()));
     });
 }
 

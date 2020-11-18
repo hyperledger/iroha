@@ -98,7 +98,7 @@ mod tests {
         configuration
             .kura_configuration
             .kura_block_store_path(temp_dir.path());
-        let iroha = Iroha::new(configuration);
+        let iroha = Iroha::new(configuration, AllowAll.into());
         task::block_on(iroha.start()).expect("Failed to start Iroha.");
         //Prevents temp_dir from clean up untill the end of the tests.
         #[allow(clippy::empty_loop)]

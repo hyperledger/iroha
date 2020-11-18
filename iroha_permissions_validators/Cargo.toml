@@ -1,0 +1,11 @@
+[package]
+name = "iroha_permissions_validators"
+version = "0.1.0"
+authors = ["Egor Ivkov <e.o.ivkov@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iroha = { path = "../iroha"}
+iroha_data_model = { path = "../iroha_data_model" }

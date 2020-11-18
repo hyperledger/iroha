@@ -88,7 +88,7 @@ fn create_and_start_iroha(block_store_path: &Path) {
     configuration
         .kura_configuration
         .kura_block_store_path(block_store_path);
-    let iroha = Iroha::new(configuration.clone());
+    let iroha = Iroha::new(configuration.clone(), AllowAll.into());
     let _result = task::block_on(async_std::future::timeout(
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms() * 6),
         iroha.start(),

@@ -18,6 +18,7 @@ build/*
 *.pb.cc
 *.pb.h
 *.retry
+*.code-workspace
 .gradle/*
 .vscode/*
 .idea/*
