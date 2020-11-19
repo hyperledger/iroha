@@ -82,7 +82,7 @@ pub mod config {
     use std::env;
 
     const MAX_LOG_LEVEL: &str = "MAX_LOG_LEVEL";
-    const DEFAULT_MAX_LOG_LEVEL: LevelFilter = LevelFilter::Debug;
+    const DEFAULT_MAX_LOG_LEVEL: LevelFilter = LevelFilter::Info;
     const TERMINAL_COLOR_ENABLED: &str = "TERMINAL_COLOR_ENABLED";
     const DEFAULT_TERMINAL_COLOR_ENABLED: bool = false;
     const DATE_TIME_FORMAT: &str = "DATE_TIME_FORMAT";

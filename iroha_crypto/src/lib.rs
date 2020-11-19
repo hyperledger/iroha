@@ -34,6 +34,7 @@ pub const SECP_256_K1: &str = "secp256k1";
 pub const BLS_NORMAL: &str = "bls_normal";
 pub const BLS_SMALL: &str = "bls_small";
 
+// TODO: Move it into `iroha_crypto` and use multihash format for display.
 /// Represents hash of Iroha entities like `Block` or `Transaction.
 pub type Hash = [u8; HASH_LENGTH];
 
