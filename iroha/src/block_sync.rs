@@ -81,6 +81,10 @@ impl BlockSynchronizer {
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.
     pub async fn continue_sync(&mut self) {
         if let State::InProgress(blocks, peer_id) = self.state.clone() {
+            log::info!(
+                "Synchronizing blocks, {} blocks left in this batch.",
+                blocks.len()
+            );
             if let Some((block, blocks)) = blocks.split_first() {
                 let mut network_topology = self.sumeragi.read().await.network_topology.clone();
                 network_topology.shift_peers_by_n(block.header.number_of_view_changes);
@@ -104,7 +108,7 @@ impl BlockSynchronizer {
                 }
             } else {
                 self.state = State::Idle;
-                if let Err(e) = Message::LatestBlock(
+                if let Err(e) = Message::GetBlocksAfter(
                     self.kura.read().await.latest_block_hash(),
                     self.peer_id.clone(),
                 )
@@ -186,7 +190,7 @@ pub mod message {
         }
 
         /// Send this message over the network to the specified `peer`.
-        #[log]
+        #[log("TRACE")]
         pub async fn send_to(self, peer: &PeerId) -> Result<(), String> {
             match Network::send_request_to(
                 &peer.address,

@@ -131,6 +131,11 @@ impl Sumeragi {
             self.events_sender
                 .send(Occurrence::Updated(Entity::Block(Vec::from(&block))))
                 .await;
+            log::info!(
+                "{:?} - Created a block with hash {:X?}.",
+                self.network_topology.role(&self.peer_id),
+                block.hash(),
+            );
             if !self.network_topology.is_consensus_required() {
                 self.commit_block(block).await;
                 Ok(())
@@ -150,12 +155,17 @@ impl Sumeragi {
                     .iter()
                     .filter(|result| result.is_err())
                     .for_each(|error_result| {
-                        log::error!("Failed to send messages: {:?}", error_result)
+                        log::error!("Failed to send BlockCreated messages: {:?}", error_result)
                     });
                 Ok(())
             }
         } else {
             //Sends transactions to leader
+            log::info!(
+                "{:?} - Forwarding transactions to leader. Number of transactions to forward: {}",
+                self.network_topology.role(&self.peer_id),
+                transactions.len(),
+            );
             let mut send_futures = Vec::new();
             for transaction in &transactions {
                 send_futures.push(
@@ -207,7 +217,7 @@ impl Sumeragi {
                             .filter(|result| result.is_err())
                             .for_each(|error_result| {
                                 log::error!(
-                                    "Failed to send transactions to the leader: {:?}",
+                                    "Failed to send NoTransactionReceiptReceived message to peers: {:?}",
                                     error_result
                                 )
                             });
@@ -258,7 +268,7 @@ impl Sumeragi {
                         .iter()
                         .filter(|result| result.is_err())
                         .for_each(|error_result| {
-                            log::error!("Failed to send messages: {:?}", error_result)
+                            log::error!("Failed to send CommitTimeout messages: {:?}", error_result)
                         });
                 }
             }
@@ -268,20 +278,37 @@ impl Sumeragi {
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
     #[log]
     pub async fn commit_block(&mut self, block: ValidBlock) {
-        self.latest_block_hash = block.hash();
+        let block_hash = block.hash();
+        self.latest_block_hash = block_hash;
         self.invalidated_blocks_hashes.clear();
         self.block_height = block.header.height;
         self.blocks_sender.write().await.send(block).await;
+        let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
             .sort_peers(Some(self.latest_block_hash));
+        log::info!(
+            "{:?} - Commiting block with hash {:X?}. New role: {:?}. New height: {}",
+            previous_role,
+            block_hash,
+            self.network_topology.role(&self.peer_id),
+            self.block_height,
+        );
         *self.voting_block.write().await = None;
         self.number_of_view_changes = 0;
     }
 
     async fn change_view(&mut self) {
+        let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology.shift_peers_by_one();
         *self.voting_block.write().await = None;
         self.number_of_view_changes += 1;
+        log::info!(
+            "{:?} - Changing view at block with hash {:X?}. New role: {:?}. Number of view changes (including this): {}",
+            previous_role,
+            self.latest_block_hash,
+            self.network_topology.role(&self.peer_id),
+            self.number_of_view_changes,
+        );
     }
 }
 
@@ -649,6 +676,12 @@ pub mod message {
                                 "Failed to send BlockSigned message to the proxy tail: {:?}",
                                 e
                             );
+                        } else {
+                            log::info!(
+                                "{:?} - Signed block candidate with hash {:X?}.",
+                                sumeragi.network_topology.role(&sumeragi.peer_id),
+                                self.block.hash(),
+                            );
                         }
                         //TODO: send to set b so they can observe
                     }
@@ -699,12 +732,24 @@ pub mod message {
                     &[Role::ValidatingPeer, Role::Leader],
                     &entry.verified_signatures(),
                 );
+                log::info!(
+                    "{:?} - Recieved a vote for block with hash {:X?}. Now it has {} signatures out of {} required (not counting ProxyTail signature).",
+                    sumeragi.network_topology.role(&sumeragi.peer_id),
+                    block_hash,
+                    valid_signatures.len(),
+                    sumeragi.network_topology.min_votes_for_commit() - 1,
+                );
                 if valid_signatures.len() >= sumeragi.network_topology.min_votes_for_commit() - 1 {
                     let mut signatures = Signatures::default();
                     signatures.append(&valid_signatures);
                     let mut block = entry.clone();
                     block.signatures = signatures;
                     let block = block.sign(&sumeragi.key_pair)?;
+                    log::info!(
+                        "{:?} - Block reached required number of votes. Block hash {:X?}.",
+                        sumeragi.network_topology.role(&sumeragi.peer_id),
+                        block_hash,
+                    );
                     let message = Message::BlockCommitted(block.clone().into());
                     let mut send_futures = Vec::new();
                     for peer in sumeragi.network_topology.validating_peers() {
@@ -719,7 +764,10 @@ pub mod message {
                         .iter()
                         .filter(|result| result.is_err())
                         .for_each(|error_result| {
-                            log::error!("Failed to send messages: {:?}", error_result)
+                            log::error!(
+                                "Failed to send BlockCommitted messages: {:?}",
+                                error_result
+                            )
                         });
                     sumeragi.votes_for_blocks.clear();
                     sumeragi.commit_block(block).await;
@@ -836,6 +884,11 @@ pub mod message {
                 .len()
                 >= sumeragi.network_topology.min_votes_for_view_change()
             {
+                log::info!(
+                    "{:?} - Block creation timeout verified by voting. Previous block hash: {:X?}.",
+                    sumeragi.network_topology.role(&sumeragi.peer_id),
+                    sumeragi.latest_block_hash,
+                );
                 sumeragi.change_view().await;
             }
             Ok(())
@@ -905,6 +958,11 @@ pub mod message {
                 .len()
                 >= sumeragi.network_topology.min_votes_for_view_change()
             {
+                log::info!(
+                    "{:?} - Faulty leader not sending tx receipts verified by voting. Previous block hash: {:X?}.",
+                    sumeragi.network_topology.role(&sumeragi.peer_id),
+                    sumeragi.latest_block_hash,
+                );
                 sumeragi.change_view().await;
                 return Ok(());
             }
@@ -1142,7 +1200,10 @@ pub mod message {
                             .iter()
                             .filter(|result| result.is_err())
                             .for_each(|error_result| {
-                                log::error!("Failed to send messages: {:?}", error_result)
+                                log::error!(
+                                    "Failed to send CommitTimeout messages: {:?}",
+                                    error_result
+                                )
                             });
                     }
                 }
@@ -1159,6 +1220,11 @@ pub mod message {
                 sumeragi
                     .invalidated_blocks_hashes
                     .push(self.voting_block_hash);
+                log::info!(
+                    "{:?} - Block commit timeout verified by voting. Previous block hash: {:X?}.",
+                    sumeragi.network_topology.role(&sumeragi.peer_id),
+                    sumeragi.latest_block_hash,
+                );
                 sumeragi.change_view().await;
             }
             Ok(())
