@@ -55,7 +55,7 @@ impl Network {
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
-    #[log]
+    #[log("TRACE")]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
         async_std::io::timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
             let mut stream = TcpStream::connect(server_url).await?;
@@ -234,7 +234,7 @@ impl Request {
 }
 
 impl From<Request> for Vec<u8> {
-    #[log]
+    #[log("TRACE")]
     fn from(request: Request) -> Self {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(request.uri_path.as_bytes());
@@ -247,7 +247,7 @@ impl From<Request> for Vec<u8> {
 impl TryFrom<Vec<u8>> for Request {
     type Error = Box<dyn Error>;
 
-    #[log]
+    #[log("TRACE")]
     fn try_from(mut bytes: Vec<u8>) -> Result<Request, Box<dyn Error>> {
         let n = bytes
             .iter()

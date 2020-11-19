@@ -8,37 +8,31 @@ use iroha_data_model::prelude::*;
 #[derive(Debug, Clone)]
 pub struct WorldStateView {
     /// The state of this peer.
+    //TODO: Maybe simply move `Peer` contents to WSV?
     pub peer: Peer,
-    /// Blockchain of commited transactions.
-    pub blocks: Vec<CommittedBlock>,
 }
 
 /// WARNING!!! INTERNAL USE ONLY!!!
 impl WorldStateView {
     /// Default `WorldStateView` constructor.
     pub fn new(peer: Peer) -> Self {
-        WorldStateView {
-            peer,
-            blocks: Vec::new(),
-        }
+        WorldStateView { peer }
     }
 
     /// Initializes WSV with the blocks from block storage.
     pub fn init(&mut self, blocks: &[ValidBlock]) {
         for block in blocks {
-            self.put(&block.clone().commit());
+            self.apply(&block.clone().commit());
         }
     }
 
-    /// Put `ValidBlock` of information with changes in form of **Iroha Special Instructions**
-    /// into the world.
-    pub fn put(&mut self, block: &CommittedBlock) {
+    /// Apply `ValidBlock` with changes in form of **Iroha Special Instructions** to `self`.
+    pub fn apply(&mut self, block: &CommittedBlock) {
         for transaction in &block.transactions {
             if let Err(e) = &transaction.proceed(self) {
                 log::warn!("Failed to procced transaction on WSV: {}", e);
             }
         }
-        self.blocks.push(block.clone());
     }
 
     /// Get `Peer` without an ability to modify it.

@@ -215,7 +215,7 @@ impl Iroha {
         let block_sync = Arc::clone(&self.block_sync);
         let wsv_handle = task::spawn(async move {
             while let Some(block) = wsv_blocks_receiver.write().await.next().await {
-                world_state_view.write().await.put(&block);
+                world_state_view.write().await.apply(&block);
                 sumeragi.write().await.update_network_topology().await;
                 block_sync.write().await.continue_sync().await;
             }

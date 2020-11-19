@@ -272,7 +272,7 @@ async fn handle_connections(
     Ok(())
 }
 
-#[log]
+#[log("TRACE")]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
         uri::CONSENSUS_URI => match SumeragiMessage::try_from(request.payload().to_vec()) {
