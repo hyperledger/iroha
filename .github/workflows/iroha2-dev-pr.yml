@@ -39,7 +39,7 @@ jobs:
         path: ${{ env.CACHE_PATHS }}
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Run tests	
-      run: cargo test --workspace --verbose
+      run: cargo test --workspace --verbose -- --test-threads=1
   test-iroha_network-mock:
     runs-on: ubuntu-latest
     steps:

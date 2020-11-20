@@ -2,7 +2,7 @@ name: Iroha 2 main branch workflow
 
 on:
   push:
-    branches: [ iroha2-dev ]
+    branches: [ iroha2 ]
 env:
   CACHE_PATHS: |
     ~/.cargo/registry
@@ -29,6 +29,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
+        args: --workspace -- --test-threads=1
       env:
         CARGO_INCREMENTAL: '0'
         RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests'
@@ -65,7 +66,7 @@ jobs:
         path: ${{ env.CACHE_PATHS }}
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Test
-      run: cargo test --workspace --release --verbose
+      run: cargo test --workspace --release --verbose -- --test-threads=1
     - name: Build
       run: cargo build --release --verbose
     - name: Archive build 

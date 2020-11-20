@@ -1,0 +1,40 @@
+name: Iroha 2 pull requests workflow
+on:
+  pull_request:
+    branches: [ iroha2 ]
+env:
+  CACHE_PATHS: |
+    ~/.cargo/registry
+    ~/.cargo/git
+    ~/.rustup
+    target
+    iroha/target
+    iroha_client/target
+jobs:
+  long-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: ${{ env.CACHE_PATHS }}
+        key: ${{ hashFiles('Cargo.toml') }}
+    - name: Run long tests	
+      run: cargo test --workspace --verbose -- --ignored --test-threads=1
+  test-docker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: ${{ env.CACHE_PATHS }}
+        key: ${{ hashFiles('Cargo.toml') }}
+    - name: Build
+      run: cargo build --verbose
+    - name: Setup docker test environment
+      run: ./scripts/setup_docker_test_env.sh
+    - name: Docker compose test
+      run: ./scripts/test_docker_compose.sh
+    - name: Cleanup docker test environment
+      run: ./scripts/cleanup_docker_test_env.sh
+
