@@ -35,6 +35,7 @@ target_link_libraries(flat_file_storage
     logger
     Boost::boost
     Boost::filesystem
+    Boost::iostreams
     )
 
 add_library(postgres_storage

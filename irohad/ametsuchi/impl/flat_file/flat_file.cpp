@@ -11,11 +11,18 @@
 #include <sstream>
 
 #include <boost/filesystem.hpp>
+#include <boost/iostreams/device/file_descriptor.hpp>
+#include <boost/iostreams/stream.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/algorithm/find_if.hpp>
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
+
+#ifdef _WIN32
+#include <windows.h>
+#include <fileapi.h>
+#endif
 
 using namespace iroha::ametsuchi;
 using Identifier = FlatFile::Identifier;
@@ -77,7 +84,13 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
     return false;
   }
   // New file will be created
-  boost::filesystem::ofstream file(file_name.native(), std::ofstream::binary);
+  boost::iostreams::stream<boost::iostreams::file_descriptor_sink> file;
+  try {
+    file.open(file_name, std::ofstream::binary);
+  } catch (std::ios_base::failure const &e) {
+    log_->warn("Cannot open file by index {} for writing: {}", id, e.what());
+    return false;
+  }
   if (not file.is_open()) {
     log_->warn("Cannot open file by index {} for writing", id);
     return false;
@@ -88,6 +101,21 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
 
   if (not file.write(reinterpret_cast<const char *>(block.data()),
                      block.size() * val_size)) {
+    log_->warn("Cannot write file by index {}", id);
+    return false;
+  }
+
+  if (not file.flush()) {
+    log_->warn("Cannot flush file by index {}", id);
+    return false;
+  }
+
+#ifdef _WIN32
+  if (not FlushFileBuffers(file->handle())) {
+#else
+  if (fsync(file->handle())) {
+#endif
+    log_->warn("Cannot fsync file by index {}", id);
     return false;
   }
 

@@ -106,6 +106,7 @@ find_package(TBB REQUIRED CONFIG)
 find_package(Boost 1.65.0 REQUIRED
     COMPONENTS
     filesystem
+    iostreams
     thread
     )
 
