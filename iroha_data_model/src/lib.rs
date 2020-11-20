@@ -732,18 +732,8 @@ pub mod transaction {
 
         /// Calculate transaction `Hash`.
         pub fn hash(&self) -> Hash {
-            use ursa::blake2::{
-                digest::{Input, VariableOutput},
-                VarBlake2b,
-            };
             let bytes: Vec<u8> = self.payload.clone().into();
-            let vec_hash = VarBlake2b::new(32)
-                .expect("Failed to initialize variable size hash")
-                .chain(bytes)
-                .vec_result();
-            let mut hash = [0; 32];
-            hash.copy_from_slice(&vec_hash);
-            hash
+            Hash::new(&bytes)
         }
 
         /// Sign transaction with the provided key pair.
@@ -751,7 +741,7 @@ pub mod transaction {
         /// Returns `Ok(Transaction)` if succeeded and `Err(String)` if failed.
         pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction, String> {
             let mut signatures = self.signatures.clone();
-            signatures.push(Signature::new(key_pair.clone(), &self.hash())?);
+            signatures.push(Signature::new(key_pair.clone(), self.hash().as_ref())?);
             Ok(Transaction {
                 payload: self.payload,
                 signatures,

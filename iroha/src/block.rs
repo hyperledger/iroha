@@ -44,7 +44,7 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 height: height + 1,
                 previous_block_hash,
-                merkle_root_hash: [0u8; 32],
+                merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes,
                 invalidated_blocks_hashes,
             },
@@ -58,8 +58,8 @@ impl PendingBlock {
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 0,
-                previous_block_hash: [0u8; 32],
-                merkle_root_hash: [0u8; 32],
+                previous_block_hash: Hash([0u8; 32]),
+                merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
             },
@@ -97,7 +97,8 @@ pub struct BlockHeader {
 impl BlockHeader {
     /// Calculate hash of the current block header.
     pub fn hash(&self) -> Hash {
-        iroha_crypto::hash(self.into())
+        let bytes: Vec<u8> = self.into();
+        Hash::new(&bytes)
     }
 }
 
@@ -187,14 +188,14 @@ impl ValidBlock {
 
     /// Sign this block and get `ValidBlock`.
     pub fn sign(mut self, key_pair: &KeyPair) -> Result<ValidBlock, String> {
-        let signature = Signature::new(key_pair.clone(), &self.hash())?;
+        let signature = Signature::new(key_pair.clone(), self.hash().as_ref())?;
         self.signatures.add(signature);
         Ok(self)
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
     pub fn verified_signatures(&self) -> Vec<Signature> {
-        self.signatures.verified(&self.hash())
+        self.signatures.verified(self.hash().as_ref())
     }
 }
 
@@ -221,7 +222,7 @@ impl CommittedBlock {
 #[cfg(test)]
 mod tests {
     use crate::block::{BlockHeader, ValidBlock};
-    use iroha_crypto::Signatures;
+    use iroha_crypto::{Hash, Signatures};
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -229,8 +230,8 @@ mod tests {
             header: BlockHeader {
                 timestamp: 0,
                 height: 0,
-                previous_block_hash: [0u8; 32],
-                merkle_root_hash: [0u8; 32],
+                previous_block_hash: Hash([0u8; 32]),
+                merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
             },

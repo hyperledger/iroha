@@ -87,7 +87,7 @@ impl Node {
         match &self {
             Self::Subtree { hash, .. } => *hash,
             Self::Leaf { hash } => *hash,
-            Self::Empty => [0; 32],
+            Self::Empty => Hash([0; 32]),
         }
     }
 
@@ -99,8 +99,9 @@ impl Node {
         let left_hash = left.hash();
         let right_hash = right.hash();
         let sum: Vec<_> = left_hash
+            .as_ref()
             .iter()
-            .zip(right_hash.iter())
+            .zip(right_hash.as_ref().iter())
             .map(|(left, right)| left.saturating_add(*right))
             .take(32)
             .collect();
@@ -110,7 +111,7 @@ impl Node {
             .vec_result();
         let mut hash = [0; 32];
         hash.copy_from_slice(&vector);
-        hash
+        Hash(hash)
     }
 }
 
@@ -165,9 +166,13 @@ mod tests {
     fn tree_with_two_layers_should_reach_all_nodes() {
         let tree = MerkleTree {
             root_node: Node::Subtree {
-                left: Box::new(Node::Leaf { hash: [0; 32] }),
-                right: Box::new(Node::Leaf { hash: [0; 32] }),
-                hash: [0; 32],
+                left: Box::new(Node::Leaf {
+                    hash: Hash([0; 32]),
+                }),
+                right: Box::new(Node::Leaf {
+                    hash: Hash([0; 32]),
+                }),
+                hash: Hash([0; 32]),
             },
         };
         assert_eq!(3, tree.into_iter().count());
@@ -175,7 +180,7 @@ mod tests {
 
     #[test]
     fn four_hashes_should_built_seven_nodes() {
-        let hash = [1u8; 32];
+        let hash = Hash([1u8; 32]);
         let hashes = [hash, hash, hash, hash];
         let merkle_tree = MerkleTree::new().build(&hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
@@ -183,7 +188,7 @@ mod tests {
 
     #[test]
     fn three_hashes_should_built_seven_nodes() {
-        let hash = [1u8; 32];
+        let hash = Hash([1u8; 32]);
         let hashes = [hash, hash, hash];
         let merkle_tree = MerkleTree::new().build(&hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
@@ -191,15 +196,19 @@ mod tests {
 
     #[test]
     fn same_root_hash_for_same_hashes() {
-        let merkle_tree_1 = MerkleTree::new().build(&[[1u8; 32], [2u8; 32], [3u8; 32]]);
-        let merkle_tree_2 = MerkleTree::new().build(&[[2u8; 32], [1u8; 32], [3u8; 32]]);
+        let merkle_tree_1 =
+            MerkleTree::new().build(&[Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
+        let merkle_tree_2 =
+            MerkleTree::new().build(&[Hash([2u8; 32]), Hash([1u8; 32]), Hash([3u8; 32])]);
         assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 
     #[test]
     fn different_root_hash_for_different_hashes() {
-        let merkle_tree_1 = MerkleTree::new().build(&[[1u8; 32], [2u8; 32], [3u8; 32]]);
-        let merkle_tree_2 = MerkleTree::new().build(&[[1u8; 32], [4u8; 32], [5u8; 32]]);
+        let merkle_tree_1 =
+            MerkleTree::new().build(&[Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
+        let merkle_tree_2 =
+            MerkleTree::new().build(&[Hash([1u8; 32]), Hash([4u8; 32]), Hash([5u8; 32])]);
         assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 }
