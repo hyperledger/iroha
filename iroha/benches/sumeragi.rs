@@ -1,6 +1,6 @@
 use criterion::*;
 use iroha::sumeragi::NetworkTopology;
-use iroha_crypto::KeyPair;
+use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 use std::collections::BTreeSet;
 
@@ -22,7 +22,7 @@ fn sort_peers(criterion: &mut Criterion) {
         .init()
         .expect("Failed to initialize topology.");
     criterion.bench_function("sort_peers", |b| {
-        b.iter(|| network_topology.sort_peers(Some([0u8; 32])));
+        b.iter(|| network_topology.sort_peers(Some(Hash([0u8; 32]))));
     });
 }
 

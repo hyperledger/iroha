@@ -25,7 +25,7 @@ impl Accept for Transaction {
     /// Returns `Ok(AcceptedTransaction)` if succeeded and `Err(String)` if failed.
     fn accept(self) -> Result<AcceptedTransaction, String> {
         for signature in &self.signatures {
-            if let Err(e) = signature.verify(&self.hash()) {
+            if let Err(e) = signature.verify(self.hash().as_ref()) {
                 return Err(format!("Failed to verify signatures: {}", e));
             }
         }
@@ -46,18 +46,8 @@ pub struct AcceptedTransaction {
 impl AcceptedTransaction {
     /// Calculate transaction `Hash`.
     pub fn hash(&self) -> Hash {
-        use ursa::blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        };
         let bytes: Vec<u8> = self.payload.clone().into();
-        let vec_hash = VarBlake2b::new(32)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vec_hash);
-        hash
+        Hash::new(&bytes)
     }
 
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
@@ -85,7 +75,7 @@ impl AcceptedTransaction {
             .ok_or(format!("Account with id {} not found", account_id))?
             .verify_signature(
                 self.signatures.first().ok_or("No signatures found.")?,
-                &self.hash(),
+                self.hash().as_ref(),
             )?;
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
@@ -120,7 +110,7 @@ impl ValidTransaction {
             .ok_or(format!("Account with id {} not found", account_id))?
             .verify_signature(
                 self.signatures.first().ok_or("No signatures found.")?,
-                &self.hash(),
+                self.hash().as_ref(),
             )?;
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
@@ -147,18 +137,8 @@ impl ValidTransaction {
 
     /// Calculate transaction `Hash`.
     pub fn hash(&self) -> Hash {
-        use ursa::blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        };
         let bytes: Vec<u8> = self.payload.clone().into();
-        let vec_hash = VarBlake2b::new(32)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vec_hash);
-        hash
+        Hash::new(&bytes)
     }
 }
 

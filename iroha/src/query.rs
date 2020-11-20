@@ -36,7 +36,7 @@ impl Verify for SignedQueryRequest {
     /// Verifies the signature of this query.
     fn verify(self) -> Result<VerifiedQueryRequest, String> {
         self.signature
-            .verify(&self.hash())
+            .verify(self.hash().as_ref())
             .map(|_| VerifiedQueryRequest {
                 timestamp: self.timestamp,
                 signature: self.signature,

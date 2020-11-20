@@ -88,7 +88,7 @@ impl Kura {
         self.blocks
             .last()
             .map(|block| block.hash())
-            .unwrap_or([0u8; 32])
+            .unwrap_or(Hash([0u8; 32]))
     }
 
     pub fn height(&self) -> u64 {

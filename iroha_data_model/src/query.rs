@@ -134,14 +134,14 @@ impl QueryRequest {
     pub fn hash(&self) -> Hash {
         let mut payload: Vec<u8> = self.query.clone().into();
         payload.extend_from_slice(self.timestamp.as_bytes());
-        iroha_crypto::hash(payload)
+        Hash::new(&payload)
     }
 
     /// Consumes self and returns a signed `QueryReuest`.
     pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest, String> {
         Ok(SignedQueryRequest {
             timestamp: self.timestamp.clone(),
-            signature: Signature::new(key_pair.clone(), &self.hash())?,
+            signature: Signature::new(key_pair.clone(), self.hash().as_ref())?,
             query: self.query,
         })
     }
@@ -152,7 +152,7 @@ impl SignedQueryRequest {
     pub fn hash(&self) -> Hash {
         let mut payload: Vec<u8> = self.query.clone().into();
         payload.extend_from_slice(self.timestamp.as_bytes());
-        iroha_crypto::hash(payload)
+        Hash::new(&payload)
     }
 }
 

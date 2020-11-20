@@ -34,9 +34,37 @@ pub const SECP_256_K1: &str = "secp256k1";
 pub const BLS_NORMAL: &str = "bls_normal";
 pub const BLS_SMALL: &str = "bls_small";
 
-// TODO: Move it into `iroha_crypto` and use multihash format for display.
-/// Represents hash of Iroha entities like `Block` or `Transaction.
-pub type Hash = [u8; HASH_LENGTH];
+/// Represents hash of Iroha entities like `Block` or `Transaction. Currently supports only blake2b-32.
+#[derive(
+    Debug, Eq, PartialEq, Clone, Encode, Decode, Serialize, Deserialize, Ord, PartialOrd, Copy,
+)]
+pub struct Hash(pub [u8; HASH_LENGTH]);
+
+impl Hash {
+    pub fn new(bytes: &[u8]) -> Self {
+        let vec_hash = VarBlake2b::new(32)
+            .expect("Failed to initialize variable size hash")
+            .chain(bytes)
+            .vec_result();
+        let mut hash = [0; HASH_LENGTH];
+        hash.copy_from_slice(&vec_hash);
+        Hash(hash)
+    }
+}
+
+impl Display for Hash {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let Hash(bytes) = self;
+        write!(f, "{}", hex::encode(bytes))
+    }
+}
+
+impl AsRef<[u8]> for Hash {
+    fn as_ref(&self) -> &[u8] {
+        let Hash(bytes) = self;
+        bytes
+    }
+}
 
 #[derive(Clone)]
 pub enum Algorithm {
@@ -285,17 +313,6 @@ impl Display for PrivateKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(&self.payload))
     }
-}
-
-/// Calculates hash of the given bytes.
-pub fn hash(bytes: Vec<u8>) -> Hash {
-    let vec_hash = VarBlake2b::new(32)
-        .expect("Failed to initialize variable size hash")
-        .chain(bytes)
-        .vec_result();
-    let mut hash = [0; HASH_LENGTH];
-    hash.copy_from_slice(&vec_hash);
-    hash
 }
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
