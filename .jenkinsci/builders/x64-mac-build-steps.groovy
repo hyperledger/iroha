@@ -72,6 +72,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
         -DBENCHMARKING=${cmakeBooleanOption[benchmarking]} \
         -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
         -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
+        -DPython3_FIND_STRATEGY=LOCATION \
         -DUSE_LIBURSA=${cmakeBooleanOption[use_libursa]} \
         -DUSE_BURROW=${cmakeBooleanOption[use_burrow]} \
         -DCMAKE_TOOLCHAIN_FILE=${mac_vcpkg_toolchain_file} ")
