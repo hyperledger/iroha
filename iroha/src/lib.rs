@@ -25,6 +25,7 @@ pub mod block_sync;
 pub mod config;
 pub mod domain;
 pub mod event;
+pub mod genesis;
 mod init;
 pub mod isi;
 mod kura;
@@ -43,6 +44,7 @@ pub mod wsv;
 use crate::{
     block_sync::{message::Message as BlockSyncMessage, BlockSynchronizer},
     config::Configuration,
+    genesis::GenesisBlock,
     kura::Kura,
     maintenance::System,
     prelude::*,
@@ -99,6 +101,7 @@ pub struct Iroha {
     block_sync_message_receiver: Arc<RwLock<BlockSyncMessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
+    genesis_block: Option<GenesisBlock>,
 }
 
 impl Iroha {
@@ -154,6 +157,15 @@ impl Iroha {
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
             &config.queue_configuration,
         )));
+
+        let genesis_block = config
+            .genesis_block_path
+            .as_ref()
+            .map(|genesis_block_path| {
+                GenesisBlock::from_configuration(genesis_block_path, &config.init_configuration)
+                    .expect("Failed to initialize genesis.")
+            });
+
         Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),
@@ -166,6 +178,7 @@ impl Iroha {
             kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
             block_sync_message_receiver: Arc::new(RwLock::new(block_sync_message_receiver)),
             block_sync,
+            genesis_block,
         }
     }
 
@@ -257,6 +270,24 @@ impl Iroha {
                     .expect("Failed to write block.");
             }
         });
+
+        let queue = Arc::clone(&self.queue);
+        if let Some(ref genesis_block) = self.genesis_block {
+            log::info!("Initialize iroha using the genesis block");
+            for transaction in genesis_block.transactions.iter() {
+                if let Err(e) = queue
+                    .write()
+                    .await
+                    .push_pending_transaction(transaction.clone())
+                {
+                    log::error!(
+                        "Failed to push transactions from genesis block to queue error: {}",
+                        e
+                    )
+                }
+            }
+        }
+
         futures::join!(
             torii_handle,
             kura_handle,
