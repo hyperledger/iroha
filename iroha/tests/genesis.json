@@ -1,0 +1,35 @@
+{
+  "transactions": [
+    {
+      "isi": [
+      {
+        "Add": {
+          "object": {
+            "U32": 0
+          },
+          "destination_id": {
+            "DomainName": "global"
+          }
+        }
+      },
+      {
+        "Register": {
+          "object": {
+            "Account": {
+              "id": {
+                "name": "alice",
+                "domain_name": "global"
+              },
+              "assets": {},
+              "signatories": [],
+              "permissions": []
+            }
+          },
+          "destination_id": {
+            "DomainName": "global"
+          }
+        }
+      }]
+    }
+  ]
+}
