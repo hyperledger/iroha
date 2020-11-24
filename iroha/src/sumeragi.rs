@@ -61,15 +61,13 @@ impl Sumeragi {
         events_sender: EventsSender,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
-        latest_block_hash: Hash,
-        block_height: u64,
         //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self, String> {
         Ok(Self {
             key_pair: configuration.key_pair.clone(),
             network_topology: NetworkTopology::new(
                 &configuration.trusted_peers,
-                Some(latest_block_hash),
+                None,
                 configuration.max_faulty_peers,
             )
             .init()?,
@@ -85,11 +83,18 @@ impl Sumeragi {
             transactions_sender,
             tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
-            latest_block_hash,
-            block_height,
+            latest_block_hash: Hash([0u8; 32]),
+            block_height: 0,
             number_of_view_changes: 0,
             invalidated_blocks_hashes: Vec::new(),
         })
+    }
+
+    /// Initializes sumeragi with the `latest_block_hash` and `block_height` after Kura loads the blocks.
+    pub fn init(&mut self, latest_block_hash: Hash, block_height: u64) {
+        self.block_height = block_height;
+        self.latest_block_hash = latest_block_hash;
+        self.network_topology.sort_peers(Some(latest_block_hash));
     }
 
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
@@ -1547,11 +1552,10 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
-                    Hash([0u8; 32]),
-                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
@@ -1673,11 +1677,10 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
-                    Hash([0u8; 32]),
-                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
@@ -1822,11 +1825,10 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
-                    Hash([0u8; 32]),
-                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
             task::spawn(async move {
@@ -1982,11 +1984,10 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
-                    Hash([0u8; 32]),
-                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
             task::spawn(async move {
@@ -2140,11 +2141,10 @@ mod tests {
                     events_sender,
                     wsv,
                     transactions_sender,
-                    Hash([0u8; 32]),
-                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {

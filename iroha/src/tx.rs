@@ -13,6 +13,7 @@ use std::{
 
 /// Temp trait for transaction acceptance.
 //TODO: replace with From.
+//TODO: check the number of ISI in tx and drop if it exceeds the limit. Also drop if it exceeds the byte limit.
 pub trait Accept {
     /// Transform transaction to `AcceptedTransaction`.
     fn accept(self) -> Result<AcceptedTransaction, String>;

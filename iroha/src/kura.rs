@@ -57,9 +57,6 @@ impl Kura {
         let blocks = self.block_store.read_all().await;
         self.merkle_tree =
             MerkleTree::new().build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
-        for block in &blocks {
-            self.block_sender.send(block.clone().commit()).await;
-        }
         self.blocks = blocks;
         Ok(())
     }
