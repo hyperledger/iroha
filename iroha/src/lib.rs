@@ -135,8 +135,6 @@ impl Iroha {
                 events_sender,
                 world_state_view.clone(),
                 transactions_sender,
-                kura.latest_block_hash(),
-                kura.height(),
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -172,14 +170,21 @@ impl Iroha {
     /// incoming requests and messages.
     #[allow(clippy::eval_order_dependence)]
     pub async fn start(&self) -> Result<(), String> {
-        //TODO: ensure the initialization order of `Kura` and `WSV`.
+        log::info!("Starting Iroha.");
+        //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
         let kura = Arc::clone(&self.kura);
+        let sumeragi = Arc::clone(&self.sumeragi);
         kura.write().await.init().await?;
+        sumeragi.write().await.init(
+            kura.read().await.latest_block_hash(),
+            kura.read().await.height(),
+        );
         let world_state_view = Arc::clone(&self.world_state_view);
         world_state_view
             .write()
             .await
             .init(&kura.read().await.blocks);
+        sumeragi.write().await.update_network_topology().await;
         let torii = Arc::clone(&self.torii);
         let torii_handle = task::spawn(async move {
             if let Err(e) = torii.write().await.start().await {
@@ -191,11 +196,12 @@ impl Iroha {
         let queue = Arc::clone(&self.queue);
         let tx_handle = task::spawn(async move {
             while let Some(transaction) = transactions_receiver.write().await.next().await {
-                queue.write().await.push_pending_transaction(transaction);
+                if let Err(e) = queue.write().await.push_pending_transaction(transaction) {
+                    log::error!("Failed to put transaction into queue of pending tx: {}", e)
+                }
             }
         });
         let queue = Arc::clone(&self.queue);
-        let sumeragi = Arc::clone(&self.sumeragi);
         let voting_handle = task::spawn(async move {
             loop {
                 if !sumeragi.write().await.voting_in_progress().await {
