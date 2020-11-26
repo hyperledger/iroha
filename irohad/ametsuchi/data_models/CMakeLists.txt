@@ -1,7 +1,7 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
 set(PYBIND11_PYTHON_VERSION 3)
 set(PYTHON_EXECUTABLE:FILEPATH ${Python3_EXECUTABLE})
