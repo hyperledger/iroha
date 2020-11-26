@@ -380,6 +380,9 @@ Every part of this config section is optional.
   So in the example above, the "don't panic" pattern also applies to info and
   warning levels, and the trace level pattern is the only one that is not
   initialized in the config (it will be set to default hardcoded value).
+
+.. note::  Even if multiple patterns are specified for a single component, this component will use only one pattern — the one that corresponds to selected logging level. However, the patterns will be inherited and can be used in the child loggers.
+
 - ``children`` describes the overrides of child nodes.
   The keys are the names of the components, and the values have the same syntax
   and semantics as the root log configuration.
