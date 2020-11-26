@@ -258,6 +258,21 @@ In environment variables:
 **Dictionaries with user-defined keys**
 
 User-provided dictionary keys are a bit trickier: the key and the value are set in separate variables.
+They can be illustrated on the example of configuring cryptography providers:
+
+Crypto providers
+================
+
+Currently, HL Iroha supports one type of provider called ``default`` — it includes built-in crypto providers such as HL Iroha crypto library (with crypto type ``ed25519_sha3_256``) and HL Ursa library of which Iroha currently supports crypto type ``ed25519_sha2_256``.
+
+Both of them take only the ``crypto_type`` and ``private_key`` as parameters.
+
+.. note::  We are working on adding other types, including ``hsm`` — for hardware security modules — they will have a different set of parameters which will be added here after the release.
+
+Configuring crypto providers
+----------------------------
+
+To configure currently available crypto providers, you need to define the providers that might be used on the peer (see ``p1`` and ``p2``) and then choose the ``signer``, that will be used to sign messages on this node:
 
 In configuration file:
 
