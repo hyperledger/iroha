@@ -149,7 +149,7 @@ fn validate_transaction(criterion: &mut Criterion) {
         b.iter(|| {
             match transaction
                 .clone()
-                .validate(&mut world_state_view, &AllowAll.into())
+                .validate(&mut world_state_view, &AllowAll.into(), false)
             {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,

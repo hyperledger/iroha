@@ -147,8 +147,8 @@ pub mod account {
     //! Structures, traits and impls related to `Account`s.
 
     use crate::{
-        asset::AssetsMap, permissions::PermissionRaw, IdBox, Identifiable, IdentifiableBox, Name,
-        PublicKey,
+        asset::AssetsMap, domain::GENESIS_DOMAIN_NAME, permissions::PermissionRaw, IdBox,
+        Identifiable, IdentifiableBox, Name, PublicKey,
     };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
@@ -162,6 +162,28 @@ pub mod account {
     pub type AccountsMap = BTreeMap<Id, Account>;
     type Signatories = Vec<PublicKey>;
     type Permissions = Vec<PermissionRaw>;
+
+    /// Genesis account name.
+    pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
+
+    /// Genesis account. Used to mainly be converted to ordinary `Account` struct.
+    #[derive(Debug)]
+    pub struct GenesisAccount {
+        public_key: PublicKey,
+    }
+
+    impl GenesisAccount {
+        /// Returns `GenesisAccount` instance.
+        pub fn new(public_key: PublicKey) -> Self {
+            GenesisAccount { public_key }
+        }
+    }
+
+    impl From<GenesisAccount> for Account {
+        fn from(account: GenesisAccount) -> Self {
+            Account::with_signatory(Id::genesis_account(), account.public_key)
+        }
+    }
 
     /// Account entity is an authority which is used to execute `Iroha Special Insturctions`.
     #[derive(
@@ -255,6 +277,14 @@ pub mod account {
             Id {
                 name: name.to_string(),
                 domain_name: domain_name.to_string(),
+            }
+        }
+
+        /// `Id` of the genesis account.
+        pub fn genesis_account() -> Self {
+            Id {
+                name: GENESIS_ACCOUNT_NAME.to_string(),
+                domain_name: GENESIS_DOMAIN_NAME.to_string(),
             }
         }
     }
@@ -528,17 +558,51 @@ pub mod domain {
     //! This module contains `Domain` structure and related implementations and trait implementations.
 
     use crate::{
-        account::AccountsMap, asset::AssetDefinitionsMap, IdBox, Identifiable, IdentifiableBox,
-        Name,
+        account::{Account, AccountsMap, GenesisAccount},
+        asset::AssetDefinitionsMap,
+        IdBox, Identifiable, IdentifiableBox, Name,
     };
+    use iroha_crypto::PublicKey;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, iter};
+
+    /// Genesis domain name. Genesis domain should contain only genesis account.
+    pub const GENESIS_DOMAIN_NAME: &str = "genesis";
 
     /// `DomainsMap` provides an API to work with collection of key (`Name`) - value
     /// (`Domain`) pairs.
     pub type DomainsMap = BTreeMap<Name, Domain>;
+
+    /// Genesis domain. It will contain only one `genesis` account.
+    #[derive(Debug)]
+    pub struct GenesisDomain {
+        genesis_account_public_key: PublicKey,
+    }
+
+    impl GenesisDomain {
+        /// Returns `GenesisDomain`.
+        pub fn new(genesis_account_public_key: PublicKey) -> Self {
+            GenesisDomain {
+                genesis_account_public_key,
+            }
+        }
+    }
+
+    impl From<GenesisDomain> for Domain {
+        fn from(domain: GenesisDomain) -> Self {
+            Domain {
+                name: GENESIS_DOMAIN_NAME.to_string(),
+                accounts: iter::once((
+                    <Account as Identifiable>::Id::genesis_account(),
+                    GenesisAccount::new(domain.genesis_account_public_key).into(),
+                ))
+                .collect(),
+                asset_definitions: AssetDefinitionsMap::new(),
+            }
+        }
+    }
 
     /// Named group of `Account` and `Asset` entities.
     #[derive(
@@ -582,7 +646,7 @@ pub mod domain {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::Domain;
+        pub use super::{Domain, GenesisDomain, GENESIS_DOMAIN_NAME};
     }
 }
 

@@ -1489,6 +1489,7 @@ mod tests {
         let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let genesis_key_pair = KeyPair::generate().expect("Failed to generate Genesis KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1524,6 +1525,8 @@ mod tests {
                 ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
+                    genesis_account_public_key: genesis_key_pair.public_key.clone(),
+                    genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
                 }),
                 ids_set.clone(),
             ))));
@@ -1615,6 +1618,7 @@ mod tests {
         let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let genesis_key_pair = KeyPair::generate().expect("Failed to generate Genesis KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1650,6 +1654,8 @@ mod tests {
                 ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
+                    genesis_account_public_key: genesis_key_pair.public_key.clone(),
+                    genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
                 }),
                 ids_set.clone(),
             ))));
@@ -1765,6 +1771,7 @@ mod tests {
         let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let genesis_key_pair = KeyPair::generate().expect("Failed to generate Genesis KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1799,6 +1806,8 @@ mod tests {
                 ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
+                    genesis_account_public_key: genesis_key_pair.public_key.clone(),
+                    genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
                 }),
                 ids_set.clone(),
             ))));
@@ -1925,6 +1934,7 @@ mod tests {
         let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let genesis_key_pair = KeyPair::generate().expect("Failed to generate Genesis KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -1959,6 +1969,8 @@ mod tests {
                 ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
+                    genesis_account_public_key: genesis_key_pair.public_key.clone(),
+                    genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
                 }),
                 ids_set.clone(),
             ))));
@@ -2082,6 +2094,7 @@ mod tests {
         let mut addresses = Vec::new();
         let mut block_counters = Vec::new();
         let root_key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let genesis_key_pair = KeyPair::generate().expect("Failed to generate Genesis KeyPair.");
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
@@ -2117,6 +2130,8 @@ mod tests {
                 ids[i].clone(),
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
+                    genesis_account_public_key: genesis_key_pair.public_key.clone(),
+                    genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
                 }),
                 ids_set,
             ))));

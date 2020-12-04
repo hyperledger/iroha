@@ -72,9 +72,15 @@ impl AcceptedTransaction {
         self,
         world_state_view: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
+        is_genesis: bool,
     ) -> Result<ValidTransaction, String> {
         let mut world_state_view_temp = world_state_view.clone();
         let account_id = self.payload.account_id.clone();
+        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
+            return Err(
+                "Genesis account can sign only transactions in the genesis block.".to_string(),
+            );
+        }
         world_state_view
             .read_account(&account_id)
             .ok_or(format!("Account with id {} not found", account_id))?
@@ -87,11 +93,13 @@ impl AcceptedTransaction {
             world_state_view_temp = instruction
                 .clone()
                 .execute(account_id.clone(), &world_state_view_temp)?;
-            permissions_validator.check_instruction(
-                account_id.clone(),
-                instruction.clone(),
-                &world_state_view,
-            )?;
+            if !is_genesis {
+                permissions_validator.check_instruction(
+                    account_id.clone(),
+                    instruction.clone(),
+                    &world_state_view,
+                )?;
+            }
         }
         Ok(ValidTransaction {
             payload: self.payload,
@@ -116,12 +124,13 @@ impl ValidTransaction {
         self,
         world_state_view: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
+        is_genesis: bool,
     ) -> Result<ValidTransaction, String> {
         AcceptedTransaction {
             payload: self.payload,
             signatures: self.signatures,
         }
-        .validate(world_state_view, permissions_validator)
+        .validate(world_state_view, permissions_validator, is_genesis)
     }
 
     /// Apply instructions to the `WorldStateView`.
@@ -168,6 +177,7 @@ mod tests {
         let tx = Transaction::new(vec![], AccountId::new("root", "global"), 1000);
         let tx_hash = tx.hash();
         let root_key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
+        let genesis_key_pair = &KeyPair::generate().expect("Failed to generate Genesis key pair.");
         let signed_tx = tx.sign(&root_key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
         let accepted_tx = signed_tx.accept().expect("Failed to accept.");
@@ -183,10 +193,13 @@ mod tests {
                     },
                     init::domains(&InitConfiguration {
                         root_public_key: root_key_pair.public_key.clone(),
+                        genesis_account_public_key: genesis_key_pair.public_key.clone(),
+                        genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
                     }),
                     BTreeSet::new(),
                 )),
                 &AllowAll.into(),
+                false,
             )
             .expect("Failed to validate.")
             .hash();
