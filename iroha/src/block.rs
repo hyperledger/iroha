@@ -100,6 +100,11 @@ impl BlockHeader {
         let bytes: Vec<u8> = self.into();
         Hash::new(&bytes)
     }
+
+    /// Checks if it's a header of a genesis block.
+    pub fn is_genesis(&self) -> bool {
+        self.height == 0
+    }
 }
 
 impl ChainedBlock {
@@ -111,7 +116,11 @@ impl ChainedBlock {
     ) -> ValidBlock {
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(world_state_view, permissions_validator) {
+            match transaction.validate(
+                world_state_view,
+                permissions_validator,
+                self.header.is_genesis(),
+            ) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
@@ -168,7 +177,11 @@ impl ValidBlock {
     ) -> ValidBlock {
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(world_state_view, permissions_validator) {
+            match transaction.validate(
+                world_state_view,
+                permissions_validator,
+                self.header.is_genesis(),
+            ) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
