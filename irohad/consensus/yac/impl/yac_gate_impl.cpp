@@ -258,6 +258,16 @@ namespace iroha {
           return rxcpp::observable<>::empty<GateObject>();
         }
 
+        if (current_ledger_state_->top_block_info.height + 1
+            >= hash.vote_round.block_round) {
+          log_->info(
+              "Difference between top height {} and future block round {} is "
+              "less than 2, skipped",
+              current_ledger_state_->top_block_info.height,
+              hash.vote_round.block_round);
+          return rxcpp::observable<>::empty<GateObject>();
+        }
+
         assert(hash.vote_round.block_round
                > current_hash_.vote_round.block_round);
 
