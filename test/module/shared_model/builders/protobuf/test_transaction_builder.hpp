@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "builders/protobuf/builder_templates/transaction_template.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
 using ProtoTxType = shared_model::proto::Transaction;

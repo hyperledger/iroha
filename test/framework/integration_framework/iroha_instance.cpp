@@ -31,6 +31,7 @@ namespace integration_framework {
       size_t internal_port,
       logger::LoggerManagerTreePtr irohad_log_manager,
       logger::LoggerPtr log,
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
       const boost::optional<std::string> &dbname,
       const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
       : block_store_dir_(block_store_path),
@@ -42,8 +43,9 @@ namespace integration_framework {
         // proposal_timeout results in non-deterministic behavior due
         // to thread scheduling and network
         proposal_delay_(1h),
-        // not required due to solo consensus
-        vote_delay_(0ms),
+        // small delay to avoid unnecessary messages due to eternal voting
+        // and to allow scheduler to switch threads
+        vote_delay_(100ms),
         // amount of minutes in a day
         mst_expiration_time_(std::chrono::minutes(24 * 60)),
         opt_mst_gossip_params_(boost::make_optional(
@@ -56,7 +58,8 @@ namespace integration_framework {
         max_rounds_delay_(0ms),
         stale_stream_max_rounds_(2),
         irohad_log_manager_(std::move(irohad_log_manager)),
-        log_(std::move(log)) {}
+        log_(std::move(log)),
+        startup_wsv_data_policy_(startup_wsv_data_policy) {}
 
   void IrohaInstance::init() {
     auto init_result = instance_->init();
@@ -71,7 +74,10 @@ namespace integration_framework {
 
   void IrohaInstance::makeGenesis(
       std::shared_ptr<const shared_model::interface::Block> block) {
-    instance_->storage->reset();
+    if (auto e =
+            iroha::expected::resultToOptionalError(instance_->dropStorage())) {
+      throw std::runtime_error(e.value());
+    }
     rawInsertBlock(block);
   }
 
@@ -113,6 +119,7 @@ namespace integration_framework {
         boost::none,
         irohad_log_manager_,
         log_,
+        startup_wsv_data_policy_,
         opt_mst_gossip_params_,
         torii_tls_params_);
   }
@@ -134,13 +141,11 @@ namespace integration_framework {
       log_->warn("Iroha instance or its storage are not initialized");
       return;
     }
-    auto storage = instance_->storage;
+    const auto pg_opt = *instance_->pg_opt_;
     log_->info("stopping irohad");
     instance_.reset();
     log_->info("removing storage");
-    storage->dropStorage();  // dropStorage must be called after Synchronizer
-                             // and Simulator are destroyed, because they hold
-                             // database sessions
+    iroha::ametsuchi::PgConnectionInit::dropWorkingDatabase(pg_opt);
     if (block_store_dir_) {
       boost::filesystem::remove_all(block_store_dir_.value());
     }

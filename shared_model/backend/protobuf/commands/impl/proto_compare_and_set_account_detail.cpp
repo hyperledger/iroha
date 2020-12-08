@@ -28,6 +28,10 @@ namespace shared_model {
       return compare_and_set_account_detail_.value();
     }
 
+    bool CompareAndSetAccountDetail::checkEmpty() const {
+      return compare_and_set_account_detail_.check_empty();
+    }
+
     const std::optional<interface::types::AccountDetailValueType>
     CompareAndSetAccountDetail::oldValue() const {
       if (compare_and_set_account_detail_.opt_old_value_case()

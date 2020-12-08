@@ -22,7 +22,7 @@ namespace iroha {
       MOCK_CONST_METHOD1(
           getLedgerPeerByPublicKey,
           boost::optional<PeerQuery::wPeer>(
-              const shared_model::interface::types::PubkeyType &));
+              shared_model::interface::types::PublicKeyHexStringView));
     };
 
   }  // namespace ametsuchi

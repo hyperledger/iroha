@@ -6,7 +6,7 @@
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 
 #include <gtest/gtest.h>
-#include <backend/plain/peer.hpp>
+#include "backend/plain/peer.hpp"
 #include "module/irohad/ametsuchi/mock_wsv_query.hpp"
 
 class PeerQueryWSVTest : public ::testing::Test {
@@ -29,14 +29,10 @@ TEST_F(PeerQueryWSVTest, GetPeers) {
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
   std::shared_ptr<shared_model::interface::Peer> peer1 =
       std::make_shared<shared_model::plain::Peer>(
-          "some-address",
-          shared_model::crypto::PublicKey("some-public-key"),
-          std::nullopt);
+          "some-address", "0A", std::nullopt);
   std::shared_ptr<shared_model::interface::Peer> peer2 =
       std::make_shared<shared_model::plain::Peer>(
-          "another-address",
-          shared_model::crypto::PublicKey("another-public-key"),
-          std::nullopt);
+          "another-address", "0B", std::nullopt);
   peers.push_back(peer1);
   peers.push_back(peer2);
   EXPECT_CALL(*wsv_query_, getPeers()).WillOnce(::testing::Return(peers));

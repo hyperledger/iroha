@@ -9,7 +9,6 @@
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/byteutils.hpp"
 #include "consensus/yac/outcome_messages.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "interfaces/common_objects/signature.hpp"
 #include "logger/logger.hpp"
 #include "validators/field_validator.hpp"
@@ -56,10 +55,12 @@ namespace iroha {
           if (vote.hash.block_signature) {
             auto block_signature =
                 pb_vote.mutable_hash()->mutable_block_signature();
-            block_signature->set_signature(shared_model::crypto::toBinaryString(
-                vote.hash.block_signature->signedData()));
-            block_signature->set_pubkey(shared_model::crypto::toBinaryString(
-                vote.hash.block_signature->publicKey()));
+            auto signature = hexstringToBytestringResult(
+                vote.hash.block_signature->signedData());
+            auto public_key = hexstringToBytestringResult(
+                vote.hash.block_signature->publicKey());
+            block_signature->set_signature(std::move(signature).assumeValue());
+            block_signature->set_pubkey(std::move(public_key).assumeValue());
           }
 
           return pb_vote;
@@ -71,18 +72,21 @@ namespace iroha {
           if (vote.hash.block_signature) {
             auto block_signature =
                 pb_vote.mutable_hash()->mutable_block_signature();
-            block_signature->set_signature(shared_model::crypto::toBinaryString(
-                vote.hash.block_signature->signedData()));
-            block_signature->set_pubkey(shared_model::crypto::toBinaryString(
-                vote.hash.block_signature->publicKey()));
+            auto signature = hexstringToBytestringResult(
+                vote.hash.block_signature->signedData());
+            auto public_key = hexstringToBytestringResult(
+                vote.hash.block_signature->publicKey());
+            block_signature->set_signature(std::move(signature).assumeValue());
+            block_signature->set_pubkey(std::move(public_key).assumeValue());
           }
 
-          auto signature = pb_vote.mutable_signature();
-          const auto &sig = *vote.signature;
-          signature->set_signature(
-              shared_model::crypto::toBinaryString(sig.signedData()));
-          signature->set_pubkey(
-              shared_model::crypto::toBinaryString(sig.publicKey()));
+          auto vote_signature = pb_vote.mutable_signature();
+          auto signature =
+              hexstringToBytestringResult(vote.signature->signedData());
+          auto public_key =
+              hexstringToBytestringResult(vote.signature->publicKey());
+          vote_signature->set_signature(std::move(signature).assumeValue());
+          vote_signature->set_pubkey(std::move(public_key).assumeValue());
 
           return pb_vote;
         }
@@ -105,9 +109,13 @@ namespace iroha {
           auto deserialize = [&](auto &pubkey,
                                  auto &signature,
                                  const auto &msg) {
+            auto pubkey_hex = bytestringToHexstring(pubkey);
+            auto signature_hex = bytestringToHexstring(signature);
+            using shared_model::interface::types::PublicKeyHexStringView;
+            using shared_model::interface::types::SignedHexStringView;
             return factory
-                .createSignature(shared_model::crypto::PublicKey(pubkey),
-                                 shared_model::crypto::Signed(signature))
+                .createSignature(PublicKeyHexStringView{pubkey_hex},
+                                 SignedHexStringView{signature_hex})
                 .match(
                     [&](auto &&sig) -> boost::optional<std::unique_ptr<
                                         shared_model::interface::Signature>> {

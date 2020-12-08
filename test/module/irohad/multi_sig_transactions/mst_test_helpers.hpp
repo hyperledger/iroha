@@ -7,14 +7,17 @@
 #define IROHA_MST_TEST_HELPERS_HPP
 
 #include <string>
+#include <string_view>
+
 #include "builders/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "datetime/time.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 
@@ -44,7 +47,11 @@ auto addSignatures(Batch &&batch, int tx_number, Signatures... signatures) {
   static logger::LoggerPtr log_ = getTestLogger("addSignatures");
 
   auto insert_signatures = [&](auto &&sig_pair) {
-    batch->addSignature(tx_number, sig_pair.first, sig_pair.second);
+    batch->addSignature(
+        tx_number,
+        shared_model::interface::types::SignedHexStringView{sig_pair.first},
+        shared_model::interface::types::PublicKeyHexStringView{
+            sig_pair.second});
   };
 
   // pack expansion trick:
@@ -66,9 +73,12 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
                                KeyPairs... keypairs) {
   auto create_signature = [&](auto &&key_pair) {
     auto &payload = batch->transactions().at(tx_number)->payload();
-    auto signed_blob = shared_model::crypto::CryptoSigner<>::sign(
+    auto signed_blob = shared_model::crypto::CryptoSigner::sign(
         shared_model::crypto::Blob(payload), key_pair);
-    batch->addSignature(tx_number, signed_blob, key_pair.publicKey());
+    using namespace shared_model::interface::types;
+    batch->addSignature(tx_number,
+                        SignedHexStringView{signed_blob},
+                        PublicKeyHexStringView{key_pair.publicKey()});
   };
 
   // pack expansion trick:
@@ -81,10 +91,11 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
   return std::forward<Batch>(batch);
 }
 
-inline auto makeSignature(const std::string &sign,
-                          const std::string &public_key) {
-  return std::make_pair(shared_model::crypto::Signed(sign),
-                        shared_model::crypto::PublicKey(public_key));
+inline auto makeSignature(
+    shared_model::interface::types::SignedHexStringView sign,
+    shared_model::interface::types::PublicKeyHexStringView public_key) {
+  return std::make_pair(std::string{std::string_view{sign}},
+                        std::string{std::string_view{public_key}});
 }
 
 inline auto makeTx(const shared_model::interface::types::CounterType &counter,

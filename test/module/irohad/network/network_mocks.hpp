@@ -50,11 +50,11 @@ namespace iroha {
           retrieveBlocks,
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>(
               const shared_model::interface::types::HeightType,
-              const shared_model::crypto::PublicKey &));
+              shared_model::interface::types::PublicKeyHexStringView));
       MOCK_METHOD2(
           retrieveBlock,
           boost::optional<std::shared_ptr<shared_model::interface::Block>>(
-              const shared_model::crypto::PublicKey &,
+              shared_model::interface::types::PublicKeyHexStringView,
               shared_model::interface::types::HeightType));
     };
 
@@ -72,6 +72,8 @@ namespace iroha {
       MOCK_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
 
       MOCK_METHOD1(setPcs, void(const PeerCommunicationService &));
+
+      MOCK_METHOD0(stop, void());
     };
 
     class MockConsensusGate : public ConsensusGate {
@@ -79,6 +81,8 @@ namespace iroha {
       MOCK_METHOD1(vote, void(const simulator::BlockCreatorEvent &));
 
       MOCK_METHOD0(onOutcome, rxcpp::observable<GateObject>());
+
+      MOCK_METHOD0(stop, void());
     };
 
   }  // namespace network

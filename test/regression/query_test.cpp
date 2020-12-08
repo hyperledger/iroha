@@ -7,11 +7,13 @@
 #include <boost/variant.hpp>
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/error_responses/stateless_failed_error_response.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 template <typename BaseType>
 auto makeQuery() {
@@ -26,8 +28,10 @@ auto makeQuery() {
 template <typename Query>
 auto createInvalidQuery(Query query,
                         const shared_model::crypto::Keypair &keypair) {
-  query.addSignature(shared_model::crypto::Signed(std::string(32, 'a')),
-                     keypair.publicKey());
+  std::string signature{32, 'a'};
+  query.addSignature(
+      shared_model::interface::types::SignedHexStringView{signature},
+      PublicKeyHexStringView{keypair.publicKey()});
   return query;
 }
 

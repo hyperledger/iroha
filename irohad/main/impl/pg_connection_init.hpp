@@ -21,6 +21,7 @@
 #include "interfaces/permissions.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/startup_params.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -29,9 +30,9 @@ namespace iroha {
 
     class PgConnectionInit {
      public:
-      static expected::Result<std::shared_ptr<soci::connection_pool>,
-                              std::string>
-      initPostgresConnection(std::string &options_str, size_t pool_size);
+      static expected::Result<void, std::string> prepareWorkingDatabase(
+          StartupWsvDataPolicy startup_wsv_data_policy,
+          const PostgresOptions &options);
 
       static expected::Result<std::shared_ptr<PoolWrapper>, std::string>
       prepareConnectionPool(
@@ -49,30 +50,6 @@ namespace iroha {
           soci::session &sql, const std::string &prepared_block_name);
 
       /*
-       * Check whether working database exists.
-       * @param pg_opt Database options.
-       * @return Result of bool that is true if the database exists and false
-       * otherwise, or error message if check has failed.
-       */
-      static expected::Result<bool, std::string> checkIfWorkingDatabaseExists(
-          const PostgresOptions &pg_opt);
-
-      /*
-       * Create working database if it does not exist.
-       * @param pg_opt Database options.
-       * @return Result of bool that is true if the database was creates and
-       * false otherwise, or error message if something has gone wrong.
-       */
-      static expected::Result<bool, std::string> createDatabaseIfNotExist(
-          const PostgresOptions &pg_opt);
-
-      /*
-       * Remove all records from the tables
-       * @return error message if reset has failed
-       */
-      static expected::Result<void, std::string> resetWsv(soci::session &sql);
-
-      /*
        * Drop working database.
        * @return Error message if dropping has failed.
        */
@@ -88,6 +65,13 @@ namespace iroha {
       /// Create tables in the given session. Left public for tests.
       static void prepareTables(soci::session &session);
 
+      /**
+       * Creates schema. Working database must not exist when calling this.
+       * @return void value in case of success or an error message otherwise.
+       */
+      static expected::Result<void, std::string> createSchema(
+          const PostgresOptions &postgres_options);
+
      private:
       /**
        * Function initializes existing connection pool
@@ -102,9 +86,10 @@ namespace iroha {
        * reconnect
        * @param log_manager - log manager of storage
        * @tparam RollbackFunction - type of rollback function
+       * @return void value on success or string error
        */
       template <typename RollbackFunction>
-      static void initializeConnectionPool(
+      static expected::Result<void, std::string> initializeConnectionPool(
           soci::connection_pool &connection_pool,
           size_t pool_size,
           RollbackFunction try_rollback,

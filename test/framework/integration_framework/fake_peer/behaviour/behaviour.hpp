@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <rxcpp/rx-lite.hpp>
@@ -66,12 +67,11 @@ namespace integration_framework {
       virtual void processOrderingBatches(const BatchesCollection &batches) = 0;
 
      protected:
-      FakePeer &getFakePeer();
+      std::optional<std::shared_ptr<FakePeer>> getFakePeer();
       logger::LoggerPtr &getLogger();
 
      private:
       std::weak_ptr<FakePeer> fake_peer_wptr_;
-      std::vector<rxcpp::subscription> subscriptions_;
       logger::LoggerPtr log_;
     };
 

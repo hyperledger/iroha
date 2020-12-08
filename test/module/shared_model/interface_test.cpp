@@ -8,6 +8,7 @@
 
 #include "builders/protobuf/transaction.hpp"
 #include "framework/test_logger.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 class TransactionFixture : public ::testing::Test {
  public:
@@ -52,13 +53,14 @@ TEST_F(TransactionFixture, checkEqualsOperatorObvious) {
  * @then  checks that transactions are the same
  */
 TEST_F(TransactionFixture, checkEqualsOperatorSameOrder) {
+  using namespace std::literals;
   auto tx1 = makeTx();
   auto tx2 = makeTx();
+  shared_model::interface::types::SignedHexStringView signature{"0A"sv};
+  shared_model::interface::types::PublicKeyHexStringView public_key{"0B"sv};
 
-  tx1->addSignature(shared_model::crypto::Signed("signed_blob"),
-                    shared_model::crypto::PublicKey("pub_key"));
-  tx2->addSignature(shared_model::crypto::Signed("signed_blob"),
-                    shared_model::crypto::PublicKey("pub_key"));
+  tx1->addSignature(signature, public_key);
+  tx2->addSignature(signature, public_key);
 
   ASSERT_EQ(*tx1, *tx2);
 }
@@ -75,15 +77,19 @@ TEST_F(TransactionFixture, checkEqualsOperatorDifferentOrder) {
   auto N = 5;
 
   for (int i = 0; i < N; ++i) {
-    tx1->addSignature(
-        shared_model::crypto::Signed("signed_blob_" + std::to_string(i)),
-        shared_model::crypto::PublicKey("pub_key_" + std::to_string(i)));
-  }
+    auto signature = "0A0" + std::to_string(i);
+    auto public_key = "0B0" + std::to_string(i);
 
-  for (int i = N - 1; i >= 0; --i) {
+    tx1->addSignature(
+        shared_model::interface::types::SignedHexStringView{signature},
+        shared_model::interface::types::PublicKeyHexStringView{public_key});
+
+    signature = "0A0" + std::to_string(N - 1 - i);
+    public_key = "0B0" + std::to_string(N - 1 - i);
+
     tx2->addSignature(
-        shared_model::crypto::Signed("signed_blob_" + std::to_string(i)),
-        shared_model::crypto::PublicKey("pub_key_" + std::to_string(i)));
+        shared_model::interface::types::SignedHexStringView{signature},
+        shared_model::interface::types::PublicKeyHexStringView{public_key});
   }
 
   ASSERT_EQ(*tx1, *tx2);

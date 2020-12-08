@@ -11,9 +11,13 @@
 #include <backend/plain/signature.hpp>
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "framework/make_peer_pointee_matcher.hpp"
 #include "framework/test_logger.hpp"
-#include "integration/acceptance/fake_peer_fixture.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
+
+using namespace std::literals;
+using namespace shared_model::interface::types;
 
 namespace iroha {
   namespace ametsuchi {
@@ -49,15 +53,11 @@ namespace iroha {
     TEST_F(WsvQueryTest, GetPeers) {
       std::shared_ptr<shared_model::interface::Peer> peer1 =
           std::make_shared<shared_model::plain::Peer>(
-              "some-address",
-              shared_model::crypto::PublicKey("some-public-key"),
-              std::nullopt);
+              "some-address", "0a", std::nullopt);
       command->insertPeer(*peer1);
       std::shared_ptr<shared_model::interface::Peer> peer2 =
           std::make_shared<shared_model::plain::Peer>(
-              "another-address",
-              shared_model::crypto::PublicKey("another-public-key"),
-              std::nullopt);
+              "another-address", "0b", std::nullopt);
       command->insertPeer(*peer2);
 
       auto result = query->getPeers();
@@ -79,10 +79,10 @@ namespace iroha {
       shared_model::plain::Account account("account", "domain", 1, "{}");
       command->insertAccount(account);
 
-      auto pub_key1 = shared_model::crypto::PublicKey("some-public-key");
+      PublicKeyHexStringView pub_key1{"some-public-key"sv};
       command->insertSignatory(pub_key1);
       command->insertAccountSignatory("account", pub_key1);
-      auto pub_key2 = shared_model::crypto::PublicKey("another-public-key");
+      PublicKeyHexStringView pub_key2{"another-public-key"sv};
       command->insertSignatory(pub_key2);
       command->insertAccountSignatory("account", pub_key2);
 

@@ -7,20 +7,23 @@
 
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace std::string_literals;
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 class MstPipelineTest : public AcceptanceFixture {
  public:
-  MstPipelineTest() : mst_itf_{1, {}, true, true} {}
+  MstPipelineTest()
+      : mst_itf_{1, {}, iroha::StartupWsvDataPolicy::kDrop, true, true} {}
 
   /**
    * Creates a mst user
@@ -32,7 +35,7 @@ class MstPipelineTest : public AcceptanceFixture {
                                         size_t sigs = kSignatories) {
     auto create_user_tx =
         createUserWithPerms(kUser,
-                            kUserKeypair.publicKey(),
+                            PublicKeyHexStringView{kUserKeypair.publicKey()},
                             kNewRole,
                             {interface::permissions::Role::kSetQuorum,
                              interface::permissions::Role::kAddSignatory,
@@ -44,8 +47,8 @@ class MstPipelineTest : public AcceptanceFixture {
     for (size_t i = 0; i < sigs; ++i) {
       signatories.push_back(
           crypto::DefaultCryptoAlgorithmType::generateKeypair());
-      add_signatories_tx =
-          add_signatories_tx.addSignatory(kUserId, signatories[i].publicKey());
+      add_signatories_tx = add_signatories_tx.addSignatory(
+          kUserId, PublicKeyHexStringView{signatories[i].publicKey()});
     }
     add_signatories_tx.setAccountQuorum(kUserId, sigs + 1);
     itf.sendTx(create_user_tx)
@@ -297,6 +300,8 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), user_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
 }
 
@@ -325,6 +330,8 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), fully_signed_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
 }
 
@@ -401,6 +408,8 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), user_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
                  noTxsCheck);
 }
@@ -429,6 +438,8 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), fully_signed_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
                  noTxsCheck);
 }

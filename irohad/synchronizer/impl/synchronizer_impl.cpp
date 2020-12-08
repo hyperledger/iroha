@@ -13,8 +13,11 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "common/bind.hpp"
 #include "common/visitor.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
+
+using namespace shared_model::interface::types;
 
 namespace iroha {
   namespace synchronizer {
@@ -86,25 +89,51 @@ namespace iroha {
     ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
         const shared_model::interface::types::HeightType start_height,
         const shared_model::interface::types::HeightType target_height,
-        const PublicKeysRange &public_keys) {
+        const PublicKeyCollectionType &public_keys) {
+      auto storage = getStorage();
+      shared_model::interface::types::HeightType my_height = start_height;
+
       // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
       for (const auto &public_key : public_keys) {
-        auto storage = getStorage();
+        while (true) {
+          bool got_some_blocks_from_this_peer = false;
+          log_->debug(
+              "trying to download blocks from {} to {} from peer with key {}",
+              my_height + 1,
+              target_height,
+              public_key);
+          auto network_chain =
+              block_loader_
+                  ->retrieveBlocks(my_height,
+                                   PublicKeyHexStringView{public_key})
+                  .tap([&my_height, &got_some_blocks_from_this_peer](
+                           const std::shared_ptr<shared_model::interface::Block>
+                               &block) {
+                    got_some_blocks_from_this_peer = true;
+                    my_height = block->height();
+                  });
 
-        shared_model::interface::types::HeightType my_height = start_height;
-        auto network_chain =
-            block_loader_->retrieveBlocks(start_height, public_key)
-                .tap([&my_height](
-                         const std::shared_ptr<shared_model::interface::Block>
-                             &block) { my_height = block->height(); });
-
-        if (validator_->validateAndApply(network_chain, *storage)
-            and my_height >= target_height) {
-          return mutable_factory_->commit(std::move(storage));
+          if (validator_->validateAndApply(network_chain, *storage)) {
+            if (my_height >= target_height) {
+              // goto is alright to break out of nested loops:
+              // https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#es76-avoid-goto
+              return mutable_factory_->commit(std::move(storage));
+            }
+            if (not got_some_blocks_from_this_peer) {
+              // if we got no new blocks from this peer we should switch to
+              // next peer
+              break;
+            }
+          } else {
+            // last block did not apply - need to ask it again from other peer
+            my_height = std::max(my_height - 1, start_height);
+            break;
+          }
         }
       }
+
       return expected::makeError(
-          "Failed to download and commit blocks from given peers");
+          "Failed to download and commit any blocks from given peers");
     }
 
     std::unique_ptr<ametsuchi::MutableStorage> SynchronizerImpl::getStorage() {

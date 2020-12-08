@@ -32,8 +32,7 @@ namespace iroha {
        * Get block with given height
        * @return block if exists, boost::none otherwise
        */
-      virtual boost::optional<
-          std::shared_ptr<const shared_model::interface::Block>>
+      virtual boost::optional<std::unique_ptr<shared_model::interface::Block>>
       fetch(shared_model::interface::types::HeightType height) const = 0;
 
       /**

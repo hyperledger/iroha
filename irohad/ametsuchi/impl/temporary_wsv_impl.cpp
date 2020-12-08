@@ -10,7 +10,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/transaction.hpp"
@@ -35,7 +34,7 @@ namespace iroha {
         const shared_model::interface::Transaction &transaction) {
       auto keys_range = transaction.signatures()
           | boost::adaptors::transformed(
-                            [](const auto &s) { return s.publicKey().hex(); });
+                            [](const auto &s) { return s.publicKey(); });
       auto keys = boost::algorithm::join(keys_range, "'), ('");
       // not using bool since it is not supported by SOCI
       boost::optional<uint8_t> signatories_valid;
@@ -45,7 +44,7 @@ namespace iroha {
                   FROM
                       (SELECT count(public_key)
                       FROM ( VALUES ('%s') ) AS CTE1(public_key)
-                      WHERE public_key IN
+                      WHERE lower(public_key) IN
                           (SELECT public_key
                           FROM account_has_signatory
                           WHERE account_id = :account_id ) ) AS CTE2(count),

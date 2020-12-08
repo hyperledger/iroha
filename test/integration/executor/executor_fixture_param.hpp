@@ -9,10 +9,19 @@
 #include "framework/executor_itf/executor_itf_param.hpp"
 
 #include <gtest/gtest.h>
+#include "interfaces/common_objects/types.hpp"
+
+namespace iroha::ametsuchi {
+  class BlockIndex;
+  class BurrowStorage;
+  class MockVmCaller;
+}  // namespace iroha::ametsuchi
 
 namespace executor_testing {
 
   struct ExecutorTestParam {
+    ExecutorTestParam();
+
     virtual ~ExecutorTestParam();
 
     /// Implementations must define this to clear WSV completely between tests.
@@ -23,12 +32,20 @@ namespace executor_testing {
     virtual iroha::integration_framework::ExecutorItfTarget
     getExecutorItfParam() const = 0;
 
+    /// Make a BurrowStorage for this backend.
+    virtual std::unique_ptr<iroha::ametsuchi::BurrowStorage> makeBurrowStorage(
+        std::string const &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index) const = 0;
+
+    /// Get block indexer for this backend.
+    virtual std::shared_ptr<iroha::ametsuchi::BlockIndex> getBlockIndexer()
+        const = 0;
+
     /// Implementations must define this to provide backend description.
     virtual std::string toString() const = 0;
-  };
 
-  std::string paramToString(
-      testing::TestParamInfo<std::shared_ptr<ExecutorTestParam>> param);
+    std::unique_ptr<iroha::ametsuchi::MockVmCaller> vm_caller_;
+  };
 
 }  // namespace executor_testing
 

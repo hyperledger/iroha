@@ -6,10 +6,11 @@
 #ifndef IROHA_AMETSUCHI_MOCKS_HPP
 #define IROHA_AMETSUCHI_MOCKS_HPP
 
+#include "ametsuchi/wsv_command.hpp"
+
 #include <gmock/gmock.h>
 #include <boost/optional.hpp>
 #include "ametsuchi/temporary_wsv.hpp"
-#include "ametsuchi/wsv_command.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
@@ -64,22 +65,22 @@ namespace iroha {
       MOCK_METHOD1(
           upsertAccountAsset,
           WsvCommandResult(const shared_model::interface::AccountAsset &));
-      MOCK_METHOD1(
-          insertSignatory,
-          WsvCommandResult(const shared_model::interface::types::PubkeyType &));
-      MOCK_METHOD1(
-          deleteSignatory,
-          WsvCommandResult(const shared_model::interface::types::PubkeyType &));
+      MOCK_METHOD1(insertSignatory,
+                   WsvCommandResult(
+                       shared_model::interface::types::PublicKeyHexStringView));
+      MOCK_METHOD1(deleteSignatory,
+                   WsvCommandResult(
+                       shared_model::interface::types::PublicKeyHexStringView));
 
-      MOCK_METHOD2(
-          insertAccountSignatory,
-          WsvCommandResult(const std::string &,
-                           const shared_model::interface::types::PubkeyType &));
+      MOCK_METHOD2(insertAccountSignatory,
+                   WsvCommandResult(
+                       const std::string &,
+                       shared_model::interface::types::PublicKeyHexStringView));
 
-      MOCK_METHOD2(
-          deleteAccountSignatory,
-          WsvCommandResult(const std::string &,
-                           const shared_model::interface::types::PubkeyType &));
+      MOCK_METHOD2(deleteAccountSignatory,
+                   WsvCommandResult(
+                       const std::string &,
+                       shared_model::interface::types::PublicKeyHexStringView));
 
       MOCK_METHOD1(insertPeer,
                    WsvCommandResult(const shared_model::interface::Peer &));
@@ -94,6 +95,8 @@ namespace iroha {
                                     const std::string &,
                                     const std::string &,
                                     const std::string &));
+      MOCK_CONST_METHOD1(setTopBlockInfo,
+                         WsvCommandResult(const TopBlockInfo &top_block_info));
     };
 
     class MockTemporaryWsv : public TemporaryWsv {

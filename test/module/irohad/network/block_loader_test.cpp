@@ -10,7 +10,6 @@
 
 #include "builders/protobuf/builder_templates/transaction_template.hpp"
 #include "consensus/consensus_block_cache.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/hash.hpp"
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
@@ -21,11 +20,13 @@
 #include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/block_loader_service.hpp"
 #include "validators/default_validator.hpp"
 
+using namespace std::literals;
 using namespace iroha::network;
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
@@ -105,8 +106,7 @@ class BlockLoaderTest : public testing::Test {
 
   std::shared_ptr<MockPeer> peer;
   std::string address;
-  PublicKey peer_key =
-      DefaultCryptoAlgorithmType::generateKeypair().publicKey();
+  shared_model::interface::types::PublicKeyHexStringView peer_key{"peer_key"sv};
   Keypair key = DefaultCryptoAlgorithmType::generateKeypair();
   std::shared_ptr<MockPeerQuery> peer_query;
   std::shared_ptr<MockPeerQueryFactory> peer_query_factory;
@@ -132,8 +132,8 @@ TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
-  auto wrapper = make_test_subscriber<CallExact>(
-      loader->retrieveBlocks(1, peer->pubkey()), 0);
+  auto wrapper =
+      make_test_subscriber<CallExact>(loader->retrieveBlocks(1, peer_key), 0);
   wrapper.subscribe();
 
   ASSERT_TRUE(wrapper.validate());

@@ -15,6 +15,7 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"
@@ -138,7 +139,7 @@ namespace shared_model {
        * @return signatories response
        */
       virtual std::unique_ptr<QueryResponse> createSignatoriesResponse(
-          std::vector<types::PubkeyType> signatories,
+          std::vector<std::string> signatories,
           const crypto::Hash &query_hash) const = 0;
 
       /**
@@ -230,6 +231,17 @@ namespace shared_model {
        */
       virtual std::unique_ptr<QueryResponse> createPeersResponse(
           types::PeerList peers, const crypto::Hash &query_hash) const = 0;
+
+      /**
+       * Create response for EVM response
+       * @param engine_response_records a vector of EVM responses for commands
+       * within a transaction
+       * @return response message for a transaction
+       */
+      virtual std::unique_ptr<QueryResponse> createEngineReceiptsResponse(
+          const std::vector<std::unique_ptr<EngineReceipt>>
+              &engine_response_records,
+          const crypto::Hash &query_hash) const = 0;
 
       /**
        * Create response for block query with block

@@ -11,26 +11,13 @@
 #include "backend/protobuf/block.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "framework/make_peer_pointee_matcher.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 template <size_t N>
 void checkBlockHasNTxs(
     const std::shared_ptr<const shared_model::interface::Block> &block) {
   ASSERT_EQ(block->transactions().size(), N);
-}
-
-auto makePeerPointeeMatcher(shared_model::interface::types::AddressType address,
-                            shared_model::interface::types::PubkeyType pubkey) {
-  return ::testing::Truly(
-      [address = std::move(address), pubkey = std::move(pubkey)](
-          std::shared_ptr<shared_model::interface::Peer> peer) {
-        return peer->address() == address and peer->pubkey() == pubkey;
-      });
-}
-
-auto makePeerPointeeMatcher(
-    std::shared_ptr<shared_model::interface::Peer> peer) {
-  // TODO [IR-658] artyom-yurin 30.09.2019: Rewrite using operator ==
-  return makePeerPointeeMatcher(peer->address(), peer->pubkey());
 }
 
 class FakePeerFixture : public AcceptanceFixture {
@@ -74,7 +61,7 @@ class FakePeerFixture : public AcceptanceFixture {
  protected:
   void SetUp() override {
     itf_ = std::make_unique<integration_framework::IntegrationTestFramework>(
-        1, boost::none, true, true);
+        1, boost::none, iroha::StartupWsvDataPolicy::kDrop, true, true);
     itf_->initPipeline(common_constants::kAdminKeypair);
   }
 

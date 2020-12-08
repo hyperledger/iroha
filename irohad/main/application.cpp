@@ -5,7 +5,11 @@
 
 #include "main/application.hpp"
 
+#include <optional>
+
 #include <boost/filesystem.hpp>
+#include <rxcpp/operators/rx-concat.hpp>
+#include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
@@ -14,6 +18,7 @@
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
+#include "ametsuchi/vm_caller.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "backend/protobuf/proto_proposal_factory.hpp"
@@ -24,7 +29,9 @@
 #include "common/files.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
+#include "cryptography/default_hash_provider.hpp"
 #include "generator/generator.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
@@ -67,6 +74,10 @@
 #include "validators/protobuf/proto_query_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
+#if defined(USE_BURROW)
+#include "ametsuchi/impl/burrow_vm_caller.hpp"
+#endif
+
 using namespace iroha;
 using namespace iroha::ametsuchi;
 using namespace iroha::simulator;
@@ -78,9 +89,14 @@ using namespace iroha::consensus::yac;
 
 using namespace std::chrono_literals;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 /// Consensus consistency model type.
 static constexpr iroha::consensus::yac::ConsistencyModel
     kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kCft;
+
+/// Database connection pool size. Limits the number of similtaneous accesses.
+static constexpr int kDbPoolSize = 10;
 
 /**
  * Configuring iroha daemon
@@ -101,6 +117,7 @@ Irohad::Irohad(
     boost::optional<shared_model::interface::types::PeerList>
         opt_alternative_peers,
     logger::LoggerManagerTreePtr logger_manager,
+    StartupWsvDataPolicy startup_wsv_data_policy,
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
@@ -123,6 +140,7 @@ Irohad::Irohad(
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
       keypair(keypair),
+      pg_opt_(std::move(pg_opt)),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
@@ -135,13 +153,22 @@ Irohad::Irohad(
   // initialization of iroha daemon
 
   if (auto e = expected::resultToOptionalError(initPendingTxsStorage() | [&] {
-        return initStorage(std::move(pg_opt));
+#if defined(USE_BURROW)
+        vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
+#endif
+        return initStorage(startup_wsv_data_policy);
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
 }
 
 Irohad::~Irohad() {
+  if (consensus_gate) {
+    consensus_gate->stop();
+  }
+  if (ordering_gate) {
+    ordering_gate->stop();
+  }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
 }
@@ -175,6 +202,7 @@ Irohad::RunResult Irohad::init() {
   | [this]{ return initPeerCommunicationService();}
   | [this]{ return initStatusBus();}
   | [this]{ return initMstProcessor();}
+  | [this]{ return initPendingTxsStorageWithCache();}
 
   // Torii
   | [this]{ return initTransactionCommandService();}
@@ -182,11 +210,15 @@ Irohad::RunResult Irohad::init() {
   // clang-format on
 }
 
-/**
- * Dropping iroha daemon storage
- */
-void Irohad::dropStorage() {
-  storage->reset();
+Irohad::RunResult Irohad::dropStorage() {
+  return storage->dropBlockStorage() | [this] { return resetWsv(); };
+}
+
+Irohad::RunResult Irohad::resetWsv() {
+  storage.reset();
+
+  log_->info("Recreating schema.");
+  return initStorage(StartupWsvDataPolicy::kDrop);
 }
 
 /**
@@ -227,90 +259,98 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
-    std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
-  query_response_factory_ =
-      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
-  auto perm_converter =
-      std::make_shared<shared_model::proto::ProtoPermissionToString>();
+    StartupWsvDataPolicy startup_wsv_data_policy) {
+  return PgConnectionInit::prepareWorkingDatabase(startup_wsv_data_policy,
+                                                  *pg_opt_)
+             |
+             [this] {
+               return PgConnectionInit::prepareConnectionPool(
+                   iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
+                   *pg_opt_,
+                   kDbPoolSize,
+                   log_manager_);
+             }
+             | [this](auto &&pool_wrapper) -> RunResult {
+    pool_wrapper_ = std::move(pool_wrapper);
+    query_response_factory_ =
+        std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
+    auto perm_converter =
+        std::make_shared<shared_model::proto::ProtoPermissionToString>();
 
-  // TODO: luckychess IR-308 05.08.2019 stateless validation for genesis block
-  auto block_transport_factory =
-      std::make_shared<shared_model::proto::ProtoBlockFactory>(
-          std::make_unique<shared_model::validation::AlwaysValidValidator<
-              shared_model::interface::Block>>(),
-          std::make_unique<shared_model::validation::ProtoBlockValidator>());
+    // TODO: luckychess IR-308 05.08.2019 stateless validation for genesis
+    // block
+    auto block_transport_factory =
+        std::make_shared<shared_model::proto::ProtoBlockFactory>(
+            std::make_unique<shared_model::validation::AlwaysValidValidator<
+                shared_model::interface::Block>>(),
+            std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
-  boost::optional<std::string> string_res = boost::none;
+    std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
+        std::make_unique<PostgresBlockStorageFactory>(
+            pool_wrapper_,
+            block_transport_factory,
+            []() { return generator::randomString(20); },
+            log_manager_->getChild("TemporaryBlockStorage")->getLogger());
 
-  // create database if it does not exist
-  PgConnectionInit::createDatabaseIfNotExist(*pg_opt).match(
-      [](auto &&val) {},
-      [&string_res](auto &&error) { string_res = error.error; });
+    std::unique_ptr<BlockStorage> persistent_block_storage;
+    if (block_store_dir_) {
+      auto flat_file = FlatFile::create(
+          *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
+      if (not flat_file) {
+        return expected::makeError(
+            "Unable to create FlatFile for persistent storage");
+      }
+      std::shared_ptr<shared_model::interface::BlockJsonConverter>
+          block_converter =
+              std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
+      persistent_block_storage = std::make_unique<FlatFileBlockStorage>(
+          std::move(flat_file.get()),
+          block_converter,
+          log_manager_->getChild("FlatFileBlockStorage")->getLogger());
+    } else {
+      auto sql =
+          std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
+      const std::string persistent_table("blocks");
 
-  if (string_res) {
-    return expected::makeError(string_res.value());
-  }
-
-  const int pool_size = 10;
-  auto pool = PgConnectionInit::prepareConnectionPool(
-      iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-      *pg_opt,
-      pool_size,
-      log_manager_);
-
-  if (auto error = resultToOptionalError(pool)) {
-    return expected::makeError(std::move(*error));
-  }
-
-  pool_wrapper_ = std::move(pool).assumeValue();
-
-  std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
-      std::make_unique<PostgresBlockStorageFactory>(
-          pool_wrapper_,
-          block_transport_factory,
-          []() { return generator::randomString(20); },
-          log_manager_->getChild("TemporaryBlockStorage")->getLogger());
-
-  std::unique_ptr<BlockStorage> persistent_block_storage;
-  if (block_store_dir_) {
-    auto flat_file = FlatFile::create(
-        *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
-    if (not flat_file) {
-      return expected::makeError(
-          "Unable to create FlatFile for persistent storage");
+      auto create_table_result =
+          PostgresBlockStorageFactory::createTable(*sql, persistent_table);
+      if (boost::get<expected::Error<std::string>>(&create_table_result)) {
+        return create_table_result;
+      }
+      persistent_block_storage = std::make_unique<PostgresBlockStorage>(
+          pool_wrapper_, block_transport_factory, persistent_table, log_);
     }
-    std::shared_ptr<shared_model::interface::BlockJsonConverter>
-        block_converter =
-            std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-    persistent_block_storage = std::make_unique<FlatFileBlockStorage>(
-        std::move(flat_file.get()),
-        block_converter,
-        log_manager_->getChild("FlatFileBlockStorage")->getLogger());
-  } else {
-    auto sql =
-        std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
-    const std::string persistent_table("blocks");
-
-    auto create_table_result =
-        PostgresBlockStorageFactory::createTable(*sql, persistent_table);
-    if (boost::get<expected::Error<std::string>>(&create_table_result)) {
-      return create_table_result;
+    std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
+        vm_caller_ref;
+    if (vm_caller_) {
+      vm_caller_ref = *vm_caller_.value();
     }
-    persistent_block_storage = std::make_unique<PostgresBlockStorage>(
-        pool_wrapper_, block_transport_factory, persistent_table, log_);
-  }
-  return StorageImpl::create(std::move(pg_opt),
-                             pool_wrapper_,
-                             perm_converter,
-                             pending_txs_storage_,
-                             query_response_factory_,
-                             std::move(temporary_block_storage_factory),
-                             std::move(persistent_block_storage),
-                             log_manager_->getChild("Storage"))
-             | [&](auto &&v) -> RunResult {
-    storage = std::move(v);
-    log_->info("[Init] => storage");
-    return {};
+    return StorageImpl::create(*pg_opt_,
+                               pool_wrapper_,
+                               perm_converter,
+                               pending_txs_storage_,
+                               query_response_factory_,
+                               std::move(temporary_block_storage_factory),
+                               std::move(persistent_block_storage),
+                               vm_caller_ref,
+                               log_manager_->getChild("Storage"))
+               | [&](auto &&v) -> RunResult {
+      storage = std::move(v);
+      finalized_txs_ =
+          storage->on_commit()
+              .flat_map([](auto const &block) {
+                return rxcpp::observable<>::iterate(
+                           block->transactions()
+                           | boost::adaptors::transformed(
+                                 [](auto const &tx) { return tx.hash(); }))
+                    .concat(rxcpp::observable<>::iterate(
+                        block->rejected_transactions_hashes()));
+              })
+              .publish()
+              .ref_count();
+      log_->info("[Init] => storage");
+      return {};
+    };
   };
 }
 
@@ -328,7 +368,8 @@ Irohad::RunResult Irohad::restoreWsv() {
 
 Irohad::RunResult Irohad::validateKeypair() {
   auto peers = storage->createPeerQuery() | [this](auto &&peer_query) {
-    return peer_query->getLedgerPeerByPublicKey(keypair.publicKey());
+    return peer_query->getLedgerPeerByPublicKey(
+        PublicKeyHexStringView{keypair.publicKey()});
   };
   if (not peers) {
     log_->warn("There is no peer in the ledger with my public key!");
@@ -554,6 +595,11 @@ Irohad::RunResult Irohad::initPersistentCache() {
   return {};
 }
 
+Irohad::RunResult Irohad::initPendingTxsStorageWithCache() {
+  pending_txs_storage_->insertPresenceCache(persistent_cache);
+  return {};
+}
+
 /**
  * Initializing ordering gate
  */
@@ -570,8 +616,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
   decltype(top_height) block_hashes =
       top_height > kNumBlocks ? kNumBlocks : top_height;
 
-  auto hash_stub = shared_model::interface::types::HashType{std::string(
-      shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength, '0')};
+  auto hash_stub = shared_model::interface::types::HashType{
+      std::string(shared_model::crypto::DefaultHashProvider::kHashLength, '0')};
   std::vector<shared_model::interface::types::HashType> hashes{
       kNumBlocks - block_hashes, hash_stub};
 
@@ -790,8 +836,6 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
     }
   });
 
-  pending_txs_storage_init->setSubscriptions(*pcs);
-
   log_->info("[Init] => pcs");
   return {};
 }
@@ -807,10 +851,12 @@ Irohad::RunResult Irohad::initMstProcessor() {
       log_manager_->getChild("MultiSignatureTransactions");
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
-  auto mst_storage = std::make_shared<MstStorageStateImpl>(
+  auto mst_storage = MstStorageStateImpl::create(
       mst_completer,
+      finalized_txs_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
+  pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (is_mst_supported_) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
@@ -820,7 +866,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
         transaction_batch_factory_,
         persistent_cache,
         mst_completer,
-        keypair.publicKey(),
+        PublicKeyHexStringView{keypair.publicKey()},
         std::move(mst_state_logger),
         mst_logger_manager->getChild("Transport")->getLogger());
     mst_propagation = std::make_shared<GossipPropagationStrategy>(
@@ -840,7 +886,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
 
-  pending_txs_storage_init->setSubscriptions(*mst_processor);
+  pending_txs_storage_init->setMstSubscriptions(*mst_processor);
 
   log_->info("[Init] => MST processor");
   return {};

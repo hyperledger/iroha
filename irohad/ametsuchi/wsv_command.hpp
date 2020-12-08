@@ -10,6 +10,7 @@
 #include <string>
 
 #include "common/result.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 
@@ -24,6 +25,8 @@ namespace shared_model {
 }  // namespace shared_model
 
 namespace iroha {
+  struct TopBlockInfo;
+
   namespace ametsuchi {
 
     /**
@@ -166,7 +169,7 @@ namespace iroha {
        * @return WsvCommandResult, which will contain error in case of failure
        */
       virtual WsvCommandResult insertSignatory(
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        * Insert account signatory relationship
@@ -176,7 +179,7 @@ namespace iroha {
        */
       virtual WsvCommandResult insertAccountSignatory(
           const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        * Delete account signatory relationship
@@ -186,7 +189,7 @@ namespace iroha {
        */
       virtual WsvCommandResult deleteAccountSignatory(
           const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        * Delete signatory
@@ -194,7 +197,7 @@ namespace iroha {
        * @return WsvCommandResult, which will contain error in case of failure
        */
       virtual WsvCommandResult deleteSignatory(
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        *
@@ -219,6 +222,14 @@ namespace iroha {
        */
       virtual WsvCommandResult insertDomain(
           const shared_model::interface::Domain &domain) = 0;
+
+      /**
+       * Set the top block info in ledger state.
+       * @param top_block_info the info to be written to wsv
+       * @return WsvCommandResult, which will contain error in case of failure
+       */
+      virtual WsvCommandResult setTopBlockInfo(
+          const TopBlockInfo &top_block_info) const = 0;
     };
 
   }  // namespace ametsuchi

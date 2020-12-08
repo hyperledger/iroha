@@ -16,14 +16,12 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/torii/processor/mock_query_processor.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "torii/query_client.hpp"
 #include "torii/query_service.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 
 using ::testing::_;
-using ::testing::A;
-using ::testing::An;
-using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::Truly;
 

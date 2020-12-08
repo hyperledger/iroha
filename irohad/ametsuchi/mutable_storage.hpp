@@ -9,7 +9,9 @@
 #include <functional>
 
 #include <rxcpp/rx-observable-fwd.hpp>
+#include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -19,6 +21,8 @@ namespace shared_model {
 }  // namespace shared_model
 
 namespace iroha {
+  struct LedgerState;
+
   namespace ametsuchi {
 
     class WsvQuery;
@@ -39,6 +43,11 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block>,
           const LedgerState &)>;
 
+      struct CommitResult {
+        std::shared_ptr<const LedgerState> ledger_state;
+        std::unique_ptr<BlockStorage> block_storage;
+      };
+
       /**
        * Applies block without additional validation function
        * @see apply(block, function)
@@ -58,6 +67,10 @@ namespace iroha {
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
               blocks,
           MutableStoragePredicate predicate) = 0;
+
+      /// Apply the local changes made to this MutableStorage to the global WSV.
+      virtual expected::Result<MutableStorage::CommitResult, std::string>
+      commit() && = 0;
 
       virtual ~MutableStorage() = default;
     };

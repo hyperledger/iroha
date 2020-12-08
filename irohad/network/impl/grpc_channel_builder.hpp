@@ -9,8 +9,8 @@
 #include <limits>
 #include <memory>
 
+#include <fmt/format.h>
 #include <grpc++/grpc++.h>
-#include <boost/format.hpp>
 
 namespace iroha {
   namespace network {
@@ -19,35 +19,40 @@ namespace iroha {
           std::numeric_limits<int>::max();
       constexpr unsigned int kMaxResponseMessageBytes =
           std::numeric_limits<int>::max();
+      constexpr unsigned int kClientRequestRetryAttempts = 3;
+      constexpr unsigned int kClientRequestTimeoutSeconds = 10;
 
       template <typename T>
       grpc::ChannelArguments getChannelArguments() {
         grpc::ChannelArguments args;
-        args.SetServiceConfigJSON((boost::format(R"(
-            {
-              "methodConfig": [ {
+        args.SetServiceConfigJSON(fmt::format(R"(
+            {{
+              "methodConfig": [ {{
                 "name": [
-                  { "service": "%1%" }
+                  {{ "service": "{}" }}
                 ],
-                "retryPolicy": {
-                  "maxAttempts": 5,
-                  "initialBackoff": "5s",
-                  "maxBackoff": "120s",
-                  "backoffMultiplier": 1.6,
+                "retryPolicy": {{
+                  "maxAttempts": {},
+                  "initialBackoff": "1s",
+                  "maxBackoff": "2s",
+                  "backoffMultiplier": 1.2,
                   "retryableStatusCodes": [
                     "UNKNOWN",
                     "DEADLINE_EXCEEDED",
                     "ABORTED",
                     "INTERNAL"
                   ]
-                },
-                "maxRequestMessageBytes": %2%,
-                "maxResponseMessageBytes": %3%
-              } ]
-            })") % T::service_full_name()
-                                   % kMaxRequestMessageBytes
-                                   % kMaxResponseMessageBytes)
-                                      .str());
+                }},
+                "maxRequestMessageBytes": {},
+                "maxResponseMessageBytes": {},
+                "timeout": "{}s"
+              }} ]
+            }})",
+                                              T::service_full_name(),
+                                              kClientRequestRetryAttempts,
+                                              kMaxRequestMessageBytes,
+                                              kMaxResponseMessageBytes,
+                                              kClientRequestTimeoutSeconds));
         return args;
       }
     }  // namespace details

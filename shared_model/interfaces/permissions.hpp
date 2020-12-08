@@ -63,6 +63,12 @@ namespace shared_model {
         kGetPeers,
         kRemovePeer,
         kRoot,
+        kCallEngine,
+        kGrantCallEngineOnMyBehalf,
+        kGetMyEngineReceipts,
+        kGetDomainEngineReceipts,
+        kGetAllEngineReceipts,
+        kCallModel,
 
         COUNT
       };
@@ -73,6 +79,7 @@ namespace shared_model {
         kSetMyQuorum,
         kSetMyAccountDetail,
         kTransferMyAssets,
+        kCallEngineOnMyBehalf,
 
         COUNT
       };

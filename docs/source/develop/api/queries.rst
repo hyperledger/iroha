@@ -15,6 +15,150 @@ The validation for all queries includes:
 - query counter — checked to be incremented with every subsequent query from query creator
 - roles — depending on the query creator's role: the range of state available to query can relate to to the same account, account in the domain, to the whole chain, or not allowed at all
 
+Result Pagination
+^^^^^^^^^^^^^^^^^
+
+Some queries support `TxPaginationMeta` that allows to customise and sort the query result in different ways what could be used in development.
+Pagination works together with ordering prameters, similar to `ORDER BY in SQL language <https://www.postgresql.org/docs/12/sql-select.html#SQL-ORDERBY>`_ – "the result rows are sorted according to the specified expression (in Iroha – Field). If two rows are equal according to the leftmost expression, they are compared according to the next expression and so on."
+
+Here is how the "expression" is specified:
+
+.. code-block:: proto
+
+    enum Field {
+      kCreatedTime = 0;
+      kPosition = 1;
+    }
+
+There are 2 bases for ordering – on creation time and depending on the position in the block.
+
+There is an ascending and descending directions for each Field:
+
+.. code-block:: proto
+
+    enum Direction {
+      kAscending = 0;
+      kDescending = 1;
+    }
+
+Now, the ordering itself:
+
+.. code-block:: proto
+
+    message Ordering {
+      message FieldOrdering {
+        Field field = 1;
+        Direction direction = 2;
+      }
+      repeated FieldOrdering sequence = 1;
+    }
+
+After ordering is specified, pagination can be executed:
+
+.. code-block:: proto
+
+    message TxPaginationMeta {
+        uint32 page_size = 1;
+        oneof opt_first_tx_hash {
+            string first_tx_hash = 2;
+        }
+        Ordering ordering = 3;
+    }
+
+What is added to the request structure in case of pagination
+------------------------------------------------------------
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
+    "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
+    "ordering", "how the results should be ordered (before pagination is applied)", "see fields below", "see fields below"
+    "ordering.sequence", "ordeing spec, like in SQL ORDER BY", "sequence of fields and directions", "[{kCreatedTime, kAscending}, {kPosition, kDescending}]"
+
+Engine Receipts
+^^^^^^^^^^^^^^^
+
+Purpose
+-------
+
+Retrieve a receipt of a CallEngine command.
+Similar to the eth.GetTransactionReceipt API call of Ethereum JSON RPC API.
+Allows to access the event log created during computations inside the EVM.
+
+Request Schema
+--------------
+
+.. code-block:: proto
+
+   message GetEngineReceipts{
+    string tx_hash = 1;     // hex string
+    }
+
+Request Structure
+-----------------
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Transaction Hash", "hash of the transaction that has the CallEngine command", "hash in hex format", "5241f70cf3adbc180199c1d2d02db82334137aede5f5ed35d649bbbc75ab2634"
+
+Response Schema
+---------------
+
+.. code-block:: proto
+
+    message EngineReceiptsResponse {
+        repeated EngineReceipt engine_receipt = 1;
+    }
+    message EngineReceipt {
+        int32 command_index = 1;
+        string caller = 2;
+        oneof opt_to_contract_address {
+            CallResult call_result = 3;
+            string contract_address = 4;
+        }
+        repeated EngineLog logs = 5;
+    }
+    message CallResult {
+        string callee = 1;
+        string result_data = 2;
+    }
+    message EngineLog {
+        string address = 1;         // hex string
+        string data = 2;            // hex string
+        repeated string topics = 3; // hex string
+    }
+
+Response Structure
+------------------
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "command_index", "Index of the CallEngine command in the transaction", "non-negative integer", "0"
+    "caller", "caller account of the smart contract", "<account_name>@<domain_id>", "admin@test"
+    "call_result.callee", "address of called contract", "20-bytes string in hex representation", "0000000000000000000000000000000000000000"
+    "call_result.result_data", "the value returned by the contract", "string in hex representation", "00"
+    "contract_address", "EVM address of a newly deployed contract", "20-bytes string in hex representation", "7C370993FD90AF204FD582004E2E54E6A94F2651"
+    "logs", "Array of EVM event logs created during smart contract execution.", "see below", "see below"
+    "logs.[].address", "the contract caller EVM address", "20-bytes string in hex representation", "577266A3CE7DD267A4C14039416B725786605FF4"
+    "logs.[].data", "the logged data", "hex string", "0000000000000000000000007203DF5D7B4F198848477D7F9EE080B207E544DD000000000000000000000000000000000000000000000000000000000000006D"
+    "logs.[].topics", "log topic as in Ethereum", "32-byte strings", "[3990DB2D31862302A685E8086B5755072A6E2B5B780AF1EE81ECE35EE3CD3345, 000000000000000000000000969453762B0C739DD285B31635EFA00E24C25628]"
+
+
+Possible Stateful Validation Errors
+-----------------------------------
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "2", "No such permissions", "Query’s creator does not have any of the permissions to get the call engine receipt", "Grant the necessary permission"
+    "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
+
 Get Account
 ^^^^^^^^^^^
 
@@ -203,6 +347,7 @@ Purpose
 -------
 
 GetTransactions is used for retrieving information about transactions, based on their hashes.
+
 .. note:: This query is valid if and only if all the requested hashes are correct: corresponding transactions exist, and the user has a permission to retrieve them
 
 Request Schema
@@ -261,33 +406,16 @@ Purpose
 GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../concepts_architecture/glossary.html#multisignature-transactions>`_
 or `batches of transactions <../../concepts_architecture/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
-.. note:: This query uses pagination for quicker and more convenient query responses.
+.. note:: This query uses `pagination <#result-pagination>`_ for quicker and more convenient query responses. Please read about it and specify pagination before sending the query request as well as `the request structure <#what-is-added-to-the-request-structure-in-case-of-pagination>`_.
 
 Request Schema
 --------------
 
 .. code-block:: proto
 
-    message TxPaginationMeta {
-        uint32 page_size = 1;
-        oneof opt_first_tx_hash {
-            string first_tx_hash = 2;
-        }
-    }
-
     message GetPendingTransactions {
         TxPaginationMeta pagination_meta = 1;
     }
-
-Request Structure
------------------
-
-.. csv-table::
-    :header: "Field", "Description", "Constraint", "Example"
-    :widths: 15, 30, 20, 15
-
-    "Page size", "maximum amount of transactions returned in the response", "page_size > 0", "5"
-    "First tx hash", "optional - hash of the first transaction in the starting batch", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
 
 All the user's semi-signed multisignature (pending) transactions can be queried.
 Maximum amount of transactions contained in a response can be limited by **page_size** field.
@@ -401,19 +529,12 @@ Purpose
 
 In a case when a list of transactions per account is needed, `GetAccountTransactions` query can be formed.
 
-.. note:: This query uses pagination for quicker and more convenient query responses.
+.. note:: This query uses `pagination <#result-pagination>`_ for quicker and more convenient query responses. Please read about it and specify pagination before sending the query request as well as `the request structure <#what-is-added-to-the-request-structure-in-case-of-pagination>`_.
 
 Request Schema
 --------------
 
 .. code-block:: proto
-
-    message TxPaginationMeta {
-        uint32 page_size = 1;
-        oneof opt_first_tx_hash {
-            string first_tx_hash = 2;
-        }
-    }
 
     message GetAccountTransactions {
         string account_id = 1;
@@ -428,8 +549,6 @@ Request Structure
     :widths: 15, 30, 20, 15
 
     "Account ID", "account id to request transactions from", "<account_name>@<domain_id>", "makoto@soramitsu"
-    "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
-    "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
 
 Response Schema
 ---------------
@@ -475,19 +594,12 @@ Purpose
 
 `GetAccountAssetTransactions` query returns all transactions associated with given account and asset.
 
-.. note:: This query uses pagination for query responses.
+.. note:: This query uses `pagination <#result-pagination>`_ for quicker and more convenient query responses. Please read about it and specify pagination before sending the query request as well as `the request structure <#what-is-added-to-the-request-structure-in-case-of-pagination>`_.
 
 Request Schema
 --------------
 
 .. code-block:: proto
-
-    message TxPaginationMeta {
-        uint32 page_size = 1;
-        oneof opt_first_tx_hash {
-            string first_tx_hash = 2;
-        }
-    }
 
     message GetAccountAssetTransactions {
         string account_id = 1;
@@ -504,8 +616,6 @@ Request Structure
 
     "Account ID", "account id to request transactions from", "<account_name>@<domain_id>", "makoto@soramitsu"
     "Asset ID", "asset id in order to filter transactions containing this asset", "<asset_name>#<domain_id>", "jpy#japan"
-    "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
-    "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
 
 Response Schema
 ---------------

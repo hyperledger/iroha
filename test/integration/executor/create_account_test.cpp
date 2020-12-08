@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include "common/result.hpp"
 #include "framework/common_constants.hpp"
+#include "framework/crypto_literals.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
@@ -22,9 +23,7 @@ using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
 
 static const AccountNameType kNewName{"new_account"};
-static const PubkeyType kNewPubkey =
-    shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-        .publicKey();
+const auto kNewPubkey{"hey im new here"_hex_pubkey};
 
 /// do not call during static init!
 const AccountIdType &getNewId() {
@@ -36,7 +35,7 @@ class CreateAccountTest : public ExecutorTestBase {
  public:
   void checkAccount(
       const boost::optional<AccountIdType> &account_id = boost::none,
-      const PubkeyType &pubkey = kNewPubkey) {
+      PublicKeyHexStringView pubkey = kNewPubkey) {
     auto account_id_val = account_id.value_or(getNewId());
     ASSERT_NO_FATAL_FAILURE(checkSignatories(account_id_val, {pubkey}););
   }
@@ -55,7 +54,7 @@ class CreateAccountTest : public ExecutorTestBase {
       const AccountIdType &issuer,
       const AccountNameType &target_name = kNewName,
       const DomainIdType &target_domain = kSecondDomain,
-      const PubkeyType &pubkey = kNewPubkey,
+      PublicKeyHexStringView pubkey = kNewPubkey,
       bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructCreateAccount(
@@ -99,7 +98,7 @@ TEST_P(CreateAccountBasicTest, NameExists) {
 }
 
 /**
- * Checks that there is no privelege elevation issue via CreateAccount
+ * Checks that there is no privilege elevation issue via CreateAccount
  *
  * @given an account with can_create_account permission, but without
  * can_set_detail permission
@@ -109,7 +108,10 @@ TEST_P(CreateAccountBasicTest, NameExists) {
  */
 TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
   ASSERT_NO_FATAL_FAILURE(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateAccount}));
+      kUser,
+      kDomain,
+      PublicKeyHexStringView{kUserKeypair.publicKey()},
+      {Role::kCreateAccount}));
   ASSERT_NO_FATAL_FAILURE(
       getItf().createRoleWithPerms("target_role", {Role::kSetDetail}));
   IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
@@ -118,6 +120,28 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
 
   checkCommandError(createDefaultAccount(kUserId), 2);
   checkNoSuchAccount();
+}
+
+/**
+ * @given a user with root permission, but without can_set_detail permission
+ * @and a domain that has a default role that contains can_set_detail permission
+ * @when the user tries to create an account in that domain
+ * @then the command succeeds
+ */
+TEST_P(CreateAccountBasicTest, RootWithNoPermSubset) {
+  ASSERT_NO_FATAL_FAILURE(
+      getItf().createRoleWithPerms("target_role", {Role::kSetDetail}));
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
+      *getItf().getMockCommandFactory()->constructCreateDomain(kSecondDomain,
+                                                               "target_role")));
+  ASSERT_NO_FATAL_FAILURE(getItf().createUserWithPerms(
+      kUser,
+      kDomain,
+      PublicKeyHexStringView{kUserKeypair.publicKey()},
+      {Role::kRoot}));
+
+  framework::expected::expectResultValue(createDefaultAccount(kUserId));
+  checkAccount();
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,

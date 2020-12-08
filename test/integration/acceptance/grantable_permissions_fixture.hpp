@@ -16,6 +16,7 @@
 #include "interfaces/query_responses/account_detail_response.hpp"
 #include "interfaces/query_responses/account_response.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 class GrantablePermissionsFixture : public AcceptanceFixture {
  public:
@@ -88,17 +89,26 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
       const shared_model::interface::permissions::Grantable &revoke_permission);
 
   /**
-   * Forms a transaction that either adds or removes signatory of an account
-   * @param f Add or Remove signatory function
+   * Forms a transaction that adds signatory to an account
    * @param permittee_account_name name of account which is granted permission
    * @param permittee_key key of account which is granted permission
    * @param account_name account name which has granted permission to permittee
    * @return a transaction
    */
-  shared_model::proto::Transaction permitteeModifySignatory(
-      TxBuilder (TxBuilder::*f)(
-          const shared_model::interface::types::AccountIdType &,
-          const shared_model::interface::types::PubkeyType &) const,
+  shared_model::proto::Transaction permitteeAddSignatory(
+      const shared_model::interface::types::AccountNameType
+          &permittee_account_name,
+      const shared_model::crypto::Keypair &permittee_key,
+      const shared_model::interface::types::AccountNameType &account_name);
+
+  /**
+   * Forms a transaction that removes signatory of an account
+   * @param permittee_account_name name of account which is granted permission
+   * @param permittee_key key of account which is granted permission
+   * @param account_name account name which has granted permission to permittee
+   * @return a transaction
+   */
+  shared_model::proto::Transaction permitteeRemoveSignatory(
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
       const shared_model::crypto::Keypair &permittee_key,

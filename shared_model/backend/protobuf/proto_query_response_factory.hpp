@@ -49,7 +49,7 @@ namespace shared_model {
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createSignatoriesResponse(
-          std::vector<interface::types::PubkeyType> signatories,
+          std::vector<std::string> signatories,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createTransactionsResponse(
@@ -90,6 +90,11 @@ namespace shared_model {
 
       std::unique_ptr<interface::QueryResponse> createPeersResponse(
           interface::types::PeerList peers,
+          const crypto::Hash &query_hash) const override;
+
+      std::unique_ptr<interface::QueryResponse> createEngineReceiptsResponse(
+          const std::vector<std::unique_ptr<interface::EngineReceipt>>
+              &engine_response_records,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::BlockQueryResponse> createBlockQueryResponse(

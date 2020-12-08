@@ -3,12 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <chrono>
 #include <csignal>
 #include <fstream>
+#include <memory>
 #include <thread>
+#include <vector>
 
 #include <gflags/gflags.h>
 #include <grpc++/grpc++.h>
+#include "ametsuchi/data_models/data_model.hpp"
+#include "ametsuchi/data_models/data_model_python.hpp"
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/bind.hpp"
@@ -23,6 +28,8 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "util/status_notifier.hpp"
+#include "util/utility_service.hpp"
 #include "validators/field_validator.hpp"
 
 static const std::string kListenIp = "0.0.0.0";
@@ -31,6 +38,7 @@ static const uint32_t kMstExpirationTimeDefault = 1440;
 static const uint32_t kMaxRoundsDelayDefault = 3000;
 static const uint32_t kStaleStreamMaxRoundsDefault = 2;
 static const std::string kDefaultWorkingDatabaseName{"iroha_default"};
+static const std::chrono::milliseconds kExitCheckPeriod{1000};
 
 /**
  * Gflag validator.
@@ -84,6 +92,8 @@ DEFINE_validator(keypair_name, &validate_keypair_name);
  */
 DEFINE_bool(overwrite_ledger, false, "Overwrite ledger data if existing");
 
+DEFINE_bool(reuse_state, false, "Try to reuse existing state data at startup.");
+
 static bool validateVerbosity(const char *flagname, const std::string &val) {
   if (val == kLogSettingsFromConfigFile) {
     return true;
@@ -105,7 +115,39 @@ static bool validateVerbosity(const char *flagname, const std::string &val) {
 DEFINE_string(verbosity, kLogSettingsFromConfigFile, "Log verbosity");
 DEFINE_validator(verbosity, &validateVerbosity);
 
+std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
+
+std::shared_ptr<iroha::utility_service::UtilityService> utility_service;
+std::unique_ptr<iroha::network::ServerRunner> utility_server;
+std::mutex shutdown_wait_mutex;
+std::lock_guard<std::mutex> shutdown_wait_locker(shutdown_wait_mutex);
+std::shared_ptr<iroha::utility_service::StatusNotifier> daemon_status_notifier =
+    std::make_shared<iroha::utility_service::StatusNotifier>();
+
+void initUtilityService(
+    const IrohadConfig::UtilityService &config,
+    iroha::utility_service::UtilityService::ShutdownCallback shutdown_callback,
+    logger::LoggerManagerTreePtr log_manager) {
+  auto utility_service =
+      std::make_shared<iroha::utility_service::UtilityService>(
+          shutdown_callback,
+          log_manager->getChild("UtilityService")->getLogger());
+  utility_server = std::make_unique<iroha::network::ServerRunner>(
+      config.ip + ":" + std::to_string(config.port),
+      log_manager->getChild("UtilityServer")->getLogger(),
+      false);
+  utility_server->append(utility_service)
+      .run()
+      .match(
+          [&](const auto &port) {
+            assert(port.value == config.port);
+            log_manager->getLogger()->info("Utility server bound on port {}",
+                                           port.value);
+          },
+          [](const auto &e) { throw std::runtime_error(e.error); });
+  daemon_status_notifier = utility_service;
+}
 
 logger::LoggerManagerTreePtr getDefaultLogManager() {
   return std::make_shared<logger::LoggerManagerTree>(logger::LoggerConfig{
@@ -118,6 +160,24 @@ getCommonObjectsFactory() {
       std::make_shared<shared_model::validation::ValidatorsConfig>(0);
   return std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
       shared_model::validation::FieldValidator>>(validators_config);
+}
+
+std::vector<std::unique_ptr<iroha::ametsuchi::DataModel>> makeDataModels(
+    std::vector<IrohadConfig::DataModelModule> const &config) {
+  std::vector<std::unique_ptr<iroha::ametsuchi::DataModel>> modules;
+  for (auto const &config : config) {
+    std::visit(
+        iroha::make_visitor(
+            [&modules](IrohadConfig::DataModelModule::Python const &config) {
+              modules.emplace_back(
+                  std::make_unique<iroha::ametsuchi::DataModelPython>(
+                      config.python_paths,
+                      config.module_name,
+                      config.initialization_argument));
+            }),
+        config.module);
+  }
+  return modules;
 }
 
 int main(int argc, char *argv[]) {
@@ -152,7 +212,9 @@ int main(int argc, char *argv[]) {
   auto config_result =
       parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
   if (auto e = iroha::expected::resultToOptionalError(config_result)) {
-    log->error("Failed reading the configuration file: {}", e.value());
+    if (log) {
+      log->error("Failed reading the configuration file: {}", e.value());
+    }
     return EXIT_FAILURE;
   }
   auto config = std::move(config_result).assumeValue();
@@ -172,6 +234,18 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  if (config.utility_service) {
+    initUtilityService(config.utility_service.value(),
+                       [] {
+                         exit_requested.set_value();
+                         std::lock_guard<std::mutex>{shutdown_wait_mutex};
+                       },
+                       log_manager);
+  }
+
+  daemon_status_notifier->notify(
+      ::iroha::utility_service::Status::kInitialization);
+
   // Reading public and private key files
   iroha::KeysManagerImpl keysManager(
       FLAGS_keypair_name, log_manager->getChild("KeysManager")->getLogger());
@@ -180,6 +254,7 @@ int main(int argc, char *argv[]) {
   if (auto e = iroha::expected::resultToOptionalError(keypair)) {
     // Abort execution if not
     log->error("Failed to load keypair: {}", e.value());
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
     return EXIT_FAILURE;
   }
 
@@ -199,11 +274,12 @@ int main(int argc, char *argv[]) {
         config.pg_opt.value(), kDefaultWorkingDatabaseName, log);
   } else {
     log->critical("Missing database configuration!");
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
     return EXIT_FAILURE;
   }
 
   // Configuring iroha daemon
-  Irohad irohad(
+  auto irohad = std::make_unique<Irohad>(
       config.block_store_path,
       std::move(pg_opt),
       kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
@@ -221,14 +297,18 @@ int main(int argc, char *argv[]) {
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
       std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
+      FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
+                        : iroha::StartupWsvDataPolicy::kDrop,
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}),
-      config.torii_tls_params);
+      config.torii_tls_params,
+      boost::none);
 
   // Check if iroha daemon storage was successfully initialized
-  if (not irohad.storage) {
+  if (not irohad->storage) {
     // Abort execution if not
     log->error("Failed to initialize storage");
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
     return EXIT_FAILURE;
   }
 
@@ -251,7 +331,7 @@ int main(int argc, char *argv[]) {
    */
 
   /// if there are any blocks in blockstore, then true
-  bool blockstore = irohad.storage->getBlockQuery()->getTopBlockHeight() != 0;
+  bool blockstore = irohad->storage->getBlockQuery()->getTopBlockHeight() != 0;
 
   /// genesis block file is specified as launch parameter
   bool genesis = not FLAGS_genesis_block.empty();
@@ -283,10 +363,10 @@ int main(int argc, char *argv[]) {
       }
 
       // clear previous storage if any
-      irohad.dropStorage();
+      irohad->dropStorage();
 
       const auto txs_num = block->transactions().size();
-      if (not irohad.storage->insertBlock(std::move(block))) {
+      if (not irohad->storage->insertBlock(std::move(block))) {
         log->critical("Could not apply genesis block!");
         return EXIT_FAILURE;
       }
@@ -301,18 +381,26 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     } else {
       if (overwrite) {
-        log->warn(
-            "No new genesis block is specified - blockstore cannot be "
-            "overwritten. If you want overwrite ledger state, please "
-            "specify new genesis block using --genesis_block parameter.");
+        // no genesis, blockstore present, overwrite specified -> new block
+        // store, world state should be reset
+        irohad->resetWsv();
+        if (not FLAGS_reuse_state) {
+          log->warn(
+              "No new genesis block is specified - blockstore will not be "
+              "overwritten. If you want overwrite ledger state, please "
+              "specify new genesis block using --genesis_block parameter. "
+              "If you want to reuse existing state data (WSV), consider the "
+              "--reuse_state flag.");
+        }
       }
     }
   }
 
   // check if at least one block is available in the ledger
-  auto block_query = irohad.storage->getBlockQuery();
+  auto block_query = irohad->storage->getBlockQuery();
   if (not block_query) {
     log->error("Cannot create BlockQuery");
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
     return EXIT_FAILURE;
   }
   const bool blocks_exist{iroha::expected::hasValue(
@@ -330,14 +418,15 @@ int main(int argc, char *argv[]) {
   }
 
   // init pipeline components
-  auto init_result = irohad.init();
+  auto init_result = irohad->init();
   if (auto error =
           boost::get<iroha::expected::Error<std::string>>(&init_result)) {
     log->critical("Irohad startup failed: {}", error->error);
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
     return EXIT_FAILURE;
   }
 
-  auto handler = [](int s) { exit_requested.set_value(); };
+  auto handler = [](int s) { caught_signal = s; };
   std::signal(SIGINT, handler);
   std::signal(SIGTERM, handler);
 #ifdef SIGQUIT
@@ -346,17 +435,31 @@ int main(int argc, char *argv[]) {
 
   // runs iroha
   log->info("Running iroha");
-  auto run_result = irohad.run();
+  auto run_result = irohad->run();
   if (auto error =
           boost::get<iroha::expected::Error<std::string>>(&run_result)) {
     log->critical("Irohad startup failed: {}", error->error);
+    daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
     return EXIT_FAILURE;
   }
-  exit_requested.get_future().wait();
+  daemon_status_notifier->notify(::iroha::utility_service::Status::kRunning);
+
+  auto exit_future = exit_requested.get_future();
+  while (exit_future.wait_for(kExitCheckPeriod) != std::future_status::ready) {
+    if (caught_signal != 0) {
+      log->warn("Caught signal {}, exiting.", caught_signal);
+      break;
+    }
+  }
+  daemon_status_notifier->notify(
+      ::iroha::utility_service::Status::kTermination);
 
   // We do not care about shutting down grpc servers
   // They do all necessary work in their destructors
   log->info("shutting down...");
+
+  irohad.reset();
+  daemon_status_notifier->notify(::iroha::utility_service::Status::kStopped);
 
   gflags::ShutDownCommandLineFlags();
 

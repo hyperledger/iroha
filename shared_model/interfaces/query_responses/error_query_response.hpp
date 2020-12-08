@@ -8,19 +8,20 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/variant.hpp>
-#include "interfaces/query_responses/error_responses/no_account_assets_error_response.hpp"
-#include "interfaces/query_responses/error_responses/no_account_detail_error_response.hpp"
-#include "interfaces/query_responses/error_responses/no_account_error_response.hpp"
-#include "interfaces/query_responses/error_responses/no_asset_error_response.hpp"
-#include "interfaces/query_responses/error_responses/no_roles_error_response.hpp"
-#include "interfaces/query_responses/error_responses/no_signatories_error_response.hpp"
-#include "interfaces/query_responses/error_responses/not_supported_error_response.hpp"
-#include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
-#include "interfaces/query_responses/error_responses/stateless_failed_error_response.hpp"
+#include <boost/variant/variant_fwd.hpp>
 
 namespace shared_model {
   namespace interface {
+
+    class StatelessFailedErrorResponse;
+    class StatefulFailedErrorResponse;
+    class NoAccountErrorResponse;
+    class NoAccountAssetsErrorResponse;
+    class NoAccountDetailErrorResponse;
+    class NoSignatoriesErrorResponse;
+    class NotSupportedErrorResponse;
+    class NoAssetErrorResponse;
+    class NoRolesErrorResponse;
 
     /**
      * QueryErrorResponse interface container for all concrete error responses
@@ -43,9 +44,6 @@ namespace shared_model {
                                               NotSupportedErrorResponse,
                                               NoAssetErrorResponse,
                                               NoRolesErrorResponse>;
-
-      /// Type list with all concrete query error responses
-      using QueryResponseListType = QueryErrorResponseVariantType::types;
 
       /**
        * @return reference to const variant with concrete error response

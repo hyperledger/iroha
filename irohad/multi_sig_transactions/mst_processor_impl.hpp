@@ -12,7 +12,6 @@
 #include <memory>
 
 #include <rxcpp/rx-lite.hpp>
-#include "cryptography/public_key.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_time_provider.hpp"
@@ -57,19 +56,13 @@ namespace iroha {
 
     // ------------------| MstTransportNotification override |------------------
 
-    void onNewState(const shared_model::crypto::PublicKey &from,
+    void onNewState(shared_model::interface::types::PublicKeyHexStringView from,
                     MstState &&new_state) override;
 
     // ----------------------------| end override |-----------------------------
 
    private:
     // -----------------------------| private api |-----------------------------
-
-    /**
-     * Invoke when propagation strategy emit new data
-     * @param data - propagated data
-     */
-    void onPropagate(const PropagationStrategy::PropagationData &data);
 
     /**
      * Notify subscribers when some of the batches received all necessary
@@ -92,6 +85,8 @@ namespace iroha {
     void expiredBatchesNotify(ConstRefState state) const;
 
     // -------------------------------| fields |--------------------------------
+    logger::LoggerPtr log_;
+
     std::shared_ptr<iroha::network::MstTransport> transport_;
     std::shared_ptr<MstStorage> storage_;
     std::shared_ptr<PropagationStrategy> strategy_;
@@ -111,8 +106,6 @@ namespace iroha {
     /// use for tracking the propagation subscription
 
     rxcpp::composite_subscription propagation_subscriber_;
-
-    logger::LoggerPtr log_;
   };
 }  // namespace iroha
 

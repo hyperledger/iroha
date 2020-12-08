@@ -60,7 +60,10 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), {Role::kReceive}));
+        kUser,
+        kDomain,
+        PublicKeyHexStringView{kUserKeypair.publicKey()},
+        {Role::kReceive}));
     createAndAddAssets(n);
   }
 
@@ -157,7 +160,7 @@ using GetAccountAssetsBasicTest = BasicExecutorTest<GetAccountAssetsTest>;
  */
 TEST_P(GetAccountAssetsBasicTest, NoAssets) {
   IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {}));
+      kUser, kDomain, PublicKeyHexStringView{kUserKeypair.publicKey()}, {}));
 
   checkAssetQuantities(kUserId, {});
 }

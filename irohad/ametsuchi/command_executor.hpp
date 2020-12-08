@@ -48,6 +48,8 @@ namespace iroha {
           const shared_model::interface::Command &cmd,
           const shared_model::interface::types::AccountIdType
               &creator_account_id,
+          const std::string &tx_hash,
+          shared_model::interface::types::CommandIndexType cmd_index,
           bool do_validation) = 0;
     };
   }  // namespace ametsuchi

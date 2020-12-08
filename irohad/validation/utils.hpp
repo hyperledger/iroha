@@ -12,7 +12,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/any_range.hpp>
 
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
@@ -24,17 +23,17 @@ namespace iroha {
      * @return true, if all public keys of signatures are present in vector of
      * pubkeys
      */
+    template <typename PublicKeys>
     inline bool signaturesSubset(
         const shared_model::interface::types::SignatureRangeType &signatures,
-        const boost::any_range<shared_model::crypto::PublicKey,
-                               boost::forward_traversal_tag> &public_keys) {
+        const PublicKeys &public_keys) {
       return std::all_of(
           signatures.begin(),
           signatures.end(),
-          [&public_keys](const auto &signature) {
+          [&public_keys](auto const &signature) {
             return std::find_if(public_keys.begin(),
                                 public_keys.end(),
-                                [&signature](const auto &public_key) {
+                                [&signature](auto const &public_key) {
                                   return signature.publicKey() == public_key;
                                 })
                 != public_keys.end();
@@ -51,12 +50,11 @@ namespace iroha {
     inline bool peersSubset(
         const shared_model::interface::types::SignatureRangeType &signatures,
         const Peers &peers) {
-      return signaturesSubset(signatures,
-                              peers
-                                  | boost::adaptors::transformed(
-                                        [](const auto &p) -> decltype(auto) {
-                                          return p->pubkey();
-                                        }));
+      using shared_model::interface::types::PublicKeyHexStringView;
+      return signaturesSubset(
+          signatures, peers | boost::adaptors::transformed([](auto const &p) {
+                        return PublicKeyHexStringView{p->pubkey()};
+                      }));
     }
 
   }  // namespace validation

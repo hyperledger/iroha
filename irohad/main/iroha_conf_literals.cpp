@@ -20,6 +20,7 @@ namespace config_members {
   const char *PgOpt = "pg_opt";
   const char *DbConfig = "database";
   const char *Host = "host";
+  const char *Ip = "ip";
   const char *Port = "port";
   const char *User = "user";
   const char *Password = "password";
@@ -47,4 +48,10 @@ namespace config_members {
   const char *PublicKey = "public_key";
   const char *InitialPeers = "initial_peers";
   const char *TlsCertificatePath = "tls_certificate_path";
+  const char *UtilityService = "utility_service";
+  const char *DataModelModules = "data_model_modules";
+  const char *Python = "python";
+  const char *PythonPaths = "python_paths";
+  const char *ModuleName = "module_name";
+  const char *InitArgument = "initialization_argument";
 }  // namespace config_members

@@ -11,6 +11,7 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/executor_fixture.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 
 namespace executor_testing {
@@ -37,10 +38,10 @@ namespace executor_testing {
     struct QueryPermissionTest
         : public SpecificQueryFixture,
           public ::testing::WithParamInterface<
-              std::tuple<std::shared_ptr<ExecutorTestParam>,
+              std::tuple<ExecutorTestParamProvider,
                          SpecificQueryPermissionTestData>> {
       QueryPermissionTest()
-          : backend_param_(std::get<0>(GetParam())),
+          : backend_param_(std::get<0>(GetParam())()),
             permissions_param_(std::get<1>(GetParam())) {}
 
       iroha::integration_framework::ExecutorItf &getItf() {
@@ -60,20 +61,24 @@ namespace executor_testing {
           shared_model::interface::RolePermissionSet target_permissions) {
         using namespace common_constants;
         using namespace framework::expected;
+        using shared_model::interface::types::PublicKeyHexStringView;
         // create target user
         target_permissions |= permissions_param_.spectator_permissions;
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-            kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
+            kUser,
+            kDomain,
+            PublicKeyHexStringView{kUserKeypair.publicKey()},
+            target_permissions));
         // create spectators
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kSecondUser,
             kDomain,
-            kSameDomainUserKeypair.publicKey(),
+            PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
             permissions_param_.spectator_permissions));
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kSecondUser,
             kSecondDomain,
-            kSecondDomainUserKeypair.publicKey(),
+            PublicKeyHexStringView{kSecondDomainUserKeypair.publicKey()},
             permissions_param_.spectator_permissions));
       }
 
@@ -96,17 +101,17 @@ namespace executor_testing {
       }
 
      protected:
-      virtual std::shared_ptr<ExecutorTestParam> getBackendParam() {
+      virtual ExecutorTestParam &getBackendParam() {
         return backend_param_;
       }
 
      private:
-      const std::shared_ptr<ExecutorTestParam> &backend_param_;
+      ExecutorTestParam &backend_param_;
       const SpecificQueryPermissionTestData &permissions_param_;
     };
 
     std::string paramToString(
-        testing::TestParamInfo<std::tuple<std::shared_ptr<ExecutorTestParam>,
+        testing::TestParamInfo<std::tuple<ExecutorTestParamProvider,
                                           SpecificQueryPermissionTestData>>
             param);
 

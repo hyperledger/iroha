@@ -9,9 +9,13 @@
 #include <vector>
 
 #include <boost/optional.hpp>
+#include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace iroha {
+  struct TopBlockInfo;
+
   namespace ametsuchi {
     /**
      *  Public interface for world state view queries
@@ -25,9 +29,7 @@ namespace iroha {
        * @param account_id
        * @return
        */
-      virtual boost::optional<
-          std::vector<shared_model::interface::types::PubkeyType>>
-      getSignatories(
+      virtual boost::optional<std::vector<std::string>> getSignatories(
           const shared_model::interface::types::AccountIdType &account_id) = 0;
 
       /**
@@ -43,8 +45,12 @@ namespace iroha {
        * @return the peer if found, none otherwise
        */
       virtual boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-      getPeerByPublicKey(
-          const shared_model::interface::types::PubkeyType &public_key) = 0;
+      getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
+                             public_key) = 0;
+
+      /// Get top block info from ledger state.
+      virtual iroha::expected::Result<iroha::TopBlockInfo, std::string>
+      getTopBlockInfo() const = 0;
     };
 
   }  // namespace ametsuchi

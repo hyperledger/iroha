@@ -116,8 +116,9 @@ namespace shared_model {
       return impl_->reduced_hash_;
     }
 
-    bool Transaction::addSignature(const crypto::Signed &signed_blob,
-                                   const crypto::PublicKey &public_key) {
+    bool Transaction::addSignature(
+        interface::types::SignedHexStringView signed_blob,
+        interface::types::PublicKeyHexStringView public_key) {
       // if already has such signature
       if (std::find_if(impl_->signatures_.begin(),
                        impl_->signatures_.end(),
@@ -129,8 +130,10 @@ namespace shared_model {
       }
 
       auto sig = impl_->proto_->add_signatures();
-      sig->set_signature(signed_blob.hex());
-      sig->set_public_key(public_key.hex());
+      std::string_view const &signed_string{signed_blob};
+      sig->set_signature(signed_string.data(), signed_string.size());
+      std::string_view const &public_key_string{public_key};
+      sig->set_public_key(public_key_string.data(), public_key_string.size());
 
       impl_->signatures_ = [this] {
         auto signatures = *impl_->proto_->mutable_signatures()
@@ -163,6 +166,10 @@ namespace shared_model {
     std::optional<std::shared_ptr<interface::BatchMeta>>
     Transaction::batchMeta() const {
       return impl_->meta_;
+    }
+
+    std::unique_ptr<interface::Transaction> Transaction::moveTo() {
+      return std::make_unique<Transaction>(std::move(*impl_->proto_));
     }
 
     Transaction::ModelType *Transaction::clone() const {

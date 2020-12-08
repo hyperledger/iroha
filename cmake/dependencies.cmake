@@ -95,13 +95,6 @@ endif()
 find_package(ed25519 REQUIRED CONFIG)
 
 ###################################
-#               ursa              #
-###################################
-if(USE_LIBURSA)
-  find_package(ursa)
-endif()
-
-###################################
 #              fmt                #
 ###################################
 find_package(fmt 5.3.0 REQUIRED CONFIG)

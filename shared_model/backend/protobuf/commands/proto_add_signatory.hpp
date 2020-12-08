@@ -9,7 +9,6 @@
 #include "interfaces/commands/add_signatory.hpp"
 
 #include "commands.pb.h"
-#include "cryptography/public_key.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -19,12 +18,10 @@ namespace shared_model {
 
       const interface::types::AccountIdType &accountId() const override;
 
-      const interface::types::PubkeyType &pubkey() const override;
+      const std::string &pubkey() const override;
 
      private:
       const iroha::protocol::AddSignatory &add_signatory_;
-
-      const interface::types::PubkeyType pubkey_;
     };
 
   }  // namespace proto

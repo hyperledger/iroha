@@ -4,6 +4,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
@@ -25,8 +26,9 @@ auto completer_ = std::make_shared<TestCompleter>();
 TEST(StateTest, CreateState) {
   auto state = MstState::empty(mst_state_log_, completer_);
   ASSERT_EQ(0, state.getBatches().size());
-  auto tx = addSignatures(
-      makeTestBatch(txBuilder(1)), 0, makeSignature("1", "pub_key_1"));
+  auto tx = addSignatures(makeTestBatch(txBuilder(1)),
+                          0,
+                          makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   state += tx;
   ASSERT_EQ(1, state.getBatches().size());
   ASSERT_EQ(*tx, **state.getBatches().begin());
@@ -41,8 +43,8 @@ TEST(StateTest, UpdateExistingState) {
   auto state = MstState::empty(mst_state_log_, completer_);
   auto time = iroha::time::now();
 
-  auto first_signature = makeSignature("1", "pub_key_1");
-  auto second_signature = makeSignature("2", "pub_key_2");
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
   auto base_tx = makeTestBatch(txBuilder(1, time));
 
   auto first_tx = addSignatures(base_tx, 0, first_signature);
@@ -64,12 +66,32 @@ TEST(StateTest, UpdateExistingState) {
 TEST(StateTest, ContainsMethodFindsInsertedBatch) {
   auto state = MstState::empty(mst_state_log_, completer_);
 
-  auto first_signature = makeSignature("1", "pub_key_1");
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
   auto batch = makeTestBatch(txBuilder(1, iroha::time::now()));
   auto tx = addSignatures(batch, 0, first_signature);
   state += tx;
 
   EXPECT_TRUE(state.contains(batch));
+}
+
+/**
+ * @given state with one batch
+ * @when batch is erased by hash
+ * @then "contains" method shows absence of the batch
+ */
+TEST(StateTest, EraseByTransactionHash) {
+  auto state = MstState::empty(mst_state_log_, completer_);
+
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto batch = makeTestBatch(txBuilder(1, iroha::time::now()));
+  auto tx = addSignatures(batch, 0, first_signature);
+  state += tx;
+
+  EXPECT_TRUE(state.contains(batch));
+
+  state.eraseByTransactionHash(tx->transactions().front()->hash());
+
+  EXPECT_FALSE(state.contains(batch));
 }
 
 /**
@@ -95,10 +117,12 @@ TEST(StateTest, UpdateStateWhenTransactionsSame) {
   auto state = MstState::empty(mst_state_log_, completer_);
 
   auto time = iroha::time::now();
-  state += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
-  state += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
+  state += addSignatures(makeTestBatch(txBuilder(1, time)),
+                         0,
+                         makeSignature("1"_hex_sig, "1"_hex_pubkey));
+  state += addSignatures(makeTestBatch(txBuilder(1, time)),
+                         0,
+                         makeSignature("1"_hex_sig, "1"_hex_pubkey));
 
   ASSERT_EQ(1, state.getBatches().size());
   ASSERT_EQ(1,
@@ -121,21 +145,26 @@ TEST(StateTest, DifferentSignaturesUnionTest) {
 
   auto state1 = MstState::empty(mst_state_log_, completer_);
 
-  state1 +=
-      addSignatures(makeTestBatch(txBuilder(1)), 0, makeSignature("1", "1"));
+  state1 += addSignatures(makeTestBatch(txBuilder(1)),
+                          0,
+                          makeSignature("1"_hex_sig, "1"_hex_pubkey));
 
-  state1 +=
-      addSignatures(makeTestBatch(txBuilder(2)), 0, makeSignature("2", "2"));
-  state1 +=
-      addSignatures(makeTestBatch(txBuilder(3)), 0, makeSignature("3", "3"));
+  state1 += addSignatures(makeTestBatch(txBuilder(2)),
+                          0,
+                          makeSignature("2"_hex_sig, "2"_hex_pubkey));
+  state1 += addSignatures(makeTestBatch(txBuilder(3)),
+                          0,
+                          makeSignature("3"_hex_sig, "3"_hex_pubkey));
 
   ASSERT_EQ(3, state1.getBatches().size());
 
   auto state2 = MstState::empty(mst_state_log_, completer_);
-  state2 +=
-      addSignatures(makeTestBatch(txBuilder(4)), 0, makeSignature("4", "4"));
-  state2 +=
-      addSignatures(makeTestBatch(txBuilder(5)), 0, makeSignature("5", "5"));
+  state2 += addSignatures(makeTestBatch(txBuilder(4)),
+                          0,
+                          makeSignature("4"_hex_sig, "4"_hex_pubkey));
+  state2 += addSignatures(makeTestBatch(txBuilder(5)),
+                          0,
+                          makeSignature("5"_hex_sig, "5"_hex_pubkey));
   ASSERT_EQ(2, state2.getBatches().size());
 
   state1 += state2;
@@ -159,10 +188,12 @@ TEST(StateTest, UnionStateWhenSameTransactionHaveDifferentSignatures) {
   auto state1 = MstState::empty(mst_state_log_, completer_);
   auto state2 = MstState::empty(mst_state_log_, completer_);
 
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
-  state2 += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("2", "2"));
+  state1 += addSignatures(makeTestBatch(txBuilder(1, time)),
+                          0,
+                          makeSignature("1"_hex_sig, "1"_hex_pubkey));
+  state2 += addSignatures(makeTestBatch(txBuilder(1, time)),
+                          0,
+                          makeSignature("2"_hex_sig, "2"_hex_pubkey));
 
   state1 += state2;
   ASSERT_EQ(1, state1.getBatches().size());
@@ -186,18 +217,22 @@ TEST(StateTest, UnionStateWhenTransactionsSame) {
   auto time = iroha::time::now();
 
   auto state1 = MstState::empty(mst_state_log_, completer_);
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(2)), 0, makeSignature("other", "other"));
+  state1 += addSignatures(makeTestBatch(txBuilder(1, time)),
+                          0,
+                          makeSignature("1"_hex_sig, "1"_hex_pubkey));
+  state1 += addSignatures(makeTestBatch(txBuilder(2)),
+                          0,
+                          makeSignature("other"_hex_sig, "other"_hex_pubkey));
 
   ASSERT_EQ(2, state1.getBatches().size());
 
   auto state2 = MstState::empty(mst_state_log_, completer_);
-  state2 += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
-  state2 += addSignatures(
-      makeTestBatch(txBuilder(3)), 0, makeSignature("other_", "other_"));
+  state2 += addSignatures(makeTestBatch(txBuilder(1, time)),
+                          0,
+                          makeSignature("1"_hex_sig, "1"_hex_pubkey));
+  state2 += addSignatures(makeTestBatch(txBuilder(3)),
+                          0,
+                          makeSignature("other_"_hex_sig, "other_"_hex_pubkey));
   ASSERT_EQ(2, state2.getBatches().size());
 
   state1 += state2;
@@ -212,11 +247,12 @@ TEST(StateTest, UnionStateWhenTransactionsSame) {
 TEST(StateTest, DifferenceTest) {
   auto time = iroha::time::now();
 
-  auto first_signature = makeSignature("1", "1");
-  auto second_signature = makeSignature("2", "2");
-  auto third_signature = makeSignature("3", "3");
+  auto first_signature = makeSignature("1"_hex_sig, "1"_hex_pubkey);
+  auto second_signature = makeSignature("2"_hex_sig, "2"_hex_pubkey);
+  auto third_signature = makeSignature("3"_hex_sig, "3"_hex_pubkey);
 
-  auto another_signature = makeSignature("another", "another");
+  auto another_signature =
+      makeSignature("another"_hex_sig, "another"_hex_pubkey);
 
   auto common_batch = makeTestBatch(txBuilder(1, time));
   auto another_batch = makeTestBatch(txBuilder(3));
@@ -249,18 +285,24 @@ TEST(StateTest, UpdateTxUntillQuorum) {
 
   auto state = MstState::empty(mst_state_log_, completer_);
 
-  auto state_after_one_tx = state += addSignatures(
-      makeTestBatch(txBuilder(1, time, quorum)), 0, makeSignature("1", "1"));
+  auto state_after_one_tx = state +=
+      addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
+                    0,
+                    makeSignature("1"_hex_sig, "1"_hex_pubkey));
   ASSERT_EQ(1, state_after_one_tx.updated_state_->getBatches().size());
   ASSERT_EQ(0, state_after_one_tx.completed_state_->getBatches().size());
 
-  auto state_after_two_txes = state += addSignatures(
-      makeTestBatch(txBuilder(1, time, quorum)), 0, makeSignature("2", "2"));
+  auto state_after_two_txes = state +=
+      addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
+                    0,
+                    makeSignature("2"_hex_sig, "2"_hex_pubkey));
   ASSERT_EQ(1, state_after_two_txes.updated_state_->getBatches().size());
   ASSERT_EQ(0, state_after_two_txes.completed_state_->getBatches().size());
 
-  auto state_after_three_txes = state += addSignatures(
-      makeTestBatch(txBuilder(1, time, quorum)), 0, makeSignature("3", "3"));
+  auto state_after_three_txes = state +=
+      addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
+                    0,
+                    makeSignature("3"_hex_sig, "3"_hex_pubkey));
   ASSERT_EQ(0, state_after_three_txes.updated_state_->getBatches().size());
   ASSERT_EQ(1, state_after_three_txes.completed_state_->getBatches().size());
   ASSERT_TRUE((*state_after_three_txes.completed_state_->getBatches().begin())
@@ -281,20 +323,22 @@ TEST(StateTest, UpdateStateWithNewStateUntilQuorum) {
   auto state1 = MstState::empty(mst_state_log_, completer_);
   state1 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
-                          makeSignature("1_1", "1_1"));
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(2, time)), 0, makeSignature("2", "2"));
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(2, time)), 0, makeSignature("3", "3"));
+                          makeSignature("1_1"_hex_sig, "1_1"_hex_pubkey));
+  state1 += addSignatures(makeTestBatch(txBuilder(2, time)),
+                          0,
+                          makeSignature("2"_hex_sig, "2"_hex_pubkey));
+  state1 += addSignatures(makeTestBatch(txBuilder(2, time)),
+                          0,
+                          makeSignature("3"_hex_sig, "3"_hex_pubkey));
   ASSERT_EQ(2, state1.getBatches().size());
 
   auto state2 = MstState::empty(mst_state_log_, completer_);
   state2 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
-                          makeSignature("1_2", "1_2"));
+                          makeSignature("1_2"_hex_sig, "1_2"_hex_pubkey));
   state2 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
-                          makeSignature("1_3", "1_3"));
+                          makeSignature("1_3"_hex_sig, "1_3"_hex_pubkey));
   ASSERT_EQ(1, state2.getBatches().size());
 
   auto final_state = state1 += state2;
@@ -312,9 +356,10 @@ TEST(StateTest, TimeIndexInsertionByTx) {
   auto quorum = 2u;
   auto time = iroha::time::now();
 
-  auto prepared_batch = addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
-                                      0,
-                                      makeSignature("1_1", "1_1"));
+  auto prepared_batch =
+      addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
+                    0,
+                    makeSignature("1_1"_hex_sig, "1_1"_hex_pubkey));
 
   auto state = MstState::empty(mst_state_log_, completer_);
 
@@ -339,16 +384,18 @@ TEST(StateTest, TimeIndexInsertionByAddState) {
   auto state1 = MstState::empty(mst_state_log_, completer_);
   state1 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
-                          makeSignature("1_1", "1_1"));
+                          makeSignature("1_1"_hex_sig, "1_1"_hex_pubkey));
   state1 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
-                          makeSignature("1_2", "1_2"));
+                          makeSignature("1_2"_hex_sig, "1_2"_hex_pubkey));
 
   auto state2 = MstState::empty(mst_state_log_, completer_);
-  state2 += addSignatures(
-      makeTestBatch(txBuilder(2, time)), 0, makeSignature("2", "2"));
-  state2 += addSignatures(
-      makeTestBatch(txBuilder(3, time)), 0, makeSignature("3", "3"));
+  state2 += addSignatures(makeTestBatch(txBuilder(2, time)),
+                          0,
+                          makeSignature("2"_hex_sig, "2"_hex_pubkey));
+  state2 += addSignatures(makeTestBatch(txBuilder(3, time)),
+                          0,
+                          makeSignature("3"_hex_sig, "3"_hex_pubkey));
 
   auto final_state = state1 += state2;
   ASSERT_EQ(0, final_state.completed_state_->getBatches().size());
@@ -366,10 +413,12 @@ TEST(StateTest, RemovingTestWhenByTimeHasExpired) {
   auto time = iroha::time::now();
 
   auto state1 = MstState::empty(mst_state_log_, completer_);
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(1, time)), 0, makeSignature("2", "2"));
-  state1 += addSignatures(
-      makeTestBatch(txBuilder(2, time)), 0, makeSignature("2", "2"));
+  state1 += addSignatures(makeTestBatch(txBuilder(1, time)),
+                          0,
+                          makeSignature("2"_hex_sig, "2"_hex_pubkey));
+  state1 += addSignatures(makeTestBatch(txBuilder(2, time)),
+                          0,
+                          makeSignature("2"_hex_sig, "2"_hex_pubkey));
 
   auto state2 = MstState::empty(mst_state_log_, completer_);
 

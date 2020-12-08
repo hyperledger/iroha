@@ -13,7 +13,6 @@
 #include "consensus/yac/storage/yac_common.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "consensus/yac/yac_peer_orderer.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/signature.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
@@ -118,11 +117,18 @@ namespace iroha {
         return published_events_;
       }
 
+      void YacGateImpl::stop() {
+        hash_gate_->stop();
+      }
+
       void YacGateImpl::copySignatures(const CommitMessage &commit) {
         for (const auto &vote : commit.votes) {
           auto sig = vote.hash.block_signature;
-          current_block_.value()->addSignature(sig->signedData(),
-                                               sig->publicKey());
+          current_block_.value()->addSignature(
+              shared_model::interface::types::SignedHexStringView{
+                  sig->signedData()},
+              shared_model::interface::types::PublicKeyHexStringView{
+                  sig->publicKey()});
         }
       }
 

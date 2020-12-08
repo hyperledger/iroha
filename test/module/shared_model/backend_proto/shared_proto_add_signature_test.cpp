@@ -39,12 +39,13 @@ auto initializeProto(Query::TransportType &proto) {
  * @then it is reflected in wrapper blob getter result
  */
 TYPED_TEST(SharedProtoAddSignatureTest, AddSignature) {
+  using namespace std::literals;
   typename TypeParam::TransportType proto;
   initializeProto(proto);
   TypeParam model{proto};
 
-  Signed signature{"signature"};
-  PublicKey public_key{"public_key"};
+  shared_model::interface::types::SignedHexStringView signature{"0A"sv};
+  shared_model::interface::types::PublicKeyHexStringView public_key{"0B"sv};
 
   model.addSignature(signature, public_key);
 
@@ -54,6 +55,10 @@ TYPED_TEST(SharedProtoAddSignatureTest, AddSignature) {
 
   auto signatures = new_model.signatures();
   ASSERT_EQ(1, boost::size(signatures));
-  ASSERT_EQ(signature, signatures.front().signedData());
-  ASSERT_EQ(public_key, signatures.front().publicKey());
+  ASSERT_EQ(signature,
+            shared_model::interface::types::SignedHexStringView{
+                signatures.front().signedData()});
+  ASSERT_EQ(public_key,
+            shared_model::interface::types::PublicKeyHexStringView{
+                signatures.front().publicKey()});
 }

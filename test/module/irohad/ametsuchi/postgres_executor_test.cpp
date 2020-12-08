@@ -5,18 +5,24 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "backend/protobuf/proto_query_response_factory.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
+using namespace std::literals;
 using namespace common_constants;
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 namespace iroha {
   namespace ametsuchi {
@@ -26,6 +32,8 @@ namespace iroha {
     using namespace framework::expected;
     using namespace common_constants;
 
+    static const PublicKeyHexStringView kPublicKey{"public key"sv};
+    static const PublicKeyHexStringView kPublicKey2{"another public key"sv};
     static const std::string domain_id{"domain"};
 
     class CommandExecutorTest : public AmetsuchiTest {
@@ -39,20 +47,32 @@ namespace iroha {
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
             shared_model::interface::permissions::Grantable::kAddMySignatory;
-        pubkey = std::make_unique<shared_model::interface::types::PubkeyType>(
-            std::string('1', 32));
+
+        query_response_factory =
+            std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
       }
 
       void SetUp() override {
         AmetsuchiTest::SetUp();
 
-        auto sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                                   pgopt_);
         wsv_query =
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
 
-        executor = std::make_unique<PostgresCommandExecutor>(std::move(sql),
-                                                             perm_converter);
+        pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
+        executor = std::make_unique<PostgresCommandExecutor>(
+            std::make_unique<soci::session>(*soci::factory_postgresql(),
+                                            pgopt_),
+            perm_converter,
+            std::make_shared<PostgresSpecificQueryExecutor>(
+                *sql,
+                *block_storage_,
+                pending_txs_storage,
+                query_response_factory,
+                perm_converter,
+                getTestLoggerManager()
+                    ->getChild("SpecificQueryExecutor")
+                    ->getLogger()),
+            std::nullopt);
       }
 
       void TearDown() override {
@@ -77,7 +97,7 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executor->execute(cmd, creator, not do_validation);
+        return executor->execute(cmd, creator, "", 0, not do_validation);
       }
 
       /**
@@ -189,7 +209,7 @@ namespace iroha {
       void createDefaultAccount() {
         CHECK_SUCCESSFUL_RESULT(
             execute(*mock_command_factory->constructCreateAccount(
-                        name, domain_id, *pubkey),
+                        name, domain_id, pubkey),
                     true));
       }
 
@@ -198,12 +218,16 @@ namespace iroha {
       shared_model::interface::RolePermissionSet role_permissions;
       shared_model::interface::permissions::Grantable grantable_permission;
       shared_model::interface::types::AccountIdType account_id, name;
-      std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
+      PublicKeyHexStringView pubkey{"pubkey"sv};
 
       std::unique_ptr<shared_model::interface::Command> command;
 
       std::unique_ptr<CommandExecutor> executor;
       std::unique_ptr<WsvQuery> wsv_query;
+      std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
+
+      std::shared_ptr<shared_model::interface::QueryResponseFactory>
+          query_response_factory;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter =
@@ -220,40 +244,13 @@ namespace iroha {
      public:
       void SetUp() override {
         CommandExecutorTest::SetUp();
-        address =
-            std::make_unique<shared_model::interface::types::AddressType>("");
-        pk = std::make_unique<shared_model::interface::types::PubkeyType>("");
-        tls_certificate = std::make_unique<
-            std::optional<shared_model::interface::types::TLSCertificateType>>(
-            "");
-        blank_tls_certificate = std::make_unique<std::optional<
-            shared_model::interface::types::TLSCertificateType>>();
-        peer = std::make_unique<MockPeer>();
-        EXPECT_CALL(*peer, address())
-            .WillRepeatedly(testing::ReturnRef(*address));
-        EXPECT_CALL(*peer, pubkey()).WillRepeatedly(testing::ReturnRef(*pk));
-        EXPECT_CALL(*peer, tlsCertificate())
-            .WillRepeatedly(testing::ReturnRef(*blank_tls_certificate));
-        peer_with_cert = std::make_unique<MockPeer>();
-        EXPECT_CALL(*peer_with_cert, address())
-            .WillRepeatedly(testing::ReturnRef(*address));
-        EXPECT_CALL(*peer_with_cert, pubkey())
-            .WillRepeatedly(testing::ReturnRef(*pk));
-        EXPECT_CALL(*peer_with_cert, tlsCertificate())
-            .WillRepeatedly(testing::ReturnRef(*tls_certificate));
+        peer = makePeer("", kPublicKey);
+        peer_with_cert = makePeer("", kPublicKey, "");
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
       }
 
-      std::unique_ptr<shared_model::interface::types::AddressType> address;
-      std::unique_ptr<shared_model::interface::types::PubkeyType> pk;
-      std::unique_ptr<
-          std::optional<shared_model::interface::types::TLSCertificateType>>
-          blank_tls_certificate;
-      std::unique_ptr<
-          std::optional<shared_model::interface::types::TLSCertificateType>>
-          tls_certificate;
       std::unique_ptr<MockPeer> peer;
       std::unique_ptr<MockPeer> peer_with_cert;
     };
@@ -288,8 +285,7 @@ namespace iroha {
     TEST_F(AddPeer, NoPerms) {
       auto cmd_result = execute(*mock_command_factory->constructAddPeer(*peer));
 
-      std::vector<std::string> query_args{peer->address(),
-                                          peer->pubkey().hex()};
+      std::vector<std::string> query_args{peer->address(), peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -308,11 +304,8 @@ namespace iroha {
      public:
       void SetUp() override {
         CommandExecutorTest::SetUp();
-        peer = makePeer("address",
-                        shared_model::interface::types::PubkeyType{"pubkey"});
-        another_peer = makePeer(
-            "another_address",
-            shared_model::interface::types::PubkeyType{"another_pubkey"});
+        peer = makePeer("address", kPublicKey);
+        another_peer = makePeer("another_address", kPublicKey2);
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
@@ -334,7 +327,7 @@ namespace iroha {
           *mock_command_factory->constructAddPeer(*another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
+          execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
       auto peers = wsv_query->getPeers();
       ASSERT_TRUE(peers);
@@ -356,9 +349,9 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructAddPeer(*another_peer), true));
       auto cmd_result =
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+          execute(*mock_command_factory->constructRemovePeer(kPublicKey));
 
-      std::vector<std::string> query_args{peer->pubkey().hex()};
+      std::vector<std::string> query_args{peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -369,10 +362,10 @@ namespace iroha {
      */
     TEST_F(RemovePeer, NoPeer) {
       addAllPermsWithoutRoot();
-      auto cmd_result = execute(
-          *mock_command_factory->constructRemovePeer(another_peer->pubkey()));
+      auto cmd_result =
+          execute(*mock_command_factory->constructRemovePeer(kPublicKey2));
 
-      std::vector<std::string> query_args{another_peer->pubkey().hex()};
+      std::vector<std::string> query_args{another_peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
     }
 
@@ -384,10 +377,9 @@ namespace iroha {
     TEST_F(RemovePeer, NoPeerWithoutValidation) {
       addAllPermsWithoutRoot();
       auto cmd_result = execute(
-          *mock_command_factory->constructRemovePeer(another_peer->pubkey()),
-          true);
+          *mock_command_factory->constructRemovePeer(kPublicKey2), true);
 
-      std::vector<std::string> query_args{another_peer->pubkey().hex()};
+      std::vector<std::string> query_args{another_peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 1, query_args);
     }
 
@@ -399,9 +391,9 @@ namespace iroha {
     TEST_F(RemovePeer, LastPeer) {
       addAllPermsWithoutRoot();
       auto cmd_result =
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+          execute(*mock_command_factory->constructRemovePeer(kPublicKey));
 
-      std::vector<std::string> query_args{peer->pubkey().hex()};
+      std::vector<std::string> query_args{peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
@@ -416,7 +408,7 @@ namespace iroha {
           *mock_command_factory->constructAddPeer(*another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
+          execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
       auto peers = wsv_query->getPeers();
       ASSERT_TRUE(peers);
@@ -638,7 +630,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCreateAccount(
-                      name, domain_id, *pubkey),
+                      name, domain_id, pubkey),
                   true));
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
@@ -660,7 +652,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCreateAccount(
-                      name, domain_id, *pubkey),
+                      name, domain_id, pubkey),
                   true));
       auto cmd_result = execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1));
@@ -686,7 +678,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCreateAccount(
-                      name, domain_id, *pubkey),
+                      name, domain_id, pubkey),
                   true));
       auto cmd_result = execute(*mock_command_factory->constructCreateAsset(
           asset_name, "no_domain", 1));
@@ -710,7 +702,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCreateAccount(
-                      name, domain_id, *pubkey),
+                      name, domain_id, pubkey),
                   true));
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
@@ -735,7 +727,7 @@ namespace iroha {
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCreateAccount(
-                      name, domain_id, *pubkey),
+                      name, domain_id, pubkey),
                   true));
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
@@ -1082,19 +1074,16 @@ namespace iroha {
 
     class SetQuorum : public CommandExecutorTest {
      public:
-      SetQuorum() : additional_pubkey_{std::string('9', 32)} {}
-
       void SetUp() override {
         CommandExecutorTest::SetUp();
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
         CHECK_SUCCESSFUL_RESULT(
-            execute(*mock_command_factory->constructAddSignatory(
-                        additional_pubkey_, account_id),
+            execute(*mock_command_factory->constructAddSignatory(kPublicKey2,
+                                                                 account_id),
                     true));
       }
-      shared_model::interface::types::PubkeyType additional_pubkey_;
     };
 
     /**
@@ -1117,7 +1106,7 @@ namespace iroha {
     TEST_F(SetQuorum, ValidGrantablePerms) {
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCreateAccount(
-                      "id2", domain_id, *pubkey),
+                      "id2", domain_id, pubkey),
                   true));
       auto perm = shared_model::interface::permissions::Grantable::kSetMyQuorum;
       CHECK_SUCCESSFUL_RESULT(execute(
@@ -1126,8 +1115,8 @@ namespace iroha {
           "id2@domain"));
 
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructAddSignatory(
-                      additional_pubkey_, "id2@domain"),
+          execute(*mock_command_factory->constructAddSignatory(kPublicKey2,
+                                                               "id2@domain"),
                   true,
                   "id2@domain"));
 
@@ -1155,9 +1144,9 @@ namespace iroha {
      */
     TEST_F(SetQuorum, LessSignatoriesThanNewQuorum) {
       addAllPermsWithoutRoot();
-      shared_model::interface::types::PubkeyType pk(std::string('5', 32));
       CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddSignatory(pk, account_id), true));
+          *mock_command_factory->constructAddSignatory(kPublicKey, account_id),
+          true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructSetQuorum(account_id, 3)));
 
@@ -1418,7 +1407,7 @@ namespace iroha {
         createDefaultAccount();
         CHECK_SUCCESSFUL_RESULT(
             execute(*mock_command_factory->constructCreateAccount(
-                        "id2", domain_id, *pubkey),
+                        "id2", domain_id, pubkey),
                     true));
       }
 
@@ -1825,10 +1814,7 @@ namespace iroha {
         account2_id = "id2@" + domain_id;
         CHECK_SUCCESSFUL_RESULT(
             execute(*mock_command_factory->constructCreateAccount(
-                        "id2",
-                        domain_id,
-                        shared_model::interface::types::PubkeyType(
-                            std::string('2', 32))),
+                        "id2", domain_id, kPublicKey2),
                     true));
       }
       shared_model::interface::types::AccountIdType account2_id;
@@ -1843,7 +1829,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
       ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
@@ -1866,7 +1852,7 @@ namespace iroha {
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      account2_id, "key", "value", std::nullopt),
+                      account2_id, "key", "value", std::nullopt, true),
                   false,
                   account_id));
       auto kv = sql_query->getAccountDetail(account2_id);
@@ -1883,7 +1869,7 @@ namespace iroha {
       addAllPermsWithoutRoot();
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      account2_id, "key", "value", std::nullopt),
+                      account2_id, "key", "value", std::nullopt, true),
                   false,
                   account_id));
       auto kv = sql_query->getAccountDetail(account2_id);
@@ -1899,7 +1885,7 @@ namespace iroha {
     TEST_F(CompareAndSetAccountDetail, NoPerms) {
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      account2_id, "key", "value", std::nullopt),
+                      account2_id, "key", "value", std::nullopt, true),
                   false,
                   account_id);
 
@@ -1920,7 +1906,7 @@ namespace iroha {
       addAllPermsWithoutRoot();
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      "doge@noaccount", "key", "value", std::nullopt),
+                      "doge@noaccount", "key", "value", std::nullopt, true),
                   false,
                   account_id);
 
@@ -1937,7 +1923,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
 
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
@@ -1950,7 +1936,8 @@ namespace iroha {
               "value1",
               std::optional<
                   shared_model::interface::types::AccountDetailValueType>(
-                  "value"))));
+                  "value"),
+              true)));
       auto kv1 = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv1);
       ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value1"}})");
@@ -1965,7 +1952,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
 
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
@@ -1978,7 +1965,8 @@ namespace iroha {
               "value1",
               std::optional<
                   shared_model::interface::types::AccountDetailValueType>(
-                  "oldValue")));
+                  "oldValue"),
+              true));
 
       std::vector<std::string> query_args{
           account_id, "key", "value1", "oldValue"};
@@ -1994,11 +1982,11 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key1", "value1", std::nullopt)));
+              account_id, "key1", "value1", std::nullopt, true)));
 
       auto ad = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(ad);
@@ -2015,11 +2003,11 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "", std::nullopt)));
+              account_id, "key", "", std::nullopt, true)));
 
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt));
+              account_id, "key", "value", std::nullopt, true));
 
       std::vector<std::string> query_args{account_id, "key", "value"};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
@@ -2040,11 +2028,35 @@ namespace iroha {
               "value",
               std::optional<
                   shared_model::interface::types::AccountDetailValueType>(
-                  "notEmptyOldValue")));
+                  "notEmptyOldValue"),
+              true));
 
       std::vector<std::string> query_args{
           account_id, "key", "value", "notEmptyOldValue"};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
+    /**
+     * @given no old account detail value
+     * @when trying to set new kv with not empty oldValue in legacy mode
+     * @then the new value is set despite expected old value does not match
+     */
+    TEST_F(CompareAndSetAccountDetail, NewDetailWithNotEmptyOldValueLegacy) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value",
+              std::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "notEmptyOldValue"),
+              false)));
+
+      auto kv1 = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv1);
+      ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value"}})");
     }
 
     /**
@@ -2056,7 +2068,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
       ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");

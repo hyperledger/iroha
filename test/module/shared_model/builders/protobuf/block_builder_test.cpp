@@ -7,6 +7,7 @@
 
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model::proto;
 

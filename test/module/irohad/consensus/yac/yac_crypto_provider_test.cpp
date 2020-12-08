@@ -8,13 +8,15 @@
 #include <gtest/gtest.h>
 
 #include "consensus/yac/outcome_messages.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
-
+#include "framework/test_logger.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using ::testing::_;
 using ::testing::Invoke;
 using ::testing::ReturnRefOfCopy;
+using namespace shared_model::interface::types;
 
 const auto pubkey = std::string(32, '0');
 const auto signed_data = std::string(64, '1');
@@ -30,23 +32,24 @@ namespace iroha {
                           generateKeypair()) {}
 
         void SetUp() override {
-          crypto_provider = std::make_shared<CryptoProviderImpl>(keypair);
+          crypto_provider = std::make_shared<CryptoProviderImpl>(
+              keypair, getTestLogger("CryptoProviderImpl"));
         }
 
         std::unique_ptr<shared_model::interface::Signature> makeSignature(
-            shared_model::crypto::PublicKey public_key,
-            shared_model::crypto::Signed signed_value) {
+            PublicKeyHexStringView public_key,
+            SignedHexStringView signed_value) {
           auto sig = std::make_unique<MockSignature>();
           EXPECT_CALL(*sig, publicKey())
-              .WillRepeatedly(ReturnRefOfCopy(public_key));
+              .WillRepeatedly(ReturnRefOfCopy(std::string{public_key}));
           EXPECT_CALL(*sig, signedData())
-              .WillRepeatedly(ReturnRefOfCopy(signed_value));
+              .WillRepeatedly(ReturnRefOfCopy(std::string{signed_value}));
           return sig;
         }
 
         std::unique_ptr<shared_model::interface::Signature> makeSignature() {
-          return makeSignature(shared_model::crypto::PublicKey(pubkey),
-                               shared_model::crypto::Signed(signed_data));
+          return makeSignature(PublicKeyHexStringView{pubkey},
+                               SignedHexStringView{signed_data});
         }
 
         const shared_model::crypto::Keypair keypair;

@@ -5,11 +5,11 @@
 
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 
+#include "framework/crypto_literals.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
-using ::testing::An;
 using ::testing::AtLeast;
 using ::testing::Return;
 
@@ -83,7 +83,6 @@ TEST_F(YacTest, UnknownVoteAfterCommit) {
 
   VoteMessage vote;
   vote.hash = my_hash;
-  std::string unknown = "unknown";
-  vote.signature = createSig(unknown);
+  vote.signature = createSig("unknown"_hex_pubkey);
   yac->onState({vote});
 }

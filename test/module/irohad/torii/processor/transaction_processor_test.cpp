@@ -11,6 +11,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
@@ -23,6 +24,7 @@
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "torii/impl/status_bus_impl.hpp"
 
@@ -63,7 +65,7 @@ class TransactionProcessorTest : public ::testing::Test {
         commit_notifier.get_observable(),
         getTestLogger("TransactionProcessor"));
 
-    auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+    auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
@@ -95,9 +97,11 @@ class TransactionProcessorTest : public ::testing::Test {
   auto addSignaturesFromKeyPairs(Transaction &&tx, KeyPairs... keypairs) {
     auto create_signature = [&](auto &&key_pair) {
       auto &payload = tx.payload();
-      auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
+      auto signedBlob = shared_model::crypto::CryptoSigner::sign(
           shared_model::crypto::Blob(payload), key_pair);
-      tx.addSignature(signedBlob, key_pair.publicKey());
+      using namespace shared_model::interface::types;
+      tx.addSignature(SignedHexStringView{signedBlob},
+                      PublicKeyHexStringView{key_pair.publicKey()});
     };
 
     int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};

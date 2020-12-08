@@ -8,7 +8,7 @@
 
 #include <mutex>
 
-#include "cryptography/public_key.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
@@ -32,7 +32,7 @@ namespace iroha {
      * General note: implementation of method covered by lock
      */
     StateUpdateResult apply(
-        const shared_model::crypto::PublicKey &target_peer_key,
+        shared_model::interface::types::PublicKeyHexStringView target_peer_key,
         const MstState &new_state);
 
     /**
@@ -57,7 +57,7 @@ namespace iroha {
      * General note: implementation of method covered by lock
      */
     MstState getDiffState(
-        const shared_model::crypto::PublicKey &target_peer_key,
+        shared_model::interface::types::PublicKeyHexStringView target_peer_key,
         const TimeType &current_time);
 
     /**
@@ -87,7 +87,7 @@ namespace iroha {
 
    private:
     virtual auto applyImpl(
-        const shared_model::crypto::PublicKey &target_peer_key,
+        shared_model::interface::types::PublicKeyHexStringView target_peer_key,
         const MstState &new_state)
         -> decltype(apply(target_peer_key, new_state)) = 0;
 
@@ -98,7 +98,7 @@ namespace iroha {
         -> decltype(extractExpiredTransactions(current_time)) = 0;
 
     virtual auto getDiffStateImpl(
-        const shared_model::crypto::PublicKey &target_peer_key,
+        shared_model::interface::types::PublicKeyHexStringView target_peer_key,
         const TimeType &current_time)
         -> decltype(getDiffState(target_peer_key, current_time)) = 0;
 

@@ -12,10 +12,10 @@
 #include <libfuzzer/libfuzzer_macro.h>
 
 #include "consensus/consensus_block_cache.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "network/impl/block_loader_service.hpp"
 
 using namespace testing;

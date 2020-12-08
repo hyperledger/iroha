@@ -6,13 +6,13 @@
 #include "validators/field_validator.hpp"
 
 #include <limits>
+#include <string_view>
 
 #include <fmt/core.h>
 #include <boost/algorithm/string_regex.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include "common/bind.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
@@ -25,6 +25,7 @@
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
+#include "multihash/multihash.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
 
@@ -48,8 +49,8 @@ namespace {
               }) {}
 
     std::optional<shared_model::validation::ValidationError> validate(
-        const std::string &value) const {
-      if (not std::regex_match(value, regex_)) {
+        std::string_view value) const {
+      if (not std::regex_match(value.begin(), value.end(), regex_)) {
         return shared_model::validation::ValidationError(
             name_,
             {fmt::format("passed value: '{}' does not match regex '{}'.{}",
@@ -102,20 +103,24 @@ namespace {
   const RegexValidator kAccountDetailKeyValidator{"DetailKey",
                                                   R"([A-Za-z0-9_]{1,64})"};
   const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kHexValidator{
+      "Hex", R"#(([0-9a-fA-F][0-9a-fA-F])*)#", "Hex encoded string expected"};
+  const RegexValidator kPublicKeyHexValidator{
+      "PublicKeyHex",
+      fmt::format("[A-Fa-f0-9]{{1,{}}}",
+                  shared_model::crypto::CryptoVerifier::kMaxPublicKeySize * 2)};
+  const RegexValidator kSignatureHexValidator{
+      "SignatureHex",
+      fmt::format("[A-Fa-f0-9]{{1,{}}}",
+                  shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2)};
+  const RegexValidator kEvmAddressValidator{
+      "EvmHexAddress",
+      R"#([0-9a-fA-F]{40})#",
+      "Hex encoded 20-byte address expected"};
 }  // namespace
 
 namespace shared_model {
   namespace validation {
-
-    const size_t FieldValidator::public_key_size =
-        crypto::DefaultCryptoAlgorithmType::kPublicKeyLength;
-    const size_t FieldValidator::signature_size =
-        crypto::DefaultCryptoAlgorithmType::kSignatureLength;
-    const size_t FieldValidator::hash_size =
-        crypto::DefaultCryptoAlgorithmType::kHashLength;
-    /// limit for the set account detail size in bytes
-    const size_t FieldValidator::value_size = 4 * 1024 * 1024;
-
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
@@ -131,6 +136,17 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateAssetId(
         const interface::types::AssetIdType &asset_id) const {
       return kAssetIdValidator.validate(asset_id);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateEvmHexAddress(
+        std::string_view address) const {
+      return kEvmAddressValidator.validate(address);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateBytecode(
+        interface::types::EvmCodeHexStringView input) const {
+      return kHexValidator.validate(
+          static_cast<std::string_view const &>(input));
     }
 
     std::optional<ValidationError> FieldValidator::validatePeer(
@@ -151,7 +167,7 @@ namespace shared_model {
     }
 
     std::optional<ValidationError> FieldValidator::validatePubkey(
-        const interface::types::PubkeyType &pubkey) const {
+        std::string_view pubkey) const {
       return shared_model::validation::validatePubkey(pubkey);
     }
 
@@ -296,11 +312,7 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateSignatureForm(
         const interface::Signature &signature) const {
       ValidationErrorCreator error_creator;
-      const auto passed_size = signature.signedData().blob().size();
-      if (passed_size != signature_size) {
-        error_creator.addReason(fmt::format(
-            "Invalid size: {} instead of {}.", passed_size, signature_size));
-      }
+      error_creator |= kSignatureHexValidator.validate(signature.signedData());
       error_creator |= validatePubkey(signature.publicKey());
       return std::move(error_creator).getValidationError("Signature");
     }
@@ -319,12 +331,15 @@ namespace shared_model {
         auto sig_format_error = validateSignatureForm(signature.value());
         sig_error_creator |= sig_format_error;
 
-        if (not sig_format_error
-            and not shared_model::crypto::CryptoVerifier<>::verify(
-                    signature.value().signedData(),
-                    source,
-                    signature.value().publicKey())) {
-          sig_error_creator.addReason("Crypto verification failed.");
+        if (not sig_format_error) {
+          using namespace shared_model::interface::types;
+          if (auto e = resultToOptionalError(
+                  shared_model::crypto::CryptoVerifier::verify(
+                      SignedHexStringView{signature.value().signedData()},
+                      source,
+                      PublicKeyHexStringView{signature.value().publicKey()}))) {
+            sig_error_creator.addReason(e.value());
+          }
         }
         error_creator |= std::move(sig_error_creator)
                              .getValidationErrorWithGeneratedName([&] {
@@ -378,15 +393,8 @@ namespace shared_model {
       return std::nullopt;
     }
 
-    std::optional<ValidationError> validatePubkey(
-        const interface::types::PubkeyType &pubkey) {
-      if (pubkey.blob().size() != FieldValidator::public_key_size) {
-        return ValidationError("PublicKey",
-                               {fmt::format("Wrong size: {}, should be {}.",
-                                            pubkey.blob().size(),
-                                            FieldValidator::public_key_size)});
-      }
-      return std::nullopt;
+    std::optional<ValidationError> validatePubkey(std::string_view pubkey) {
+      return kPublicKeyHexValidator.validate(pubkey);
     }
 
     std::optional<ValidationError> validatePaginationMetaPageSize(
@@ -402,6 +410,32 @@ namespace shared_model {
       return std::nullopt;
     }
 
+    std::optional<ValidationError> validatePaginationOrdering(
+        const interface::Ordering &ordering) {
+      using Field = interface::Ordering::Field;
+      using Direction = interface::Ordering::Direction;
+      using OrderingEntry = interface::Ordering::OrderingEntry;
+
+      OrderingEntry const *ptr = nullptr;
+      size_t count = 0;
+      ordering.get(ptr, count);
+
+      for (size_t ix = 0; ix < count; ++ix) {
+        OrderingEntry const &entry = ptr[ix];
+
+        if (entry.field >= Field::kMaxValueCount) {
+          return ValidationError(
+              "Ordering", {fmt::format("Passed field value is unknown.")});
+        }
+
+        if (entry.direction >= Direction::kMaxValueCount) {
+          return ValidationError(
+              "Ordering", {fmt::format("Passed direction value is unknown")});
+        }
+      }
+      return std::nullopt;
+    }
+
     std::optional<ValidationError> FieldValidator::validateTxPaginationMeta(
         const interface::TxPaginationMeta &tx_pagination_meta) const {
       using iroha::operator|;
@@ -409,9 +443,11 @@ namespace shared_model {
           "TxPaginationMeta",
           {},
           {validatePaginationMetaPageSize(tx_pagination_meta.pageSize()),
-           tx_pagination_meta.firstTxHash() | [this](const auto &first_hash) {
-             return this->validateHash(first_hash);
-           }});
+           tx_pagination_meta.firstTxHash() |
+               [this](const auto &first_hash) {
+                 return this->validateHash(first_hash);
+               },
+           validatePaginationOrdering(tx_pagination_meta.ordering())});
     }
 
     std::optional<ValidationError> FieldValidator::validateAsset(

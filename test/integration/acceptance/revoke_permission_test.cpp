@@ -5,7 +5,9 @@
 
 #include "builders/protobuf/builder_templates/query_template.hpp"
 
+#include "framework/crypto_literals.hpp"
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace integration_framework;
 
@@ -13,6 +15,8 @@ using namespace shared_model;
 using namespace shared_model::interface;
 using namespace shared_model::interface::permissions;
 using namespace common_constants;
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -205,11 +209,8 @@ namespace grantables {
 
     proto::Transaction testTransaction(
         GrantablePermissionsFixture &f) override {
-      return f.permitteeModifySignatory(
-          &TestUnsignedTransactionBuilder::addSignatory,
-          f.kAccount2,
-          f.kAccount2Keypair,
-          f.kAccount1);
+      return f.permitteeAddSignatory(
+          f.kAccount2, f.kAccount2Keypair, f.kAccount1);
     }
   };
 
@@ -221,16 +222,15 @@ namespace grantables {
     IntegrationTestFramework &prepare(GrantablePermissionsFixture &f,
                                       IntegrationTestFramework &itf) override {
       auto account_id = f.kAccount1 + "@" + kDomain;
-      auto pkey =
-          shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-              .publicKey();
       auto add_signatory_tx =
           GrantablePermissionsFixture::TxBuilder()
               .createdTime(f.getUniqueTime())
               .creatorAccountId(account_id)
               .quorum(1)
-              .addSignatory(account_id, f.kAccount2Keypair.publicKey())
-              .addSignatory(account_id, pkey)
+              .addSignatory(
+                  account_id,
+                  PublicKeyHexStringView{f.kAccount2Keypair.publicKey()})
+              .addSignatory(account_id, "516A"_hex_pubkey)
               .build()
               .signAndAddSignature(f.kAccount1Keypair)
               .finish();
@@ -244,11 +244,8 @@ namespace grantables {
 
     proto::Transaction testTransaction(
         GrantablePermissionsFixture &f) override {
-      return f.permitteeModifySignatory(
-          &TestUnsignedTransactionBuilder::removeSignatory,
-          f.kAccount2,
-          f.kAccount2Keypair,
-          f.kAccount1);
+      return f.permitteeRemoveSignatory(
+          f.kAccount2, f.kAccount2Keypair, f.kAccount1);
     }
   };
 

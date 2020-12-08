@@ -17,6 +17,7 @@
 #include "backend/protobuf/permissions.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/engine_type.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/default_validator.hpp"
@@ -142,62 +143,71 @@ namespace shared_model {
         });
       }
 
-      auto addPeerRaw(const interface::types::AddressType &address,
-                      const std::string &peer_key,
-                      const std::optional<interface::types::TLSCertificateType>
-                          &tls_certificate = std::nullopt) const {
+      auto addPeer(const interface::types::AddressType &address,
+                   interface::types::PublicKeyHexStringView peer_key,
+                   const std::optional<interface::types::TLSCertificateType>
+                       &tls_certificate = std::nullopt) const {
         return addCommand([&](auto proto_command) {
           auto command = proto_command->mutable_add_peer();
           auto peer = command->mutable_peer();
           peer->set_address(address);
-          peer->set_peer_key(peer_key);
+          const std::string_view peer_key_sv{peer_key};
+          peer->set_peer_key(peer_key_sv.data(), peer_key_sv.size());
           if (tls_certificate) {
             peer->set_tls_certificate(*tls_certificate);
           }
         });
       }
 
-      auto addPeer(const interface::types::AddressType &address,
-                   const interface::types::PubkeyType &peer_key,
-                   const std::optional<interface::types::TLSCertificateType>
-                       &tls_certificate = std::nullopt) const {
-        return addPeerRaw(address, peer_key.hex(), tls_certificate);
-      }
-
-      auto removePeer(const interface::types::PubkeyType &public_key) const {
+      auto removePeer(interface::types::PublicKeyHexStringView public_key)
+          const {
         return addCommand([&](auto proto_command) {
           auto command = proto_command->mutable_remove_peer();
-          command->set_public_key(public_key.hex());
-        });
-      }
-
-      auto addSignatoryRaw(const interface::types::AccountIdType &account_id,
-                           const std::string &public_key) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_add_signatory();
-          command->set_account_id(account_id);
-          command->set_public_key(public_key);
+          std::string_view const &public_key_string{public_key};
+          command->set_public_key(public_key_string.data(),
+                                  public_key_string.size());
         });
       }
 
       auto addSignatory(const interface::types::AccountIdType &account_id,
-                        const interface::types::PubkeyType &public_key) const {
-        return addSignatoryRaw(account_id, public_key.hex());
-      }
-
-      auto removeSignatoryRaw(const interface::types::AccountIdType &account_id,
-                              const std::string &public_key) const {
+                        interface::types::PublicKeyHexStringView public_key)
+          const {
         return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_remove_signatory();
+          auto command = proto_command->mutable_add_signatory();
           command->set_account_id(account_id);
-          command->set_public_key(public_key);
+          const std::string_view &public_key_sv = public_key;
+          command->set_public_key(public_key_sv.data(), public_key_sv.size());
         });
       }
 
       auto removeSignatory(const interface::types::AccountIdType &account_id,
-                           const interface::types::PubkeyType &public_key)
+                           interface::types::PublicKeyHexStringView public_key)
           const {
-        return removeSignatoryRaw(account_id, public_key.hex());
+        return addCommand([&](auto proto_command) {
+          auto command = proto_command->mutable_remove_signatory();
+          command->set_account_id(account_id);
+          const std::string_view public_key_sv = public_key;
+          command->set_public_key(public_key_sv.data(), public_key_sv.size());
+        });
+      }
+
+      auto callEngine(
+          const interface::types::AccountIdType &caller,
+          std::optional<interface::types::EvmCalleeHexStringView> callee,
+          interface::types::EvmCodeHexStringView input) const {
+        return addCommand([&](auto proto_command) {
+          auto command = proto_command->mutable_call_engine();
+          command->set_type(iroha::protocol::CallEngine::EngineType::
+                                CallEngine_EngineType_kSolidity);
+          command->set_caller(caller);
+          if (callee) {
+            const auto callee_sv =
+                static_cast<std::string_view const &>(callee.value());
+            command->set_callee(callee_sv.data(), callee_sv.size());
+          }
+          const auto input_sv = static_cast<std::string_view const &>(input);
+          command->set_input(input_sv.data(), input_sv.size());
+        });
       }
 
       auto appendRole(const interface::types::AccountIdType &account_id,
@@ -220,23 +230,17 @@ namespace shared_model {
         });
       }
 
-      auto createAccountRaw(
-          const interface::types::AccountNameType &account_name,
-          const interface::types::DomainIdType &domain_id,
-          const std::string &main_pubkey) const {
+      auto createAccount(const interface::types::AccountNameType &account_name,
+                         const interface::types::DomainIdType &domain_id,
+                         interface::types::PublicKeyHexStringView main_pubkey)
+          const {
         return addCommand([&](auto proto_command) {
           auto command = proto_command->mutable_create_account();
           command->set_account_name(account_name);
           command->set_domain_id(domain_id);
-          command->set_public_key(main_pubkey);
+          std::string_view main_pubkey_sv{main_pubkey};
+          command->set_public_key(main_pubkey_sv.data(), main_pubkey_sv.size());
         });
-      }
-
-      auto createAccount(const interface::types::AccountNameType &account_name,
-                         const interface::types::DomainIdType &domain_id,
-                         const interface::types::PubkeyType &main_pubkey)
-          const {
-        return createAccountRaw(account_name, domain_id, main_pubkey.hex());
       }
 
       auto createDomain(const interface::types::DomainIdType &domain_id,

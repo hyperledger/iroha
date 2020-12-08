@@ -8,6 +8,7 @@
 
 #include <regex>
 
+#include "cryptography/default_hash_provider.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/base/signable.hpp"
 #include "interfaces/permissions.hpp"
@@ -54,6 +55,12 @@ namespace shared_model {
       std::optional<ValidationError> validateAssetId(
           const interface::types::AssetIdType &asset_id) const;
 
+      std::optional<ValidationError> validateEvmHexAddress(
+          std::string_view address) const;
+
+      std::optional<ValidationError> validateBytecode(
+          interface::types::EvmCodeHexStringView input) const;
+
       std::optional<ValidationError> validatePeer(
           const interface::Peer &peer) const;
 
@@ -61,7 +68,7 @@ namespace shared_model {
           const interface::Amount &amount) const;
 
       std::optional<ValidationError> validatePubkey(
-          const interface::types::PubkeyType &pubkey) const;
+          std::string_view pubkey) const;
 
       std::optional<ValidationError> validatePeerAddress(
           const interface::types::AddressType &address) const;
@@ -201,16 +208,17 @@ namespace shared_model {
       static constexpr auto kDefaultFutureGap =
           std::chrono::minutes(5) / std::chrono::milliseconds(1);
 
-      // size of key
-      static const size_t public_key_size;
-      static const size_t signature_size;
-      static const size_t hash_size;
-      static const size_t value_size;
+      static constexpr size_t hash_size =
+          crypto::DefaultHashProvider::kHashLength;
+      /// limit for the set account detail size in bytes
+      static constexpr size_t value_size = 4 * 1024 * 1024;
       size_t max_description_size;
     };
 
     std::optional<ValidationError> validatePubkey(
-        const interface::types::PubkeyType &pubkey);
+        shared_model::interface::types::PublicKeyHexStringView pubkey);
+
+    std::optional<ValidationError> validatePubkey(std::string_view pubkey);
 
   }  // namespace validation
 }  // namespace shared_model

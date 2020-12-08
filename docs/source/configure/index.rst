@@ -19,7 +19,7 @@ at ``example/config.sample``
     "block_store_path": "/tmp/block_store/",
     "torii_port": 50051,
     "torii_tls_params": {
-      "port": "55552",
+      "port": 55552,
       "key_pair_path": "/path/to/the/keypair"
     },
     "internal_port": 10001,
@@ -31,14 +31,18 @@ at ``example/config.sample``
       "password": "mysecretpassword",
       "working database": "iroha_data",
       "maintenance database": "postgres"
-    }
+    },
     "max_proposal_size": 10,
     "proposal_delay": 5000,
     "vote_delay": 5000,
     "mst_enable" : false,
     "mst_expiration_time" : 1440,
     "max_rounds_delay": 3000,
-    "stale_stream_max_rounds": 2
+    "stale_stream_max_rounds": 2,
+    "utility_service": {
+      "ip": "127.0.0.1",
+      "port": 11001
+    }
   }
 
 As you can see, configuration file is a valid ``json`` structure. Let's go
@@ -59,6 +63,9 @@ Deployment-specific parameters
   If database name is not provided, the default one gets used, which is ``iroha_default``.
 - ``log`` is an optional parameter controlling log output verbosity and format
   (see below).
+- ``utility_service`` (optional) endpoint for maintenance tasks.
+  If present, must include ``ip`` address and ``port`` to bind to.
+  See `shepherd docs <../maintenance/shepherd.html>` for an example usage of maintenance endpoint.
 
 There is also an optional ``torii_tls_params`` parameter, which could be included
 in the config to enable TLS support for client communication.

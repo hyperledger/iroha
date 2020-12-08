@@ -7,8 +7,6 @@
 #define IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP
 
 #include <gmock/gmock.h>
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -17,6 +15,7 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 #include "interfaces/transaction.hpp"
 
 // TODO: 2019-01-18 @muratovv Separate file by classes IR-229
@@ -39,8 +38,8 @@ struct MockBlock : public shared_model::interface::Block {
                      const shared_model::interface::types::BlobType &());
   MOCK_CONST_METHOD0(blob, const shared_model::interface::types::BlobType &());
   MOCK_METHOD2(addSignature,
-               bool(const shared_model::crypto::Signed &,
-                    const shared_model::crypto::PublicKey &));
+               bool(shared_model::interface::types::SignedHexStringView,
+                    shared_model::interface::types::PublicKeyHexStringView));
   MOCK_CONST_METHOD0(hash, const shared_model::interface::types::HashType &());
   MOCK_CONST_METHOD0(clone, MockBlock *());
 };
@@ -64,14 +63,15 @@ struct MockTransaction : public shared_model::interface::Transaction {
                      const shared_model::interface::types::BlobType &());
   MOCK_CONST_METHOD0(blob, const shared_model::interface::types::BlobType &());
   MOCK_METHOD2(addSignature,
-               bool(const shared_model::crypto::Signed &,
-                    const shared_model::crypto::PublicKey &));
+               bool(shared_model::interface::types::SignedHexStringView,
+                    shared_model::interface::types::PublicKeyHexStringView));
   MOCK_CONST_METHOD0(clone, MockTransaction *());
   MOCK_CONST_METHOD0(reducedPayload,
                      const shared_model::interface::types::BlobType &());
   MOCK_CONST_METHOD0(
       batchMeta,
       std::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
+  MOCK_METHOD0(moveTo, std::unique_ptr<Transaction>());
 };
 
 /**
@@ -100,8 +100,8 @@ struct MockTransactionBatch : public shared_model::interface::TransactionBatch {
   MOCK_CONST_METHOD0(hasAllSignatures, bool());
   MOCK_METHOD3(addSignature,
                bool(size_t,
-                    const shared_model::crypto::Signed &,
-                    const shared_model::crypto::PublicKey &));
+                    shared_model::interface::types::SignedHexStringView,
+                    shared_model::interface::types::PublicKeyHexStringView));
   MOCK_CONST_METHOD1(Equals,
                      bool(const shared_model::interface::TransactionBatch &));
   virtual bool operator==(
@@ -161,8 +161,8 @@ auto createMockBatchWithTransactions(
 }
 
 struct MockSignature : public shared_model::interface::Signature {
-  MOCK_CONST_METHOD0(publicKey, const PublicKeyType &());
-  MOCK_CONST_METHOD0(signedData, const SignedType &());
+  MOCK_CONST_METHOD0(publicKey, const std::string &());
+  MOCK_CONST_METHOD0(signedData, const std::string &());
   MOCK_CONST_METHOD0(clone, MockSignature *());
 };
 
@@ -181,8 +181,7 @@ struct MockProposal : public shared_model::interface::Proposal {
 struct MockPeer : public shared_model::interface::Peer {
   MOCK_CONST_METHOD0(address,
                      const shared_model::interface::types::AddressType &());
-  MOCK_CONST_METHOD0(pubkey,
-                     const shared_model::interface::types::PubkeyType &());
+  MOCK_CONST_METHOD0(pubkey, const std::string &());
   MOCK_CONST_METHOD0(
       tlsCertificate,
       const std::optional<shared_model::interface::types::TLSCertificateType>
@@ -191,15 +190,15 @@ struct MockPeer : public shared_model::interface::Peer {
 };
 
 inline auto makePeer(
-    const std::string &address,
-    const shared_model::crypto::PublicKey &pub_key,
+    std::string_view address,
+    shared_model::interface::types::PublicKeyHexStringView pub_key,
     const std::optional<shared_model::interface::types::TLSCertificateType>
         &tls_certificate = std::nullopt) {
   auto peer = std::make_unique<MockPeer>();
   EXPECT_CALL(*peer, address())
-      .WillRepeatedly(testing::ReturnRefOfCopy(address));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{address}));
   EXPECT_CALL(*peer, pubkey())
-      .WillRepeatedly(testing::ReturnRefOfCopy(pub_key));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{pub_key}));
   EXPECT_CALL(*peer, tlsCertificate())
       .WillRepeatedly(testing::ReturnRefOfCopy(tls_certificate));
   return peer;
@@ -216,12 +215,14 @@ struct MockUnsafeProposalFactory
 
 struct MockCommonObjectsFactory
     : public shared_model::interface::CommonObjectsFactory {
-  MOCK_METHOD3(createPeer,
-               FactoryResult<std::unique_ptr<shared_model::interface::Peer>>(
-                   const shared_model::interface::types::AddressType &,
-                   const shared_model::interface::types::PubkeyType &,
-                   const std::optional<
-                       shared_model::interface::types::TLSCertificateType> &));
+  MOCK_METHOD(
+      (FactoryResult<std::unique_ptr<shared_model::interface::Peer>>),
+      createPeer,
+      (const shared_model::interface::types::AddressType &,
+       shared_model::interface::types::PublicKeyHexStringView,
+       const std::optional<shared_model::interface::types::TLSCertificateType>
+           &),
+      (override));
 
   MOCK_METHOD4(createAccount,
                FactoryResult<std::unique_ptr<shared_model::interface::Account>>(
@@ -248,11 +249,12 @@ struct MockCommonObjectsFactory
                    const shared_model::interface::types::DomainIdType &,
                    const shared_model::interface::types::RoleIdType &));
 
-  MOCK_METHOD2(
+  MOCK_METHOD(
+      (FactoryResult<std::unique_ptr<shared_model::interface::Signature>>),
       createSignature,
-      FactoryResult<std::unique_ptr<shared_model::interface::Signature>>(
-          const shared_model::interface::types::PubkeyType &,
-          const shared_model::interface::Signature::SignedType &));
+      (shared_model::interface::types::PublicKeyHexStringView,
+       shared_model::interface::types::SignedHexStringView),
+      (override));
 };
 
 struct MockDomain : public shared_model::interface::Domain {

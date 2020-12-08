@@ -79,6 +79,13 @@ namespace shared_model {
     const std::string can_get_all_signatories = "can_get_all_signatories";
     const std::string can_get_domain_signatories = "can_get_domain_signatories";
 
+    /*                        Engine receipts                    */
+    const std::string can_get_my_engine_receipts = "can_get_my_engine_receipts";
+    const std::string can_get_domain_engine_receipts =
+        "can_get_domain_engine_receipts";
+    const std::string can_get_all_engine_receipts =
+        "can_get_all_engine_receipts";
+
     /*                     Account asset (wallet)                */
     const std::string can_get_my_acc_ast = "can_get_my_acc_ast";
     const std::string can_get_all_acc_ast = "can_get_all_acc_ast";
@@ -113,7 +120,8 @@ namespace shared_model {
                                                    can_get_my_acc_detail,
                                                    can_get_my_acc_txs,
                                                    can_get_my_acc_ast_txs,
-                                                   can_get_my_txs};
+                                                   can_get_my_txs,
+                                                   can_get_my_engine_receipts};
 
     const std::set<std::string> read_all_group = {can_get_all_accounts,
                                                   can_get_all_signatories,
@@ -124,7 +132,8 @@ namespace shared_model {
                                                   can_get_all_txs,
                                                   can_get_roles,
                                                   can_read_assets,
-                                                  can_get_blocks};
+                                                  can_get_blocks,
+                                                  can_get_all_engine_receipts};
 
     const std::set<std::string> read_domain_group = {
         can_get_domain_accounts,
@@ -133,6 +142,7 @@ namespace shared_model {
         can_get_domain_acc_detail,
         can_get_domain_acc_txs,
         can_get_domain_acc_ast_txs,
+        can_get_domain_engine_receipts,
     };
 
     /*                   Grantable permissions                   */
@@ -171,6 +181,9 @@ namespace shared_model {
         can_get_my_account,
         can_get_all_accounts,
         can_get_domain_accounts,
+        can_get_my_engine_receipts,
+        can_get_domain_engine_receipts,
+        can_get_all_engine_receipts,
         can_get_my_signatories,
         can_get_all_signatories,
         can_get_domain_signatories,
@@ -219,6 +232,9 @@ namespace shared_model {
         can_get_my_signatories,
         can_get_all_signatories,
         can_get_domain_signatories,
+        can_get_my_engine_receipts,
+        can_get_domain_engine_receipts,
+        can_get_all_engine_receipts,
         can_get_my_acc_ast,
         can_get_all_acc_ast,
         can_get_domain_acc_ast,

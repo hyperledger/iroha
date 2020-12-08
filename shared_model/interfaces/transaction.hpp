@@ -54,6 +54,11 @@ namespace shared_model {
        */
       virtual const types::HashType &reducedHash() const = 0;
 
+      /**
+       * @return new Transaction obeject with moved data
+       */
+      virtual std::unique_ptr<Transaction> moveTo() = 0;
+
       /*
        * @return Batch Meta if exists
        */

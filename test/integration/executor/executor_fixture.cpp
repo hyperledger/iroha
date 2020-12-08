@@ -7,11 +7,11 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/transformed.hpp>
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
 
@@ -60,9 +60,9 @@ namespace executor_testing {
 }  // namespace executor_testing
 
 void ExecutorTestBase::SetUp() {
-  getBackendParam()->clearBackendState();
+  getBackendParam().clearBackendState();
   auto executor_itf_result =
-      ExecutorItf::create(getBackendParam()->getExecutorItfParam());
+      ExecutorItf::create(getBackendParam().getExecutorItfParam());
   IROHA_ASSERT_RESULT_VALUE(executor_itf_result);
   executor_itf_ = std::move(executor_itf_result).assumeValue();
 }
@@ -139,7 +139,7 @@ void ExecutorTestBase::checkAssetQuantities(
 
 void ExecutorTestBase::checkSignatories(
     const std::string &account_id,
-    const std::vector<shared_model::crypto::PublicKey> &keys) {
+    const std::vector<PublicKeyHexStringView> &keys) {
   getItf()
       .executeQueryAndConvertResult(
           *getItf().getMockQueryFactory()->constructGetSignatories(account_id))

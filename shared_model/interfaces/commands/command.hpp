@@ -17,6 +17,8 @@ namespace shared_model {
     class AddPeer;
     class AddSignatory;
     class AppendRole;
+    class CallEngine;
+    class CallModel;
     class CreateAccount;
     class CreateAsset;
     class CreateDomain;
@@ -49,21 +51,23 @@ namespace shared_model {
                                       AddPeer,
                                       AddSignatory,
                                       AppendRole,
+                                      CallEngine,
+                                      CompareAndSetAccountDetail,
                                       CreateAccount,
                                       CreateAsset,
                                       CreateDomain,
                                       CreateRole,
                                       DetachRole,
                                       GrantPermission,
+                                      RemovePeer,
                                       RemoveSignatory,
                                       RevokePermission,
                                       SetAccountDetail,
                                       SetQuorum,
+                                      SetSettingValue,
                                       SubtractAssetQuantity,
                                       TransferAsset,
-                                      RemovePeer,
-                                      CompareAndSetAccountDetail,
-                                      SetSettingValue>;
+                                      CallModel>;
 
       /**
        * @return reference to const variant with concrete command

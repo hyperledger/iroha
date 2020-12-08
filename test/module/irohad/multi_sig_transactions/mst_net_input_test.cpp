@@ -21,7 +21,8 @@ using namespace iroha::network;
  */
 TEST(MstNetInteraction, TypelessCommand) {
   bool enable_mst = true;
-  IntegrationTestFramework itf(1, {}, true, enable_mst);
+  IntegrationTestFramework itf(
+      1, {}, iroha::StartupWsvDataPolicy::kDrop, true, enable_mst);
   itf.setInitialState(kAdminKeypair);
   auto internal_port = itf.internalPort();
 

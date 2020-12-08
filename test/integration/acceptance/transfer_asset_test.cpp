@@ -9,16 +9,18 @@
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 class TransferAsset : public AcceptanceFixture {
  public:
@@ -41,7 +43,11 @@ class TransferAsset : public AcceptanceFixture {
    */
   auto makeSecondUser(const interface::RolePermissionSet &perms = {
                           interface::permissions::Role::kReceive}) {
-    return createUserWithPerms(kUser2, kUser2Keypair.publicKey(), kRole2, perms)
+    return createUserWithPerms(
+               kUser2,
+               PublicKeyHexStringView{kUser2Keypair.publicKey()},
+               kRole2,
+               perms)
         .build()
         .signAndAddSignature(kAdminKeypair)
         .finish();
@@ -327,7 +333,9 @@ TEST_F(TransferAsset, InterDomain) {
           .creatorAccountId(kAdminId)
           .createRole(kRole2, {interface::permissions::Role::kReceive})
           .createDomain(kNewDomain, kRole2)
-          .createAccount(kUser2, kNewDomain, kUser2Keypair.publicKey())
+          .createAccount(kUser2,
+                         kNewDomain,
+                         PublicKeyHexStringView{kUser2Keypair.publicKey()})
           .createAsset(kAssetName, kNewDomain, 1)
           .build()
           .signAndAddSignature(kAdminKeypair)

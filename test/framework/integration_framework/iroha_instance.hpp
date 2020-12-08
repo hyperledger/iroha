@@ -16,6 +16,7 @@
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/startup_params.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
@@ -42,6 +43,7 @@ namespace integration_framework {
      * @param internal_port - port for internal irohad communication
      * @param irohad_log_manager - the log manager for irohad
      * @param log - the log for internal messages
+     * @param startup_wsv_data_policy - @see StartupWsvDataPolicy
      * @param dbname is a name of postgres database
      * @param tls_params - optional tls parameters for torii
      *   @see iroha::torii::TlsParams
@@ -53,6 +55,7 @@ namespace integration_framework {
                   size_t internal_port,
                   logger::LoggerManagerTreePtr irohad_log_manager,
                   logger::LoggerPtr log,
+                  iroha::StartupWsvDataPolicy startup_wsv_data_policy,
                   const boost::optional<std::string> &dbname = boost::none,
                   const boost::optional<iroha::torii::TlsParams> &tls_params =
                       boost::none);
@@ -102,6 +105,8 @@ namespace integration_framework {
     logger::LoggerManagerTreePtr irohad_log_manager_;
 
     logger::LoggerPtr log_;
+
+    const iroha::StartupWsvDataPolicy startup_wsv_data_policy_;
   };
 }  // namespace integration_framework
 #endif  // IROHA_IROHA_INSTANCE_HPP

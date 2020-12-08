@@ -28,6 +28,7 @@ target_link_libraries(pg_connection_init
     SOCI::postgresql
     SOCI::core
     failover_callback
+    irohad_version
     pool_wrapper
     logger
     )
@@ -47,6 +48,7 @@ add_library(application
     )
 target_link_libraries(application
     PRIVATE
+    default_vm_call
     peer_tls_certificates_providers
     permutation_generator
     tls_credentials
@@ -81,12 +83,15 @@ target_link_libraries(application
 add_executable(irohad irohad.cpp)
 target_link_libraries(irohad
     application
+    data_model_adapter_python
     raw_block_loader
     gflags
     RapidJSON::rapidjson
     keys_manager
     common
     iroha_conf_loader
+    irohad_utility_service
+    irohad_utility_status_notifier
     logger
     logger_manager
     irohad_version

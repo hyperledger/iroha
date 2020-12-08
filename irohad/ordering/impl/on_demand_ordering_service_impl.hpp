@@ -29,7 +29,7 @@ namespace iroha {
       using BatchSetType = tbb::concurrent_unordered_set<
           transport::OdOsNotification::TransactionBatchType,
           model::PointerBatchHasher,
-          BatchHashEquality>;
+          shared_model::interface::BatchHashEquality>;
 
       using ProposalMapType = std::map<
           consensus::Round,

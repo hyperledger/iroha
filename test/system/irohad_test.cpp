@@ -6,6 +6,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "util/proto_status_tools.hpp"
+
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 #include <rapidjson/istreamwrapper.h>
@@ -39,6 +41,7 @@
 #include "network/impl/grpc_channel_builder.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
+#include "util/utility_client.hpp"
 
 // workaround for redefining -WERROR problem
 #undef RAPIDJSON_HAS_STDSTRING
@@ -50,13 +53,19 @@ using namespace boost::filesystem;
 using namespace std::chrono_literals;
 using namespace common_constants;
 using iroha::operator|;
+using shared_model::interface::types::PublicKeyHexStringView;
+
+static const std::string kLocalHost("127.0.0.1");
+static const uint16_t kUtilityServicePort{10020};
 
 static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
   static logger::LoggerManagerTreePtr irohad_test_logger_manager;
   if (!irohad_test_logger_manager) {
     irohad_test_logger_manager =
         std::make_shared<logger::LoggerManagerTree>(logger::LoggerConfig{
-            logger::LogLevel::kInfo, logger::getDefaultLogPatterns()});
+            logger::LogLevel::kTrace, logger::getDefaultLogPatterns()});
+    irohad_test_logger_manager->registerChild(
+        "UtilityClient", logger::LogLevel::kTrace, boost::none);
   }
   return irohad_test_logger_manager->getChild("IrohadTest");
 }
@@ -64,7 +73,7 @@ static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
 class IrohadTest : public AcceptanceFixture {
  public:
   IrohadTest()
-      : kAddress("127.0.0.1"),
+      : kAddress(kLocalHost),
         kPort(50051),
         kSecurePort(55552),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
@@ -80,6 +89,10 @@ class IrohadTest : public AcceptanceFixture {
             "test@test",
             test_data_path_,
             getIrohadTestLoggerManager()->getChild("KeysManager")->getLogger()),
+        utility_client_(kLocalHost + ":" + std::to_string(kUtilityServicePort),
+                        getIrohadTestLoggerManager()
+                            ->getChild("UtilityClient")
+                            ->getLogger()),
         log_(getIrohadTestLoggerManager()->getLogger()) {}
 
   void SetUp() override {
@@ -105,6 +118,21 @@ class IrohadTest : public AcceptanceFixture {
         .GetObject()[config_members::KeyPairPath]
         .SetString(path_tls_keypair_.string().data(),
                    path_tls_keypair_.string().size());
+    {
+      using namespace rapidjson;
+      Value utility_service_node(kObjectType);
+      utility_service_node.AddMember(StringRef(config_members::Ip),
+                                     StringRef(kLocalHost.c_str()),
+                                     doc.GetAllocator());
+      utility_service_node.AddMember(
+          StringRef(config_members::Port),
+          rapidjson::Value().SetInt(kUtilityServicePort),
+          doc.GetAllocator());
+      doc.AddMember(StringRef(config_members::UtilityService),
+                    utility_service_node,
+                    doc.GetAllocator());
+    }
+    doc[config_members::PgOpt].SetString(pgopts_.data(), pgopts_.size());
     rapidjson::StringBuffer sb;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
     doc.Accept(writer);
@@ -115,35 +143,24 @@ class IrohadTest : public AcceptanceFixture {
     prepareTestData();
   }
 
+  void waitForIroha() {
+    ASSERT_TRUE(utility_client_.waitForServerReady(kTimeout));
+    using ::iroha::utility_service::Status;
+    auto observer = [](const Status &status) -> bool {
+      assert(status != Status::kFailed);
+      return status != Status::kRunning;  // wait until kRunning
+    };
+    while (not utility_client_.status(observer))
+      ;
+  }
+
   void launchIroha() {
     launchIroha(setDefaultParams());
   }
 
-  void waitForChannelReady(std::shared_ptr<grpc::Channel> channel) {
-    auto state = channel->GetState(true);
-    auto deadline = std::chrono::system_clock::now() + kTimeout;
-    while (state != grpc_connectivity_state::GRPC_CHANNEL_READY
-           and deadline > std::chrono::system_clock::now()) {
-      channel->WaitForStateChange(state, deadline);
-      state = channel->GetState(true);
-    }
-    ASSERT_EQ(state, grpc_connectivity_state::GRPC_CHANNEL_READY);
-  }
-
-  void waitForServersReady() {
-    waitForChannelReady(
-        grpc::CreateChannel(kAddress + ":" + std::to_string(kPort),
-                            grpc::InsecureChannelCredentials()));
-    grpc::SslCredentialsOptions ssl_options;
-    ssl_options.pem_root_certs = root_ca_;
-    waitForChannelReady(
-        grpc::CreateChannel(kAddress + ":" + std::to_string(kSecurePort),
-                            grpc::SslCredentials(ssl_options)));
-  }
-
   void launchIroha(const std::string &parameters) {
     iroha_process_.emplace(irohad_executable.string() + parameters);
-    waitForServersReady();
+    waitForIroha();
     ASSERT_TRUE(iroha_process_->running());
   }
 
@@ -163,10 +180,16 @@ class IrohadTest : public AcceptanceFixture {
     return block_count;
   }
 
-  void TearDown() override {
-    if (iroha_process_) {
-      iroha_process_->terminate();
+  void terminateIroha() {
+    utility_client_.shutdown();
+    if (iroha_process_ and iroha_process_->running()) {
+      // iroha_process_->terminate();
+      iroha_process_->wait();
     }
+  }
+
+  void TearDown() override {
+    terminateIroha();
 
     IROHA_ASSERT_RESULT_VALUE(
         iroha::ametsuchi::PgConnectionInit::dropWorkingDatabase(
@@ -218,6 +241,12 @@ class IrohadTest : public AcceptanceFixture {
   }
 
   void prepareTestData() {
+    if (boost::filesystem::is_directory(test_data_path_)) {
+      log_->info("Removing existing test data directory {}.",
+                 test_data_path_.string());
+      ASSERT_TRUE(boost::filesystem::remove_all(test_data_path_))
+          << "Could not remove directory " << test_data_path_ << ".";
+    }
     ASSERT_TRUE(boost::filesystem::create_directory(test_data_path_))
         << "Could not create directory " << test_data_path_ << ".";
 
@@ -279,14 +308,18 @@ class IrohadTest : public AcceptanceFixture {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer("0.0.0.0:10001", node0_keys.publicKey())
+            .addPeer("0.0.0.0:10001",
+                     PublicKeyHexStringView{node0_keys.publicKey()})
             .createRole(kAdminName, admin_perms)
             .createRole(kDefaultRole, default_perms)
             .createRole(kMoneyCreator, money_perms)
             .createDomain(kDomain, kDefaultRole)
             .createAsset(kAssetName, kDomain, 2)
-            .createAccount(kAdminName, kDomain, admin_keys.publicKey())
-            .createAccount(kUser, kDomain, user_keys.publicKey())
+            .createAccount(kAdminName,
+                           kDomain,
+                           PublicKeyHexStringView{admin_keys.publicKey()})
+            .createAccount(
+                kUser, kDomain, PublicKeyHexStringView{user_keys.publicKey()})
             .appendRole(kAdminId, kAdminName)
             .appendRole(kAdminId, kMoneyCreator)
             .quorum(1)
@@ -338,13 +371,19 @@ class IrohadTest : public AcceptanceFixture {
     tx_request.set_tx_hash(tx.hash().hex());
 
     auto client = createToriiClient(enable_tls);
-    client.Torii(tx.getTransport());
+    auto tx_sending_satus = client.Torii(tx.getTransport());
+    EXPECT_EQ(tx_sending_satus.error_code(), ::grpc::StatusCode::OK)
+        << "Tx sending failed with " << tx_sending_satus.error_message();
 
     auto resub_counter(resubscribe_attempts);
     constexpr auto committed_status = iroha::protocol::TxStatus::COMMITTED;
     do {
       std::this_thread::sleep_for(resubscribe_timeout);
-      client.Status(tx_request, torii_response);
+      auto status_status = client.Status(tx_request, torii_response);
+      if (status_status.error_code() != ::grpc::StatusCode::OK) {
+        log_->warn("Tx status query failed with {}",
+                   status_status.error_message());
+      }
     } while (torii_response.tx_status() != committed_status
              and --resub_counter);
 
@@ -416,6 +455,7 @@ class IrohadTest : public AcceptanceFixture {
   iroha::KeysManagerImpl keys_manager_admin_;
   iroha::KeysManagerImpl keys_manager_testuser_;
   std::string root_ca_;
+  iroha::utility_service::UtilityClient utility_client_;
 
   logger::LoggerPtr log_;
 };
@@ -531,7 +571,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
   SCOPED_TRACE("From restart with --overwrite-ledger flag test");
   sendDefaultTxAndCheck(key_pair);
 
-  iroha_process_->terminate();
+  terminateIroha();
 
   launchIroha(config_copy_,
               path_genesis_.string(),
@@ -565,9 +605,12 @@ TEST_F(IrohadTest, RestartWithoutResetting) {
 
   int height = getBlockCount();
 
-  iroha_process_->terminate();
+  terminateIroha();
 
-  launchIroha(config_copy_, {}, path_keypair_node_.string(), {});
+  launchIroha(config_copy_,
+              {},
+              path_keypair_node_.string(),
+              std::string{"--reuse_state"});
 
   ASSERT_EQ(getBlockCount(), height);
 

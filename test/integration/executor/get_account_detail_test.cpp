@@ -26,6 +26,7 @@ using iroha::ametsuchi::QueryExecutorResult;
 using shared_model::interface::AccountDetailResponse;
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
+using shared_model::interface::types::PublicKeyHexStringView;
 using shared_model::plain::AccountDetailRecordId;
 
 struct GetAccountDetailTest : public ExecutorTestBase {
@@ -54,11 +55,11 @@ struct GetAccountDetailTest : public ExecutorTestBase {
                   const size_t num_keys_per_account) {
     SCOPED_TRACE("addDetails");
     for (size_t acc = 0; acc < num_accounts; ++acc) {
-      IROHA_ASSERT_RESULT_VALUE(
-          getItf().createUserWithPerms(makeAccountName(acc),
-                                       kDomain,
-                                       kSameDomainUserKeypair.publicKey(),
-                                       {}));
+      IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
+          makeAccountName(acc),
+          kDomain,
+          PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+          {}));
       IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
           *getItf().getMockCommandFactory()->constructGrantPermission(
               makeAccountId(acc), Grantable::kSetMyAccountDetail),
@@ -111,7 +112,10 @@ struct GetAccountDetailTest : public ExecutorTestBase {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail}));
+        kUser,
+        kDomain,
+        PublicKeyHexStringView{kUserKeypair.publicKey()},
+        {Role::kSetMyAccountDetail}));
     addDetails(num_accounts, num_keys_per_account);
   }
 
@@ -255,10 +259,10 @@ enum GetAccountDetailRecordIdVariant {
 struct GetAccountDetailRecordIdTest
     : public GetAccountDetailTest,
       public ::testing::WithParamInterface<
-          std::tuple<std::shared_ptr<ExecutorTestParam>,
+          std::tuple<ExecutorTestParamProvider,
                      GetAccountDetailRecordIdVariant>> {
   GetAccountDetailRecordIdTest()
-      : backend_param_(std::get<0>(GetParam())),
+      : backend_param_(std::get<0>(GetParam())()),
         record_id_param_(std::get<1>(GetParam())) {}
 
   static std::string paramToString(testing::TestParamInfo<ParamType> param) {
@@ -267,7 +271,7 @@ struct GetAccountDetailRecordIdTest
                               {kDetailsByWriter, "DetailsByWriter"},
                               {kDetailsByKey, "DetailsByKey"},
                               {kSingleDetail, "SingleDetail"}};
-    return std::get<0>(param.param)->toString()
+    return std::get<0>(param.param)().get().toString()
         + record_id_param_names.at(std::get<1>(param.param));
   }
 
@@ -339,12 +343,12 @@ struct GetAccountDetailRecordIdTest
   }
 
  protected:
-  virtual std::shared_ptr<ExecutorTestParam> getBackendParam() {
+  virtual ExecutorTestParam &getBackendParam() {
     return backend_param_;
   }
 
  private:
-  const std::shared_ptr<ExecutorTestParam> &backend_param_;
+  ExecutorTestParam &backend_param_;
   const GetAccountDetailRecordIdVariant record_id_param_;
 };
 

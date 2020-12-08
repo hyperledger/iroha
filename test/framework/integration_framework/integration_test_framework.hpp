@@ -13,8 +13,10 @@
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "consensus/gate_object.hpp"
 #include "cryptography/keypair.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/startup_params.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
 namespace google {
@@ -123,6 +125,7 @@ namespace integration_framework {
      * @param maximum_proposal_size - Maximum number of transactions per
      * proposal
      * @param dbname - override database name to use (optional)
+     * @param startup_wsv_data_policy - @see StartupWsvDataPolicy
      * @param cleanup_on_exit - whether to clean resources on exit
      * @param mst_support - enables multisignature tx support
      * @param block_store_path - specifies path where blocks will be stored
@@ -135,6 +138,8 @@ namespace integration_framework {
     explicit IntegrationTestFramework(
         size_t maximum_proposal_size,
         const boost::optional<std::string> &dbname = boost::none,
+        iroha::StartupWsvDataPolicy startup_wsv_data_policy =
+            iroha::StartupWsvDataPolicy::kDrop,
         bool cleanup_on_exit = true,
         bool mst_support = false,
         const boost::optional<std::string> block_store_path = boost::none,
@@ -341,7 +346,7 @@ namespace integration_framework {
      * @return this
      */
     IntegrationTestFramework &sendMstState(
-        const shared_model::crypto::PublicKey &src_key,
+        shared_model::interface::types::PublicKeyHexStringView src_key,
         const iroha::MstState &mst_state);
 
     /**

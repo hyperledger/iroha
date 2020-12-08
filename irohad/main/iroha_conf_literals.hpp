@@ -26,6 +26,7 @@ namespace config_members {
   extern const char *PgOpt;
   extern const char *DbConfig;
   extern const char *Host;
+  extern const char *Ip;
   extern const char *Port;
   extern const char *User;
   extern const char *Password;
@@ -47,6 +48,12 @@ namespace config_members {
   extern const char *Address;
   extern const char *PublicKey;
   extern const char *TlsCertificatePath;
+  extern const char *UtilityService;
+  extern const char *DataModelModules;
+  extern const char *Python;
+  extern const char *PythonPaths;
+  extern const char *ModuleName;
+  extern const char *InitArgument;
 
 }  // namespace config_members
 

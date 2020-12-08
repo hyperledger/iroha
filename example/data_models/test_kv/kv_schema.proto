@@ -1,0 +1,27 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+ 
+syntax = "proto3";
+package test_kv.protocol;
+
+import "primitive.proto";
+
+message Set {
+  string key = 1;
+  string value = 2;
+}
+message Nuke {}
+
+message Command {
+  // extends CallModel
+  message Payload {
+    oneof command {
+      Set set = 1;
+      Nuke nuke = 2;
+    }
+  }
+  Payload payload = 1;
+  .iroha.protocol.DataModelId dm_id = 2;
+}

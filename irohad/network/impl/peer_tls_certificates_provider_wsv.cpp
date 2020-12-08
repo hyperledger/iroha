@@ -8,7 +8,6 @@
 #include <mutex>
 
 #include "ametsuchi/peer_query.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 
 using namespace iroha::expected;
@@ -22,7 +21,7 @@ class PeerTlsCertificatesProviderWsv::Impl {
 
   boost::optional<std::shared_ptr<shared_model::interface::Peer>>
   getPeerFromWsv(
-      const shared_model::interface::types::PubkeyType &public_key) const {
+      shared_model::interface::types::PublicKeyHexStringView public_key) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return peer_query_->getLedgerPeerByPublicKey(public_key);
   }
@@ -47,11 +46,11 @@ Result<TLSCertificateType, std::string> PeerTlsCertificatesProviderWsv::get(
 }
 
 Result<TLSCertificateType, std::string> PeerTlsCertificatesProviderWsv::get(
-    const shared_model::interface::types::PubkeyType &public_key) const {
+    shared_model::interface::types::PublicKeyHexStringView public_key) const {
   auto opt_peer = impl_->getPeerFromWsv(public_key);
   if (not opt_peer) {
     return makeError(std::string{"Could not find peer by "}
-                     + public_key.toString());
+                     + iroha::to_string::toString(public_key));
   }
   return get(*opt_peer.value());
 }

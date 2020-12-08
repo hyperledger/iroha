@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/indirected.hpp>
+#include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
@@ -15,6 +16,7 @@
 #include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 #include "module/irohad/ordering/ordering_mocks.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 
@@ -39,7 +41,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
  public:
   void SetUp() override {
     ordering_service = std::make_shared<MockOnDemandOrderingService>();
-    notification = std::make_shared<MockOdOsNotification>();
+    notification = new MockOdOsNotification();
     cache = std::make_shared<cache::MockOrderingGateCache>();
     auto ufactory = std::make_unique<NiceMock<MockUnsafeProposalFactory>>();
     factory = ufactory.get();
@@ -53,7 +55,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
                 iroha::ametsuchi::tx_cache_status_responses::Missing())));
     ordering_gate = std::make_shared<OnDemandOrderingGate>(
         ordering_service,
-        notification,
+        std::unique_ptr<OdOsNotification>(notification),
         processed_tx_hashes.get_observable(),
         rounds.get_observable(),
         cache,
@@ -63,7 +65,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         1000,
         getTestLogger("OrderingGate"));
 
-    auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+    auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round,
@@ -94,7 +96,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
       processed_tx_hashes;
   rxcpp::subjects::subject<OnDemandOrderingGate::RoundSwitch> rounds;
   std::shared_ptr<MockOnDemandOrderingService> ordering_service;
-  std::shared_ptr<MockOdOsNotification> notification;
+  MockOdOsNotification *notification;
   NiceMock<MockUnsafeProposalFactory> *factory;
   std::shared_ptr<ametsuchi::MockTxPresenceCache> tx_cache;
   std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;

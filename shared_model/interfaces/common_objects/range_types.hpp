@@ -26,7 +26,7 @@ namespace shared_model {
       using TransactionsCollectionType =
           boost::any_range<Transaction,
                            boost::random_access_traversal_tag,
-                           const Transaction &>;
+                           Transaction &>;
       using AccountAssetCollectionType =
           boost::any_range<AccountAsset,
                            boost::random_access_traversal_tag,
@@ -34,6 +34,12 @@ namespace shared_model {
       /// Type of hash collection
       using HashCollectionType = boost::
           any_range<HashType, boost::forward_traversal_tag, const HashType &>;
+
+      /// Type for EVM reposponse records
+      using EngineReceiptCollectionType =
+          boost::any_range<EngineReceipt,
+                           boost::forward_traversal_tag,
+                           const EngineReceipt &>;
 
     }  // namespace types
   }    // namespace interface

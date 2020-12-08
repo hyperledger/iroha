@@ -13,5 +13,6 @@ It might help you understand the general idea of how frontend can be used with H
     :caption: Table of contents
 
     libraries.rst
+    keys.rst
     api.rst
     cases.rst

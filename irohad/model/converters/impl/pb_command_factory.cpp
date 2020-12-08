@@ -79,6 +79,15 @@ namespace iroha {
             // Can get all signatories
             (protocol::RolePermission::can_get_all_signatories,
              can_get_all_signatories)
+            // Can get my engine receipts.
+            (protocol::RolePermission::can_get_my_engine_receipts,
+             can_get_my_engine_receipts)
+            // Can get domain engine receipts.
+            (protocol::RolePermission::can_get_domain_engine_receipts,
+             can_get_domain_engine_receipts)
+            // Can get all engine receipts.
+            (protocol::RolePermission::can_get_all_engine_receipts,
+             can_get_all_engine_receipts)
             // Can get domain signatories
             (protocol::RolePermission::can_get_domain_signatories,
              can_get_domain_signatories)

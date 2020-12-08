@@ -7,6 +7,8 @@
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 
 #include <gtest/gtest.h>
+#include "backend/protobuf/block.hpp"
+#include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha::ametsuchi;
@@ -17,7 +19,8 @@ using ::testing::Return;
 class InMemoryBlockStorageTest : public ::testing::Test {
  public:
   InMemoryBlockStorageTest() {
-    ON_CALL(*block_, height()).WillByDefault(Return(height_));
+    block_ = std::make_shared<shared_model::proto::Block>(
+        TestBlockBuilder().height(height_).build());
   }
 
  protected:
@@ -26,7 +29,8 @@ class InMemoryBlockStorageTest : public ::testing::Test {
   }
 
   InMemoryBlockStorage block_storage_;
-  std::shared_ptr<MockBlock> block_ = std::make_shared<NiceMock<MockBlock>>();
+  std::shared_ptr<shared_model::interface::Block> block_;
+
   shared_model::interface::types::HeightType height_ = 1;
 };
 
@@ -50,19 +54,6 @@ TEST_F(InMemoryBlockStorageTest, Insert) {
   ASSERT_TRUE(block_storage_.insert(block_));
 
   ASSERT_FALSE(block_storage_.insert(block_));
-}
-
-/**
- * @given initialized block storage, single block with height_ inserted
- * @when block with height_ is fetched
- * @then it is returned
- */
-TEST_F(InMemoryBlockStorageTest, FetchExisting) {
-  ASSERT_TRUE(block_storage_.insert(block_));
-
-  auto block_var = block_storage_.fetch(height_);
-
-  ASSERT_EQ(block_, *block_var);
 }
 
 /**
@@ -114,8 +105,8 @@ TEST_F(InMemoryBlockStorageTest, ForEach) {
 
   block_storage_.forEach([this, &count](const auto &block) {
     ++count;
-    ASSERT_EQ(height_, block->height());
-    ASSERT_EQ(block_, block);
+    ASSERT_TRUE(block);
+    ASSERT_EQ(*block_, *block);
   });
 
   ASSERT_EQ(1, count);

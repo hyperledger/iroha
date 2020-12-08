@@ -10,6 +10,7 @@
 #include <string>
 
 #include "common/result.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -35,7 +36,7 @@ namespace iroha {
       virtual iroha::expected::Result<
           shared_model::interface::types::TLSCertificateType,
           std::string>
-      get(const shared_model::interface::types::PubkeyType &public_key)
+      get(shared_model::interface::types::PublicKeyHexStringView public_key)
           const = 0;
     };
 

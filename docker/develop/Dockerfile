@@ -26,8 +26,8 @@ RUN set -e; \
         build-essential g++-9 ninja-build \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
-        # Pythons
-        python-pip python3-pip python3-setuptools python-dev \
+        # Python3
+        python3-pip \
         # other
         curl file gdb gdbserver ccache python3.6-dev \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
@@ -41,6 +41,13 @@ RUN set -e; \
         clang-9; \
       apt-get -y clean; \
     fi
+
+# golang stuff
+RUN curl https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz | tar -C /opt -xz
+ENV GOPATH=/opt/gopath
+RUN mkdir ${GOPATH}
+ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
+RUN go get github.com/golang/protobuf/protoc-gen-go
 
 # install cmake 3.14.0
 RUN set -e; \
@@ -80,7 +87,7 @@ RUN set -e; \
 
 # python bindings dependencies
 RUN set -e; \
-    pip install grpcio_tools pysha3; \
+    pip3 install setuptools wheel; \
     pip3 install grpcio_tools pysha3 iroha==0.0.5.4
 
 # install lcov

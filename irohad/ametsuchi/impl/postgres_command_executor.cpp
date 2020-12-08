@@ -5,20 +5,28 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 
+#include <exception>
 #include <forward_list>
+#include <memory>
 
+#include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/postgres_block_storage.hpp"
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
-#include "cryptography/public_key.hpp"
+#include "ametsuchi/vm_caller.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/call_engine.hpp"
+#include "interfaces/commands/call_model.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
@@ -37,6 +45,7 @@
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permission_to_string.hpp"
+#include "interfaces/permissions.hpp"
 #include "utils/string_builder.hpp"
 
 using shared_model::interface::permissions::Grantable;
@@ -182,7 +191,7 @@ namespace {
           SELECT
               COALESCE(bit_or(rp.permission), '0'::bit(%1%))
               & (%2%::bit(%1%) | '%3%'::bit(%1%))
-              != '0'::bit(%1%)
+              != '0'::bit(%1%) has_rp
           FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
               WHERE ar.account_id = %4%)")
@@ -217,7 +226,7 @@ namespace {
           permittee_account_id = %5%
           )") % kGrantablePermissionSetSize
                          % perm_str
-                         % checkAccountRolePermission(Role::kRoot, account_id)
+                         % checkAccountRolePermission(Role::kRoot, creator_id)
                          % account_id % creator_id)
                             .str();
     return query;
@@ -551,7 +560,7 @@ namespace iroha {
           SELECT CASE
               %s
               WHEN EXISTS (SELECT * FROM inserted LIMIT 1) THEN 0
-              ELSE (SELECT code FROM checks WHERE not result LIMIT 1)
+              ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result;)",
           {(boost::format(R"(has_perm AS (%s),)")
             % checkAccountDomainRoleOrGlobalRolePermission(
@@ -570,7 +579,7 @@ namespace iroha {
             inserted AS (
                 INSERT INTO peer(public_key, address, tls_certificate)
                 (
-                    SELECT :pubkey, :address, :tls_certificate
+                    SELECT lower(:pubkey), :address, :tls_certificate
                     %s
                 ) RETURNING (1)
             )
@@ -590,7 +599,7 @@ namespace iroha {
             insert_signatory AS
             (
                 INSERT INTO signatory(public_key)
-                (SELECT :pubkey %s)
+                (SELECT lower(:pubkey) %s)
                 ON CONFLICT (public_key)
                   DO UPDATE SET public_key = excluded.public_key
                 RETURNING (1)
@@ -599,7 +608,7 @@ namespace iroha {
             (
                 INSERT INTO account_has_signatory(account_id, public_key)
                 (
-                    SELECT :target, :pubkey
+                    SELECT :target, lower(:pubkey)
                     WHERE EXISTS (SELECT * FROM insert_signatory)
                 )
                 RETURNING (1)
@@ -685,7 +694,7 @@ namespace iroha {
                             THEN data->:creator->:key = :expected_value::jsonb
                         ELSE FALSE
                         END
-                    ELSE not :have_expected_value::boolean
+                    ELSE not (:check_empty::boolean and :have_expected_value::boolean)
                   END
             ),
             inserted AS
@@ -755,7 +764,7 @@ namespace iroha {
             (
                 INSERT INTO signatory(public_key)
                 (
-                    SELECT :pubkey
+                    SELECT lower(:pubkey)
                     WHERE EXISTS (SELECT * FROM get_domain_default_role)
                       %s
                 )
@@ -776,7 +785,7 @@ namespace iroha {
             (
                 INSERT INTO account_has_signatory(account_id, public_key)
                 (
-                    SELECT :account_id, :pubkey WHERE
+                    SELECT :account_id, lower(:pubkey) WHERE
                        EXISTS (SELECT * FROM insert_account)
                 )
                 RETURNING (1)
@@ -808,12 +817,17 @@ namespace iroha {
                  WHERE ar.account_id = :creator
            ),
            creator_has_enough_permissions AS (
-                SELECT ap.perm & dpb.bits = dpb.bits
-                FROM account_permissions AS ap, domain_role_permissions_bits AS dpb
+                SELECT ap.perm & dpb.bits = dpb.bits OR has_root_perm.has_rp
+                FROM
+                    account_permissions AS ap
+                  , domain_role_permissions_bits AS dpb
+                  , (%3%) as has_root_perm
+
            ),
            has_perm AS (%2%),
           )") % kRolePermissionSetSize
-                % checkAccountRolePermission(Role::kCreateAccount, ":creator"))
+                % checkAccountRolePermission(Role::kCreateAccount, ":creator")
+                % checkAccountRolePermission(Role::kRoot, ":creator"))
                    .str(),
                R"(AND (SELECT * FROM has_perm)
                 AND (SELECT * FROM creator_has_enough_permissions))",
@@ -968,7 +982,7 @@ namespace iroha {
                                                       R"(
           WITH %s
           removed AS (
-              DELETE FROM peer WHERE public_key = :pubkey
+              DELETE FROM peer WHERE public_key = lower(:pubkey)
               %s
               RETURNING (1)
           )
@@ -980,7 +994,7 @@ namespace iroha {
                                                       {(boost::format(R"(
             has_perm AS (%s),
             get_peer AS (
-              SELECT * from peer WHERE public_key = :pubkey LIMIT 1
+              SELECT * from peer WHERE public_key = lower(:pubkey) LIMIT 1
             ),
             check_peers AS (
               SELECT 1 WHERE (SELECT COUNT(*) FROM peer) > 1
@@ -1001,15 +1015,16 @@ namespace iroha {
           WITH %s
             delete_account_signatory AS (DELETE FROM account_has_signatory
                 WHERE account_id = :target
-                AND public_key = :pubkey
+                AND public_key = lower(:pubkey)
                 %s
                 RETURNING (1)),
             delete_signatory AS
             (
-                DELETE FROM signatory WHERE public_key = :pubkey AND
+                DELETE FROM signatory WHERE public_key = lower(:pubkey) AND
                     NOT EXISTS (SELECT 1 FROM account_has_signatory
-                                WHERE public_key = :pubkey)
-                    AND NOT EXISTS (SELECT 1 FROM peer WHERE public_key = :pubkey)
+                                WHERE public_key = lower(:pubkey))
+                    AND NOT EXISTS (SELECT 1 FROM peer
+                                    WHERE public_key = lower(:pubkey))
                 RETURNING (1)
             )
           SELECT CASE
@@ -1017,9 +1032,9 @@ namespace iroha {
             CASE
                 WHEN EXISTS (SELECT * FROM delete_signatory) THEN 0
                 WHEN EXISTS (SELECT 1 FROM account_has_signatory
-                             WHERE public_key = :pubkey) THEN 0
+                             WHERE public_key = lower(:pubkey)) THEN 0
                 WHEN EXISTS (SELECT 1 FROM peer
-                             WHERE public_key = :pubkey) THEN 0
+                             WHERE public_key = lower(:pubkey)) THEN 0
                 ELSE 1
             END
             %s
@@ -1036,7 +1051,7 @@ namespace iroha {
           ),
           get_signatory AS (
               SELECT * FROM get_signatories
-              WHERE public_key = :pubkey
+              WHERE public_key = lower(:pubkey)
           ),
           check_account_signatories AS (
               SELECT quorum FROM get_account
@@ -1179,6 +1194,33 @@ namespace iroha {
               WHEN NOT EXISTS (SELECT * FROM check_account_signatories) THEN 5
               )"});
 
+      store_engine_response_statements_ = makeCommandStatements(sql_,
+                                                                R"(
+          WITH
+            inserted AS (
+              INSERT INTO engine_calls
+              (
+                tx_hash, cmd_index, engine_response,
+                callee, created_address
+              )
+              VALUES
+              (
+                :tx_hash, :cmd_index, :engine_response,
+                :callee, :created_address
+              )
+              ON CONFLICT (tx_hash, cmd_index)
+              DO UPDATE SET
+                engine_response = excluded.engine_response,
+                callee = excluded.callee,
+                created_address = excluded.created_address
+              RETURNING (1)
+            )
+          SELECT CASE
+            WHEN EXISTS (SELECT * FROM inserted) THEN 0
+            ELSE 1
+          END AS result)",
+                                                                {});
+
       subtract_asset_quantity_statements_ = makeCommandStatements(
           sql_,
           R"(
@@ -1308,7 +1350,7 @@ namespace iroha {
           SELECT CASE
               WHEN EXISTS (SELECT * FROM insert_dest LIMIT 1) THEN 0
               %s
-              ELSE (SELECT code FROM checks WHERE not result LIMIT 1)
+              ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result)",
           {(boost::format(R"(
               has_role_perm AS (%s),
@@ -1363,8 +1405,13 @@ namespace iroha {
     PostgresCommandExecutor::PostgresCommandExecutor(
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
-            perm_converter)
-        : sql_(std::move(sql)), perm_converter_{std::move(perm_converter)} {
+            perm_converter,
+        std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor,
+        std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
+        : sql_(std::move(sql)),
+          perm_converter_{std::move(perm_converter)},
+          specific_query_executor_{std::move(specific_query_executor)},
+          vm_caller_{std::move(vm_caller)} {
       initStatements();
     }
 
@@ -1373,10 +1420,14 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::execute(
         const shared_model::interface::Command &cmd,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       return boost::apply_visitor(
-          [this, &creator_account_id, do_validation](const auto &command) {
-            return (*this)(command, creator_account_id, do_validation);
+          [this, &creator_account_id, &tx_hash, cmd_index, do_validation](
+              const auto &command) {
+            return (*this)(
+                command, creator_account_id, tx_hash, cmd_index, do_validation);
           },
           cmd.get());
     }
@@ -1388,6 +1439,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::AddAssetQuantity &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &asset_id = command.assetId();
       auto quantity = command.amount().toStringRepr();
@@ -1408,6 +1461,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::AddPeer &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &peer = command.peer();
 
@@ -1415,7 +1470,7 @@ namespace iroha {
           add_peer_statements_, do_validation, "AddPeer", perm_converter_);
       executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
-      executor.use("pubkey", peer.pubkey().hex());
+      executor.use("pubkey", peer.pubkey());
       executor.use("tls_certificate", peer.tlsCertificate());
 
       return executor.execute();
@@ -1424,9 +1479,11 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::AddSignatory &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &target = command.accountId();
-      const auto &pubkey = command.pubkey().hex();
+      const auto &pubkey = command.pubkey();
 
       StatementExecutor executor(add_signatory_statements_,
                                  do_validation,
@@ -1442,6 +1499,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::AppendRole &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &target = command.accountId();
       auto &role = command.roleName();
@@ -1458,8 +1517,88 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::CallEngine &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
+        bool do_validation) {
+      try {
+        if (vm_caller_) {
+          if (do_validation) {  // check permissions
+            int has_permission = 0;
+            using namespace shared_model::interface::permissions;
+            *sql_ << checkAccountHasRoleOrGrantablePerm(
+                Role::kCallEngine,
+                Grantable::kCallEngineOnMyBehalf,
+                ":creator",
+                ":caller"),
+                soci::use(creator_account_id, "creator"),
+                soci::use(command.caller(), "caller"),
+                soci::into(has_permission);
+            if (has_permission == 0) {
+              return makeCommandError(
+                  "CallEngine", 2, "Not enough permissions.");
+            }
+          }
+
+          using namespace shared_model::interface::types;
+          PostgresBurrowStorage burrow_storage(*sql_, tx_hash, cmd_index);
+          return vm_caller_->get()
+              .call(
+                  tx_hash,
+                  cmd_index,
+                  EvmCodeHexStringView{command.input()},
+                  command.caller(),
+                  command.callee()
+                      ? std::optional<EvmCalleeHexStringView>{command.callee()
+                                                                  ->get()}
+                      : std::optional<EvmCalleeHexStringView>{std::nullopt},
+                  burrow_storage,
+                  *this,
+                  *specific_query_executor_)
+              .match(
+                  [&](const auto &value) -> CommandResult {
+                    StatementExecutor executor(
+                        store_engine_response_statements_,
+                        false,
+                        "StoreEngineReceiptsResponse",
+                        perm_converter_);
+                    executor.use("tx_hash", tx_hash);
+                    executor.use("cmd_index", cmd_index);
+
+                    if (command.callee()) {
+                      // calling a deployed contract
+                      executor.use("callee", command.callee()->get());
+                      executor.use("engine_response", value.value);
+                      executor.use("created_address", std::nullopt);
+                    } else {
+                      // deploying a new contract
+                      executor.use("callee", std::nullopt);
+                      executor.use("engine_response", std::nullopt);
+                      executor.use("created_address", value.value);
+                    }
+
+                    return executor.execute();
+                  },
+                  [](auto &&error) -> CommandResult {
+                    return makeCommandError(
+                        "CallEngine", 3, std::move(error.error));
+                  });
+
+        } else {
+          return makeCommandError("CallEngine", 1, "Engine is not configured.");
+        }
+      } catch (std::exception const &e) {
+        return makeCommandError("CallEngine", 1, e.what());
+      }
+      return {};
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::CompareAndSetAccountDetail &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       std::string new_json_value = makeJsonString(command.value());
       const std::string expected_json_value =
@@ -1473,6 +1612,7 @@ namespace iroha {
       executor.use("target", command.accountId());
       executor.use("key", command.key());
       executor.use("new_value", new_json_value);
+      executor.use("check_empty", command.checkEmpty());
       executor.use("have_expected_value",
                    static_cast<bool>(command.oldValue()));
       executor.use("expected_value", expected_json_value);
@@ -1487,10 +1627,12 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::CreateAccount &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &account_name = command.accountName();
       auto &domain_id = command.domainId();
-      auto &pubkey = command.pubkey().hex();
+      auto &pubkey = command.pubkey();
       shared_model::interface::types::AccountIdType account_id =
           account_name + "@" + domain_id;
 
@@ -1509,6 +1651,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::CreateAsset &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &domain_id = command.domainId();
       auto asset_id = command.assetName() + "#" + domain_id;
@@ -1529,6 +1673,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::CreateDomain &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &domain_id = command.domainId();
       auto &default_role = command.userDefaultRole();
@@ -1547,6 +1693,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::CreateRole &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &role_id = command.roleName();
       auto &permissions = command.rolePermissions();
@@ -1566,6 +1714,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::DetachRole &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &account_id = command.accountId();
       auto &role_name = command.roleName();
@@ -1584,6 +1734,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::GrantPermission &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &permittee_account_id = command.accountId();
       auto granted_perm = command.permissionName();
@@ -1605,8 +1757,10 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::RemovePeer &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
-      auto pubkey = command.pubkey().hex();
+      auto pubkey = command.pubkey();
 
       StatementExecutor executor(remove_peer_statements_,
                                  do_validation,
@@ -1621,9 +1775,11 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::RemoveSignatory &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &account_id = command.accountId();
-      auto &pubkey = command.pubkey().hex();
+      auto &pubkey = command.pubkey();
 
       StatementExecutor executor(remove_signatory_statements_,
                                  do_validation,
@@ -1639,6 +1795,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::RevokePermission &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &permittee_account_id = command.accountId();
       auto revoked_perm = command.permissionName();
@@ -1657,6 +1815,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::SetAccountDetail &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &account_id = command.accountId();
       auto &key = command.key();
@@ -1684,6 +1844,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::SetQuorum &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &account_id = command.accountId();
       int quorum = command.newQuorum();
@@ -1700,6 +1862,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::SubtractAssetQuantity &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &asset_id = command.assetId();
       auto quantity = command.amount().toStringRepr();
@@ -1720,6 +1884,8 @@ namespace iroha {
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::TransferAsset &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto &src_account_id = command.srcAccountId();
       auto &dest_account_id = command.destAccountId();
@@ -1742,8 +1908,33 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::CallModel &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &tx_hash,
+        shared_model::interface::types::CommandIndexType,
+        bool do_validation) {
+      try {
+        if (do_validation) {
+          int has_permission = 0;
+          using namespace ::shared_model::interface::permissions;
+          *sql_ << checkAccountRolePermission(Role::kCallModel, ":creator"),
+              soci::use(creator_account_id, "creator"),
+              soci::into(has_permission);
+          if (has_permission == 0) {
+            return makeCommandError("CallModel", 2, "Not enough permissions.");
+          }
+        }
+      } catch (std::exception const &e) {
+        return makeCommandError("CallModel", 1, e.what());
+      }
+      return {};
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::SetSettingValue &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
+        const std::string &,
+        shared_model::interface::types::CommandIndexType,
         bool do_validation) {
       auto &key = command.key();
       auto &value = command.value();

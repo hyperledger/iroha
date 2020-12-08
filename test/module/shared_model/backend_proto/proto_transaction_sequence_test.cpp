@@ -11,6 +11,7 @@
 #include "framework/batch_helper.hpp"
 #include "framework/result_fixture.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model;
 using ::testing::_;
@@ -100,7 +101,9 @@ TEST_F(TransactionSequenceTestFixture, CreateBatches) {
     auto keypair = crypto::DefaultCryptoAlgorithmType::generateKeypair();
     auto signed_blob =
         crypto::DefaultCryptoAlgorithmType::sign(tx->payload(), keypair);
-    tx->addSignature(signed_blob, keypair.publicKey());
+    using namespace shared_model::interface::types;
+    tx->addSignature(SignedHexStringView{signed_blob},
+                     PublicKeyHexStringView{keypair.publicKey()});
 
     tx_collection.emplace_back(tx);
   }

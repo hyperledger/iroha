@@ -10,6 +10,8 @@
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
+#include "ordering.hpp"
+
 namespace shared_model {
   namespace interface {
 
@@ -21,6 +23,7 @@ namespace shared_model {
 
       /// Get the first requested transaction hash, if provided.
       virtual std::optional<types::HashType> firstTxHash() const = 0;
+      virtual Ordering const &ordering() const = 0;
 
       std::string toString() const override;
 

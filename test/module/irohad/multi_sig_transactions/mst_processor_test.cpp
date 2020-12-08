@@ -9,7 +9,9 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger.hpp"
+#include "module/irohad/multi_sig_transactions/mock_mst_transport.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -18,11 +20,17 @@
 
 auto log_ = getTestLogger("MstProcessorTest");
 
+using namespace std::literals;
 using namespace iroha;
 using namespace framework::test_subscriber;
 
+using shared_model::interface::types::PeerList;
+using shared_model::interface::types::PublicKeyHexStringView;
 using testing::_;
 using testing::Return;
+
+static const PublicKeyHexStringView kPublicKey1{"first public key"sv};
+static const PublicKeyHexStringView kPublicKey2{"second public key"sv};
 
 class MstProcessorTest : public testing::Test {
  public:
@@ -46,13 +54,17 @@ class MstProcessorTest : public testing::Test {
   const shared_model::interface::types::CounterType time_before = time_now - 1;
   const shared_model::interface::types::CounterType time_after = time_now + 1;
 
+  PublicKeyHexStringView another_peer_key_hex{"another_pubkey"sv};
+  PublicKeyHexStringView yet_another_peer_key_hex{"yet_another_pubkey"sv};
+
  protected:
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
-    storage =
-        std::make_shared<MstStorageStateImpl>(std::make_shared<TestCompleter>(),
-                                              getTestLogger("MstState"),
-                                              getTestLogger("MstStorage"));
+    storage = MstStorageStateImpl::create(
+        std::make_shared<TestCompleter>(),
+        rxcpp::observable<>::empty<shared_model::interface::types::HashType>(),
+        getTestLogger("MstState"),
+        getTestLogger("MstStorage"));
 
     propagation_strategy = std::make_shared<MockPropagationStrategy>();
     EXPECT_CALL(*propagation_strategy, emitter())
@@ -256,12 +268,11 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   auto observers = initObservers(mst_processor, 0, 1, 0);
 
   // ---------------------------------| when |----------------------------------
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
   auto transported_state = MstState::empty(getTestLogger("MstState"),
                                            std::make_shared<TestCompleter>());
   transported_state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(another_peer_key, std::move(transported_state));
+  mst_processor->onNewState(another_peer_key_hex, std::move(transported_state));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -276,19 +287,132 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
  * @then check that:
  * transport invoked for all peers
  */
-
 TEST_F(MstProcessorTest, onNewPropagationUsecase) {
   // ---------------------------------| given |---------------------------------
   auto quorum = 2u;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
-  EXPECT_CALL(*transport, sendState(_, _)).Times(2);
+  EXPECT_CALL(*transport, sendState(_, _))
+      .Times(2)
+      .WillRepeatedly(Return(rxcpp::observable<>::just(true)));
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
-      makePeer("one", shared_model::interface::types::PubkeyType("sign_one")),
-      makePeer("two", shared_model::interface::types::PubkeyType("sign_two"))};
+      makePeer("one", kPublicKey1), makePeer("two", kPublicKey2)};
   propagation_subject.get_subscriber().on_next(peers);
+}
+
+/**
+ * @given initialised mst processor
+ * AND our state contains one transaction
+ *
+ * @when received notification about new propagation
+ * AND transport successfully sent the state
+ *
+ * @then same diff is applied to storage
+ */
+TEST_F(MstProcessorTest, SendStateSuccess) {
+  // ---------------------------------| given |---------------------------------
+  auto quorum = 2u;
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+  EXPECT_CALL(*transport, sendState(_, _))
+      .WillOnce(Return(rxcpp::observable<>::just(true)));
+
+  // ---------------------------------| when |----------------------------------
+  std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
+      makePeer("one", another_peer_key_hex)};
+  propagation_subject.get_subscriber().on_next(peers);
+
+  // ---------------------------------| then |----------------------------------
+  ASSERT_TRUE(
+      storage->getDiffState(another_peer_key_hex, time_after).isEmpty());
+}
+
+/**
+ * @given initialised mst processor
+ * AND our state contains one transaction
+ *
+ * @when received notification about new propagation with two peers
+ * AND transport successfully sent the state
+ *
+ * @then same diff is applied to storage
+ */
+TEST_F(MstProcessorTest, SendStateSuccessTwiceSamePropagation) {
+  // ---------------------------------| given |---------------------------------
+  auto quorum = 2u;
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+  EXPECT_CALL(*transport, sendState(_, _))
+      .WillRepeatedly(Return(rxcpp::observable<>::just(true)));
+
+  // ---------------------------------| when |----------------------------------
+  propagation_subject.get_subscriber().on_next(
+      PeerList{makePeer("one", another_peer_key_hex),
+               makePeer("two", yet_another_peer_key_hex)});
+
+  // ---------------------------------| then |----------------------------------
+  ASSERT_TRUE(
+      storage->getDiffState(another_peer_key_hex, time_after).isEmpty());
+  ASSERT_TRUE(
+      storage->getDiffState(yet_another_peer_key_hex, time_after).isEmpty());
+}
+
+/**
+ * @given initialised mst processor
+ * AND our state contains one transaction
+ *
+ * @when received two notifications about new propagation with different peers
+ * AND transport successfully sent the state
+ *
+ * @then same diff is applied to storage
+ */
+TEST_F(MstProcessorTest, SendStateSuccessTwiceDifferentPropagations) {
+  // ---------------------------------| given |---------------------------------
+  auto quorum = 2u;
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+  EXPECT_CALL(*transport, sendState(_, _))
+      .WillRepeatedly(Return(rxcpp::observable<>::just(true)));
+
+  // ---------------------------------| when |----------------------------------
+  propagation_subject.get_subscriber().on_next(
+      PeerList{makePeer("one", another_peer_key_hex)});
+  propagation_subject.get_subscriber().on_next(
+      PeerList{makePeer("two", yet_another_peer_key_hex)});
+
+  // ---------------------------------| then |----------------------------------
+  ASSERT_TRUE(
+      storage->getDiffState(another_peer_key_hex, time_after).isEmpty());
+  ASSERT_TRUE(
+      storage->getDiffState(yet_another_peer_key_hex, time_after).isEmpty());
+}
+
+/**
+ * @given initialised mst processor
+ * AND our state contains one transaction
+ *
+ * @when received notification about new propagation
+ * AND transport failed to send the state
+ *
+ * @then diff is not applied to storage
+ */
+TEST_F(MstProcessorTest, SendStateFailure) {
+  // ---------------------------------| given |---------------------------------
+  auto quorum = 2u;
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+  EXPECT_CALL(*transport, sendState(_, _))
+      .WillOnce(Return(rxcpp::observable<>::just(false)));
+
+  // ---------------------------------| when |----------------------------------
+  std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
+      makePeer("one", another_peer_key_hex)};
+  propagation_subject.get_subscriber().on_next(peers);
+
+  // ---------------------------------| then |----------------------------------
+  ASSERT_FALSE(
+      storage->getDiffState(another_peer_key_hex, time_after).isEmpty());
 }
 
 /**
@@ -305,17 +429,22 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   EXPECT_CALL(*transport, sendState(_, _)).Times(0);
 
   // ---------------------------------| given |---------------------------------
-  auto another_peer = makePeer(
-      "another", shared_model::interface::types::PubkeyType("sign_one"));
+  auto another_peer = makePeer("another", kPublicKey1);
 
   auto another_peer_state = MstState::empty(
       getTestLogger("MstState"),
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0)));
   another_peer_state += makeTestBatch(txBuilder(1));
 
-  storage->apply(another_peer->pubkey(), another_peer_state);
-  ASSERT_TRUE(
-      storage->getDiffState(another_peer->pubkey(), time_now).isEmpty());
+  storage->apply(
+      shared_model::interface::types::PublicKeyHexStringView{kPublicKey1},
+      another_peer_state);
+  ASSERT_TRUE(storage
+                  ->getDiffState(
+                      shared_model::interface::types::PublicKeyHexStringView{
+                          another_peer->pubkey()},
+                      time_now)
+                  .isEmpty());
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
@@ -338,13 +467,13 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
   auto observers = initObservers(mst_processor, 0, 0, 0);
 
   // ---------------------------------| when |----------------------------------
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
   const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
   {
     auto transported_state = MstState::empty(getTestLogger("MstState"),
                                              std::make_shared<TestCompleter>());
     transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
-    mst_processor->onNewState(another_peer_key, std::move(transported_state));
+    mst_processor->onNewState(another_peer_key_hex,
+                              std::move(transported_state));
   }
 
   // ---------------------------------| then |----------------------------------
@@ -371,8 +500,7 @@ TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
                                         std::make_shared<TestCompleter>());
   received_state += batch;
   auto observers = initObservers(mst_processor, 0, 0, 0);
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
-  mst_processor->onNewState(another_peer_key, std::move(received_state));
+  mst_processor->onNewState(another_peer_key_hex, std::move(received_state));
 
   check(observers);
 }

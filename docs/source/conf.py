@@ -2,6 +2,9 @@ import os
 import sys
 import sphinx_rtd_theme
 import yaml
+from sphinx.highlighting import lexers
+from pygments_lexer_solidity import SolidityLexer
+lexers['solidity'] = SolidityLexer()
 
 sys.path.insert(0, os.path.abspath('.'))
 
@@ -25,6 +28,13 @@ extensions = [
     'sphinx_extensions.iroha_permissions'
 ]
 
+html_static_path = ['_static']
+
+html_context = {
+    'css_files': [
+        '_static/theme_overrides.css',  # override wide tables in RTD theme
+        ],
+     }
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 

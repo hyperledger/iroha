@@ -13,6 +13,8 @@ syntax = "proto3";
 
 package iroha.protocol;
 
+option go_package = "iroha.generated/protocol";
+
 /**
  * Represents any possible value for permission field,
  * then the account is capable of performing such action.
@@ -44,6 +46,8 @@ enum RolePermission {
   can_create_domain = 14;
   can_add_domain_asset_qty = 43;
   can_subtract_domain_asset_qty = 44;
+  can_call_engine = 48;
+  can_call_model = 53;
 
   // Query permissions
   can_read_assets = 15;
@@ -70,6 +74,9 @@ enum RolePermission {
   can_get_all_txs = 36;
   can_get_blocks = 42;
   can_get_peers = 45;
+  can_get_my_engine_receipts = 50;
+  can_get_domain_engine_receipts = 51;
+  can_get_all_engine_receipts = 52;
 
   // Grant permissions
   can_grant_can_set_my_quorum = 37;
@@ -77,6 +84,7 @@ enum RolePermission {
   can_grant_can_remove_my_signatory = 39;
   can_grant_can_transfer_my_assets = 40;
   can_grant_can_set_my_account_detail = 41;
+  can_grant_can_call_engine_on_my_behalf = 49;
 
   // Root Permission
   root = 47;
@@ -88,6 +96,7 @@ enum GrantablePermission {
   can_set_my_quorum = 2;
   can_set_my_account_detail = 3;
   can_transfer_my_assets = 4;  // not implemented now
+  can_call_engine_on_my_behalf = 5;
 }
 
 message Signature {
@@ -107,3 +116,31 @@ message AccountDetailRecordId {
   string writer = 1;
   string key = 2;
 }
+
+message EngineLog {
+  string address = 1;   // hex string
+  string data = 2;      // hex string
+  repeated string topics = 3; // hex string
+}
+
+message CallResult {
+  string callee = 1;
+  string result_data = 2;
+}
+
+message EngineReceipt {
+  int32 command_index = 1;
+  string caller = 2;
+  oneof result_or_contract_address {
+    CallResult call_result = 3;
+    string contract_address = 4;
+  }
+  repeated EngineLog logs = 5;
+}
+
+message DataModelId {
+    string name = 1;
+    string version = 2;
+}
+
+

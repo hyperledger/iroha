@@ -9,13 +9,13 @@
 #include "mst.grpc.pb.h"
 #include "network/mst_transport.hpp"
 
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
+#include "multi_sig_transactions/mst_types.hpp"
 #include "network/impl/async_grpc_client.hpp"
 
 namespace iroha {
@@ -46,7 +46,7 @@ namespace iroha {
               transaction_batch_factory,
           std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache,
           std::shared_ptr<Completer> mst_completer,
-          shared_model::crypto::PublicKey my_key,
+          shared_model::interface::types::PublicKeyHexStringView my_key,
           logger::LoggerPtr mst_state_logger,
           logger::LoggerPtr log,
           boost::optional<SenderFactory> = boost::none);
@@ -66,8 +66,9 @@ namespace iroha {
       void subscribe(
           std::shared_ptr<MstTransportNotification> notification) override;
 
-      void sendState(const shared_model::interface::Peer &to,
-                     ConstRefState providing_state) override;
+      rxcpp::observable<bool> sendState(
+          std::shared_ptr<shared_model::interface::Peer const> to,
+          MstState const &providing_state) override;
 
      private:
       std::weak_ptr<MstTransportNotification> subscriber_;
@@ -81,7 +82,7 @@ namespace iroha {
       std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
       /// source peer key for MST propogation messages
       std::shared_ptr<Completer> mst_completer_;
-      const std::string my_key_;
+      std::string const my_key_;
 
       logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                             ///< objects.
@@ -90,10 +91,13 @@ namespace iroha {
       boost::optional<SenderFactory> sender_factory_;
     };
 
-    void sendStateAsync(const shared_model::interface::Peer &to,
-                        iroha::ConstRefState state,
-                        const shared_model::crypto::PublicKey &sender_key,
-                        AsyncGrpcClient<google::protobuf::Empty> &async_call);
+    void sendStateAsync(
+        shared_model::interface::Peer const &to,
+        MstState const &state,
+        shared_model::interface::types::PublicKeyHexStringView sender_key,
+        AsyncGrpcClient<google::protobuf::Empty> &async_call,
+        std::function<void(grpc::Status &, google::protobuf::Empty &)>
+            on_response = {});
 
   }  // namespace network
 }  // namespace iroha

@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <boost/optional.hpp>
 
@@ -26,8 +27,12 @@ namespace iroha {
       inline std::string toStringDereferenced(const T &o);
     }  // namespace detail
 
-    inline std::string toString(const std::string &o) {
+    inline std::string toString(std::string const &o) {
       return o;
+    }
+
+    inline std::string toString(std::string_view o) {
+      return std::string{o};
     }
 
     template <typename T>

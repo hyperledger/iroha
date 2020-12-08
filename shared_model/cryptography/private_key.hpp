@@ -15,7 +15,7 @@ namespace shared_model {
      */
     class PrivateKey : public Blob {
      public:
-      explicit PrivateKey(const std::string &private_key);
+      using Blob::Blob;
 
       explicit PrivateKey(const Blob &blob);
 

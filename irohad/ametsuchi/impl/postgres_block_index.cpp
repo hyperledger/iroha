@@ -40,8 +40,11 @@ namespace {
 // for transfer asset in command
 void PostgresBlockIndex::makeAccountAssetIndex(
     const AccountIdType &account_id,
+    shared_model::interface::types::HashType const &hash,
+    shared_model::interface::types::TimestampType const ts,
     TxPosition position,
     const shared_model::interface::Transaction::CommandsType &commands) {
+  bool creator_was_added = false;
   for (const auto &transfer :
        commands | boost::adaptors::transformed(getTransferAsset)
            | boost::adaptors::filtered(
@@ -51,11 +54,15 @@ void PostgresBlockIndex::makeAccountAssetIndex(
     const auto &src_id = transfer.srcAccountId();
     const auto &dest_id = transfer.destAccountId();
 
-    const auto ids = {account_id, src_id, dest_id};
-    const auto &asset_id = transfer.assetId();
+    const auto ids = {src_id, dest_id};
+    const auto asset_id = transfer.assetId();
     // flat map accounts to unindexed keys
     for (const auto &id : ids) {
-      indexer_->accountAssetTxPosition(id, asset_id, position);
+      indexer_->txPositions(id, hash, asset_id, ts, position);
+      creator_was_added |= id == account_id;
+    }
+    if (not creator_was_added) {
+      indexer_->txPositions(account_id, hash, asset_id, ts, position);
     }
   }
 }
@@ -70,10 +77,17 @@ void PostgresBlockIndex::index(const shared_model::interface::Block &block) {
     const auto &creator_id = tx.value().creatorAccountId();
     const TxPosition position{height, static_cast<size_t>(tx.index())};
 
-    makeAccountAssetIndex(creator_id, position, tx.value().commands());
-    indexer_->txHashPosition(tx.value().hash(), position);
     indexer_->committedTxHash(tx.value().hash());
-    indexer_->txPositionByCreator(creator_id, position);
+    makeAccountAssetIndex(creator_id,
+                          tx.value().hash(),
+                          tx.value().createdTime(),
+                          position,
+                          tx.value().commands());
+    indexer_->txPositions(creator_id,
+                          tx.value().hash(),
+                          boost::none,
+                          tx.value().createdTime(),
+                          position);
   }
 
   for (const auto &rejected_tx_hash : block.rejected_transactions_hashes()) {

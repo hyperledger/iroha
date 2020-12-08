@@ -29,10 +29,9 @@ namespace shared_model {
 
       std::string toString() const override;
 
-      bool addSignature(
-          size_t number_of_tx,
-          const shared_model::crypto::Signed &signed_blob,
-          const shared_model::crypto::PublicKey &public_key) override;
+      bool addSignature(size_t number_of_tx,
+                        types::SignedHexStringView signed_blob,
+                        types::PublicKeyHexStringView public_key) override;
 
      private:
       types::SharedTxsCollectionType transactions_;

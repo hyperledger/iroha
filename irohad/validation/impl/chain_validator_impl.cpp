@@ -10,7 +10,6 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
@@ -84,12 +83,12 @@ namespace iroha {
             "public keys: [{}]",
             boost::algorithm::join(
                 signatures | boost::adaptors::transformed([](const auto &s) {
-                  return s.publicKey().toString();
+                  return s.publicKey();
                 }),
                 ", "),
             boost::algorithm::join(
                 peers | boost::adaptors::transformed([](const auto &p) {
-                  return p->pubkey().toString();
+                  return p->pubkey();
                 }),
                 ", "));
       }

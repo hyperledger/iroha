@@ -11,12 +11,17 @@
 #include "common/byteutils.hpp"
 #include "common/files.hpp"
 #include "common/result.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "cryptography/crypto_provider/crypto_verifier.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "logger/logger.hpp"
 
 using namespace shared_model::crypto;
+using namespace shared_model::interface::types;
 
 using iroha::operator|;
+
+using DefaultCryptoAlgorithmType = CryptoProviderEd25519Sha3;
 
 namespace {
   /**
@@ -24,22 +29,12 @@ namespace {
    * @param keypair - keypair for validation
    * @return error if any, boost::none otherwise
    */
-  boost::optional<std::string> validate(const Keypair &keypair) {
-    if (keypair.publicKey().blob().size()
-        != DefaultCryptoAlgorithmType::kPublicKeyLength) {
-      return std::string{"Wrong public key size."};
-    }
-    if (keypair.privateKey().blob().size()
-        != DefaultCryptoAlgorithmType::kPrivateKeyLength) {
-      return std::string{"Wrong private key size."};
-    }
+  iroha::expected::Result<void, const char *> validate(const Keypair &keypair) {
     auto test = Blob("12345");
-    auto sig = DefaultCryptoAlgorithmType::sign(test, keypair);
-    if (not DefaultCryptoAlgorithmType::verify(
-            sig, test, keypair.publicKey())) {
-      return std::string{"Key validation failed."};
-    }
-    return boost::none;
+    auto signature = CryptoSigner::sign(test, keypair);
+    return CryptoVerifier::verify(SignedHexStringView{signature},
+                                  test,
+                                  PublicKeyHexStringView{keypair.publicKey()});
   }
 }  // namespace
 
@@ -86,21 +81,26 @@ namespace iroha {
       const boost::optional<std::string> &pass_phrase) {
     auto load_from_file = [this](const auto &extension) {
       return iroha::readTextFile(
-                 (path_to_keypair_ / (account_id_ + extension)).string())
-          | [](auto &&hex) { return iroha::hexstringToBytestringResult(hex); };
+          (path_to_keypair_ / (account_id_ + extension)).string());
     };
 
-    return load_from_file(kPublicKeyExtension) | [&](auto &&pubkey_blob) {
-      return load_from_file(kPrivateKeyExtension) | [&](auto &&privkey_blob)
-                 -> iroha::expected::Result<Keypair, std::string> {
-        auto &&decrypted_privkey_blob = pass_phrase
-            ? xorCrypt(privkey_blob, pass_phrase.value())
-            : privkey_blob;
-        Keypair keypair(PublicKey{Blob{pubkey_blob}},
-                        PrivateKey{Blob{decrypted_privkey_blob}});
+    using ReturnType = iroha::expected::Result<Keypair, std::string>;
+    return load_from_file(kPublicKeyExtension) | [&](auto &&pubkey_hex) {
+      return load_from_file(kPrivateKeyExtension) | [&](auto &&privkey_hex) {
+        return iroha::hexstringToBytestringResult(privkey_hex) |
+                   [&](auto &&privkey_blob) -> ReturnType {
+          auto &&decrypted_privkey_blob = pass_phrase
+              ? xorCrypt(privkey_blob, pass_phrase.value())
+              : privkey_blob;
+          Keypair keypair(PublicKeyHexStringView{pubkey_hex},
+                          PrivateKey{decrypted_privkey_blob});
 
-        return iroha::expected::optionalErrorToResult(validate(keypair),
-                                                      std::move(keypair));
+          return validate(keypair).match(
+              [&keypair](const auto &) -> ReturnType {
+                return std::move(keypair);
+              },
+              [](const auto &error) -> ReturnType { return error.error; });
+        };
       };
     };
   }
@@ -109,7 +109,7 @@ namespace iroha {
       const boost::optional<std::string> &pass_phrase) {
     Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
 
-    auto pub = keypair.publicKey().hex();
+    auto pub = keypair.publicKey();
     auto &&priv = pass_phrase
         ? bytestringToHexstring(
               xorCrypt(keypair.privateKey().blob(), pass_phrase.value()))
@@ -117,7 +117,7 @@ namespace iroha {
     return store(pub, priv);
   }
 
-  bool KeysManagerImpl::store(const std::string &pub, const std::string &priv) {
+  bool KeysManagerImpl::store(std::string_view pub, std::string_view priv) {
     std::ofstream pub_file(
         (path_to_keypair_ / (account_id_ + kPublicKeyExtension)).string());
     std::ofstream priv_file(

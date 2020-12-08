@@ -6,20 +6,30 @@
 #ifndef IROHA_PENDING_TXS_STORAGE_IMPL_HPP
 #define IROHA_PENDING_TXS_STORAGE_IMPL_HPP
 
+#include "pending_txs_storage/pending_txs_storage.hpp"
+
 #include <list>
+#include <memory>
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
 
+#include <boost/bimap.hpp>
+#include <boost/bimap/unordered_multiset_of.hpp>
+#include <boost/bimap/unordered_set_of.hpp>
 #include <rxcpp/rx-lite.hpp>
+#include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
-#include "pending_txs_storage/pending_txs_storage.hpp"
+#include "multi_sig_transactions/hash.hpp"
 
 namespace iroha {
 
   class MstState;
 
   class PendingTransactionStorageImpl : public PendingTransactionStorage {
+   private:
+    struct private_tag {};
+
    public:
     using AccountIdType = shared_model::interface::types::AccountIdType;
     using HashType = shared_model::interface::types::HashType;
@@ -33,13 +43,21 @@ namespace iroha {
     using PreparedTransactionDescriptor = std::pair<AccountIdType, HashType>;
     using PreparedTransactionsObservable =
         rxcpp::observable<PreparedTransactionDescriptor>;
+    using FinalizedTransactionsObservable = rxcpp::observable<HashType>;
 
-    PendingTransactionStorageImpl(StateObservable updated_batches,
-                                  BatchObservable prepared_batch,
-                                  BatchObservable expired_batch,
-                                  PreparedTransactionsObservable prepared_txs);
+    PendingTransactionStorageImpl(PendingTransactionStorageImpl::private_tag);
 
-    ~PendingTransactionStorageImpl() override;
+    PendingTransactionStorageImpl(PendingTransactionStorageImpl const &) =
+        delete;
+    PendingTransactionStorageImpl &operator=(
+        PendingTransactionStorageImpl const &) = delete;
+
+    static std::shared_ptr<PendingTransactionStorageImpl> create(
+        StateObservable updated_batches,
+        BatchObservable prepared_batch,
+        BatchObservable expired_batch,
+        PreparedTransactionsObservable prepared_txs,
+        FinalizedTransactionsObservable finalized_txs);
 
     SharedTxsCollectionType getPendingTransactions(
         const AccountIdType &account_id) const override;
@@ -49,6 +67,9 @@ namespace iroha {
         const shared_model::interface::types::TransactionsNumberType page_size,
         const std::optional<shared_model::interface::types::HashType>
             &first_tx_hash) const override;
+
+    void insertPresenceCache(
+        std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
 
    private:
     void updatedBatchesHandler(const SharedState &updated_batches);
@@ -61,15 +82,13 @@ namespace iroha {
                            const std::set<AccountIdType> &batch_creators,
                            uint64_t batch_size);
 
+    void removeTransaction(HashType const &hash);
+
     static std::set<AccountIdType> batchCreators(const TransactionBatch &batch);
 
-    /**
-     * Subscriptions on MST events
-     */
-    rxcpp::composite_subscription updated_batches_subscription_;
-    rxcpp::composite_subscription prepared_batch_subscription_;
-    rxcpp::composite_subscription expired_batch_subscription_;
-    rxcpp::composite_subscription prepared_transactions_subscription_;
+    bool isReplay(shared_model::interface::TransactionBatch const &batch);
+
+    std::weak_ptr<ametsuchi::TxPresenceCache> presence_cache_;
 
     /**
      * Mutex for single-write multiple-read storage access
@@ -91,10 +110,21 @@ namespace iroha {
      * stored batches. Used for query response and memory management.
      */
     struct AccountBatches {
-      std::list<std::shared_ptr<TransactionBatch>> batches;
+      using BatchPtr = std::shared_ptr<TransactionBatch>;
+      using BatchesBimap = boost::bimap<
+          boost::bimaps::unordered_set_of<HashType,
+                                          shared_model::crypto::Hash::Hasher>,
+          boost::bimaps::unordered_multiset_of<
+              BatchPtr,
+              iroha::model::PointerBatchHasher,
+              shared_model::interface::BatchHashEquality>>;
+
+      std::list<BatchPtr> batches;
       std::
           unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher>
               index;
+      BatchesBimap txs_to_batches;
+
       uint64_t all_transactions_quantity{0};
     };
 

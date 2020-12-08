@@ -7,10 +7,12 @@
 
 #include <numeric>
 
+#include <fmt/core.h>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/soci_std_optional.hpp"
+#include "ametsuchi/impl/soci_string_view.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "backend/protobuf/permissions.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
 #include "interfaces/common_objects/asset.hpp"
@@ -242,71 +244,69 @@ namespace iroha {
     }
 
     WsvCommandResult PostgresWsvCommand::insertSignatory(
-        const shared_model::interface::types::PubkeyType &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
-          << "INSERT INTO signatory(public_key) VALUES (:pk) ON CONFLICT DO "
-             "NOTHING;";
-      st.exchange(soci::use(signatory.hex()));
+          << "INSERT INTO signatory(public_key) VALUES (lower(:pk)) ON "
+             "CONFLICT DO NOTHING;";
+      st.exchange(soci::use(signatory));
 
       auto msg = [&] {
-        return (boost::format(
-                    "failed to insert signatory, signatory hex string: '%s'")
-                % signatory.hex())
-            .str();
+        return fmt::format("failed to insert signatory '{}'",
+                           std::string_view{signatory});
       };
       return execute(st, msg);
     }
 
     WsvCommandResult PostgresWsvCommand::insertAccountSignatory(
         const shared_model::interface::types::AccountIdType &account_id,
-        const shared_model::interface::types::PubkeyType &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
           << "INSERT INTO account_has_signatory(account_id, public_key) "
-             "VALUES (:account_id, :pk)";
+             "VALUES (:account_id, lower(:pk))";
       st.exchange(soci::use(account_id));
-      st.exchange(soci::use(signatory.hex()));
+      st.exchange(soci::use(signatory));
 
       auto msg = [&] {
-        return (boost::format("failed to insert account signatory, account id: "
-                              "'%s', signatory hex string: '%s")
-                % account_id % signatory.hex())
-            .str();
+        return fmt::format(
+            "failed to insert account signatory, "
+            "account id: '{}', signatory hex string: '{}",
+            account_id,
+            std::string_view{signatory});
       };
       return execute(st, msg);
     }
 
     WsvCommandResult PostgresWsvCommand::deleteAccountSignatory(
         const shared_model::interface::types::AccountIdType &account_id,
-        const shared_model::interface::types::PubkeyType &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
           << "DELETE FROM account_has_signatory WHERE account_id = "
-             ":account_id AND public_key = :pk";
+             ":account_id AND public_key = lower(:pk)";
       st.exchange(soci::use(account_id));
-      st.exchange(soci::use(signatory.hex()));
+      st.exchange(soci::use(signatory));
 
       auto msg = [&] {
-        return (boost::format("failed to delete account signatory, account id: "
-                              "'%s', signatory hex string: '%s'")
-                % account_id % signatory.hex())
-            .str();
+        return fmt::format(
+            "failed to delete account signatory, "
+            "account id: '{}', signatory hex string: '{}'",
+            account_id,
+            std::string_view{signatory});
       };
       return execute(st, msg);
     }
 
     WsvCommandResult PostgresWsvCommand::deleteSignatory(
-        const shared_model::interface::types::PubkeyType &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
-          << "DELETE FROM signatory WHERE public_key = :pk AND NOT EXISTS "
-             "(SELECT 1 FROM account_has_signatory "
-             "WHERE public_key = :pk) AND NOT EXISTS (SELECT 1 FROM peer "
-             "WHERE public_key = :pk)";
-      st.exchange(soci::use(signatory.hex(), "pk"));
+          << "DELETE FROM signatory WHERE public_key = lower(:pk) AND NOT "
+             "EXISTS (SELECT 1 FROM account_has_signatory WHERE public_key = "
+             "lower(:pk)) AND NOT EXISTS (SELECT 1 FROM peer WHERE public_key "
+             "= lower(:pk))";
+      st.exchange(soci::use(signatory, "pk"));
 
       auto msg = [&] {
-        return (boost::format(
-                    "failed to delete signatory, signatory hex string: '%s'")
-                % signatory.hex())
-            .str();
+        return fmt::format("failed to delete signatory '{}'",
+                           std::string_view{signatory});
       };
       return execute(st, msg);
     }
@@ -315,8 +315,8 @@ namespace iroha {
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
           << "INSERT INTO peer(public_key, address, tls_certificate)"
-             " VALUES (:pk, :address, :tls_certificate)";
-      st.exchange(soci::use(peer.pubkey().hex()));
+             " VALUES (lower(:pk), :address, :tls_certificate)";
+      st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
       st.exchange(soci::use(peer.tlsCertificate()));
 
@@ -329,15 +329,16 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::deletePeer(
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
-          << "DELETE FROM peer WHERE public_key = :pk AND address = :address";
-      st.exchange(soci::use(peer.pubkey().hex()));
+          << "DELETE FROM peer WHERE public_key = lower(:pk) AND address = "
+             ":address";
+      st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
 
       auto msg = [&] {
-        return (boost::format(
-                    "failed to delete peer, public key: '%s', address: '%s'")
-                % peer.pubkey().hex() % peer.address())
-            .str();
+        return fmt::format(
+            "failed to delete peer, public key: '{}', address: '{}'",
+            peer.pubkey(),
+            peer.address());
       };
       return execute(st, msg);
     }
@@ -406,6 +407,21 @@ namespace iroha {
       };
 
       return execute(st, msg);
+    }
+
+    WsvCommandResult PostgresWsvCommand::setTopBlockInfo(
+        const TopBlockInfo &top_block_info) const {
+      try {
+        sql_ << "insert into top_block_info (height, hash) "
+                "values (:height, :hash) "
+                "on conflict (lock) do update "
+                "set height = :height, hash = :hash;",
+            soci::use(top_block_info.height, "height"),
+            soci::use(top_block_info.top_hash.hex(), "hash");
+        return expected::Value<void>{};
+      } catch (std::exception &e) {
+        return fmt::format("Failed to set top_block_info: {}.", e.what());
+      }
     }
   }  // namespace ametsuchi
 }  // namespace iroha

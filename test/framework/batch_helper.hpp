@@ -6,6 +6,7 @@
 #ifndef IROHA_BATCH_HELPER_HPP
 #define IROHA_BATCH_HELPER_HPP
 
+#include <boost/move/iterator.hpp>
 #include <boost/range/irange.hpp>
 
 #include "framework/result_fixture.hpp"
@@ -13,6 +14,7 @@
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "validators/default_validator.hpp"
 

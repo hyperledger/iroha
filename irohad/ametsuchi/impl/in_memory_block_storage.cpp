@@ -13,12 +13,12 @@ bool InMemoryBlockStorage::insert(
   return block_store_.emplace(height, std::move(block)).second;
 }
 
-boost::optional<std::shared_ptr<const shared_model::interface::Block>>
+boost::optional<std::unique_ptr<shared_model::interface::Block>>
 InMemoryBlockStorage::fetch(
     shared_model::interface::types::HeightType height) const {
   auto it = block_store_.find(height);
   if (it != block_store_.end()) {
-    return it->second;
+    return clone(*(it->second));
   } else {
     return boost::none;
   }

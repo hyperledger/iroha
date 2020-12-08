@@ -37,12 +37,13 @@ namespace shared_model {
 
       FactoryResult<std::unique_ptr<interface::Peer>> createPeer(
           const interface::types::AddressType &address,
-          const interface::types::PubkeyType &public_key,
+          interface::types::PublicKeyHexStringView public_key,
           const std::optional<interface::types::TLSCertificateType>
               &tls_certificate = std::nullopt) override {
         iroha::protocol::Peer peer;
         peer.set_address(address);
-        peer.set_peer_key(public_key.hex());
+        std::string_view const &public_key_string{public_key};
+        peer.set_peer_key(public_key_string.data(), public_key_string.size());
         if (tls_certificate) {
           peer.set_tls_certificate(*tls_certificate);
         }
@@ -124,11 +125,14 @@ namespace shared_model {
       }
 
       FactoryResult<std::unique_ptr<interface::Signature>> createSignature(
-          const interface::types::PubkeyType &key,
-          const interface::Signature::SignedType &signed_data) override {
+          interface::types::PublicKeyHexStringView key,
+          interface::types::SignedHexStringView signed_data) override {
         iroha::protocol::Signature signature;
-        signature.set_public_key(key.hex());
-        signature.set_signature(signed_data.hex());
+        std::string_view const &public_key_string{key};
+        signature.set_public_key(public_key_string.data(),
+                                 public_key_string.size());
+        std::string_view const &signed_string{signed_data};
+        signature.set_signature(signed_string.data(), signed_string.size());
 
         auto proto_singature =
             std::make_unique<Signature>(std::move(signature));

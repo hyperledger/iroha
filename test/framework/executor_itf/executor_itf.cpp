@@ -21,6 +21,8 @@ using namespace common_constants;
 using namespace iroha::expected;
 
 namespace {
+  static char const *kOrphanTxHash = "orphan tx hash";
+
   logger::LoggerManagerTreePtr getDefaultLogManager() {
     return getTestLoggerManager()->getChild("ExecutorITF");
   }
@@ -47,6 +49,7 @@ ExecutorItf::ExecutorItf(std::shared_ptr<CommandExecutor> cmd_executor,
       cmd_executor_(std::move(cmd_executor)),
       tx_executor_(std::make_unique<TransactionExecutor>(cmd_executor_)),
       query_executor_(std::move(query_executor)),
+      orphan_cmd_counter_(0),
       query_counter_(0) {}
 
 ExecutorItf::~ExecutorItf() {
@@ -69,7 +72,8 @@ CommandResult ExecutorItf::executeCommandAsAccount(
     const shared_model::interface::Command &cmd,
     const std::string &account_id,
     bool do_validation) const {
-  return cmd_executor_->execute(cmd, account_id, do_validation);
+  return cmd_executor_->execute(
+      cmd, account_id, kOrphanTxHash, orphan_cmd_counter_++, do_validation);
 }
 
 Result<void, TxExecutionError> ExecutorItf::executeTransaction(
@@ -103,7 +107,7 @@ CommandResult ExecutorItf::createRoleWithPerms(
 CommandResult ExecutorItf::createUserWithPerms(
     const std::string &account_name,
     const std::string &domain,
-    const shared_model::crypto::PublicKey &pubkey,
+    shared_model::interface::types::PublicKeyHexStringView pubkey,
     const shared_model::interface::RolePermissionSet &role_perms) const {
   return createUserWithPermsInternal(account_name, domain, pubkey, role_perms) |
       [&, this] { return this->grantAllToAdmin(account_name + "@" + domain); };
@@ -145,7 +149,7 @@ CommandResult ExecutorItf::grantAllToAdmin(
 CommandResult ExecutorItf::createUserWithPermsInternal(
     const std::string &account_name,
     const std::string &domain,
-    const shared_model::crypto::PublicKey &pubkey,
+    shared_model::interface::types::PublicKeyHexStringView pubkey,
     const shared_model::interface::RolePermissionSet &role_perms) const {
   createDomain(domain);
 
@@ -175,6 +179,10 @@ Result<void, std::string> ExecutorItf::prepareState() const {
 CommandResult ExecutorItf::createAdmin() const {
   shared_model::interface::RolePermissionSet all_role_perms;
   all_role_perms.setAll();
+  using shared_model::interface::types::PublicKeyHexStringView;
   return createUserWithPermsInternal(
-      kAdminName, kDomain, kAdminKeypair.publicKey(), all_role_perms);
+      kAdminName,
+      kDomain,
+      PublicKeyHexStringView{kAdminKeypair.publicKey()},
+      all_role_perms);
 }

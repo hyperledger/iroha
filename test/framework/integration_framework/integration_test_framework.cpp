@@ -25,7 +25,6 @@
 #include "builders/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction_sequence_builder.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "datetime/time.hpp"
 #include "endpoint.grpc.pb.h"
@@ -63,6 +62,8 @@
 using namespace shared_model::crypto;
 using namespace std::literals::string_literals;
 using namespace common_constants;
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 using AlwaysValidProtoCommonObjectsFactory =
     shared_model::proto::ProtoCommonObjectsFactory<
@@ -136,6 +137,7 @@ namespace integration_framework {
   IntegrationTestFramework::IntegrationTestFramework(
       size_t maximum_proposal_size,
       const boost::optional<std::string> &dbname,
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
       bool cleanup_on_exit,
       bool mst_support,
       const boost::optional<std::string> block_store_path,
@@ -164,6 +166,7 @@ namespace integration_framework {
                                             internal_port_,
                                             log_manager_->getChild("Irohad"),
                                             log_,
+                                            startup_wsv_data_policy,
                                             dbname)),
         command_client_(std::make_unique<torii::CommandSyncClient>(
             iroha::network::createClient<iroha::protocol::CommandService_v1>(
@@ -253,6 +256,9 @@ namespace integration_framework {
             ->getChild("at " + format_address(kLocalHost, port)));
     fake_peer->initialize();
     fake_peers_.emplace_back(fake_peer);
+    log_->debug("Added a fake peer at {} with {}.",
+                fake_peer->getAddress(),
+                fake_peer->getKeypair().publicKey());
     return fake_peer;
   }
 
@@ -278,11 +284,12 @@ namespace integration_framework {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer(getAddress(), key.publicKey())
+            .addPeer(getAddress(), PublicKeyHexStringView{key.publicKey()})
             .createRole(kAdminRole, all_perms)
             .createRole(kDefaultRole, {})
             .createDomain(kDomain, kDefaultRole)
-            .createAccount(kAdminName, kDomain, key.publicKey())
+            .createAccount(
+                kAdminName, kDomain, PublicKeyHexStringView{key.publicKey()})
             .detachRole(kAdminId, kDefaultRole)
             .appendRole(kAdminId, kAdminRole)
             .createAsset(kAssetName, kDomain, 1)
@@ -290,7 +297,8 @@ namespace integration_framework {
     // add fake peers
     for (const auto &fake_peer : fake_peers_) {
       genesis_tx_builder = genesis_tx_builder.addPeer(
-          fake_peer->getAddress(), fake_peer->getKeypair().publicKey());
+          fake_peer->getAddress(),
+          PublicKeyHexStringView{fake_peer->getKeypair().publicKey()});
     };
     auto genesis_tx =
         genesis_tx_builder.build().signAndAddSignature(key).finish();
@@ -358,8 +366,9 @@ namespace integration_framework {
     log_->info("init state");
     my_key_ = keypair;
     this_peer_ =
-        framework::expected::val(common_objects_factory_->createPeer(
-                                     getAddress(), keypair.publicKey()))
+        framework::expected::val(
+            common_objects_factory_->createPeer(
+                getAddress(), PublicKeyHexStringView{keypair.publicKey()}))
             .value()
             .value;
     iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
@@ -682,8 +691,7 @@ namespace integration_framework {
   }
 
   IntegrationTestFramework &IntegrationTestFramework::sendMstState(
-      const shared_model::crypto::PublicKey &src_key,
-      const iroha::MstState &mst_state) {
+      PublicKeyHexStringView src_key, const iroha::MstState &mst_state) {
     iroha::network::sendStateAsync(
         *this_peer_, mst_state, src_key, *async_call_);
     return *this;

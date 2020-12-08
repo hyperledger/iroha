@@ -8,6 +8,8 @@
 
 #include <string>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 #include "common/result_fwd.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
@@ -37,6 +39,23 @@ struct IrohadConfig {
     PeerCertProvider peer_certificates;
   };
 
+  struct UtilityService {
+    std::string ip;
+    uint16_t port;
+  };
+
+  struct DataModelModule {
+    struct Python {
+      std::vector<std::string> python_paths;
+      std::string module_name;
+      std::string initialization_argument;
+    };
+
+    using ModuleType = std::variant<Python>;
+
+    ModuleType module;
+  };
+
   // TODO: block_store_path is now optional, change docs IR-576
   // luckychess 29.06.2019
   boost::optional<std::string> block_store_path;
@@ -57,6 +76,8 @@ struct IrohadConfig {
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   boost::optional<shared_model::interface::types::PeerList> initial_peers;
+  boost::optional<UtilityService> utility_service;
+  boost::optional<std::vector<DataModelModule>> data_model_modules;
 };
 
 /**

@@ -78,4 +78,10 @@ if (EXISTS "${PROJECT_SOURCE_DIR}/.git")
   endif()
 endif()
 
-target_compile_definitions(irohad_version PRIVATE -DGIT_REPO_PRETTY_VER="${GIT_REPO_PRETTY_VER}")
+target_compile_definitions(irohad_version
+  PRIVATE
+    -DGIT_REPO_PRETTY_VER="${GIT_REPO_PRETTY_VER}"
+    -DIROHA_MAJOR_VERSION=${PROJECT_VERSION_MAJOR}
+    -DIROHA_MINOR_VERSION=${PROJECT_VERSION_MINOR}
+    -DIROHA_PATCH_VERSION=${PROJECT_VERSION_PATCH}
+  )

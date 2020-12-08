@@ -16,6 +16,8 @@ target_link_libraries(executor_fixture_param_postgres
     ametsuchi
     executor_fixture_param
     GTest::gmock
+    postgres_burrow_storage
+    postgres_indexer
     shared_model_proto_backend
     test_db_manager
     test_logger
@@ -49,6 +51,14 @@ target_link_libraries(add_asset_qty_test
 
 addtest(add_signatory_test add_signatory_test.cpp)
 target_link_libraries(add_signatory_test
+    command_permission_test
+    common_test_constants
+    executor_fixture
+    executor_fixture_param_provider
+    )
+
+addtest(call_engine_test call_engine_test.cpp)
+target_link_libraries(call_engine_test
     command_permission_test
     common_test_constants
     executor_fixture
@@ -101,6 +111,16 @@ target_link_libraries(get_account_test
     executor_fixture_param_provider
     common_test_constants
     query_permission_test
+    )
+
+addtest(get_engine_receipts_test get_engine_receipts_test.cpp)
+target_link_libraries(get_engine_receipts_test
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    query_permission_test
+    schema
+    shared_model_proto_backend
     )
 
 add_library(query_permission_test query_permission_test.cpp)

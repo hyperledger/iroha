@@ -41,10 +41,13 @@ namespace shared_model {
 
       const interface::types::HashType &reducedHash() const override;
 
-      bool addSignature(const crypto::Signed &signed_blob,
-                        const crypto::PublicKey &public_key) override;
+      bool addSignature(
+          interface::types::SignedHexStringView signed_blob,
+          interface::types::PublicKeyHexStringView public_key) override;
 
       const interface::types::HashType &hash() const override;
+
+      std::unique_ptr<interface::Transaction> moveTo() override;
 
       const TransportType &getTransport() const;
 

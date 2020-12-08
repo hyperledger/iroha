@@ -8,10 +8,10 @@
 
 #include <memory>
 #include <mutex>
+
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
 

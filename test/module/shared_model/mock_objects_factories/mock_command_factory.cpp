@@ -48,24 +48,24 @@ namespace shared_model {
 
     MockCommandFactory::FactoryResult<MockRemovePeer>
     MockCommandFactory::constructRemovePeer(
-        const types::PubkeyType &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockRemovePeer>(
           [&pubkey](FactoryResult<MockRemovePeer> specific_cmd_mock) {
             ON_CALL(*specific_cmd_mock, pubkey())
-                .WillByDefault(ReturnRefOfCopy(pubkey));
+                .WillByDefault(ReturnRefOfCopy(std::string{pubkey}));
             return specific_cmd_mock;
           });
     }
 
     MockCommandFactory::FactoryResult<MockAddSignatory>
     MockCommandFactory::constructAddSignatory(
-        const types::PubkeyType &pubkey,
+        types::PublicKeyHexStringView pubkey,
         const types::AccountIdType &account_id) const {
       return createFactoryResult<MockAddSignatory>(
           [&pubkey,
            &account_id](FactoryResult<MockAddSignatory> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+                .WillRepeatedly(ReturnRefOfCopy(std::string{pubkey}));
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             return specific_cmd_mock;
@@ -91,7 +91,7 @@ namespace shared_model {
     MockCommandFactory::constructCreateAccount(
         const types::AccountNameType &account_name,
         const types::DomainIdType &domain_id,
-        const types::PubkeyType &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockCreateAccount>(
           [&account_name, &domain_id, &pubkey](
               FactoryResult<MockCreateAccount> specific_cmd_mock) {
@@ -100,7 +100,7 @@ namespace shared_model {
             EXPECT_CALL(*specific_cmd_mock, domainId())
                 .WillRepeatedly(ReturnRefOfCopy(domain_id));
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+                .WillRepeatedly(ReturnRefOfCopy(std::string{pubkey}));
             return specific_cmd_mock;
           });
     }
@@ -203,14 +203,14 @@ namespace shared_model {
     MockCommandFactory::FactoryResult<MockRemoveSignatory>
     MockCommandFactory::constructRemoveSignatory(
         const types::AccountIdType &account_id,
-        const types::PubkeyType &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockRemoveSignatory>(
           [&account_id,
            &pubkey](FactoryResult<MockRemoveSignatory> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+                .WillRepeatedly(ReturnRefOfCopy(std::string{pubkey}));
             return specific_cmd_mock;
           });
     }
@@ -320,16 +320,18 @@ namespace shared_model {
         const shared_model::interface::types::AccountDetailValueType &cmd_value,
         const std::optional<
             shared_model::interface::types::AccountDetailValueType>
-            cmd_old_value) const {
+            cmd_old_value,
+        bool check_empty) const {
       return createFactoryResult<MockCompareAndSetAccountDetail>(
-          [&account_id, &cmd_key, &cmd_value, &cmd_old_value](
-              FactoryResult<MockCompareAndSetAccountDetail> specific_cmd_mock) {
+          [&](FactoryResult<MockCompareAndSetAccountDetail> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             EXPECT_CALL(*specific_cmd_mock, key())
                 .WillRepeatedly(ReturnRefOfCopy(cmd_key));
             EXPECT_CALL(*specific_cmd_mock, value())
                 .WillRepeatedly(ReturnRefOfCopy(cmd_value));
+            EXPECT_CALL(*specific_cmd_mock, checkEmpty())
+                .WillRepeatedly(Return(check_empty));
             EXPECT_CALL(*specific_cmd_mock, oldValue())
                 .WillRepeatedly(Return(cmd_old_value));
 

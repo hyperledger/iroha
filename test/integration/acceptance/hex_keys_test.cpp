@@ -7,14 +7,15 @@
 
 #include <boost/algorithm/string.hpp>
 #include "backend/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "datetime/time.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model;
 using namespace shared_model::crypto;
+using namespace shared_model::interface::types;
 using namespace integration_framework;
 
 struct HexKeys : public AcceptanceFixture {
@@ -35,35 +36,38 @@ struct HexKeys : public AcceptanceFixture {
   }
 
   auto addSignatory(
-      std::string key,
+      PublicKeyHexStringView key,
       interface::types::TimestampType time,
       interface::types::AccountIdType user_id = common_constants::kUserId) {
-    return AcceptanceFixture::baseTx().createdTime(time).addSignatoryRaw(
-        user_id, key);
+    return AcceptanceFixture::baseTx().createdTime(time).addSignatory(user_id,
+                                                                      key);
   }
 
   auto removeSignatory(
-      std::string key,
+      PublicKeyHexStringView key,
       interface::types::TimestampType time,
       interface::types::AccountIdType user_id = common_constants::kUserId) {
-    return AcceptanceFixture::baseTx().createdTime(time).removeSignatoryRaw(
+    return AcceptanceFixture::baseTx().createdTime(time).removeSignatory(
         user_id, key);
   }
 
-  auto createAccount(std::string key, interface::types::TimestampType time) {
-    return AcceptanceFixture::baseTx().createdTime(time).createAccountRaw(
+  auto createAccount(PublicKeyHexStringView key,
+                     interface::types::TimestampType time) {
+    return AcceptanceFixture::baseTx().createdTime(time).createAccount(
         common_constants::kSecondUser, common_constants::kDomain, key);
   }
 
-  auto addPeer(std::string key, interface::types::TimestampType time) {
+  auto addPeer(PublicKeyHexStringView key,
+               interface::types::TimestampType time) {
     const auto imaginary_address = "192.168.23.149:50051";
-    return AcceptanceFixture::baseTx().createdTime(time).addPeerRaw(
+    return AcceptanceFixture::baseTx().createdTime(time).addPeer(
         imaginary_address, key);
   }
 
-  auto composeKeypairFromHex(std::string public_key, std::string private_key) {
+  auto composeKeypairFromHex(PublicKeyHexStringView public_key,
+                             std::string private_key) {
     return crypto::Keypair(
-        crypto::PublicKey(crypto::Blob::fromHexString(public_key)),
+        public_key,
         crypto::PrivateKey(crypto::Blob::fromHexString(private_key)));
   }
 
@@ -71,27 +75,26 @@ struct HexKeys : public AcceptanceFixture {
   Keypair anotherKeypair = DefaultCryptoAlgorithmType::generateKeypair();
 
   const std::string kLowercasedPublicKey = [this]() {
-    std::string result = keypair.publicKey().hex();
+    std::string result{keypair.publicKey()};
     std::transform(result.begin(), result.end(), result.begin(), [](char c) {
       return std::tolower(c);
     });
 
     return result;
   }();
+  PublicKeyHexStringView kLowercasedPublicKeyView{kLowercasedPublicKey};
 
   const std::string kUppercasedPublicKey = [this]() {
-    std::string result = keypair.publicKey().hex();
+    std::string result{keypair.publicKey()};
     std::transform(result.begin(), result.end(), result.begin(), [](char c) {
       return std::toupper(c);
     });
 
     return result;
   }();
+  PublicKeyHexStringView kUppercasedPublicKeyView{kUppercasedPublicKey};
 
   const std::string kPrivateKey = keypair.privateKey().hex();
-
-  const std::string kAnotherPublicKey = anotherKeypair.publicKey().hex();
-  const std::string kAnotherPrivateKey = anotherKeypair.privateKey().hex();
 
   const interface::types::TimestampType kNow;
 };
@@ -102,8 +105,8 @@ struct HexKeys : public AcceptanceFixture {
  * @then only first attempt to add the key succeeds
  */
 TEST_F(HexKeys, AddSignatory) {
-  auto tx1 = complete(addSignatory(kLowercasedPublicKey, kNow));
-  auto tx2 = complete(addSignatory(kUppercasedPublicKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kLowercasedPublicKeyView, kNow));
+  auto tx2 = complete(addSignatory(kUppercasedPublicKeyView, kNow + 1));
   auto hash1 = tx1.hash();
   auto hash2 = tx2.hash();
 
@@ -129,8 +132,8 @@ TEST_F(HexKeys, AddSignatory) {
  * @then only first attempt to add the key succeeds
  */
 TEST_F(HexKeys, AddSignatoryReverse) {
-  auto tx1 = complete(addSignatory(kUppercasedPublicKey, kNow));
-  auto tx2 = complete(addSignatory(kLowercasedPublicKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kUppercasedPublicKeyView, kNow));
+  auto tx2 = complete(addSignatory(kLowercasedPublicKeyView, kNow + 1));
   auto hash1 = tx1.hash();
   auto hash2 = tx2.hash();
 
@@ -152,8 +155,8 @@ TEST_F(HexKeys, AddSignatoryReverse) {
  * @then the signatory can be removed using lowercased key string
  */
 TEST_F(HexKeys, RemoveSignatoryUl) {
-  auto tx1 = complete(addSignatory(kUppercasedPublicKey, kNow));
-  auto tx2 = complete(removeSignatory(kLowercasedPublicKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kUppercasedPublicKeyView, kNow));
+  auto tx2 = complete(removeSignatory(kLowercasedPublicKeyView, kNow + 1));
   auto hash2 = tx2.hash();
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
@@ -170,8 +173,8 @@ TEST_F(HexKeys, RemoveSignatoryUl) {
  * @then the signatory can be removed using uppercased key string
  */
 TEST_F(HexKeys, RemoveSignatorylU) {
-  auto tx1 = complete(addSignatory(kLowercasedPublicKey, kNow));
-  auto tx2 = complete(removeSignatory(kUppercasedPublicKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kLowercasedPublicKeyView, kNow));
+  auto tx2 = complete(removeSignatory(kUppercasedPublicKeyView, kNow + 1));
   auto hash2 = tx2.hash();
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
@@ -190,20 +193,22 @@ TEST_F(HexKeys, RemoveSignatorylU) {
  */
 TEST_F(HexKeys, CreateAccountUl) {
   auto user = common_constants::kSameDomainUserId;
-  auto keypair = composeKeypairFromHex(kLowercasedPublicKey, kPrivateKey);
+  auto keypair = composeKeypairFromHex(kLowercasedPublicKeyView, kPrivateKey);
 
   // kUserId creates kSameDomainUserId and appends the role with test
   // permissions
-  auto tx1 = complete(createAccount(kUppercasedPublicKey, kNow)
+  auto tx1 = complete(createAccount(kUppercasedPublicKeyView, kNow)
                           .appendRole(user, common_constants::kRole));
 
   // kSameDomainUserId adds one more key to own account
   auto tx2 = complete(
-      addSignatory(kAnotherPublicKey, kNow + 1, user).creatorAccountId(user),
+      addSignatory(
+          PublicKeyHexStringView{anotherKeypair.publicKey()}, kNow + 1, user)
+          .creatorAccountId(user),
       keypair);
 
   // kSameDomainUserId removes the initial key specifing it in other font case
-  auto tx3 = complete(removeSignatory(kLowercasedPublicKey, kNow + 2, user)
+  auto tx3 = complete(removeSignatory(kLowercasedPublicKeyView, kNow + 2, user)
                           .creatorAccountId(user),
                       keypair);
 
@@ -224,21 +229,23 @@ TEST_F(HexKeys, CreateAccountUl) {
  */
 TEST_F(HexKeys, CreateAccountlU) {
   auto user = common_constants::kSameDomainUserId;
-  auto keypair = composeKeypairFromHex(kUppercasedPublicKey, kPrivateKey);
+  auto keypair = composeKeypairFromHex(kUppercasedPublicKeyView, kPrivateKey);
 
   // kUserId creates kSameDomainUserId and appends the role with test
   // permissions
-  auto tx1 = complete(createAccount(kLowercasedPublicKey, kNow)
+  auto tx1 = complete(createAccount(kLowercasedPublicKeyView, kNow)
                           .appendRole(user, common_constants::kRole));
 
   // kSameDomainUserId adds one more key to own account
   auto tx2 = complete(
-      addSignatory(kAnotherPublicKey, kNow + 1, user).creatorAccountId(user),
+      addSignatory(
+          PublicKeyHexStringView{anotherKeypair.publicKey()}, kNow + 1, user)
+          .creatorAccountId(user),
       keypair);
 
   // kSameDomainUserId removes the initial key specifing it in other font
   // case
-  auto tx3 = complete(removeSignatory(kUppercasedPublicKey, kNow + 2, user)
+  auto tx3 = complete(removeSignatory(kUppercasedPublicKeyView, kNow + 2, user)
                           .creatorAccountId(user),
                       keypair);
 
@@ -254,11 +261,12 @@ TEST_F(HexKeys, CreateAccountlU) {
  * @then the transaction is considered as stateful invalid
  */
 TEST_F(HexKeys, AddPeerSameKeyDifferentCase) {
-  std::string original_key = common_constants::kAdminKeypair.publicKey().hex();
+  std::string original_key{common_constants::kAdminKeypair.publicKey()};
   std::string same_key_uppercased = original_key;
   boost::to_upper(same_key_uppercased);
   ASSERT_NE(original_key, same_key_uppercased);
-  auto tx = complete(addPeer(same_key_uppercased, kNow));
+  auto tx =
+      complete(addPeer(PublicKeyHexStringView{same_key_uppercased}, kNow));
   auto hash = tx.hash();
 
   itf.sendTx(tx)

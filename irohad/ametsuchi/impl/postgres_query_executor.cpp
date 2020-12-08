@@ -8,7 +8,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/size.hpp>
 #include "ametsuchi/specific_query_executor.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
@@ -34,7 +33,7 @@ namespace iroha {
     bool PostgresQueryExecutor::validateSignatures(const Q &query) {
       auto keys_range =
           query.signatures() | boost::adaptors::transformed([](const auto &s) {
-            return s.publicKey().hex();
+            return s.publicKey();
           });
 
       if (boost::size(keys_range) != 1) {

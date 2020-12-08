@@ -5,6 +5,9 @@
 
 syntax = "proto3";
 package iroha.protocol;
+
+option go_package = "iroha.generated/protocol";
+
 import "primitive.proto";
 
 message AddAssetQuantity {
@@ -103,11 +106,30 @@ message CompareAndSetAccountDetail {
     oneof opt_old_value {
         string old_value = 4;
     }
+    bool check_empty = 5;
 }
 
 message SetSettingValue {
     string key = 1;
     string value = 2;
+}
+
+message CallEngine {
+    enum EngineType {
+      kSolidity = 0;
+    }
+    EngineType type = 1;
+    string caller = 2;
+    oneof opt_callee {
+      string callee = 3;  // hex string
+    }
+    string input = 4;  // hex string
+}
+
+message CallModel{
+    message Payload {}
+    Payload payload = 1;
+    DataModelId dm_id = 2;
 }
 
 message Command {
@@ -131,5 +153,7 @@ message Command {
         RemovePeer remove_peer = 17;
         CompareAndSetAccountDetail compare_and_set_account_detail = 18;
         SetSettingValue set_setting_value = 19;
+        CallEngine call_engine = 20;
+        CallModel call_model = 21;
     }
 }

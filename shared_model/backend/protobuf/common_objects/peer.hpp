@@ -12,7 +12,6 @@
 
 #include "backend/protobuf/util.hpp"
 #include "cryptography/hash.hpp"
-#include "cryptography/public_key.hpp"
 #include "primitive.pb.h"
 #include "utils/reference_holder.hpp"
 
@@ -40,14 +39,12 @@ namespace shared_model {
         return tls_certificate_;
       }
 
-      const interface::types::PubkeyType &pubkey() const override {
-        return public_key_;
+      const std::string &pubkey() const override {
+        return proto_->peer_key();
       }
 
      private:
       detail::ReferenceHolder<iroha::protocol::Peer> proto_;
-      const interface::types::PubkeyType public_key_{
-          crypto::Hash::fromHexString(proto_->peer_key())};
       std::optional<std::string> tls_certificate_;
     };
   }  // namespace proto

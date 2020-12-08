@@ -6,18 +6,17 @@
 #ifndef IROHA_MST_STATE_HPP
 #define IROHA_MST_STATE_HPP
 
-#include <algorithm>  // std::for_each
 #include <chrono>
-#include <queue>
 #include <unordered_set>
-#include <vector>
 
 #include <boost/bimap.hpp>
 #include <boost/bimap/multiset_of.hpp>
+#include <boost/bimap/unordered_multiset_of.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
 #include <boost/optional/optional.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/any_range.hpp>
+#include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
@@ -48,18 +47,6 @@ namespace iroha {
                            const TimeType &current_time) const = 0;
 
     virtual ~Completer() = default;
-  };
-
-  /**
-   * Class provides operator() for batch comparison
-   */
-  class BatchHashEquality {
-   public:
-    /**
-     * The function used to compare batches for equality:
-     * check only hashes of batches, without signatures
-     */
-    bool operator()(const DataType &left_tx, const DataType &right_tx) const;
   };
 
   /**
@@ -133,7 +120,7 @@ namespace iroha {
      */
     std::unordered_set<DataType,
                        iroha::model::PointerBatchHasher,
-                       BatchHashEquality>
+                       shared_model::interface::BatchHashEquality>
     getBatches() const;
 
     /**
@@ -148,6 +135,12 @@ namespace iroha {
      * @param current_time - current time
      */
     void eraseExpired(const TimeType &current_time);
+
+    /**
+     * Erase batch by transaction hash
+     */
+    void eraseByTransactionHash(
+        const shared_model::interface::types::HashType &hash);
 
     /**
      * Check, if this MST state contains that element
@@ -179,17 +172,27 @@ namespace iroha {
     using BatchesForwardCollectionType = boost::
         any_range<BatchPtr, boost::forward_traversal_tag, const BatchPtr &>;
 
-    using BatchesBimap = boost::bimap<
-        boost::bimaps::multiset_of<
-            shared_model::interface::types::TimestampType>,
-        boost::bimaps::unordered_set_of<DataType,
-                                        iroha::model::PointerBatchHasher,
-                                        BatchHashEquality>>;
+    using BatchesToHashBimap =
+        boost::bimap<boost::bimaps::unordered_set_of<
+                         shared_model::interface::types::HashType,
+                         shared_model::crypto::Hash::Hasher>,
+                     boost::bimaps::unordered_multiset_of<
+                         DataType,
+                         iroha::model::PointerBatchHasher,
+                         shared_model::interface::BatchHashEquality>>;
 
-    MstState(const CompleterType &completer, logger::LoggerPtr log);
+    using BatchesBimap =
+        boost::bimap<boost::bimaps::multiset_of<
+                         shared_model::interface::types::TimestampType>,
+                     boost::bimaps::unordered_set_of<
+                         DataType,
+                         iroha::model::PointerBatchHasher,
+                         shared_model::interface::BatchHashEquality>>;
 
-    MstState(const CompleterType &completer,
-             const BatchesForwardCollectionType &batches,
+    MstState(CompleterType const &completer, logger::LoggerPtr log);
+
+    MstState(CompleterType const &completer,
+             BatchesForwardCollectionType const &batches,
              logger::LoggerPtr log);
 
     /**
@@ -219,6 +222,7 @@ namespace iroha {
     CompleterType completer_;
 
     BatchesBimap batches_;
+    BatchesToHashBimap batches_to_hash_;
 
     logger::LoggerPtr log_;
   };

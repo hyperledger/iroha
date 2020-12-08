@@ -9,7 +9,6 @@
 #include <gmock/gmock.h>
 #include <boost/variant.hpp>
 #include <optional>
-#include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
@@ -50,11 +49,11 @@ namespace shared_model {
     };
 
     struct MockRemovePeer : public shared_model::interface::RemovePeer {
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
     };
 
     struct MockAddSignatory : public shared_model::interface::AddSignatory {
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
     };
 
@@ -66,7 +65,7 @@ namespace shared_model {
     struct MockCreateAccount : public shared_model::interface::CreateAccount {
       MOCK_CONST_METHOD0(accountName, const types::AccountNameType &());
       MOCK_CONST_METHOD0(domainId, const types::DomainIdType &());
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
     };
 
     struct MockCreateAsset : public shared_model::interface::CreateAsset {
@@ -110,7 +109,7 @@ namespace shared_model {
     struct MockRemoveSignatory
         : public shared_model::interface::RemoveSignatory {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
     };
 
     struct MockRevokePermission
@@ -156,6 +155,7 @@ namespace shared_model {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
       MOCK_CONST_METHOD0(key, const types::AccountDetailKeyType &());
       MOCK_CONST_METHOD0(value, const types::AccountDetailValueType &());
+      MOCK_CONST_METHOD0(checkEmpty, bool());
       MOCK_CONST_METHOD0(oldValue,
                          const std::optional<types::AccountDetailValueType>());
     };

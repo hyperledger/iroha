@@ -8,13 +8,14 @@
 
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "cryptography/keypair.hpp"
 
 #include "interfaces/iroha_internal/block.hpp"
 
 namespace shared_model {
 
   namespace crypto {
-    template <typename Algorithm = CryptoSigner<>>
+    template <typename Algorithm = CryptoSigner>
     class CryptoModelSigner
         : public AbstractCryptoModelSigner<interface::Block> {
      public:
@@ -24,8 +25,10 @@ namespace shared_model {
 
       template <typename T>
       inline void sign(T &signable) const noexcept {
-        auto signedBlob = Algorithm::sign(signable.payload(), keypair_);
-        signable.addSignature(signedBlob, keypair_.publicKey());
+        auto signature_hex = Algorithm::sign(signable.payload(), keypair_);
+        using namespace shared_model::interface::types;
+        signable.addSignature(SignedHexStringView{signature_hex},
+                              PublicKeyHexStringView{keypair_.publicKey()});
       }
 
       void sign(interface::Block &m) const override {
