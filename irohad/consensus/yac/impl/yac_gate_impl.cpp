@@ -39,6 +39,7 @@ namespace iroha {
           std::shared_ptr<HashGate> hash_gate,
           std::shared_ptr<YacPeerOrderer> orderer,
           boost::optional<ClusterOrdering> alternative_order,
+          std::shared_ptr<const LedgerState> ledger_state,
           std::shared_ptr<YacHashProvider> hash_provider,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<consensus::ConsensusResultCache>
@@ -49,6 +50,7 @@ namespace iroha {
           : log_(std::move(log)),
             current_hash_(),
             alternative_order_(std::move(alternative_order)),
+            current_ledger_state_(std::move(ledger_state)),
             published_events_([&] {
               rxcpp::observable<Answer> outcomes = hash_gate->onOutcome();
               rxcpp::observable<Answer> delayed_outcomes = outcomes.concat_map(
