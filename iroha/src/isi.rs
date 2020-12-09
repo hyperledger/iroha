@@ -78,12 +78,11 @@ impl Execute for RegisterBox {
                 }
                 _ => Err("Unsupported instruction.".to_string()),
             },
-            IdBox::PeerId(peer_id) => match self.object {
-                IdentifiableBox::Domain(domain) => Register::<Peer, Domain>::new(*domain, peer_id)
+            IdBox::WorldId => match self.object {
+                IdentifiableBox::Domain(domain) => Register::<World, Domain>::new(*domain, WorldId)
                     .execute(authority, world_state_view),
-                IdentifiableBox::Peer(peer) => {
-                    Register::<Peer, Peer>::new(*peer, peer_id).execute(authority, world_state_view)
-                }
+                IdentifiableBox::Peer(peer) => Register::<World, Peer>::new(*peer, WorldId)
+                    .execute(authority, world_state_view),
                 _ => Err("Unsupported instruction.".to_string()),
             },
             _ => Err("Unsupported instruction.".to_string()),
@@ -110,9 +109,9 @@ impl Execute for UnregisterBox {
                 }
                 _ => Err("Unsupported instruction.".to_string()),
             },
-            IdBox::PeerId(peer_id) => match self.object {
+            IdBox::WorldId => match self.object {
                 IdentifiableBox::Domain(domain) => {
-                    Unregister::<Peer, Domain>::new(*domain, peer_id)
+                    Unregister::<World, Domain>::new(*domain, WorldId)
                         .execute(authority, world_state_view)
                 }
                 _ => Err("Unsupported instruction.".to_string()),
@@ -136,8 +135,8 @@ impl Execute for MintBox {
                 }
                 _ => Err("Unsupported instruction.".to_string()),
             },
-            IdBox::PeerId(peer_id) => match self.object {
-                ValueBox::Parameter(parameter) => Mint::<Peer, Parameter>::new(parameter, peer_id)
+            IdBox::WorldId => match self.object {
+                ValueBox::Parameter(parameter) => Mint::<World, Parameter>::new(parameter, WorldId)
                     .execute(authority, world_state_view),
                 _ => Err("Unsupported instruction.".to_string()),
             },
@@ -325,5 +324,5 @@ impl Execute for Not {
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
     pub use super::Execute;
-    pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, peer::isi::*};
+    pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, world::isi::*};
 }

@@ -96,21 +96,9 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let mut iroha_client = Client::new(&configuration);
     iroha_client
         .submit_all(vec![
-            Register::<Peer, Domain>::new(
-                Domain::new("exchange"),
-                PeerId::new(&configuration.torii_api_url, &configuration.public_key),
-            )
-            .into(),
-            Register::<Peer, Domain>::new(
-                Domain::new("company"),
-                PeerId::new(&configuration.torii_api_url, &configuration.public_key),
-            )
-            .into(),
-            Register::<Peer, Domain>::new(
-                Domain::new("crypto"),
-                PeerId::new(&configuration.torii_api_url, &configuration.public_key),
-            )
-            .into(),
+            Register::<World, Domain>::new(Domain::new("exchange"), WorldId).into(),
+            Register::<World, Domain>::new(Domain::new("company"), WorldId).into(),
+            Register::<World, Domain>::new(Domain::new("crypto"), WorldId).into(),
             Register::<Domain, Account>::new(
                 Account::new(AccountId::new("seller", "company")),
                 Name::from("company"),

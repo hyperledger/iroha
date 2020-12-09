@@ -1,16 +1,14 @@
-//! This module contains `Peer` structure and related implementations and traits implementations.
+//! This module contains `World` related ISI implementations.
 
 use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::*;
 
-/// Iroha Special Instructions module provides `PeerInstruction` enum with all possible types of
-/// Peer related instructions as variants, implementations of generic Iroha Special Instructions
-/// and the `From/Into` implementations to convert `PeerInstruction` variants into generic ISI.
+/// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use super::*;
     use iroha_data_model::prelude::*;
 
-    impl Execute for Register<Peer, Peer> {
+    impl Execute for Register<World, Peer> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -18,7 +16,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             if world_state_view
-                .peer()
+                .world()
                 .trusted_peers_ids
                 .insert(self.object.id)
             {
@@ -29,7 +27,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Register<Peer, Domain> {
+    impl Execute for Register<World, Domain> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -37,33 +35,33 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .peer()
+                .world()
                 .domains
                 .insert(self.object.name.clone(), self.object);
             Ok(world_state_view)
         }
     }
 
-    impl Execute for Unregister<Peer, Domain> {
+    impl Execute for Unregister<World, Domain> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view.peer().domains.remove(&self.object.name);
+            let _ = world_state_view.world().domains.remove(&self.object.name);
             Ok(world_state_view)
         }
     }
 
-    impl Execute for Mint<Peer, Parameter> {
+    impl Execute for Mint<World, Parameter> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            world_state_view.peer().parameters.push(self.object);
+            world_state_view.world().parameters.push(self.object);
             Ok(world_state_view)
         }
     }
@@ -80,7 +78,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             Ok(QueryResult::FindAllPeers(Box::new(FindAllPeersResult {
                 peers: world_state_view
-                    .read_peer()
+                    .read_world()
                     .clone()
                     .trusted_peers_ids
                     .into_iter()
@@ -94,7 +92,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             Ok(QueryResult::FindPeerById(Box::new(FindPeerByIdResult {
                 peer: world_state_view
-                    .read_peer()
+                    .read_world()
                     .clone()
                     .trusted_peers_ids
                     .iter()
@@ -110,7 +108,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             Ok(QueryResult::FindAllParameters(Box::new(
                 FindAllParametersResult {
-                    parameters: world_state_view.read_peer().parameters.clone(),
+                    parameters: world_state_view.read_world().parameters.clone(),
                 },
             )))
         }

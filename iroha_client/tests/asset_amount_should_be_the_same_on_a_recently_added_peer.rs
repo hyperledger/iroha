@@ -22,13 +22,7 @@ mod tests {
         let (peer_ids, addresses) = create_and_start_iroha_peers(N_PEERS);
         thread::sleep(std::time::Duration::from_millis(1000));
         let domain_name = "domain";
-        let create_domain = Register::<Peer, Domain>::new(
-            Domain::new(domain_name),
-            PeerId::new(
-                &configuration.torii_configuration.torii_p2p_url,
-                &configuration.public_key,
-            ),
-        );
+        let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
         let account_name = "account";
         let account_id = AccountId::new(account_name, domain_name);
         let (public_key, _) = configuration.key_pair();
@@ -106,7 +100,7 @@ mod tests {
                 .pipeline_time_ms()
                 * 2,
         ));
-        let add_peer = Register::<Peer, Peer>::new(Peer::new(new_peer.clone()), new_peer.clone());
+        let add_peer = Register::<World, Peer>::new(Peer::new(new_peer.clone()), WorldId);
         iroha_client
             .submit(add_peer.into())
             .expect("Failed to add new peer.");

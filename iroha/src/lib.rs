@@ -32,13 +32,13 @@ mod kura;
 pub mod maintenance;
 mod merkle;
 pub mod modules;
-pub mod peer;
 pub mod permissions;
 pub mod query;
 mod queue;
 pub mod sumeragi;
 pub mod torii;
 pub mod tx;
+pub mod world;
 pub mod wsv;
 
 use crate::{
@@ -115,11 +115,7 @@ impl Iroha {
         let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
-        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-            PeerId::new(
-                &config.torii_configuration.torii_p2p_url,
-                &config.public_key,
-            ),
+        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(World::with(
             init::domains(&config.init_configuration),
             config.sumeragi_configuration.trusted_peers.clone(),
         ))));

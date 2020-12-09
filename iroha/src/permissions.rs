@@ -232,10 +232,7 @@ mod tests {
         let account_bob = <Account as Identifiable>::Id::new("bob", "test");
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let wsv = WorldStateView::new(Peer::new(<Peer as Identifiable>::Id::new(
-            "127.0.0.1:7878",
-            &key_pair.public_key,
-        )));
+        let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check_instruction(account_bob.clone(), instruction_greater.clone(), &wsv)
             .is_err());
@@ -267,10 +264,7 @@ mod tests {
         }));
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let wsv = WorldStateView::new(Peer::new(<Peer as Identifiable>::Id::new(
-            "127.0.0.1:7878",
-            &key_pair.public_key,
-        )));
+        let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
             .is_ok());
