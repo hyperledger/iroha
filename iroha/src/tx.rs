@@ -184,13 +184,7 @@ mod tests {
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
-                &WorldStateView::new(Peer::with(
-                    PeerId {
-                        address: "127.0.0.1:8080".to_string(),
-                        public_key: KeyPair::generate()
-                            .expect("Failed to generate KeyPair.")
-                            .public_key,
-                    },
+                &WorldStateView::new(World::with(
                     init::domains(&InitConfiguration {
                         root_public_key: root_key_pair.public_key.clone(),
                         genesis_account_public_key: genesis_key_pair.public_key.clone(),

@@ -108,7 +108,7 @@ impl Sumeragi {
             .world_state_view
             .read()
             .await
-            .peer
+            .read_world()
             .trusted_peers_ids
             .clone();
         self.network_topology
@@ -1521,8 +1521,7 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                ids[i].clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                     genesis_account_public_key: genesis_key_pair.public_key.clone(),
@@ -1650,8 +1649,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                ids[i].clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                     genesis_account_public_key: genesis_key_pair.public_key.clone(),
@@ -1802,8 +1800,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                ids[i].clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                     genesis_account_public_key: genesis_key_pair.public_key.clone(),
@@ -1965,8 +1962,7 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                ids[i].clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                     genesis_account_public_key: genesis_key_pair.public_key.clone(),
@@ -2126,8 +2122,7 @@ mod tests {
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::with(
-                ids[i].clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
                 init::domains(&InitConfiguration {
                     root_public_key: root_key_pair.public_key.clone(),
                     genesis_account_public_key: genesis_key_pair.public_key.clone(),

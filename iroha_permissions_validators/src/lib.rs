@@ -45,14 +45,12 @@ pub mod public_blockchain {
 
         #[test]
         fn transfer_only_owned_assets() {
-            let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-            let peer_id = <Peer as Identifiable>::Id::new("127.0.0.1:7878", &key_pair.public_key);
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
-            let wsv = WorldStateView::new(Peer::new(peer_id));
+            let wsv = WorldStateView::new(World::new());
             let transfer = InstructionBox::Transfer(TransferBox {
                 source_id: IdBox::AssetId(alice_xor_id),
                 object: ValueBox::U32(10),
