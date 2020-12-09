@@ -50,29 +50,29 @@ We use [Hyperledger Ursa](https://github.com/hyperledger/ursa).
 
 ### 2.3. Data Model
 
-Iroha uses a simple data model made up of domains, peers, accounts, assets and signatories,
+Iroha uses a simple data model made up of world with domains, accounts, assets and signatories,
 as shown in the figure below:
 
 ```
-                has one
-   +-------------------------------------+
-   |                                     |
-   |     +-----------------+             |
-   |     |Domain           |             |
-   |     +--------------+  |             |
-   |     ||Asset        |  |             |
-+--+-+   ||Definition(s)|  |             |
-|Peer|   +--------------+  |             |
-+--+-+   |                 |             |
-   |     +------------+    |             |
-   |     ||Account(s)||    | has   +-----v-----+
-   |     |------------------------->Signatories|
-   |     +-----------------+       +-----------+
-   |                       |             |
-   |                       |  has  +--------+
-   |                       +------->Asset(s)|
-   |                               +--------+
-   +-------------------------------------+
+                
+   +-----------------------------------------------+
+   |                                               |
+   |     +-----------------+                       |
+   |     |Domain           |                       |
+   |     +--------------+  |                       |
+   |     ||Asset        |  |                       |
++--+--+  ||Definition(s)|  |                       |
+|World|  +--------------+  |                       |
++--+--+  |                 |                       |
+   |     +------------+    |                       |
+   |     ||Account(s)||    | has   +-----------+   |
+   |     |------------------------->Signatories|   |
+   |     +-----------------+       +-----------+   |
+   |                       |                       |
+   |                       |  has  +--------+      |
+   |                       +------->Asset(s)|      |
+   |                               +--------+      |
+   +-----------------------------------------------+
 ```
 
 ### 2.4. Smart Contracts

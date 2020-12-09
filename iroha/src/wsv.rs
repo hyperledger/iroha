@@ -7,16 +7,15 @@ use iroha_data_model::prelude::*;
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
 pub struct WorldStateView {
-    /// The state of this peer.
-    //TODO: Maybe simply move `Peer` contents to WSV?
-    pub peer: Peer,
+    /// The world - contains `domains`, `triggers`, etc..
+    pub world: World,
 }
 
 /// WARNING!!! INTERNAL USE ONLY!!!
 impl WorldStateView {
     /// Default `WorldStateView` constructor.
-    pub fn new(peer: Peer) -> Self {
-        WorldStateView { peer }
+    pub fn new(world: World) -> Self {
+        WorldStateView { world }
     }
 
     /// Initializes WSV with the blocks from block storage.
@@ -35,39 +34,39 @@ impl WorldStateView {
         }
     }
 
-    /// Get `Peer` without an ability to modify it.
-    pub fn read_peer(&self) -> &Peer {
-        &self.peer
+    /// Get `World` without an ability to modify it.
+    pub fn read_world(&self) -> &World {
+        &self.world
     }
 
-    /// Get `Peer` with an ability to modify it.
-    pub fn peer(&mut self) -> &mut Peer {
-        &mut self.peer
+    /// Get `World` with an ability to modify it.
+    pub fn world(&mut self) -> &mut World {
+        &mut self.world
     }
 
     /// Add new `Domain` entity.
     pub fn add_domain(&mut self, domain: Domain) {
-        let _ = self.peer.domains.insert(domain.name.clone(), domain);
+        let _ = self.world.domains.insert(domain.name.clone(), domain);
     }
 
     /// Get `Domain` without an ability to modify it.
     pub fn read_domain(&self, name: &str) -> Option<&Domain> {
-        self.peer.domains.get(name)
+        self.world.domains.get(name)
     }
 
     /// Get `Domain` with an ability to modify it.
     pub fn domain(&mut self, name: &str) -> Option<&mut Domain> {
-        self.peer.domains.get_mut(name)
+        self.world.domains.get_mut(name)
     }
 
     /// Get all `Domain`s without an ability to modify them.
     pub fn read_all_domains(&self) -> Vec<&Domain> {
-        self.peer.domains.values().collect()
+        self.world.domains.values().collect()
     }
 
     /// Get all `Account`s without an ability to modify them.
     pub fn read_all_accounts(&self) -> Vec<&Account> {
-        self.peer
+        self.world
             .domains
             .values()
             .flat_map(|domain| domain.accounts.values())
@@ -86,7 +85,7 @@ impl WorldStateView {
 
     /// Get all `Asset`s without an ability to modify them.
     pub fn read_all_assets(&self) -> Vec<&Asset> {
-        self.peer
+        self.world
             .domains
             .values()
             .flat_map(|domain| domain.accounts.values())
@@ -96,7 +95,7 @@ impl WorldStateView {
 
     /// Get all `Asset Definition`s without an ability to modify them.
     pub fn read_all_assets_definitions(&self) -> Vec<&AssetDefinition> {
-        self.peer
+        self.world
             .domains
             .values()
             .flat_map(|domain| domain.asset_definitions.values())

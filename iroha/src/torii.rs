@@ -413,10 +413,7 @@ mod tests {
         let (events_sender, events_receiver) = sync::channel(100);
         let mut torii = Torii::from_configuration(
             &config.torii_configuration,
-            Arc::new(RwLock::new(WorldStateView::new(Peer::new(PeerId::new(
-                &config.torii_configuration.torii_p2p_url,
-                &config.public_key,
-            ))))),
+            Arc::new(RwLock::new(WorldStateView::new(World::new()))),
             tx_tx,
             sumeragi_message_sender,
             block_sync_message_sender,
