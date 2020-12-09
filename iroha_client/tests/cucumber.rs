@@ -1,6 +1,6 @@
 use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
-use cucumber_rust::{Cucumber, World};
+use cucumber_rust::{Cucumber, World as CucumberWorld};
 use futures::executor;
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
@@ -23,7 +23,7 @@ pub struct IrohaWorld {
 }
 
 #[async_trait(?Send)]
-impl World for IrohaWorld {
+impl CucumberWorld for IrohaWorld {
     type Error = Infallible;
     async fn new() -> Result<Self, Infallible> {
         let mut configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
@@ -293,10 +293,8 @@ mod domain_steps {
                 |mut world, matches, _step| {
                     let domain_name = matches[1].trim();
                     println!("Going to add domain with name: {}", domain_name);
-                    let add_domain = Register::<Peer, Domain>::new(
-                        Domain::new(domain_name),
-                        world.peer_id.clone(),
-                    );
+                    let add_domain =
+                        Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
                     world
                         .client
                         .submit(add_domain.into())
@@ -550,12 +548,12 @@ mod peer_steps {
                     world
                         .client
                         .submit(
-                            Register::<Peer, Peer>::new (
+                            Register::<World, Peer>::new (
                                 Peer::new(
                                     PeerId::new(
                                         trusted_peer_url,
                                         &public_key)),
-                                        world.peer_id.clone()
+                                        WorldId
                                         )
                             .into(),
                             )

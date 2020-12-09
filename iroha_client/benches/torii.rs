@@ -20,13 +20,7 @@ fn query_requests(criterion: &mut Criterion) {
     let configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new(
-            &configuration.torii_configuration.torii_p2p_url,
-            &configuration.public_key,
-        ),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
     let (public_key, _) = configuration.key_pair();
@@ -96,13 +90,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new(
-            &configuration.torii_configuration.torii_p2p_url,
-            &configuration.public_key,
-        ),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
     let (public_key, _) = configuration.key_pair();

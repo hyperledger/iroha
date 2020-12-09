@@ -22,10 +22,7 @@ mod tests {
             .expect("Failed to load configuration.");
         let mut iroha_client = Client::new(&configuration);
         let domain_name = "domain";
-        let create_domain = Register::<Peer, Domain>::new(
-            Domain::new(domain_name),
-            PeerId::new(&configuration.torii_api_url, &configuration.public_key),
-        );
+        let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
         let account1_name = "account1";
         let account2_name = "account2";
         let account1_id = AccountId::new(account1_name, domain_name);

@@ -60,6 +60,8 @@ pub enum IdBox {
     DomainName(Name),
     /// `PeerId` variant.
     PeerId(peer::Id),
+    /// `World`.
+    WorldId,
 }
 
 /// Sized container for all possible entities.
@@ -75,6 +77,8 @@ pub enum IdentifiableBox {
     Domain(Box<domain::Domain>),
     /// `Peer` variant.
     Peer(Box<peer::Peer>),
+    /// `World`.
+    World,
 }
 
 /// Sized container for all possible values.
@@ -133,6 +137,71 @@ impl From<u32> for ValueBox {
 impl From<Parameter> for ValueBox {
     fn from(value: Parameter) -> ValueBox {
         ValueBox::Parameter(value)
+    }
+}
+
+pub mod world {
+    //! Structures, traits and impls related to `World`.
+
+    use crate::{
+        domain::DomainsMap, isi::InstructionBox, peer::PeersIds, IdBox, Identifiable,
+        IdentifiableBox, Parameter,
+    };
+
+    /// The global entity consisting of `domains`, `triggers` and etc.
+    /// For exmaple registration of domain, will have this as an ISI target.
+    #[derive(Debug, Clone, Default)]
+    pub struct World {
+        /// Registered domains.
+        pub domains: DomainsMap,
+        /// Identifications of discovered trusted peers.
+        pub trusted_peers_ids: PeersIds,
+        /// Iroha `Triggers` registered on the peer.
+        pub triggers: Vec<InstructionBox>,
+        /// Iroha parameters.
+        pub parameters: Vec<Parameter>,
+    }
+
+    impl World {
+        /// Creates an empty `World`.
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Creates `World` with these `domains` and `trusted_peers_ids`
+        pub fn with(domains: DomainsMap, trusted_peers_ids: PeersIds) -> Self {
+            World {
+                domains,
+                trusted_peers_ids,
+                ..World::new()
+            }
+        }
+    }
+
+    /// The ID of the `World`. The `World` has only a single instance, therefore the ID has no fields.
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
+    pub struct WorldId;
+
+    impl From<WorldId> for IdBox {
+        fn from(_: WorldId) -> IdBox {
+            IdBox::WorldId
+        }
+    }
+
+    impl Identifiable for World {
+        type Id = WorldId;
+    }
+
+    impl From<World> for IdentifiableBox {
+        fn from(_: World) -> Self {
+            IdentifiableBox::World
+        }
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub mod prelude {
+
+        pub use super::{World, WorldId};
     }
 }
 
@@ -653,32 +722,20 @@ pub mod domain {
 pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
 
-    use crate::{
-        domain::DomainsMap, isi::InstructionBox, IdBox, Identifiable, IdentifiableBox, Parameter,
-        PublicKey,
-    };
+    use crate::{IdBox, Identifiable, IdentifiableBox, PublicKey};
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeSet;
 
-    type PeersIds = BTreeSet<Id>;
+    /// Ids of peers.
+    pub type PeersIds = BTreeSet<Id>;
 
     /// Peer represents Iroha instance.
     #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Peer {
         /// Peer Identification.
         pub id: Id,
-        /// Address of the peer.
-        pub address: String,
-        /// Registered domains.
-        pub domains: DomainsMap,
-        /// Identifications of discovered trusted peers.
-        pub trusted_peers_ids: PeersIds,
-        /// Iroha `Triggers` registered on the peer.
-        pub triggers: Vec<InstructionBox>,
-        /// Iroha parameters.
-        pub parameters: Vec<Parameter>,
     }
 
     /// Peer's identification.
@@ -695,28 +752,7 @@ pub mod peer {
     impl Peer {
         /// Default `Peer` constructor.
         pub fn new(id: Id) -> Self {
-            let address = id.address.clone();
-            Peer {
-                id,
-                address,
-                domains: DomainsMap::new(),
-                trusted_peers_ids: PeersIds::new(),
-                triggers: Vec::new(),
-                parameters: Vec::new(),
-            }
-        }
-
-        /// Constructor with additional parameters.
-        pub fn with(id: Id, domains: DomainsMap, trusted_peers_ids: PeersIds) -> Self {
-            let address = id.address.clone();
-            Peer {
-                id,
-                address,
-                domains,
-                trusted_peers_ids,
-                triggers: Vec::new(),
-                parameters: Vec::new(),
-            }
+            Peer { id }
         }
     }
 
@@ -838,8 +874,8 @@ pub mod transaction {
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        transaction::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter,
-        Value, ValueBox,
+        transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox,
+        Name, Parameter, Value, ValueBox,
     };
     pub use crate::{isi::prelude::*, query::prelude::*};
 }

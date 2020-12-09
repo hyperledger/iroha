@@ -84,10 +84,7 @@ mod domain {
 
     fn create_domain(domain_name: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
-        let create_domain = Register::<Peer, Domain>::new(
-            Domain::new(domain_name),
-            PeerId::new(&configuration.torii_api_url, &configuration.public_key),
-        );
+        let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
         iroha_client
             .submit(create_domain.into())
             .expect("Failed to create domain.");

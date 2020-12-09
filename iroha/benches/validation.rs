@@ -7,15 +7,7 @@ const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
 fn accept_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new(
-            "127.0.0.1:8080",
-            &KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        ),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let create_account = Register::<Domain, Account>::new(
         Account::with_signatory(
@@ -58,15 +50,7 @@ fn accept_transaction(criterion: &mut Criterion) {
 
 fn sign_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new(
-            "127.0.0.1:8080",
-            &KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        ),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let create_account = Register::<Domain, Account>::new(
         Account::with_signatory(
@@ -109,10 +93,7 @@ fn sign_transaction(criterion: &mut Criterion) {
 fn validate_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new("127.0.0.1:8080", &key_pair.public_key),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let create_account = Register::<Domain, Account>::new(
         Account::with_signatory(
@@ -141,10 +122,10 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    let mut world_state_view = WorldStateView::new(Peer::new(PeerId::new(
-        "127.0.0.1:8080",
-        &key_pair.public_key,
-    )));
+    let mut world_state_view = WorldStateView::new(
+        Peer::new(PeerId::new("127.0.0.1:8080", &key_pair.public_key)),
+        World::new(),
+    );
     criterion.bench_function("validate", |b| {
         b.iter(|| {
             match transaction
@@ -165,10 +146,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 fn chain_blocks(criterion: &mut Criterion) {
     let domain_name = "domain";
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new("127.0.0.1:8080", &key_pair.public_key),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let create_account = Register::<Domain, Account>::new(
         Account::with_signatory(
@@ -213,10 +191,7 @@ fn chain_blocks(criterion: &mut Criterion) {
 fn sign_blocks(criterion: &mut Criterion) {
     let domain_name = "domain";
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new("127.0.0.1:8080", &key_pair.public_key),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let create_account = Register::<Domain, Account>::new(
         Account::with_signatory(
@@ -243,10 +218,10 @@ fn sign_blocks(criterion: &mut Criterion) {
     .expect("Failed to sign.")
     .accept()
     .expect("Failed to accept transaction.");
-    let world_state_view = WorldStateView::new(Peer::new(PeerId::new(
-        "127.0.0.1:8080",
-        &key_pair.public_key,
-    )));
+    let world_state_view = WorldStateView::new(
+        Peer::new(PeerId::new("127.0.0.1:8080", &key_pair.public_key)),
+        World::new(),
+    );
     let block = PendingBlock::new(vec![transaction])
         .chain_first()
         .validate(&world_state_view, &AllowAll.into());
@@ -280,18 +255,14 @@ fn validate_blocks(criterion: &mut Criterion) {
     };
     let mut domains = BTreeMap::new();
     domains.insert(domain_name, domain);
-    let world_state_view = WorldStateView::new(Peer::with(
-        PeerId::new("127.0.0.1:8080", &key_pair.public_key),
-        domains,
-        BTreeSet::new(),
-    ));
+    let world_state_view = WorldStateView::new(
+        Peer::new(PeerId::new("127.0.0.1:8080", &key_pair.public_key)),
+        World::with(domains, BTreeSet::new()),
+    );
     // Pepare test transaction
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let domain_name = "domain";
-    let create_domain = Register::<Peer, Domain>::new(
-        Domain::new(domain_name),
-        PeerId::new("127.0.0.1:8080", &key_pair.public_key),
-    );
+    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
     let account_name = "account";
     let create_account = Register::<Domain, Account>::new(
         Account::with_signatory(
