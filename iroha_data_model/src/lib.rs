@@ -417,9 +417,20 @@ pub mod asset {
     pub type AssetsMap = BTreeMap<Id, Asset>;
     /// `AssetDefinitionsMap` provides an API to work with collection of key (`DefinitionId`) - value
     /// (`AssetDefinition`) pairs.
-    pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinition>;
+    pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinitionEntry>;
     /// Collection of `Bytes` represented parameters and their names.
     pub type Store = BTreeMap<Name, Bytes>;
+
+    /// An entry in `AssetDefinitionsMap`.
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
+    pub struct AssetDefinitionEntry {
+        /// Asset definition.
+        pub definition: AssetDefinition,
+        /// The account that registered this asset.
+        pub registered_by: AccountId,
+    }
 
     /// Asset definition defines type of that asset.
     #[derive(
@@ -619,7 +630,10 @@ pub mod asset {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Asset, AssetDefinition, DefinitionId as AssetDefinitionId, Id as AssetId};
+        pub use super::{
+            Asset, AssetDefinition, AssetDefinitionEntry, DefinitionId as AssetDefinitionId,
+            Id as AssetId,
+        };
     }
 }
 

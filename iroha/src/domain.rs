@@ -50,7 +50,7 @@ pub mod isi {
     impl Execute for Register<Domain, AssetDefinition> {
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
@@ -59,7 +59,13 @@ pub mod isi {
                 .domain(&self.destination_id)
                 .ok_or("Failed to find domain.")?
                 .asset_definitions
-                .insert(asset.id.clone(), asset);
+                .insert(
+                    asset.id.clone(),
+                    AssetDefinitionEntry {
+                        definition: asset,
+                        registered_by: authority,
+                    },
+                );
             Ok(world_state_view)
         }
     }

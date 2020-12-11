@@ -314,7 +314,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAssetsDefinitionsResult {
         /// Assets types which are needed to be included in query result.
-        pub assets_definitions: Vec<AssetDefinition>,
+        pub assets_definitions_entries: Vec<AssetDefinitionEntry>,
     }
 
     /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
