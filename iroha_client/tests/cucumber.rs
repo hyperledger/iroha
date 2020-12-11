@@ -472,16 +472,16 @@ mod query_steps {
                         println!("{:?}", query_result);
                         if let QueryResult::FindAllAssetsDefinitions(result) = query_result {
                             assert!(!result
-                                .assets_definitions
+                                .assets_definitions_entries
                                 .iter()
                                 .filter(|asset_definition| {
-                                    asset_definition.id
+                                    asset_definition.definition.id
                                         == AssetDefinitionId::new(
                                             &asset_definition_name,
                                             &asset_definition_domain,
                                         )
                                 })
-                                .collect::<Vec<&AssetDefinition>>()
+                                .collect::<Vec<&AssetDefinitionEntry>>()
                                 .is_empty());
                         } else {
                             panic!("Wrong Query Result Type.");

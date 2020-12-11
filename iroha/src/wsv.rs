@@ -93,8 +93,8 @@ impl WorldStateView {
             .collect()
     }
 
-    /// Get all `Asset Definition`s without an ability to modify them.
-    pub fn read_all_assets_definitions(&self) -> Vec<&AssetDefinition> {
+    /// Get all `Asset Definition Entry`s without an ability to modify them.
+    pub fn read_all_assets_definitions_entries(&self) -> Vec<&AssetDefinitionEntry> {
         self.world
             .domains
             .values()
@@ -121,19 +121,19 @@ impl WorldStateView {
             .insert(asset.id.clone(), asset);
     }
 
-    /// Get `AssetDefinition` without an ability to modify it.
-    pub fn read_asset_definition(
+    /// Get `AssetDefinitionEntry` without an ability to modify it.
+    pub fn read_asset_definition_entry(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&AssetDefinition> {
+    ) -> Option<&AssetDefinitionEntry> {
         self.read_domain(&id.domain_name)?.asset_definitions.get(id)
     }
 
-    /// Get `AssetDefinition` with an ability to modify it.
-    pub fn asset_definition(
+    /// Get `AssetDefinitionEntry` with an ability to modify it.
+    pub fn asset_definition_entry(
         &mut self,
         id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&mut AssetDefinition> {
+    ) -> Option<&mut AssetDefinitionEntry> {
         self.domain(&id.domain_name)?.asset_definitions.get_mut(id)
     }
 }

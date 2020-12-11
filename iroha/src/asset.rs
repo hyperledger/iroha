@@ -19,7 +19,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
@@ -42,7 +42,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
@@ -65,7 +65,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or(format!(
                     "Failed to find asset definition. {:?}",
                     &self.destination_id.definition_id
@@ -93,7 +93,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
             let asset = world_state_view
                 .asset(&self.destination_id)
@@ -114,7 +114,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
             let asset = world_state_view
                 .asset(&self.destination_id)
@@ -135,7 +135,7 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset definition.")?;
             let asset = world_state_view
                 .asset(&self.destination_id)
@@ -154,10 +154,10 @@ pub mod isi {
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition(&self.source_id.definition_id)
+                .asset_definition_entry(&self.source_id.definition_id)
                 .ok_or("Failed to find asset.")?;
             let _ = world_state_view
-                .asset_definition(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
             match world_state_view.asset(&self.source_id) {
                 Some(asset) => {
@@ -204,13 +204,15 @@ pub mod query {
     impl Query for FindAllAssetsDefinitions {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            let assets_definitions: Vec<AssetDefinition> = world_state_view
-                .read_all_assets_definitions()
+            let assets_definitions_entries: Vec<AssetDefinitionEntry> = world_state_view
+                .read_all_assets_definitions_entries()
                 .into_iter()
                 .cloned()
                 .collect();
             Ok(QueryResult::FindAllAssetsDefinitions(Box::new(
-                FindAllAssetsDefinitionsResult { assets_definitions },
+                FindAllAssetsDefinitionsResult {
+                    assets_definitions_entries,
+                },
             )))
         }
     }
