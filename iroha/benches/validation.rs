@@ -122,10 +122,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    let mut world_state_view = WorldStateView::new(
-        Peer::new(PeerId::new("127.0.0.1:8080", &key_pair.public_key)),
-        World::new(),
-    );
+    let mut world_state_view = WorldStateView::new(World::new());
     criterion.bench_function("validate", |b| {
         b.iter(|| {
             match transaction
@@ -218,10 +215,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     .expect("Failed to sign.")
     .accept()
     .expect("Failed to accept transaction.");
-    let world_state_view = WorldStateView::new(
-        Peer::new(PeerId::new("127.0.0.1:8080", &key_pair.public_key)),
-        World::new(),
-    );
+    let world_state_view = WorldStateView::new(World::new());
     let block = PendingBlock::new(vec![transaction])
         .chain_first()
         .validate(&world_state_view, &AllowAll.into());
@@ -255,10 +249,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     };
     let mut domains = BTreeMap::new();
     domains.insert(domain_name, domain);
-    let world_state_view = WorldStateView::new(
-        Peer::new(PeerId::new("127.0.0.1:8080", &key_pair.public_key)),
-        World::with(domains, BTreeSet::new()),
-    );
+    let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let domain_name = "domain";
