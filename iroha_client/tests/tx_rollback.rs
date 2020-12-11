@@ -65,10 +65,12 @@ mod tests {
             .expect("Failed to execute request.");
         if let QueryResult::FindAllAssetsDefinitions(result) = definition_query_result {
             assert!(result
-                .assets_definitions
+                .assets_definitions_entries
                 .iter()
-                .filter(|asset_definition| asset_definition.id == wrong_asset_definition_id)
-                .collect::<Vec<&AssetDefinition>>()
+                .filter(
+                    |asset_definition| asset_definition.definition.id == wrong_asset_definition_id
+                )
+                .collect::<Vec<&AssetDefinitionEntry>>()
                 .is_empty());
         } else {
             panic!("Wrong Query Result Type.");
