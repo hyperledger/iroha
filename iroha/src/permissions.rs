@@ -12,7 +12,7 @@ pub trait PermissionsValidator {
     /// Checks if the `authority` is allowed to perform `instruction` given the current state of `wsv`.
     fn check_instruction(
         &self,
-        authority: <Account as Identifiable>::Id,
+        authority: AccountId,
         instruction: InstructionBox,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason>;
@@ -38,7 +38,7 @@ impl RecursivePermissionsValidator {
 impl PermissionsValidator for RecursivePermissionsValidator {
     fn check_instruction(
         &self,
-        authority: <Account as Identifiable>::Id,
+        authority: AccountId,
         instruction: InstructionBox,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
@@ -94,7 +94,7 @@ pub struct CombinedPermissionsValidator {
 impl PermissionsValidator for CombinedPermissionsValidator {
     fn check_instruction(
         &self,
-        authority: <Account as Identifiable>::Id,
+        authority: AccountId,
         instruction: InstructionBox,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
@@ -158,7 +158,7 @@ pub struct AllowAll;
 impl PermissionsValidator for AllowAll {
     fn check_instruction(
         &self,
-        _authority: <Account as Identifiable>::Id,
+        _authority: AccountId,
         _instruction: InstructionBox,
         _wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
@@ -188,7 +188,7 @@ mod tests {
     impl PermissionsValidator for DenyGreater {
         fn check_instruction(
             &self,
-            _authority: <Account as Identifiable>::Id,
+            _authority: AccountId,
             instruction: InstructionBox,
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
@@ -204,7 +204,7 @@ mod tests {
     impl PermissionsValidator for DenyAlice {
         fn check_instruction(
             &self,
-            authority: <Account as Identifiable>::Id,
+            authority: AccountId,
             _instruction: InstructionBox,
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
@@ -231,7 +231,6 @@ mod tests {
         }));
         let account_bob = <Account as Identifiable>::Id::new("bob", "test");
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check_instruction(account_bob.clone(), instruction_greater.clone(), &wsv)
@@ -263,7 +262,6 @@ mod tests {
             instruction: instruction_greater.clone(),
         }));
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
