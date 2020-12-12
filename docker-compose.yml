@@ -15,6 +15,7 @@ services:
     ports:
       - "1337:1337"
       - "8080:8080"
+    command: ./iroha --genesis genesis.json
   iroha2:
     depends_on:
       - iroha
