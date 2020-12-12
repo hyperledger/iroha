@@ -111,7 +111,7 @@ impl BlockHeader {
 
     /// Checks if it's a header of a genesis block.
     pub fn is_genesis(&self) -> bool {
-        self.height == 0
+        self.height == 1
     }
 }
 

@@ -1,0 +1,104 @@
+{
+  "transactions": [
+    {
+      "isi": [
+        {
+          "Register": {
+            "object": {
+              "Raw": {
+                "Identifiable": {
+                  "Domain": {
+                    "name": "wonderland",
+                    "accounts": {},
+                    "asset_definitions": {}
+                  }
+                }
+              }
+            },
+            "destination_id": {
+              "Raw": {
+                "Id": "WorldId"
+              }
+            }
+          }
+        },
+        {
+          "Register": {
+            "object": {
+              "Raw": {
+                "Identifiable": {
+                  "Account": {
+                    "id": {
+                      "name": "alice",
+                      "domain_name": "wonderland"
+                    },
+                    "assets": {},
+                    "signatories": [
+                      "ed205a3290a6d3cf8f6f5c6198b5bd3b076b3b71ff3097d3f303da8e177aee6fb05a"
+                    ],
+                    "permissions": []
+                  }
+                }
+              }
+            },
+            "destination_id": {
+              "Raw": {
+                "Id": {
+                  "DomainName": "wonderland"
+                }
+              }
+            }
+          }
+        },
+        {
+          "Register": {
+            "object": {
+              "Raw": {
+                "Identifiable": {
+                  "AssetDefinition": {
+                    "id": {
+                      "name": "rose",
+                      "domain_name": "wonderland"
+                    }
+                  }
+                }
+              }
+            },
+            "destination_id": {
+              "Raw": {
+                "Id": {
+                  "DomainName": "wonderland"
+                }
+              }
+            }
+          }
+        },
+        {
+          "Mint": {
+            "object": {
+              "Raw": {
+                "U32": 13
+              }
+            },
+            "destination_id": {
+              "Raw": {
+                "Id": {
+                  "AssetId": {
+                    "definition_id": {
+                      "name": "rose",
+                      "domain_name": "wonderland"
+                    },
+                    "account_id": {
+                      "name": "alice",
+                      "domain_name": "wonderland"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
