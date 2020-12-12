@@ -323,7 +323,7 @@ impl Iroha {
         sorted_peers: &[PeerId],
         myself_peer_id: &PeerId,
     ) -> Result<(), String> {
-        log::info!("Waiting for active peers");
+        log::info!("Waiting for active peers.");
         let retry_count = 10;
         let retry_duration_ms = 500;
         for peer in sorted_peers.iter() {
@@ -345,29 +345,30 @@ impl Iroha {
                     }
                     Ok(Response::InternalError) => {
                         log::info!(
-                            "Failed to send message - Internal Error on peer: {}",
+                            "Failed to send message - Internal Error on peer: {}.",
                             &peer.address.as_str()
                         );
                         break;
                     }
-                    Err(e) => {
+                    Err(_) => {
+                        let sleep_ms = retry_duration_ms * i;
                         log::info!(
-                            "Try to connect the peer {}, err:{}",
+                            "Retrying to connect the peer {} in {} ms.",
                             &peer.address.as_str(),
-                            e
+                            sleep_ms
                         );
-                        task::sleep(Duration::from_millis(retry_duration_ms * i)).await;
+                        task::sleep(Duration::from_millis(sleep_ms)).await;
                     }
                 }
             }
             if failed_to_connect {
                 return Err(format!(
-                    "Failed to connect the peer {}",
+                    "Failed to connect the peer {}.",
                     peer.address.as_str()
                 ));
             }
         }
-        log::info!("Waiting for active peers finished");
+        log::info!("Waiting for active peers finished.");
         Ok(())
     }
 }

@@ -64,6 +64,8 @@ jobs:
       run: cargo build --verbose
     - name: Setup docker test environment
       run: ./scripts/setup_docker_test_env.sh
+    - name: Docker compose genesis test
+      run: ./scripts/test_genesis_docker_compose.sh
     - name: Docker compose test
       run: ./scripts/test_docker_compose.sh
     - name: Cleanup docker test environment
