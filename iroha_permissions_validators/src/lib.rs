@@ -19,7 +19,7 @@
 )]
 
 use iroha::{
-    permissions::{prelude::*, PermissionsValidator},
+    permissions::{prelude::*, PermissionsValidator, PermissionsValidatorBuilder},
     prelude::*,
 };
 use iroha_data_model::{isi::*, prelude::*};
@@ -27,6 +27,17 @@ use iroha_data_model::{isi::*, prelude::*};
 /// Permission checks asociated with use cases that can be summarized as public blockchains.
 pub mod public_blockchain {
     use super::*;
+
+    /// A preconfigured set of permissions for simple use cases.
+    pub fn default_permissions() -> PermissionsValidatorBox {
+        PermissionsValidatorBuilder::new()
+            .with_recursive_validator(TransferOnlyOwnedAssets.into())
+            .with_recursive_validator(UnregisterOnlyAssetsCreatedByThisAccount.into())
+            .with_recursive_validator(MintOnlyAssetsCreatedByThisAccount.into())
+            .with_recursive_validator(BurnOnlyOwnedAssets.into())
+            .with_recursive_validator(BurnOnlyAssetsCreatedByThisAccount.into())
+            .build()
+    }
 
     /// Checks that account transfers only the assets that he owns.
     #[derive(Debug, Copy, Clone)]
@@ -95,6 +106,12 @@ pub mod public_blockchain {
         }
     }
 
+    impl From<UnregisterOnlyAssetsCreatedByThisAccount> for PermissionsValidatorBox {
+        fn from(_: UnregisterOnlyAssetsCreatedByThisAccount) -> Self {
+            Box::new(UnregisterOnlyAssetsCreatedByThisAccount)
+        }
+    }
+
     /// Checks that account can mint only the assets which were registered by this account.
     #[derive(Debug, Copy, Clone)]
     pub struct MintOnlyAssetsCreatedByThisAccount;
@@ -125,6 +142,12 @@ pub mod public_blockchain {
                 }
                 _ => Ok(()),
             }
+        }
+    }
+
+    impl From<MintOnlyAssetsCreatedByThisAccount> for PermissionsValidatorBox {
+        fn from(_: MintOnlyAssetsCreatedByThisAccount) -> Self {
+            Box::new(MintOnlyAssetsCreatedByThisAccount)
         }
     }
 
@@ -161,6 +184,12 @@ pub mod public_blockchain {
         }
     }
 
+    impl From<BurnOnlyAssetsCreatedByThisAccount> for PermissionsValidatorBox {
+        fn from(_: BurnOnlyAssetsCreatedByThisAccount) -> Self {
+            Box::new(BurnOnlyAssetsCreatedByThisAccount)
+        }
+    }
+
     /// Checks that account can burn only the assets that he currently owns.
     #[derive(Debug, Copy, Clone)]
     pub struct BurnOnlyOwnedAssets;
@@ -185,6 +214,12 @@ pub mod public_blockchain {
                 }
                 _ => Ok(()),
             }
+        }
+    }
+
+    impl From<BurnOnlyOwnedAssets> for PermissionsValidatorBox {
+        fn from(_: BurnOnlyOwnedAssets) -> Self {
+            Box::new(BurnOnlyOwnedAssets)
         }
     }
 
