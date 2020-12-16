@@ -4,10 +4,7 @@
 
 use self::message::*;
 use crate::{
-    block::PendingBlock,
-    event::{Entity, EventsSender, Occurrence},
-    permissions::PermissionsValidatorBox,
-    prelude::*,
+    block::PendingBlock, event::EventsSender, permissions::PermissionsValidatorBox, prelude::*,
 };
 use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
@@ -36,7 +33,7 @@ pub struct Sumeragi {
     /// This field is used to count votes when the peer is a proxy tail role.
     votes_for_blocks: BTreeMap<Hash, ValidBlock>,
     blocks_sender: Arc<RwLock<ValidBlockSender>>,
-    events_sender: EventsSender,
+    _events_sender: EventsSender,
     transactions_sender: TransactionSender,
     world_state_view: Arc<RwLock<WorldStateView>>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
@@ -78,7 +75,7 @@ impl Sumeragi {
             voting_block: Arc::new(RwLock::new(None)),
             votes_for_blocks: BTreeMap::new(),
             blocks_sender,
-            events_sender,
+            _events_sender: events_sender,
             world_state_view,
             transactions_awaiting_receipts: Arc::new(RwLock::new(BTreeSet::new())),
             transactions_awaiting_created_block: Arc::new(RwLock::new(BTreeSet::new())),
@@ -133,13 +130,7 @@ impl Sumeragi {
                 self.number_of_view_changes,
                 self.invalidated_blocks_hashes.clone(),
             );
-            self.events_sender
-                .send(Occurrence::Created(Entity::Block(Vec::from(&block))))
-                .await;
             let block = block.validate(&*wsv.read().await, &self.permissions_validator);
-            self.events_sender
-                .send(Occurrence::Updated(Entity::Block(Vec::from(&block))))
-                .await;
             log::info!(
                 "{:?} - Created a block with hash {}.",
                 self.network_topology.role(&self.peer_id),

@@ -3,10 +3,7 @@
 
 use crate::{
     block_sync::message::Message as BlockSyncMessage,
-    event::{
-        connection::{ConnectRequest, Consumer, Filter},
-        Entity, EventsReceiver, EventsSender, Occurrence,
-    },
+    event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
     query::Verify,
@@ -17,7 +14,7 @@ use crate::{
 use async_std::{prelude::*, sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
-use iroha_http_server::{prelude::*, Server};
+use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
@@ -87,19 +84,15 @@ impl Torii {
         server.at(uri::QUERY_URI).get(handle_queries);
         server.at(uri::HEALTH_URI).get(handle_health);
         server.at(uri::METRICS_URI).get(handle_metrics);
-        let (
-            handle_requests_result,
-            handle_connects_result,
-            http_server_result,
-            _event_consumer_result,
-        ) = futures::join!(
+        server
+            .at(uri::SUBSCRIPTION_URI)
+            .web_socket(handle_subscription);
+        let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
             Network::listen(state.clone(), &self.p2p_url, handle_requests),
-            Network::listen(state.clone(), &self.connect_url, handle_connections),
             server.start(&self.api_url),
             consume_events(self.events_receiver.clone(), connections)
         );
         handle_requests_result?;
-        handle_connects_result?;
         http_server_result?;
         Ok(())
     }
@@ -124,18 +117,7 @@ async fn handle_instructions(
 ) -> Result<HttpResponse, String> {
     match Transaction::try_from(request.body) {
         Ok(transaction) => {
-            if let Err(e) = state
-                .write()
-                .await
-                .events_sender
-                .try_send(Occurrence::Created(Entity::Transaction(Vec::from(
-                    &transaction,
-                ))))
-            {
-                log::error!("Failed to send event - channel is full: {}", e);
-            }
             let transaction = transaction.accept()?;
-            let payload = Vec::from(&transaction);
             state
                 .write()
                 .await
@@ -144,14 +126,6 @@ async fn handle_instructions(
                 .await
                 .send(transaction)
                 .await;
-            if let Err(e) = state
-                .write()
-                .await
-                .events_sender
-                .try_send(Occurrence::Updated(Entity::Transaction(payload)))
-            {
-                log::error!("Failed to send event - channel is full: {}", e);
-            }
             Ok(HttpResponse::ok(Headers::new(), Vec::new()))
         }
         Err(e) => {
@@ -221,6 +195,17 @@ async fn handle_metrics(
     }
 }
 
+async fn handle_subscription(
+    state: State<ToriiState>,
+    _path_params: PathParams,
+    _query_params: QueryParams,
+    stream: WebSocketStream,
+) -> Result<(), String> {
+    let consumer = Consumer::new(stream).await?;
+    state.read().await.consumers.write().await.push(consumer);
+    Ok(())
+}
+
 async fn handle_requests(
     state: State<ToriiState>,
     stream: Box<dyn AsyncStream>,
@@ -247,29 +232,6 @@ async fn consume_events(
             }
         }
     }
-}
-
-async fn handle_connections(
-    state: State<ToriiState>,
-    mut stream: Box<dyn AsyncStream>,
-) -> Result<(), String> {
-    let mut initial_message = vec![0u8; 1000];
-    let read_size = stream
-        .read(&mut initial_message)
-        .await
-        .map_err(|e| format!("Failed to read initial message: {}", e))?;
-    let filter: Filter = ConnectRequest::try_from(initial_message[..read_size].to_vec())?
-        .validate()
-        .into();
-    log::debug!("Established connection with event listener.");
-    state
-        .write()
-        .await
-        .consumers
-        .write()
-        .await
-        .push(Consumer::new(stream, filter));
-    Ok(())
 }
 
 #[log("TRACE")]
@@ -319,22 +281,20 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
 /// URI that `Torii` uses to route incoming requests.
 pub mod uri {
     /// Query URI is used to handle incoming Query requests.
-    //TODO: http
     pub const QUERY_URI: &str = "/query";
     /// Instructions URI is used to handle incoming ISI requests.
-    //TODO: http
     pub const INSTRUCTIONS_URI: &str = "/instruction";
     /// Block URI is used to handle incoming Block requests.
     pub const CONSENSUS_URI: &str = "/consensus";
     /// Health URI is used to handle incoming Healthcheck requests.
-    //TODO: http
     pub const HEALTH_URI: &str = "/health";
     /// Metrics URI is used to export metrics according to [Prometheus
     /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    //TODO: http
     pub const METRICS_URI: &str = "/metrics";
     /// The URI used for block synchronization.
     pub const BLOCK_SYNC_URI: &str = "/block";
+    /// The web socket uri used to subscribe to block and transactions statuses
+    pub const SUBSCRIPTION_URI: &str = "/events";
 }
 
 /// This module contains all configuration related logic.
