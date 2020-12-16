@@ -19,6 +19,7 @@
     variant_size_differences
 )]
 
+pub mod events;
 pub mod isi;
 pub mod query;
 

@@ -152,17 +152,6 @@ impl ValidTransaction {
     }
 }
 
-mod event {
-    use super::*;
-    use crate::event::{Entity, Occurrence};
-
-    impl From<&Transaction> for Occurrence {
-        fn from(transaction: &Transaction) -> Occurrence {
-            Occurrence::Created(Entity::Transaction(transaction.into()))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
