@@ -326,5 +326,8 @@ pub mod pipeline {
 
 /// Exports common structs and enums from this module.
 pub mod prelude {
-    pub use super::{data::prelude::*, pipeline::prelude::*, Event, EventFilter};
+    pub use super::{
+        data::prelude::*, pipeline::prelude::*, Event, EventFilter, EventReceived,
+        SubscriptionRequest,
+    };
 }

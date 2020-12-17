@@ -84,12 +84,11 @@ mod tests {
         let peer_keys: Vec<KeyPair> = (0..n_peers)
             .map(|_| KeyPair::generate().expect("Failed to generate key pair."))
             .collect();
-        let addresses: Vec<(String, String, String)> = (0..n_peers)
+        let addresses: Vec<(String, String)> = (0..n_peers)
             .map(|i| {
                 (
-                    format!("127.0.0.1:{}", 7878 + i * 3),
-                    format!("127.0.0.1:{}", 7878 + i * 3 + 1),
-                    format!("127.0.0.1:{}", 7878 + i * 3 + 2),
+                    format!("127.0.0.1:{}", 7878 + i * 2),
+                    format!("127.0.0.1:{}", 7878 + i * 2 + 1),
                 )
             })
             .collect();
@@ -97,7 +96,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, key_pair)| {
-                let (p2p_address, _, _) = &addresses[i];
+                let (p2p_address, _) = &addresses[i];
                 PeerId {
                     address: p2p_address.clone(),
                     public_key: key_pair.public_key.clone(),
@@ -108,7 +107,7 @@ mod tests {
             let peer_ids = peer_ids.clone();
             let peer_id = peer_ids[i].clone();
             let key_pair = peer_keys[i].clone();
-            let (p2p_address, api_address, connect_address) = addresses[i].clone();
+            let (p2p_address, api_address) = addresses[i].clone();
             task::spawn(async move {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
@@ -120,7 +119,6 @@ mod tests {
                     .kura_block_store_path(temp_dir.path());
                 configuration.torii_configuration.torii_p2p_url = p2p_address.clone();
                 configuration.torii_configuration.torii_api_url = api_address.clone();
-                configuration.torii_configuration.torii_connect_url = connect_address.clone();
                 configuration.public_key = key_pair.public_key;
                 configuration.private_key = key_pair.private_key.clone();
                 configuration
@@ -139,7 +137,7 @@ mod tests {
         }
         addresses
             .iter()
-            .map(|(_, api_url, _)| api_url)
+            .map(|(_, api_url)| api_url)
             .cloned()
             .collect()
     }
