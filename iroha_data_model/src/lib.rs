@@ -892,5 +892,5 @@ pub mod prelude {
         transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox,
         Name, Parameter, Value, ValueBox,
     };
-    pub use crate::{isi::prelude::*, query::prelude::*};
+    pub use crate::{events::prelude::*, isi::prelude::*, query::prelude::*};
 }

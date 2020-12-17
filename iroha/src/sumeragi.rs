@@ -1485,11 +1485,10 @@ mod tests {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
             addresses.push((
-                format!("127.0.0.1:{}", 7878 + i * 3),
-                format!("127.0.0.1:{}", 7878 + i * 3 + 1),
-                format!("127.0.0.1:{}", 7878 + i * 3 + 2),
+                format!("127.0.0.1:{}", 7878 + i * 2),
+                format!("127.0.0.1:{}", 7878 + i * 2 + 1),
             ));
-            let (p2p_address, _, _) = &addresses[i];
+            let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
                 public_key: key_pair.public_key,
@@ -1520,10 +1519,9 @@ mod tests {
                 }),
                 ids_set.clone(),
             ))));
-            let (p2p_address, api_address, connect_address) = &addresses[i];
+            let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            config.torii_configuration.torii_connect_url = connect_address.clone();
             let mut torii = Torii::from_configuration(
                 &config.torii_configuration,
                 wsv.clone(),
@@ -1613,11 +1611,10 @@ mod tests {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
             addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 + i * 3),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 + i * 3 + 1),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 + i * 3 + 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 + i * 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 + i * 2 + 1),
             ));
-            let (p2p_address, _, _) = &addresses[i];
+            let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
                 public_key: key_pair.public_key,
@@ -1648,10 +1645,9 @@ mod tests {
                 }),
                 ids_set.clone(),
             ))));
-            let (p2p_address, api_address, connect_address) = &addresses[i];
+            let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            config.torii_configuration.torii_connect_url = connect_address.clone();
             let mut torii = Torii::from_configuration(
                 &config.torii_configuration,
                 wsv.clone(),
@@ -1765,11 +1761,10 @@ mod tests {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
             addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 2 + i * 3),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 2 + i * 3 + 1),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 2 + i * 3 + 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 2 + i * 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 2 + i * 2 + 1),
             ));
-            let (p2p_address, _, _) = &addresses[i];
+            let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
                 public_key: key_pair.public_key,
@@ -1799,10 +1794,9 @@ mod tests {
                 }),
                 ids_set.clone(),
             ))));
-            let (p2p_address, api_address, connect_address) = &addresses[i];
+            let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            config.torii_configuration.torii_connect_url = connect_address.clone();
             let mut torii = Torii::from_configuration(
                 &config.torii_configuration,
                 wsv.clone(),
@@ -1927,11 +1921,10 @@ mod tests {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
             addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 3 + i * 3 + 1),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 3 + i * 3 + 2),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 3 + i * 3),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 3 + i * 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 3 + i * 2 + 1),
             ));
-            let (p2p_address, _, _) = &addresses[i];
+            let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
                 public_key: key_pair.public_key,
@@ -1961,10 +1954,9 @@ mod tests {
                 }),
                 ids_set.clone(),
             ))));
-            let (p2p_address, api_address, connect_address) = &addresses[i];
+            let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            config.torii_configuration.torii_connect_url = connect_address.clone();
             let mut torii = Torii::from_configuration(
                 &config.torii_configuration,
                 wsv.clone(),
@@ -2086,11 +2078,10 @@ mod tests {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
             addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 4 + i * 3),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 4 + i * 3 + 1),
-                format!("127.0.0.1:{}", 7878 + n_peers * 3 * 4 + i * 3 + 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 4 + i * 2),
+                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 4 + i * 2 + 1),
             ));
-            let (p2p_address, _, _) = &addresses[i];
+            let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
                 public_key: key_pair.public_key,
@@ -2121,10 +2112,9 @@ mod tests {
                 }),
                 ids_set,
             ))));
-            let (p2p_address, api_address, connect_address) = &addresses[i];
+            let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            config.torii_configuration.torii_connect_url = connect_address.clone();
             let mut torii = Torii::from_configuration(
                 &config.torii_configuration,
                 wsv.clone(),

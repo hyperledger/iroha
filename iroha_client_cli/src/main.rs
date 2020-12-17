@@ -8,6 +8,7 @@ const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
 const ACCOUNT: &str = "account";
 const ASSET: &str = "asset";
+const EVENTS: &str = "listen";
 
 fn main() {
     let matches = App::new("Iroha CLI Client")
@@ -32,6 +33,7 @@ fn main() {
         .subcommand(
             asset::build_app(),
             )
+        .subcommand(events::build_app())
         .get_matches();
     let configuration_path = matches
         .value_of(CONFIG)
@@ -47,6 +49,53 @@ fn main() {
     }
     if let Some(ref matches) = matches.subcommand_matches(ASSET) {
         asset::process(matches, &configuration);
+    }
+    if let Some(ref matches) = matches.subcommand_matches(EVENTS) {
+        events::process(matches, &configuration);
+    }
+}
+
+mod events {
+    use super::*;
+    use clap::ArgMatches;
+    use iroha_client::{client::Client, config::Configuration};
+
+    const PIPELINE: &str = "pipeline";
+    const DATA: &str = "data";
+
+    pub fn build_app<'a, 'b>() -> App<'a, 'b> {
+        App::new(EVENTS)
+            .about("Use this command to listen to Iroha events over the streaming API.")
+            .subcommand(App::new(PIPELINE).about("Listen to pipeline events."))
+            .subcommand(App::new(DATA).about("Listen to data events."))
+    }
+
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
+        // TODO: let the user to setup the filter arguments.
+        if matches.subcommand_matches(PIPELINE).is_some() {
+            listen(
+                EventFilter::Pipeline(PipelineEventFilter::identity()),
+                configuration,
+            )
+        }
+        if matches.subcommand_matches(DATA).is_some() {
+            listen(EventFilter::Data(DataEventFilter), configuration)
+        }
+    }
+
+    pub fn listen(filter: EventFilter, configuration: &Configuration) {
+        let mut iroha_client = Client::new(configuration);
+        println!("Listening to events with filter: {:?}", filter);
+        for event in iroha_client
+            .listen_for_events(filter)
+            .expect("Failed to listen to events.")
+        {
+            let event = match event {
+                Ok(_) => format!("{:?}", event),
+                Err(err) => err,
+            };
+            println!("{}", event);
+        }
     }
 }
 
