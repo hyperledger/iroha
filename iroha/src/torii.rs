@@ -26,7 +26,6 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 pub struct Torii {
     p2p_url: String,
     api_url: String,
-    connect_url: String,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
     sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
@@ -50,7 +49,6 @@ impl Torii {
         Torii {
             p2p_url: configuration.torii_p2p_url.clone(),
             api_url: configuration.torii_api_url.clone(),
-            connect_url: configuration.torii_connect_url.clone(),
             world_state_view,
             transaction_sender: Arc::new(RwLock::new(transaction_sender)),
             sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
@@ -304,10 +302,8 @@ pub mod config {
 
     const TORII_API_URL: &str = "TORII_API_URL";
     const TORII_P2P_URL: &str = "TORII_P2P_URL";
-    const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
     const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
     const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-    const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Debug)]
@@ -319,9 +315,6 @@ pub mod config {
         /// Torii URL for client API.
         #[serde(default = "default_torii_api_url")]
         pub torii_api_url: String,
-        /// Torii connection URL.
-        #[serde(default = "default_torii_connect_url")]
-        pub torii_connect_url: String,
     }
 
     impl ToriiConfiguration {
@@ -334,9 +327,6 @@ pub mod config {
             if let Ok(torii_p2p_url) = env::var(TORII_P2P_URL) {
                 self.torii_p2p_url = torii_p2p_url;
             }
-            if let Ok(torii_connect_url) = env::var(TORII_CONNECT_URL) {
-                self.torii_connect_url = torii_connect_url;
-            }
             Ok(())
         }
     }
@@ -347,10 +337,6 @@ pub mod config {
 
     fn default_torii_api_url() -> String {
         DEFAULT_TORII_API_URL.to_string()
-    }
-
-    fn default_torii_connect_url() -> String {
-        DEFAULT_TORII_CONNECT_URL.to_string()
     }
 }
 
