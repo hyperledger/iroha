@@ -4,12 +4,10 @@ use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 const TORII_API_URL: &str = "TORII_API_URL";
-const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
@@ -23,9 +21,6 @@ pub struct Configuration {
     /// Torii URL.
     #[serde(default = "default_torii_api_url")]
     pub torii_api_url: String,
-    /// Torii connection URL.
-    #[serde(default = "default_torii_connect_url")]
-    pub torii_connect_url: String,
     /// Proposed transaction TTL in milliseconds.
     #[serde(default = "default_transaction_time_to_live_ms")]
     pub transaction_time_to_live_ms: u64,
@@ -54,9 +49,6 @@ impl Configuration {
         if let Ok(torii_api_url) = env::var(TORII_API_URL) {
             self.torii_api_url = torii_api_url;
         }
-        if let Ok(torii_connect_url) = env::var(TORII_CONNECT_URL) {
-            self.torii_connect_url = torii_connect_url;
-        }
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
@@ -76,10 +68,6 @@ impl Configuration {
 
 fn default_torii_api_url() -> String {
     DEFAULT_TORII_API_URL.to_string()
-}
-
-fn default_torii_connect_url() -> String {
-    DEFAULT_TORII_CONNECT_URL.to_string()
 }
 
 fn default_transaction_time_to_live_ms() -> u64 {

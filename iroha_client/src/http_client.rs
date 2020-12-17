@@ -1,6 +1,8 @@
 use attohttpc::Response as AttohttpcResponse;
 pub use http::{Response, StatusCode};
 use std::convert::{TryFrom, TryInto};
+pub use tungstenite::Message as WebSocketMessage;
+use tungstenite::{client::AutoStream, WebSocket};
 
 type Bytes = Vec<u8>;
 
@@ -26,6 +28,16 @@ where
         .send()
         .map_err(|e| format!("Error: {}, failed to send http get request to {}", e, url))?;
     ClientResponse(response).try_into()
+}
+
+pub type WebSocketStream = WebSocket<AutoStream>;
+
+pub fn web_socket_connect<U>(url: U) -> Result<WebSocketStream, String>
+where
+    U: AsRef<str>,
+{
+    let (stream, _) = tungstenite::connect(url.as_ref()).map_err(|err| err.to_string())?;
+    Ok(stream)
 }
 
 struct ClientResponse(AttohttpcResponse);
