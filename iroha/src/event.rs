@@ -45,7 +45,7 @@ impl Consumer {
     }
 
     /// Forwards the `event` over the `stream` if it matches the `filter`.
-    pub async fn consume(&mut self, event: &Event) -> Result<(), String> {
+    pub async fn consume(mut self, event: &Event) -> Result<Self, String> {
         if self.filter.apply(event) {
             let event = serde_json::to_string(event)
                 .map_err(|err| format!("Failed to serialize event: {}", err))?;
@@ -66,6 +66,6 @@ impl Consumer {
                 return Err("Unexepcted message type".to_string());
             }
         }
-        Ok(())
+        Ok(self)
     }
 }
