@@ -1,8 +1,8 @@
 use attohttpc::Response as AttohttpcResponse;
 pub use http::{Response, StatusCode};
 use std::convert::{TryFrom, TryInto};
-pub use tungstenite::Message as WebSocketMessage;
 use tungstenite::{client::AutoStream, WebSocket};
+pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
 type Bytes = Vec<u8>;
 

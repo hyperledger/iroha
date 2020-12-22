@@ -1,20 +1,25 @@
 use crate::{
     config::Configuration,
-    http_client::{self, StatusCode, WebSocketMessage},
+    http_client::{self, StatusCode, WebSocketError, WebSocketMessage},
 };
 use http_client::WebSocketStream;
-use iroha_crypto::KeyPair;
+use iroha_crypto::{Hash, KeyPair};
 use iroha_derive::log;
 use iroha_dsl::prelude::*;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    sync::mpsc,
+    thread,
+    time::Duration,
 };
 
+#[derive(Clone)]
 pub struct Client {
     torii_url: String,
     key_pair: KeyPair,
     proposed_transaction_ttl_ms: u64,
+    transaction_status_timout: Duration,
 }
 
 /// Representation of `Iroha` client.
@@ -27,49 +32,30 @@ impl Client {
                 private_key: configuration.private_key.clone(),
             },
             proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
+            transaction_status_timout: Duration::from_millis(
+                configuration.transaction_status_timeout_ms,
+            ),
         }
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
+    /// Returns submitted transaction's hash or error string.
     #[log]
-    pub fn submit(&mut self, instruction: InstructionBox) -> Result<(), String> {
-        //TODO: specify account in the config or CLI params
-        let transaction: Vec<u8> = Transaction::new(
-            vec![instruction],
-            AccountId::new("root", "global"),
-            self.proposed_transaction_ttl_ms,
-        )
-        .sign(&self.key_pair)?
-        .into();
-        let response = http_client::post(
-            &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
-            transaction.clone(),
-        )
-        .map_err(|e| {
-            format!(
-                "Error: {}, failed to send transaction: {:?}",
-                e, &transaction
-            )
-        })?;
-        if response.status() == StatusCode::OK {
-            Ok(())
-        } else {
-            Err(format!(
-                "Failed to submit instruction with HTTP status: {}",
-                response.status()
-            ))
-        }
+    pub fn submit(&mut self, instruction: InstructionBox) -> Result<Hash, String> {
+        self.submit_all(vec![instruction])
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
-    pub fn submit_all(&mut self, instructions: Vec<InstructionBox>) -> Result<(), String> {
-        let transaction: Vec<u8> = Transaction::new(
+    /// Returns submitted transaction's hash or error string.
+    pub fn submit_all(&mut self, instructions: Vec<InstructionBox>) -> Result<Hash, String> {
+        let transaction = Transaction::new(
             instructions,
             AccountId::new("root", "global"),
             self.proposed_transaction_ttl_ms,
         )
-        .sign(&self.key_pair)?
-        .into();
+        .sign(&self.key_pair)?;
+        let hash = transaction.hash();
+        let transaction: Vec<u8> = transaction.into();
         let response = http_client::post(
             &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
             transaction.clone(),
@@ -81,13 +67,54 @@ impl Client {
             )
         })?;
         if response.status() == StatusCode::OK {
-            Ok(())
+            Ok(hash)
         } else {
             Err(format!(
                 "Failed to submit instructions with HTTP status: {}",
                 response.status()
             ))
         }
+    }
+
+    /// Submits and waits until the transaction is either rejected or committed.
+    /// Returns rejection reason if transaction was rejected.
+    pub fn submit_blocking(&mut self, instruction: InstructionBox) -> Result<Hash, String> {
+        self.submit_all_blocking(vec![instruction])
+    }
+
+    /// Submits and waits until the transaction is either rejected or committed.
+    /// Returns rejection reason if transaction was rejected.
+    pub fn submit_all_blocking(
+        &mut self,
+        instructions: Vec<InstructionBox>,
+    ) -> Result<Hash, String> {
+        let mut client = self.clone();
+        let (sender, receiver) = mpsc::channel();
+        let hash = self.submit_all(instructions)?;
+        thread::spawn(move || {
+            for event in client
+                .listen_for_events(PipelineEventFilter::by_hash(hash).into())
+                .expect("Failed to initialize iterator.")
+            {
+                if let Ok(Event::Pipeline(event)) = event {
+                    match event.status {
+                        PipelineStatus::Validating => {}
+                        PipelineStatus::Rejected(reason) => sender
+                            .send(Err(reason))
+                            .expect("Failed to send through channel."),
+                        PipelineStatus::Committed => sender
+                            .send(Ok(hash))
+                            .expect("Failed to send through channel."),
+                    }
+                }
+            }
+        });
+        receiver
+            .recv_timeout(self.transaction_status_timout)
+            .map_or_else(
+                |err| Err(format!("Timeout waiting for transaction status: {}", err)),
+                |result| result,
+            )
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
@@ -142,20 +169,27 @@ impl Iterator for EventIterator {
     type Item = Result<Event, String>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.stream.read_message() {
-            Ok(WebSocketMessage::Text(message)) => match serde_json::from_str::<Event>(&message) {
-                Ok(event) => {
-                    match self.stream.write_message(WebSocketMessage::Text(
-                        serde_json::to_string(&EventReceived)
-                            .expect("Failed to serialize receipt."),
-                    )) {
-                        Ok(_) => Some(Ok(event)),
-                        Err(err) => Some(Err(format!("Failed to send receipt: {}", err))),
+        loop {
+            match self.stream.read_message() {
+                Ok(WebSocketMessage::Text(message)) => {
+                    match serde_json::from_str::<Event>(&message) {
+                        Ok(event) => {
+                            return match self.stream.write_message(WebSocketMessage::Text(
+                                serde_json::to_string(&EventReceived)
+                                    .expect("Failed to serialize receipt."),
+                            )) {
+                                Ok(_) => Some(Ok(event)),
+                                Err(err) => Some(Err(format!("Failed to send receipt: {}", err))),
+                            }
+                        }
+                        Err(err) => return Some(Err(err.to_string())),
                     }
                 }
-                Err(err) => Some(Err(err.to_string())),
-            },
-            _ => None,
+                Ok(_) => continue,
+                Err(WebSocketError::ConnectionClosed) => return None,
+                Err(WebSocketError::AlreadyClosed) => return None,
+                Err(err) => return Some(Err(err.to_string())),
+            }
         }
     }
 }

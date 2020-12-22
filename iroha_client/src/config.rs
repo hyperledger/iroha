@@ -9,6 +9,7 @@ const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
+const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 3000;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 #[derive(Clone, Deserialize, Debug)]
@@ -26,6 +27,9 @@ pub struct Configuration {
     pub transaction_time_to_live_ms: u64,
     /// `Logger` configuration.
     pub logger_configuration: LoggerConfiguration,
+    /// Transaction status wait timeout in milliseconds.
+    #[serde(default = "default_transaction_status_timeout_ms")]
+    pub transaction_status_timeout_ms: u64,
 }
 
 impl Configuration {
@@ -72,4 +76,8 @@ fn default_torii_api_url() -> String {
 
 fn default_transaction_time_to_live_ms() -> u64 {
     DEFAULT_TRANSACTION_TIME_TO_LIVE_MS
+}
+
+fn default_transaction_status_timeout_ms() -> u64 {
+    DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS
 }
