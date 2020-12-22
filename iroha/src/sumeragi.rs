@@ -33,7 +33,7 @@ pub struct Sumeragi {
     /// This field is used to count votes when the peer is a proxy tail role.
     votes_for_blocks: BTreeMap<Hash, ValidBlock>,
     blocks_sender: Arc<RwLock<ValidBlockSender>>,
-    _events_sender: EventsSender,
+    events_sender: EventsSender,
     transactions_sender: TransactionSender,
     world_state_view: Arc<RwLock<WorldStateView>>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
@@ -75,7 +75,7 @@ impl Sumeragi {
             voting_block: Arc::new(RwLock::new(None)),
             votes_for_blocks: BTreeMap::new(),
             blocks_sender,
-            _events_sender: events_sender,
+            events_sender,
             world_state_view,
             transactions_awaiting_receipts: Arc::new(RwLock::new(BTreeSet::new())),
             transactions_awaiting_created_block: Arc::new(RwLock::new(BTreeSet::new())),
@@ -136,6 +136,9 @@ impl Sumeragi {
                 self.network_topology.role(&self.peer_id),
                 block.hash(),
             );
+            for event in Vec::<Event>::from(&block.clone()) {
+                self.events_sender.send(event).await;
+            }
             if !self.network_topology.is_consensus_required() {
                 self.commit_block(block).await;
                 Ok(())
@@ -149,7 +152,6 @@ impl Sumeragi {
                         send_futures.push(message.clone().send_to(peer));
                     }
                 }
-                send_futures.push(message.clone().send_to(self.network_topology.proxy_tail()));
                 let results = futures::future::join_all(send_futures).await;
                 results
                     .iter()
@@ -282,6 +284,9 @@ impl Sumeragi {
         self.latest_block_hash = block_hash;
         self.invalidated_blocks_hashes.clear();
         self.block_height = block.header.height;
+        for event in Vec::<Event>::from(&block.clone().commit()) {
+            self.events_sender.send(event).await;
+        }
         self.blocks_sender.write().await.send(block).await;
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
@@ -654,9 +659,12 @@ pub mod message {
                 .write()
                 .await
                 .clear();
+            for event in Vec::<Event>::from(&self.block.clone()) {
+                sumeragi.events_sender.send(event).await;
+            }
             match sumeragi.network_topology.role(&sumeragi.peer_id) {
                 Role::ValidatingPeer => {
-                    if !self.block.transactions.is_empty()
+                    if !self.block.is_empty()
                         && sumeragi.latest_block_hash == self.block.header.previous_block_hash
                         && sumeragi.number_of_view_changes
                             == self.block.header.number_of_view_changes
@@ -666,7 +674,7 @@ pub mod message {
                         if let Err(e) = Message::BlockSigned(
                             self.block
                                 .clone()
-                                .validate(&*wsv, &sumeragi.permissions_validator)
+                                .revalidate(&*wsv, &sumeragi.permissions_validator)
                                 .sign(&sumeragi.key_pair)?
                                 .into(),
                         )

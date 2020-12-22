@@ -224,11 +224,14 @@ async fn consume_events(
 ) {
     while let Some(change) = events_receiver.next().await {
         log::trace!("Event occurred: {:?}", change);
-        for connection in consumers.write().await.iter_mut() {
-            if let Err(err) = connection.consume(&change).await {
-                log::error!("Failed to notify client: {}", err)
+        let mut open_connections = Vec::new();
+        for connection in consumers.write().await.drain(..) {
+            match connection.consume(&change).await {
+                Ok(consumer) => open_connections.push(consumer),
+                Err(err) => log::error!("Failed to notify client: {}. Closed connection.", err),
             }
         }
+        consumers.write().await.append(&mut open_connections);
     }
 }
 

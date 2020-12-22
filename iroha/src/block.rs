@@ -1,10 +1,14 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
-use crate::{merkle::MerkleTree, permissions::PermissionsValidatorBox, prelude::*};
+use crate::{
+    merkle::MerkleTree, permissions::PermissionsValidatorBox, prelude::*, tx::RejectedTransaction,
+};
 use iroha_crypto::{KeyPair, Signatures};
+use iroha_data_model::events::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
+use std::iter;
 use std::time::SystemTime;
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
@@ -44,7 +48,8 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 height: height + 1,
                 previous_block_hash,
-                merkle_root_hash: Hash([0u8; 32]),
+                transactions_merkle_root_hash: Hash([0u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes,
                 invalidated_blocks_hashes,
             },
@@ -59,7 +64,8 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 height: 0,
                 previous_block_hash: Hash([0u8; 32]),
-                merkle_root_hash: Hash([0u8; 32]),
+                transactions_merkle_root_hash: Hash([0u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
             },
@@ -86,8 +92,10 @@ pub struct BlockHeader {
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
     pub previous_block_hash: Hash,
-    /// Hash of merkle tree root of the tree of transactions hashes.
-    pub merkle_root_hash: Hash,
+    /// Hash of merkle tree root of the tree of valid transactions' hashes.
+    pub transactions_merkle_root_hash: Hash,
+    /// Hash of merkle tree root of the tree of rejected transactions' hashes.
+    pub rejected_transactions_merkle_root_hash: Hash,
     /// Number of view changes after the previous block was committed and before this block was committed.
     pub number_of_view_changes: u32,
     /// Hashes of the blocks that were rejected by consensus.
@@ -115,6 +123,7 @@ impl ChainedBlock {
         permissions_validator: &PermissionsValidatorBox,
     ) -> ValidBlock {
         let mut transactions = Vec::new();
+        let mut rejected_transactions = Vec::new();
         for transaction in self.transactions {
             match transaction.validate(
                 world_state_view,
@@ -122,11 +131,17 @@ impl ChainedBlock {
                 self.header.is_genesis(),
             ) {
                 Ok(transaction) => transactions.push(transaction),
-                Err(e) => log::warn!("Transaction validation failed: {}", e),
+                Err(transaction) => {
+                    log::warn!(
+                        "Transaction validation failed: {}",
+                        transaction.rejection_reason
+                    );
+                    rejected_transactions.push(transaction)
+                }
             }
         }
         let mut header = self.header;
-        header.merkle_root_hash = MerkleTree::new()
+        header.transactions_merkle_root_hash = MerkleTree::new()
             .build(
                 &transactions
                     .iter()
@@ -134,8 +149,17 @@ impl ChainedBlock {
                     .collect::<Vec<_>>(),
             )
             .root_hash();
+        header.rejected_transactions_merkle_root_hash = MerkleTree::new()
+            .build(
+                &rejected_transactions
+                    .iter()
+                    .map(|transaction| transaction.hash())
+                    .collect::<Vec<_>>(),
+            )
+            .root_hash();
         ValidBlock {
             header,
+            rejected_transactions,
             transactions,
             signatures: Signatures::default(),
         }
@@ -152,6 +176,8 @@ impl ChainedBlock {
 pub struct ValidBlock {
     /// Header
     pub header: BlockHeader,
+    /// Array of rejected transactions.
+    pub rejected_transactions: Vec<RejectedTransaction>,
     /// Array of transactions.
     pub transactions: Vec<ValidTransaction>,
     /// Signatures of peers which approved this block.
@@ -164,41 +190,34 @@ impl ValidBlock {
     pub fn commit(self) -> CommittedBlock {
         CommittedBlock {
             header: self.header,
+            rejected_transactions: self.rejected_transactions,
             transactions: self.transactions,
             signatures: self.signatures,
         }
     }
 
     /// Validate block transactions against current state of the world.
-    pub fn validate(
+    pub fn revalidate(
         self,
         world_state_view: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
     ) -> ValidBlock {
-        let mut transactions = Vec::new();
-        for transaction in self.transactions {
-            match transaction.validate(
-                world_state_view,
-                permissions_validator,
-                self.header.is_genesis(),
-            ) {
-                Ok(transaction) => transactions.push(transaction),
-                Err(e) => log::warn!("Transaction validation failed: {}", e),
-            }
-        }
-        let mut header = self.header;
-        header.merkle_root_hash = MerkleTree::new()
-            .build(
-                &transactions
-                    .iter()
-                    .map(|transaction| transaction.hash())
-                    .collect::<Vec<_>>(),
-            )
-            .root_hash();
         ValidBlock {
-            header,
-            transactions,
             signatures: self.signatures,
+            ..ChainedBlock {
+                header: self.header,
+                transactions: self
+                    .transactions
+                    .into_iter()
+                    .map(|transaction| transaction.into())
+                    .chain(
+                        self.rejected_transactions
+                            .into_iter()
+                            .map(|transaction| transaction.into()),
+                    )
+                    .collect(),
+            }
+            .validate(world_state_view, permissions_validator)
         }
     }
 
@@ -218,6 +237,51 @@ impl ValidBlock {
     pub fn verified_signatures(&self) -> Vec<Signature> {
         self.signatures.verified(self.hash().as_ref())
     }
+
+    /// Checks if there are no transactions in this block.
+    pub fn is_empty(&self) -> bool {
+        self.transactions.is_empty() && self.rejected_transactions.is_empty()
+    }
+}
+
+impl From<&ValidBlock> for Vec<Event> {
+    fn from(block: &ValidBlock) -> Self {
+        block
+            .transactions
+            .iter()
+            .cloned()
+            .map(|transaction| {
+                PipelineEvent::new(
+                    PipelineEntityType::Transaction,
+                    PipelineStatus::Validating,
+                    transaction.hash(),
+                )
+                .into()
+            })
+            .chain(
+                block
+                    .rejected_transactions
+                    .iter()
+                    .cloned()
+                    .map(|transaction| {
+                        PipelineEvent::new(
+                            PipelineEntityType::Transaction,
+                            PipelineStatus::Validating,
+                            transaction.hash(),
+                        )
+                        .into()
+                    }),
+            )
+            .chain(iter::once(
+                PipelineEvent::new(
+                    PipelineEntityType::Block,
+                    PipelineStatus::Validating,
+                    block.hash(),
+                )
+                .into(),
+            ))
+            .collect()
+    }
 }
 
 /// When Kura receives `ValidBlock`, the block is stored and
@@ -226,6 +290,8 @@ impl ValidBlock {
 pub struct CommittedBlock {
     /// Header
     pub header: BlockHeader,
+    /// Array of rejected transactions.
+    pub rejected_transactions: Vec<RejectedTransaction>,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<ValidTransaction>,
     /// Signatures of peers which approved this block
@@ -237,6 +303,64 @@ impl CommittedBlock {
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> Hash {
         self.header.hash()
+    }
+}
+
+impl From<&CommittedBlock> for Vec<Event> {
+    fn from(block: &CommittedBlock) -> Self {
+        block
+            .transactions
+            .iter()
+            .cloned()
+            .map(|transaction| {
+                PipelineEvent::new(
+                    PipelineEntityType::Transaction,
+                    PipelineStatus::Committed,
+                    transaction.hash(),
+                )
+                .into()
+            })
+            .chain(
+                block
+                    .rejected_transactions
+                    .iter()
+                    .cloned()
+                    .map(|transaction| {
+                        PipelineEvent::new(
+                            PipelineEntityType::Transaction,
+                            PipelineStatus::Rejected(transaction.rejection_reason.clone()),
+                            transaction.hash(),
+                        )
+                        .into()
+                    }),
+            )
+            .chain(
+                block
+                    .header
+                    .invalidated_blocks_hashes
+                    .iter()
+                    .cloned()
+                    .map(|hash| {
+                        PipelineEvent::new(
+                            PipelineEntityType::Block,
+                            //TODO: store rejection reasons for blocks?
+                            PipelineStatus::Rejected(
+                                "Block was rejected during consensus.".to_string(),
+                            ),
+                            hash,
+                        )
+                        .into()
+                    }),
+            )
+            .chain(iter::once(
+                PipelineEvent::new(
+                    PipelineEntityType::Block,
+                    PipelineStatus::Committed,
+                    block.hash(),
+                )
+                .into(),
+            ))
+            .collect()
     }
 }
 
@@ -252,10 +376,12 @@ mod tests {
                 timestamp: 0,
                 height: 0,
                 previous_block_hash: Hash([0u8; 32]),
-                merkle_root_hash: Hash([0u8; 32]),
+                transactions_merkle_root_hash: Hash([0u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
             },
+            rejected_transactions: vec![],
             transactions: vec![],
             signatures: Signatures::default(),
         };

@@ -73,38 +73,52 @@ impl AcceptedTransaction {
         world_state_view: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
         is_genesis: bool,
-    ) -> Result<ValidTransaction, String> {
+    ) -> Result<ValidTransaction, RejectedTransaction> {
         let mut world_state_view_temp = world_state_view.clone();
         let account_id = self.payload.account_id.clone();
         if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
             return Err(
-                "Genesis account can sign only transactions in the genesis block.".to_string(),
+                self.reject("Genesis account can sign only transactions in the genesis block.")
             );
         }
         world_state_view
             .read_account(&account_id)
-            .ok_or(format!("Account with id {} not found", account_id))?
+            .ok_or_else(|| {
+                self.clone()
+                    .reject(&format!("Account with id {} not found", account_id))
+            })?
             .verify_signature(
-                self.signatures.first().ok_or("No signatures found.")?,
+                self.signatures
+                    .first()
+                    .ok_or_else(|| self.clone().reject("No signatures found."))?,
                 self.hash().as_ref(),
-            )?;
+            )
+            .map_err(|error| self.clone().reject(&error))?;
         for instruction in &self.payload.instructions {
             let account_id = self.payload.account_id.clone();
             world_state_view_temp = instruction
                 .clone()
-                .execute(account_id.clone(), &world_state_view_temp)?;
+                .execute(account_id.clone(), &world_state_view_temp)
+                .map_err(|error| self.clone().reject(&error))?;
             if !is_genesis {
-                permissions_validator.check_instruction(
-                    account_id.clone(),
-                    instruction.clone(),
-                    &world_state_view,
-                )?;
+                permissions_validator
+                    .check_instruction(account_id.clone(), instruction.clone(), &world_state_view)
+                    .map_err(|error| self.clone().reject(&error))?;
             }
         }
         Ok(ValidTransaction {
             payload: self.payload,
             signatures: self.signatures,
         })
+    }
+
+    /// Rejects transaction with the `rejection_reason`.
+    pub fn reject(self, rejection_reason: &str) -> RejectedTransaction {
+        RejectedTransaction {
+            payload: self.payload,
+            signatures: self.signatures,
+            rejection_reason: rejection_reason.to_string(),
+        }
     }
 }
 
@@ -116,23 +130,6 @@ pub struct ValidTransaction {
 }
 
 impl ValidTransaction {
-    /// Move transaction lifecycle forward by checking an ability to apply instructions to the
-    /// `WorldStateView`.
-    ///
-    /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn validate(
-        self,
-        world_state_view: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
-        is_genesis: bool,
-    ) -> Result<ValidTransaction, String> {
-        AcceptedTransaction {
-            payload: self.payload,
-            signatures: self.signatures,
-        }
-        .validate(world_state_view, permissions_validator, is_genesis)
-    }
-
     /// Apply instructions to the `WorldStateView`.
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         let mut world_state_view_temp = world_state_view.clone();
@@ -149,6 +146,42 @@ impl ValidTransaction {
     pub fn hash(&self) -> Hash {
         let bytes: Vec<u8> = self.payload.clone().into();
         Hash::new(&bytes)
+    }
+}
+
+impl From<ValidTransaction> for AcceptedTransaction {
+    fn from(transaction: ValidTransaction) -> Self {
+        AcceptedTransaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
+        }
+    }
+}
+
+/// `RejectedTransaction` represents transaction rejected by some validator at some stage of the pipeline.
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct RejectedTransaction {
+    payload: Payload,
+    signatures: Vec<Signature>,
+    // TODO: Convert errors in the tx pipeline to enums to simplify translation to other languages.
+    /// The reason for rejecting this tranaction during the validation pipeline.
+    pub rejection_reason: String,
+}
+
+impl RejectedTransaction {
+    /// Calculate transaction `Hash`.
+    pub fn hash(&self) -> Hash {
+        let bytes: Vec<u8> = self.payload.clone().into();
+        Hash::new(&bytes)
+    }
+}
+
+impl From<RejectedTransaction> for AcceptedTransaction {
+    fn from(transaction: RejectedTransaction) -> Self {
+        AcceptedTransaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
+        }
     }
 }
 

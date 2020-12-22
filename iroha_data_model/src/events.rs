@@ -21,6 +21,18 @@ pub enum Event {
     Data(data::Event),
 }
 
+impl From<pipeline::Event> for Event {
+    fn from(event: pipeline::Event) -> Self {
+        Event::Pipeline(event)
+    }
+}
+
+impl From<data::Event> for Event {
+    fn from(event: data::Event) -> Self {
+        Event::Data(event)
+    }
+}
+
 /// Event filter.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum EventFilter {
@@ -28,6 +40,18 @@ pub enum EventFilter {
     Pipeline(pipeline::EventFilter),
     /// Listen to data events with filter.
     Data(data::EventFilter),
+}
+
+impl From<pipeline::EventFilter> for EventFilter {
+    fn from(filter: pipeline::EventFilter) -> Self {
+        EventFilter::Pipeline(filter)
+    }
+}
+
+impl From<data::EventFilter> for EventFilter {
+    fn from(filter: data::EventFilter) -> Self {
+        EventFilter::Data(filter)
+    }
 }
 
 impl EventFilter {
@@ -218,11 +242,22 @@ pub mod pipeline {
         pub hash: Hash,
     }
 
+    impl Event {
+        /// Constructs pipeline event.
+        pub fn new(entity_type: EntityType, status: Status, hash: Hash) -> Self {
+            Event {
+                entity_type,
+                status,
+                hash,
+            }
+        }
+    }
+
     /// Entity type to filter events.
     #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
     pub enum Status {
         /// Entity has been seen in blockchain, but has not passed validation.
-        Proposed,
+        Validating,
         /// Entity was rejected in one of the validation stages.
         Rejected(RejectionReason),
         /// Entity has passed validation.
@@ -246,7 +281,7 @@ pub mod pipeline {
             let events = vec![
                 Event {
                     entity_type: EntityType::Transaction,
-                    status: Status::Proposed,
+                    status: Status::Validating,
                     hash: Hash([0u8; 32]),
                 },
                 Event {
@@ -269,7 +304,7 @@ pub mod pipeline {
                 vec![
                     Event {
                         entity_type: EntityType::Transaction,
-                        status: Status::Proposed,
+                        status: Status::Validating,
                         hash: Hash([0u8; 32]),
                     },
                     Event {
