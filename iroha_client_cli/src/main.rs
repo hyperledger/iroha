@@ -91,7 +91,7 @@ mod events {
             .expect("Failed to listen to events.")
         {
             let event = match event {
-                Ok(_) => format!("{:?}", event),
+                Ok(event) => format!("{:#?}", event),
                 Err(err) => err,
             };
             println!("{}", event);
