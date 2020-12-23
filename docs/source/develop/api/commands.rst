@@ -64,6 +64,7 @@ Purpose
 
 The purpose of add peer command is to write into ledger the fact of peer addition into the peer network.
 After a transaction with AddPeer has been committed, consensus and synchronization components will start using it.
+You can also `learn more about Add Peer command <../../maintenance/add_peer.html>`_.
 
 Schema
 ^^^^^^

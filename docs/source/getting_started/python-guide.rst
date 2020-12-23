@@ -1,6 +1,15 @@
 Sending transactions with Python library
 ========================================
 
+Open a new terminal (note that Iroha container and ``irohad`` should be up and
+running) and attach to an ``iroha`` docker container:
+
+.. code-block:: shell
+
+  docker exec -it iroha /bin/bash
+
+Now you are in the interactive shell of Iroha's container.
+
 Prerequisites
 -------------
 
