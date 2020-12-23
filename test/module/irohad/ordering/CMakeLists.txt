@@ -48,3 +48,10 @@ addtest(kick_out_proposal_creation_strategy_test
 target_link_libraries(kick_out_proposal_creation_strategy_test
     on_demand_ordering_service
     )
+
+addtest(unique_creation_proposal_strategy_test
+    unique_creation_proposal_strategy_test.cpp
+    )
+target_link_libraries(unique_creation_proposal_strategy_test
+    on_demand_ordering_service
+    )

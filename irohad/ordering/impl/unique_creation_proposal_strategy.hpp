@@ -20,16 +20,21 @@ namespace iroha {
      * Creating proposal once a round
      */
     class UniqueCreationProposalStrategy : public ProposalCreationStrategy {
-      UniqueCreationProposalStrategy(UniqueCreationProposalStrategy const &) = delete;
-      UniqueCreationProposalStrategy &operator=(UniqueCreationProposalStrategy const &) = delete;
+      UniqueCreationProposalStrategy(UniqueCreationProposalStrategy const &) =
+          delete;
+      UniqueCreationProposalStrategy &operator=(
+          UniqueCreationProposalStrategy const &) = delete;
 
-      UniqueCreationProposalStrategy(UniqueCreationProposalStrategy&&) = delete;
-      UniqueCreationProposalStrategy &operator=(UniqueCreationProposalStrategy&&) = delete;
+      UniqueCreationProposalStrategy(UniqueCreationProposalStrategy &&) =
+          delete;
+      UniqueCreationProposalStrategy &operator=(
+          UniqueCreationProposalStrategy &&) = delete;
 
      public:
       UniqueCreationProposalStrategy() = default;
 
-      void onCollaborationOutcome(RoundType /*round*/, size_t /*peers_in_round*/) override { }
+      void onCollaborationOutcome(RoundType /*round*/,
+                                  size_t /*peers_in_round*/) override {}
 
       bool shouldCreateRound(RoundType round) override {
         std::lock_guard<std::mutex> guard(mutex_);

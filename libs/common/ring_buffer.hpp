@@ -153,7 +153,7 @@ namespace iroha {
       }
 
       template <typename Func>
-      void foreach(Func &&f) {
+      void foreach (Func &&f) {
         for (auto it = end_; it != begin_; it = incrementAndNormalize(it))
           if (!std::forward<Func>(f)(it, internalGetItem(internalToNode(it))))
             break;
