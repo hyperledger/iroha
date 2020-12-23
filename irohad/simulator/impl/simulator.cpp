@@ -83,7 +83,7 @@ namespace iroha {
     std::shared_ptr<validation::VerifiedProposalAndErrors>
     Simulator::processProposal(
         const shared_model::interface::Proposal &proposal) {
-      log_->info("process proposal");
+      log_->info("process proposal: {}", proposal);
 
       auto storage = ametsuchi_factory_->createTemporaryWsv(command_executor_);
 
@@ -100,9 +100,11 @@ namespace iroha {
         const std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
             &verified_proposal_and_errors,
         const TopBlockInfo &top_block_info) {
-      log_->info("process verified proposal");
-
       const auto &proposal = verified_proposal_and_errors->verified_proposal;
+      if (proposal)
+        log_->info("process verified proposal: {}", *proposal);
+      else
+        log_->info("process verified proposal: no proposal");
       std::vector<shared_model::crypto::Hash> rejected_hashes;
       for (const auto &rejected_tx :
            verified_proposal_and_errors->rejected_transactions) {
@@ -115,7 +117,7 @@ namespace iroha {
                                             proposal->transactions(),
                                             rejected_hashes);
       crypto_signer_->sign(*block);
-
+      log_->info("Created block: {}", *block);
       return block;
     }
 
