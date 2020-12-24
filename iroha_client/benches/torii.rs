@@ -11,6 +11,7 @@ use std::thread;
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
 fn query_requests(criterion: &mut Criterion) {
@@ -39,7 +40,8 @@ fn query_requests(criterion: &mut Criterion) {
         AssetId::new(asset_definition_id, account_id.clone()),
     );
     let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration."),
     );
     iroha_client
         .submit_all(vec![
@@ -100,7 +102,8 @@ fn instruction_submits(criterion: &mut Criterion) {
     );
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration."),
     );
     iroha_client
         .submit_all(vec![create_domain.into(), create_account.into()])
