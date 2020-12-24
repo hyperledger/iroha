@@ -11,6 +11,7 @@ mod tests {
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.
@@ -36,7 +37,7 @@ mod tests {
             AssetId::new(wrong_asset_definition_id.clone(), account_id.clone()),
         );
         let mut iroha_client = Client::new(
-            &ClientConfiguration::from_path(CONFIGURATION_PATH)
+            &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
                 .expect("Failed to load configuration."),
         );
         iroha_client

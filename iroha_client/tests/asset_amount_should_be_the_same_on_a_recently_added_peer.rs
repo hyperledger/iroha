@@ -11,6 +11,7 @@ mod tests {
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
     const N_PEERS: usize = 4;
     const MAX_FAULTS: usize = 1;
 
@@ -35,7 +36,7 @@ mod tests {
             AssetDefinition::new(asset_id.clone()),
             domain_name.to_string(),
         );
-        let mut client_configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
+        let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         client_configuration.torii_api_url = addresses
             .first()
@@ -109,7 +110,7 @@ mod tests {
                 * 8,
         ));
         //Then
-        let mut client_configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
+        let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         //The address of a new peer.
         client_configuration.torii_api_url = api_address.clone();

@@ -12,6 +12,7 @@ use std::{convert::Infallible, thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/single_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 pub struct IrohaWorld {
     client: Client,
@@ -26,7 +27,7 @@ pub struct IrohaWorld {
 impl CucumberWorld for IrohaWorld {
     type Error = Infallible;
     async fn new() -> Result<Self, Infallible> {
-        let mut configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
+        let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         let free_port = port_check::free_local_port().expect("Failed to allocate a free port.");
         println!("Free port: {}", free_port);

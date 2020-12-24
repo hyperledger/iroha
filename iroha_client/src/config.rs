@@ -1,4 +1,5 @@
 use iroha_crypto::{PrivateKey, PublicKey};
+use iroha_dsl::prelude::*;
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -7,18 +8,23 @@ const TORII_API_URL: &str = "TORII_API_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
+const TRANSACTION_STATUS_TIMEOUT: &str = "TRANSACTION_STATUS_TIMEOUT";
+const ACCOUNT_ID: &str = "IROHA_CLIENT_ACCOUNT_ID";
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 3000;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
+// TODO: design macro to load config from env.
 #[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {
-    /// Public key of this client.
+    /// Public key of the user account.
     pub public_key: PublicKey,
-    /// Private key of this client.
+    /// Private key of the user account.
     pub private_key: PrivateKey,
+    /// User account id.
+    pub account_id: AccountId,
     /// Torii URL.
     #[serde(default = "default_torii_api_url")]
     pub torii_api_url: String,
@@ -65,6 +71,15 @@ impl Configuration {
             self.transaction_time_to_live_ms =
                 serde_json::from_str(&proposed_transaction_ttl_ms)
                     .map_err(|e| format!("Failed to parse proposed transaction ttl: {}", e))?;
+        }
+        if let Ok(transaction_status_timeout_ms) = env::var(TRANSACTION_STATUS_TIMEOUT) {
+            self.transaction_status_timeout_ms =
+                serde_json::from_str(&transaction_status_timeout_ms)
+                    .map_err(|e| format!("Failed to parse transaction status timeout: {}", e))?;
+        }
+        if let Ok(account_id) = env::var(ACCOUNT_ID) {
+            self.account_id = serde_json::from_str(&account_id)
+                .map_err(|e| format!("Failed to parse account id: {}", e))?;
         }
         Ok(())
     }

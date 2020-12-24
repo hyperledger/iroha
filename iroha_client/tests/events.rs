@@ -10,6 +10,7 @@ use std::{
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
 fn transaction_event_should_be_sent_after_it_is_committed() {
@@ -25,7 +26,8 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
         domain_name.to_string(),
     );
     let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration."),
     );
     let committed_event_received = Arc::new(RwLock::new(false));
     let committed_event_received_clone = committed_event_received.clone();
