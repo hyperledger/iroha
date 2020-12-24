@@ -4,7 +4,9 @@ use iroha_client::{client::Client, config::Configuration as ClientConfiguration}
 use iroha_dsl::prelude::*;
 use std::{thread, time::Duration};
 use tempfile::TempDir;
+
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
 fn find_rate_and_make_exchange_isi_should_be_valid() {
@@ -90,8 +92,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     println!("Free port: {}", free_port);
     thread::spawn(move || create_and_start_iroha(free_port));
     thread::sleep(Duration::from_millis(300));
-    let mut configuration =
-        ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+        .expect("Failed to load configuration.");
     configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
     let mut iroha_client = Client::new(&configuration);
     iroha_client

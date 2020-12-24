@@ -20,6 +20,7 @@ pub struct Client {
     key_pair: KeyPair,
     proposed_transaction_ttl_ms: u64,
     transaction_status_timout: Duration,
+    account_id: AccountId,
 }
 
 /// Representation of `Iroha` client.
@@ -35,6 +36,7 @@ impl Client {
             transaction_status_timout: Duration::from_millis(
                 configuration.transaction_status_timeout_ms,
             ),
+            account_id: configuration.account_id.clone(),
         }
     }
 
@@ -50,10 +52,16 @@ impl Client {
     pub fn submit_all(&mut self, instructions: Vec<InstructionBox>) -> Result<Hash, String> {
         let transaction = Transaction::new(
             instructions,
-            AccountId::new("root", "global"),
+            self.account_id.clone(),
             self.proposed_transaction_ttl_ms,
         )
         .sign(&self.key_pair)?;
+        self.submit_transaction(transaction)
+    }
+
+    /// Submit a prebuilt transaction.
+    /// Returns submitted transaction's hash or error string.
+    pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash, String> {
         let hash = transaction.hash();
         let transaction: Vec<u8> = transaction.into();
         let response = http_client::post(
@@ -90,7 +98,13 @@ impl Client {
     ) -> Result<Hash, String> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
-        let hash = self.submit_all(instructions)?;
+        let transaction = Transaction::new(
+            instructions,
+            self.account_id.clone(),
+            self.proposed_transaction_ttl_ms,
+        )
+        .sign(&self.key_pair)?;
+        let hash = transaction.hash();
         thread::spawn(move || {
             for event in client
                 .listen_for_events(PipelineEventFilter::by_hash(hash).into())
@@ -109,6 +123,7 @@ impl Client {
                 }
             }
         });
+        self.submit_transaction(transaction)?;
         receiver
             .recv_timeout(self.transaction_status_timout)
             .map_or_else(
