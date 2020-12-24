@@ -9,6 +9,7 @@ use std::{thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
 //TODO: use cucumber_rust to write `gherkin` instead of code.
@@ -27,7 +28,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         domain_name.to_string(),
     );
     let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration."),
     );
     iroha_client
         .submit(create_asset.into())

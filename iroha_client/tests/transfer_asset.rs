@@ -11,6 +11,7 @@ mod tests {
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.
@@ -18,7 +19,7 @@ mod tests {
         // Given
         thread::spawn(create_and_start_iroha);
         thread::sleep(std::time::Duration::from_millis(100));
-        let configuration = ClientConfiguration::from_path(CONFIGURATION_PATH)
+        let configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         let mut iroha_client = Client::new(&configuration);
         let domain_name = "domain";

@@ -10,6 +10,7 @@ use std::{thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
 fn permissions_disallow_asset_transfer() {
@@ -29,7 +30,8 @@ fn permissions_disallow_asset_transfer() {
     let register_alice =
         Register::<Domain, Account>::new(Account::new(alice_id.clone()), domain_name.to_string());
     let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration."),
     );
     iroha_client
         .submit_all(vec![create_asset.into(), register_alice.into()])
@@ -91,7 +93,8 @@ fn permissions_disallow_asset_burn() {
     let register_alice =
         Register::<Domain, Account>::new(Account::new(alice_id.clone()), domain_name.to_string());
     let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration."),
     );
     iroha_client
         .submit_all(vec![create_asset.into(), register_alice.into()])
