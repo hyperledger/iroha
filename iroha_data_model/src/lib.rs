@@ -265,7 +265,6 @@ pub mod account {
         /// Asset's in this `Account`.
         pub assets: AssetsMap,
         /// `Account`'s signatories.
-        //TODO: signatories are not public keys - rename this field.
         pub signatories: Signatories,
         /// Permissions of this account
         pub permissions: Permissions,
