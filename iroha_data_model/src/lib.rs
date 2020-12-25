@@ -20,6 +20,7 @@
 )]
 
 pub mod events;
+pub mod expression;
 pub mod isi;
 pub mod query;
 
@@ -49,7 +50,7 @@ pub enum Parameter {
 }
 
 /// Sized container for all possible identifications.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
 pub enum IdBox {
     /// `AccountId` variant.
     AccountId(account::Id),
@@ -66,7 +67,7 @@ pub enum IdBox {
 }
 
 /// Sized container for all possible entities.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
 pub enum IdentifiableBox {
     /// `Account` variant.
     Account(Box<account::Account>),
@@ -746,7 +747,7 @@ pub mod peer {
     pub type PeersIds = BTreeSet<Id>;
 
     /// Peer represents Iroha instance.
-    #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode, PartialEq)]
     pub struct Peer {
         /// Peer Identification.
         pub id: Id,
