@@ -11,6 +11,8 @@
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/empty.hpp>
+#include <rxcpp/operators/rx-take_while.hpp>
+#include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "common/visitor.hpp"
@@ -46,38 +48,51 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                         hashes->size());
             cache_->remove(*hashes);
           })),
-      round_switch_subscription_(round_switch_events.subscribe(
-          [this,
-           proposal_creation_strategy =
-               std::move(proposal_creation_strategy)](auto event) {
-            log_->debug("Current: {}", event.next_round);
-
-            std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
-            if (stop_requested_) {
-              log_->warn("Not doing anything because stop was requested.");
-              return;
-            }
-
-            // notify our ordering service about new round
-            proposal_creation_strategy->onCollaborationOutcome(
-                event.next_round, event.ledger_state->ledger_peers.size());
-            ordering_service_->onCollaborationOutcome(event.next_round);
-
-            this->sendCachedTransactions();
-
-            // request proposal for the current round
-            auto proposal = this->processProposalRequest(
-                network_client_->onRequestProposal(event.next_round));
-            // vote for the object received from the network
-            proposal_notifier_.get_subscriber().on_next(
-                network::OrderingEvent{std::move(proposal),
-                                       event.next_round,
-                                       std::move(event.ledger_state)});
-          })),
       cache_(std::move(cache)),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
-      proposal_notifier_(proposal_notifier_lifetime_) {}
+      published_events_([&] {
+        rxcpp::observable<network::OrderingEvent> events =
+            round_switch_events
+                .take_while([this](auto &) {
+                  std::shared_lock<std::shared_timed_mutex> stop_lock(
+                      stop_mutex_);
+                  if (stop_requested_) {
+                    log_->warn(
+                        "Not doing anything because stop was requested.");
+                    return false;
+                  }
+                  return true;
+                })
+                .map([this,
+                      proposal_creation_strategy =
+                          std::move(proposal_creation_strategy)](
+                         RoundSwitch const &event) {
+                  log_->debug("Current: {}", event.next_round);
+
+                  // notify our ordering service about new round
+                  proposal_creation_strategy->onCollaborationOutcome(
+                      event.next_round,
+                      event.ledger_state->ledger_peers.size());
+                  ordering_service_->onCollaborationOutcome(event.next_round);
+
+                  this->sendCachedTransactions();
+
+                  // request proposal for the current round
+                  auto proposal = this->processProposalRequest(
+                      // TODO return expected::Result, decide on rx operators for retry with delay
+                      network_client_->onRequestProposal(event.next_round));
+                  // vote for the object received from the network
+                  return network::OrderingEvent{std::move(proposal),
+                                                event.next_round,
+                                                std::move(event.ledger_state)};
+                });
+        rxcpp::connectable_observable<network::OrderingEvent> published_events =
+            events.publish();
+        rxcpp::observable<network::OrderingEvent> published_ref_counted_events =
+            published_events.ref_count();
+        return published_ref_counted_events;
+      }()) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();
@@ -98,7 +113,7 @@ void OnDemandOrderingGate::propagateBatch(
 }
 
 rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
-  return proposal_notifier_.get_observable();
+  return published_events_;
 }
 
 void OnDemandOrderingGate::stop() {
@@ -106,9 +121,7 @@ void OnDemandOrderingGate::stop() {
   if (not stop_requested_) {
     stop_requested_ = true;
     log_->info("Stopping.");
-    proposal_notifier_lifetime_.unsubscribe();
     processed_tx_hashes_subscription_.unsubscribe();
-    round_switch_subscription_.unsubscribe();
     network_client_.reset();
   }
 }

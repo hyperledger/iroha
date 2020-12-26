@@ -77,7 +77,7 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
       result;
   {
-    // tryCreateProposal will not be able to aquire the lock and access the map
+    // tryCreateProposal will not be able to acquire the lock and access the map
     std::shared_lock<std::shared_timed_mutex> lock(proposals_mutex_);
     proposal_creation_strategy_->onProposalRequest(round);
     // TODO 2019-08-01 lebdron: IR-487 good case optimization

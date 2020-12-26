@@ -97,7 +97,6 @@ namespace iroha {
       std::shared_ptr<OnDemandOrderingService> ordering_service_;
       std::unique_ptr<transport::OdOsNotification> network_client_;
       rxcpp::composite_subscription processed_tx_hashes_subscription_;
-      rxcpp::composite_subscription round_switch_subscription_;
       std::shared_ptr<cache::OrderingGateCache> cache_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
@@ -106,8 +105,7 @@ namespace iroha {
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};
 
-      rxcpp::composite_subscription proposal_notifier_lifetime_;
-      rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;
+      rxcpp::observable<network::OrderingEvent> published_events_;
     };
 
   }  // namespace ordering
