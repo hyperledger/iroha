@@ -25,6 +25,7 @@ pub mod block_sync;
 pub mod config;
 pub mod domain;
 pub mod event;
+pub mod expression;
 pub mod genesis;
 mod init;
 pub mod isi;

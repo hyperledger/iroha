@@ -1,13 +1,9 @@
 //! Expressions to use inside of ISIs.
-use super::{query::QueryBox, IdBox, IdentifiableBox, Parameter};
-use iroha_crypto::PublicKey;
+
+use super::{query::QueryBox, Value, ValueBox};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-    marker::PhantomData,
-};
+use std::{collections::BTreeMap, convert::TryFrom, marker::PhantomData};
 
 /// Binded name for a value.
 pub type ValueName = String;
@@ -36,34 +32,6 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
         }
     }
 }
-
-impl<V: TryFrom<Value, Error = String>> Evaluate for EvaluatesTo<V> {
-    type Value = V;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        self.expression
-            .evaluate(world_state_view, context)?
-            .try_into()
-    }
-}
-
-impl Evaluate for EvaluatesTo<Value> {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        self.expression.evaluate(world_state_view, context)
-    }
-}
-
-struct WorldStateView;
 
 /// Represents all possible expressions.
 #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
@@ -100,183 +68,9 @@ pub enum Expression {
     ContextValue(ContextValue),
 }
 
-/// Boxed `Value`.
-pub type ValueBox = Box<Value>;
-
-/// Sized container for all possible values.
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Serialize, Deserialize)]
-pub enum Value {
-    /// `u32` integer.
-    U32(u32),
-    /// `bool` value.
-    Bool(bool),
-    /// `Vec` of `Value`.
-    Vec(Vec<Value>),
-    /// `Id` of `Asset`, `Account`, etc.
-    Id(IdBox),
-    /// `Identifiable` as `Asset`, `Account` etc.
-    Identifiable(IdentifiableBox),
-    /// `PublicKey`.
-    PublicKey(PublicKey),
-    /// Iroha `Parameter` variant.
-    Parameter(Parameter),
-}
-
-impl TryFrom<Value> for u32 {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<u32, Self::Error> {
-        if let Value::U32(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not U32.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for bool {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<bool, Self::Error> {
-        if let Value::Bool(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not bool.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for Vec<Value> {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<Vec<Value>, Self::Error> {
-        if let Value::Vec(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not vec.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for IdBox {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<IdBox, Self::Error> {
-        if let Value::Id(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not an id.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for IdentifiableBox {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<IdentifiableBox, Self::Error> {
-        if let Value::Identifiable(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not an identifiable entity.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for PublicKey {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<PublicKey, Self::Error> {
-        if let Value::PublicKey(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not a public key.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for Parameter {
-    type Error = String;
-
-    fn try_from(value: Value) -> Result<Parameter, Self::Error> {
-        if let Value::Parameter(value) = value {
-            Ok(value)
-        } else {
-            Err(format!("Value {:?} is not a parameter.", value))
-        }
-    }
-}
-
-impl From<u32> for Value {
-    fn from(value: u32) -> Value {
-        Value::U32(value)
-    }
-}
-
-impl From<bool> for Value {
-    fn from(value: bool) -> Value {
-        Value::Bool(value)
-    }
-}
-
-impl From<Parameter> for Value {
-    fn from(value: Parameter) -> Value {
-        Value::Parameter(value)
-    }
-}
-
-impl<V: Into<Value>> From<Vec<V>> for Value {
-    fn from(values: Vec<V>) -> Value {
-        Value::Vec(values.into_iter().map(|value| value.into()).collect())
-    }
-}
-
 impl<T: Into<Value>> From<T> for ExpressionBox {
     fn from(value: T) -> Self {
         Expression::Raw(Box::new(value.into())).into()
-    }
-}
-
-trait Evaluate {
-    type Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String>;
-}
-
-impl Evaluate for Expression {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        match self {
-            Expression::Add(add) => add.evaluate(world_state_view, context),
-            Expression::Subtract(subtract) => subtract.evaluate(world_state_view, context),
-            Expression::Greater(greater) => greater.evaluate(world_state_view, context),
-            Expression::Less(less) => less.evaluate(world_state_view, context),
-            Expression::Equal(equal) => equal.evaluate(world_state_view, context),
-            Expression::Not(not) => not.evaluate(world_state_view, context),
-            Expression::And(and) => and.evaluate(world_state_view, context),
-            Expression::Or(or) => or.evaluate(world_state_view, context),
-            Expression::If(if_expression) => if_expression.evaluate(world_state_view, context),
-            Expression::Raw(value) => Ok(*value.clone()),
-            Expression::Query(_query) => unimplemented!(),
-            Expression::Contains(contains) => contains.evaluate(world_state_view, context),
-            Expression::ContainsAll(contains_all) => {
-                contains_all.evaluate(world_state_view, context)
-            }
-            Expression::Where(where_expression) => {
-                where_expression.evaluate(world_state_view, context)
-            }
-            Expression::ContextValue(context_value) => {
-                context_value.evaluate(world_state_view, context)
-            }
-        }
     }
 }
 
@@ -294,21 +88,6 @@ impl ContextValue {
         Self {
             value_name: value_name.to_string(),
         }
-    }
-}
-
-impl Evaluate for ContextValue {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        _world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        context
-            .get(&self.value_name)
-            .ok_or_else(|| format!("Value with name {} not found in context", self.value_name))
-            .map(|value| value.to_owned())
     }
 }
 
@@ -338,20 +117,6 @@ impl Add {
     }
 }
 
-impl Evaluate for Add {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left + right).into())
-    }
-}
-
 impl From<Add> for ExpressionBox {
     fn from(expression: Add) -> Self {
         Expression::Add(expression).into()
@@ -375,20 +140,6 @@ impl Subtract {
             left: left.into(),
             right: right.into(),
         }
-    }
-}
-
-impl Evaluate for Subtract {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left - right).into())
     }
 }
 
@@ -418,20 +169,6 @@ impl Greater {
     }
 }
 
-impl Evaluate for Greater {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left > right).into())
-    }
-}
-
 impl From<Greater> for ExpressionBox {
     fn from(expression: Greater) -> Self {
         Expression::Greater(expression).into()
@@ -458,20 +195,6 @@ impl Less {
     }
 }
 
-impl Evaluate for Less {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left < right).into())
-    }
-}
-
 impl From<Less> for ExpressionBox {
     fn from(expression: Less) -> Self {
         Expression::Less(expression).into()
@@ -492,19 +215,6 @@ impl Not {
         Self {
             expression: expression.into(),
         }
-    }
-}
-
-impl Evaluate for Not {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let expression = self.expression.evaluate(world_state_view, context)?;
-        Ok((!expression).into())
     }
 }
 
@@ -533,20 +243,6 @@ impl And {
     }
 }
 
-impl Evaluate for And {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left && right).into())
-    }
-}
-
 impl From<And> for ExpressionBox {
     fn from(expression: And) -> Self {
         Expression::And(expression).into()
@@ -569,20 +265,6 @@ impl Or {
             left: left.into(),
             right: right.into(),
         }
-    }
-}
-
-impl Evaluate for Or {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left || right).into())
     }
 }
 
@@ -673,23 +355,6 @@ impl If {
     }
 }
 
-impl Evaluate for If {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let condition = self.condition.evaluate(world_state_view, context)?;
-        if condition {
-            self.then_expression.evaluate(world_state_view, context)
-        } else {
-            self.else_expression.evaluate(world_state_view, context)
-        }
-    }
-}
-
 impl From<If> for ExpressionBox {
     fn from(if_expression: If) -> Self {
         Expression::If(if_expression).into()
@@ -716,20 +381,6 @@ impl Contains {
             collection: collection.into(),
             element: element.into(),
         }
-    }
-}
-
-impl Evaluate for Contains {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let collection = self.collection.evaluate(world_state_view, context)?;
-        let element = self.element.evaluate(world_state_view, context)?;
-        Ok(collection.contains(&element).into())
     }
 }
 
@@ -762,23 +413,6 @@ impl ContainsAll {
     }
 }
 
-impl Evaluate for ContainsAll {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let collection = self.collection.evaluate(world_state_view, context)?;
-        let elements = self.elements.evaluate(world_state_view, context)?;
-        Ok(elements
-            .iter()
-            .all(|element| collection.contains(element))
-            .into())
-    }
-}
-
 impl From<ContainsAll> for ExpressionBox {
     fn from(expression: ContainsAll) -> Self {
         Expression::ContainsAll(expression).into()
@@ -804,20 +438,6 @@ impl Equal {
             left: left.into(),
             right: right.into(),
         }
-    }
-}
-
-impl Evaluate for Equal {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left == right).into())
     }
 }
 
@@ -884,294 +504,23 @@ impl Where {
     }
 }
 
-impl Evaluate for Where {
-    type Value = Value;
-
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String> {
-        let additional_context: Result<Context, String> = self
-            .values
-            .clone()
-            .into_iter()
-            .map(|(value_name, expression)| {
-                expression
-                    .evaluate(world_state_view, context)
-                    .map(|expression_result| (value_name, expression_result))
-            })
-            .collect();
-        self.expression.evaluate(
-            world_state_view,
-            &context
-                .clone()
-                .into_iter()
-                .chain(additional_context?.into_iter())
-                .collect(),
-        )
-    }
-}
-
 impl From<Where> for ExpressionBox {
     fn from(where_expression: Where) -> Self {
         Expression::Where(where_expression).into()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use iroha_crypto::KeyPair;
-
-    /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
-    #[test]
-    fn conditional_multisignature_quorum() -> Result<(), String> {
-        let asset_quantity_high = Value::U32(750);
-        let asset_quantity_low = Value::U32(300);
-        let key_pair_teller_1 = KeyPair::generate()?;
-        let key_pair_teller_2 = KeyPair::generate()?;
-        let key_pair_manager = KeyPair::generate()?;
-        let teller_signatory_set = Value::Vec(vec![
-            Value::PublicKey(key_pair_teller_1.clone().public_key),
-            Value::PublicKey(key_pair_teller_2.public_key),
-        ]);
-        let one_teller_set = Value::Vec(vec![Value::PublicKey(key_pair_teller_1.public_key)]);
-        let manager_signatory = Value::PublicKey(key_pair_manager.public_key);
-        let manager_signatory_set = Value::Vec(vec![manager_signatory.clone()]);
-        let condition: ExpressionBox = IfBuilder::condition(And::new(
-            Greater::new(ContextValue::new("usd_quantity"), 500),
-            Less::new(ContextValue::new("usd_quantity"), 1000),
-        ))
-        .then_expression(Or::new(
-            ContainsAll::new(
-                ContextValue::new("signatories"),
-                teller_signatory_set.clone(),
-            ),
-            Contains::new(ContextValue::new("signatories"), manager_signatory),
-        ))
-        .else_expression(true)
-        .build()?
-        .into();
-        // Signed by all tellers
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value(
-                //TODO: use query to get the actual quantity of an asset from WSV
-                "usd_quantity".to_string(),
-                asset_quantity_high.clone(),
-            )
-            .with_value("signatories".to_string(), teller_signatory_set.clone())
-            .build();
-        assert_eq!(
-            expression.evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        // Signed by manager
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_high.clone())
-            .with_value("signatories".to_string(), manager_signatory_set.clone())
-            .build();
-        assert_eq!(
-            expression.evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        // Signed by one teller
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_high.clone())
-            .with_value("signatories".to_string(), one_teller_set.clone())
-            .build();
-        assert_eq!(
-            expression.evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(false)
-        );
-        // Signed by one teller with less value
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_low.clone())
-            .with_value("signatories".to_string(), one_teller_set.clone())
-            .build();
-        assert_eq!(
-            expression.evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        Ok(())
+impl From<QueryBox> for ExpressionBox {
+    fn from(query: QueryBox) -> Self {
+        Expression::Query(query).into()
     }
+}
 
-    #[test]
-    fn where_expression() -> Result<(), String> {
-        assert_eq!(
-            WhereBuilder::evaluate(ContextValue::new("test_value"))
-                .with_value("test_value".to_string(), Add::new(2, 3))
-                .build()
-                .evaluate(&WorldStateView, &Context::new())?,
-            Value::U32(5)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn nested_where_expression() -> Result<(), String> {
-        let expression = WhereBuilder::evaluate(ContextValue::new("a"))
-            .with_value("a".to_string(), 2)
-            .build();
-        let outer_expression: ExpressionBox =
-            WhereBuilder::evaluate(Add::new(expression, ContextValue::new("b")))
-                .with_value("b".to_string(), 4)
-                .build()
-                .into();
-        assert_eq!(
-            outer_expression.evaluate(&WorldStateView, &Context::new())?,
-            Value::U32(6)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn if_condition_builder_builds_only_with_both_branches() {
-        let _ = IfBuilder::condition(true)
-            .then_expression(1)
-            .build()
-            .expect_err("Builder should fail if a branch is missing");
-        let _ = IfBuilder::condition(true)
-            .else_expression(2)
-            .build()
-            .expect_err("Builder should fail if a branch is missing");
-        let _ = IfBuilder::condition(true)
-            .then_expression(1)
-            .else_expression(2)
-            .build()
-            .expect("Builder should build if both branches are present.");
-    }
-
-    #[test]
-    fn if_condition_branches_correctly() -> Result<(), String> {
-        assert_eq!(
-            If::new(true, 1, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::U32(1)
-        );
-        assert_eq!(
-            If::new(false, 1, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::U32(2)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn wrong_operand_types_are_caught() {
-        assert!(Add::new(10, true)
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("Should not be possible to add int and bool.")
-            .ends_with("is not U32."));
-        assert!(Subtract::new(10, true)
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("Should not be possible to subtract int and bool.")
-            .ends_with("is not U32."));
-        assert!(And::new(1, Vec::<Value>::new())
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("Should not be possible to apply logical and to int and vec.")
-            .ends_with("is not bool."));
-        assert!(Or::new(1, Vec::<Value>::new())
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("Should not be possible to apply logical or to int and vec.")
-            .ends_with("is not bool."));
-        assert!(Greater::new(1, Vec::<Value>::new())
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("Should not be possible to apply greater sign to int and vec.")
-            .ends_with("is not U32."));
-        assert!(Less::new(1, Vec::<Value>::new())
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("Should not be possible to apply greater sign to int and vec.")
-            .ends_with("is not U32."));
-        assert!(If::new(1, 2, 3)
-            .evaluate(&WorldStateView, &Context::new())
-            .expect_err("If condition should be bool")
-            .ends_with("is not bool."));
-    }
-
-    #[test]
-    fn operations_are_correctly_calculated() -> Result<(), String> {
-        assert_eq!(
-            Add::new(1, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::U32(3)
-        );
-        assert_eq!(
-            Subtract::new(7, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::U32(5)
-        );
-        assert_eq!(
-            Greater::new(1, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(false)
-        );
-        assert_eq!(
-            Greater::new(2, 1).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        assert_eq!(
-            Less::new(1, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        assert_eq!(
-            Less::new(2, 1).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(false)
-        );
-        assert_eq!(
-            Equal::new(1, 2).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(false)
-        );
-        assert_eq!(
-            Equal::new(vec![1, 3, 5], vec![1, 3, 5]).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        assert_eq!(
-            Contains::new(vec![1, 3, 5], 3).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        assert_eq!(
-            Contains::new(vec![1, 3, 5], 7).evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(false)
-        );
-        assert_eq!(
-            ContainsAll::new(vec![1, 3, 5], vec![1, 5])
-                .evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(true)
-        );
-        assert_eq!(
-            ContainsAll::new(vec![1, 3, 5], vec![1, 5, 7])
-                .evaluate(&WorldStateView, &Context::new())?,
-            Value::Bool(false)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn serde_serialization_works() {
-        let expression: ExpressionBox = Add::new(1, Subtract::new(7, 4)).into();
-        let serialized_expression =
-            serde_json::to_string(&expression).expect("Failed to serialize.");
-        let deserialized_expression: ExpressionBox =
-            serde_json::from_str(&serialized_expression).expect("Failed to deserialize.");
-        assert_eq!(
-            expression
-                .evaluate(&WorldStateView, &Context::new())
-                .expect("Failed to calculate."),
-            deserialized_expression
-                .evaluate(&WorldStateView, &Context::new())
-                .expect("Failed to calculate.")
-        )
-    }
-
-    #[test]
-    fn scale_codec_serialization_works() {
-        let expression: ExpressionBox = Add::new(1, Subtract::new(7, 4)).into();
-        let serialized_expression: Vec<u8> = expression.encode();
-        let deserialized_expression = ExpressionBox::decode(&mut serialized_expression.as_slice())
-            .expect("Failed to decode.");
-        assert_eq!(
-            expression
-                .evaluate(&WorldStateView, &Context::new())
-                .expect("Failed to calculate."),
-            deserialized_expression
-                .evaluate(&WorldStateView, &Context::new())
-                .expect("Failed to calculate.")
-        )
-    }
+/// The prelude re-exports most commonly used traits, structs and macros from this crate.
+pub mod prelude {
+    pub use super::{
+        Add, And, Contains, ContainsAll, Context, ContextValue, Equal, EvaluatesTo, Expression,
+        ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Not, Or, Subtract, ValueName,
+        Where, WhereBuilder,
+    };
 }

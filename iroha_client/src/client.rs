@@ -43,13 +43,13 @@ impl Client {
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
     #[log]
-    pub fn submit(&mut self, instruction: InstructionBox) -> Result<Hash, String> {
+    pub fn submit(&mut self, instruction: Instruction) -> Result<Hash, String> {
         self.submit_all(vec![instruction])
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
-    pub fn submit_all(&mut self, instructions: Vec<InstructionBox>) -> Result<Hash, String> {
+    pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
         let transaction = Transaction::new(
             instructions,
             self.account_id.clone(),
@@ -86,16 +86,13 @@ impl Client {
 
     /// Submits and waits until the transaction is either rejected or committed.
     /// Returns rejection reason if transaction was rejected.
-    pub fn submit_blocking(&mut self, instruction: InstructionBox) -> Result<Hash, String> {
+    pub fn submit_blocking(&mut self, instruction: Instruction) -> Result<Hash, String> {
         self.submit_all_blocking(vec![instruction])
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
     /// Returns rejection reason if transaction was rejected.
-    pub fn submit_all_blocking(
-        &mut self,
-        instructions: Vec<InstructionBox>,
-    ) -> Result<Hash, String> {
+    pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
         let transaction = Transaction::new(

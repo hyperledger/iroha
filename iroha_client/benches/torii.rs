@@ -18,26 +18,37 @@ fn query_requests(criterion: &mut Criterion) {
     thread::spawn(create_and_start_iroha);
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
-    let configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
+    let create_domain = RegisterBox::new(
+        IdentifiableBox::Domain(Domain::new(domain_name).into()),
+        IdBox::WorldId,
+    );
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
-    let (public_key, _) = configuration.key_pair();
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(account_id.clone(), public_key),
-        domain_name.to_string(),
+    let create_account = RegisterBox::new(
+        IdentifiableBox::Account(
+            Account::with_signatory(
+                account_id.clone(),
+                KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
+            )
+            .into(),
+        ),
+        IdBox::DomainName(domain_name.to_string()),
     );
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id.clone()),
-        domain_name.to_string(),
+    let create_asset = RegisterBox::new(
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
     );
     let quantity: u32 = 200;
-    let mint_asset = Mint::<Asset, u32>::new(
-        quantity,
-        AssetId::new(asset_definition_id, account_id.clone()),
+    let mint_asset = MintBox::new(
+        Value::U32(quantity),
+        IdBox::AssetId(AssetId::new(
+            asset_definition_id.clone(),
+            account_id.clone(),
+        )),
     );
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
@@ -89,16 +100,24 @@ fn instruction_submits(criterion: &mut Criterion) {
     thread::spawn(create_and_start_iroha);
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("instruction-reqeuests");
-    let configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
+    let create_domain = RegisterBox::new(
+        IdentifiableBox::Domain(Domain::new(domain_name).into()),
+        IdBox::WorldId,
+    );
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
-    let (public_key, _) = configuration.key_pair();
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(account_id.clone(), public_key),
-        domain_name.to_string(),
+    let create_account = RegisterBox::new(
+        IdentifiableBox::Account(
+            Account::with_signatory(
+                account_id.clone(),
+                KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
+            )
+            .into(),
+        ),
+        IdBox::DomainName(domain_name.to_string()),
     );
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let mut iroha_client = Client::new(
@@ -114,9 +133,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     group.bench_function("instructions", |b| {
         b.iter(|| {
             let quantity: u32 = 200;
-            let mint_asset = Mint::<Asset, u32>::new(
-                quantity,
-                AssetId::new(asset_definition_id.clone(), account_id.clone()),
+            let mint_asset = MintBox::new(
+                Value::U32(quantity),
+                IdBox::AssetId(AssetId::new(
+                    asset_definition_id.clone(),
+                    account_id.clone(),
+                )),
             );
             match iroha_client.submit(mint_asset.into()) {
                 Ok(_) => success_count += 1,
