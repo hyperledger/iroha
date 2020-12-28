@@ -5,25 +5,31 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
-fn accept_transaction(criterion: &mut Criterion) {
+fn build_test_transaction() -> Transaction {
     let domain_name = "domain";
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
+    let create_domain = RegisterBox::new(
+        IdentifiableBox::Domain(Domain::new(domain_name).into()),
+        IdBox::WorldId,
+    );
     let account_name = "account";
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(
-            AccountId::new(account_name, domain_name),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
+    let create_account = RegisterBox::new(
+        IdentifiableBox::Account(
+            Account::with_signatory(
+                AccountId::new(account_name, domain_name),
+                KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
+            )
+            .into(),
         ),
-        domain_name.to_string(),
+        IdBox::DomainName(domain_name.to_string()),
     );
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id),
-        domain_name.to_string(),
+    let create_asset = RegisterBox::new(
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id).into()),
+        IdBox::DomainName(domain_name.to_string()),
     );
-    let transaction = Transaction::new(
+    Transaction::new(
         vec![
             create_domain.into(),
             create_account.into(),
@@ -33,7 +39,11 @@ fn accept_transaction(criterion: &mut Criterion) {
         TRANSACTION_TIME_TO_LIVE_MS,
     )
     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-    .expect("Failed to sign.");
+    .expect("Failed to sign.")
+}
+
+fn accept_transaction(criterion: &mut Criterion) {
+    let transaction = build_test_transaction();
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("accept", |b| {
@@ -49,32 +59,7 @@ fn accept_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_transaction(criterion: &mut Criterion) {
-    let domain_name = "domain";
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
-    let account_name = "account";
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(
-            AccountId::new(account_name, domain_name),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        ),
-        domain_name.to_string(),
-    );
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id),
-        domain_name.to_string(),
-    );
-    let transaction = Transaction::new(
-        vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-        ],
-        AccountId::new("account", "domain"),
-        TRANSACTION_TIME_TO_LIVE_MS,
-    );
+    let transaction = build_test_transaction();
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -91,35 +76,9 @@ fn sign_transaction(criterion: &mut Criterion) {
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
-    let domain_name = "domain";
-    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
-    let account_name = "account";
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(
-            AccountId::new(account_name, domain_name),
-            key_pair.public_key.clone(),
-        ),
-        domain_name.to_string(),
-    );
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id),
-        domain_name.to_string(),
-    );
-    let transaction = Transaction::new(
-        vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-        ],
-        AccountId::new("account", "domain"),
-        TRANSACTION_TIME_TO_LIVE_MS,
-    )
-    .sign(&key_pair)
-    .expect("Failed to sign transaction.")
-    .accept()
-    .expect("Failed to accept transaction.");
+    let transaction = build_test_transaction()
+        .accept()
+        .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
     let mut world_state_view = WorldStateView::new(World::new());
@@ -141,35 +100,9 @@ fn validate_transaction(criterion: &mut Criterion) {
 }
 
 fn chain_blocks(criterion: &mut Criterion) {
-    let domain_name = "domain";
-    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
-    let account_name = "account";
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(
-            AccountId::new(account_name, domain_name),
-            key_pair.public_key.clone(),
-        ),
-        domain_name.to_string(),
-    );
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id),
-        domain_name.to_string(),
-    );
-    let transaction = Transaction::new(
-        vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-        ],
-        AccountId::new("account", "domain"),
-        TRANSACTION_TIME_TO_LIVE_MS,
-    )
-    .sign(&key_pair)
-    .expect("Failed to sign.")
-    .accept()
-    .expect("Failed to accept transaction.");
+    let transaction = build_test_transaction()
+        .accept()
+        .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction]);
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
@@ -186,39 +119,14 @@ fn chain_blocks(criterion: &mut Criterion) {
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
-    let domain_name = "domain";
-    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
-    let account_name = "account";
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(
-            AccountId::new(account_name, domain_name),
-            key_pair.public_key.clone(),
-        ),
-        domain_name.to_string(),
-    );
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id),
-        domain_name.to_string(),
-    );
-    let transaction = Transaction::new(
-        vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-        ],
-        AccountId::new("account", "domain"),
-        TRANSACTION_TIME_TO_LIVE_MS,
-    )
-    .sign(&key_pair)
-    .expect("Failed to sign.")
-    .accept()
-    .expect("Failed to accept transaction.");
+    let transaction = build_test_transaction()
+        .accept()
+        .expect("Failed to accept transaction.");
     let world_state_view = WorldStateView::new(World::new());
     let block = PendingBlock::new(vec![transaction])
         .chain_first()
         .validate(&world_state_view, &AllowAll.into());
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("sign_block", |b| {
@@ -251,35 +159,9 @@ fn validate_blocks(criterion: &mut Criterion) {
     domains.insert(domain_name, domain);
     let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
-    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let domain_name = "domain";
-    let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
-    let account_name = "account";
-    let create_account = Register::<Domain, Account>::new(
-        Account::with_signatory(
-            AccountId::new(account_name, domain_name),
-            key_pair.public_key.clone(),
-        ),
-        domain_name.to_string(),
-    );
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id),
-        domain_name.to_string(),
-    );
-    let transaction = Transaction::new(
-        vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-        ],
-        AccountId::new("root", "global"),
-        TRANSACTION_TIME_TO_LIVE_MS,
-    )
-    .sign(&key_pair)
-    .expect("Failed to sign.")
-    .accept()
-    .expect("Failed to accept transaction.");
+    let transaction = build_test_transaction()
+        .accept()
+        .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction]).chain_first();
     criterion.bench_function("validate_block", |b| {
         b.iter(|| block.clone().validate(&world_state_view, &AllowAll.into()));

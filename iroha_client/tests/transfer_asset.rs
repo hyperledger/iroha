@@ -23,29 +23,52 @@ mod tests {
             .expect("Failed to load configuration.");
         let mut iroha_client = Client::new(&configuration);
         let domain_name = "domain";
-        let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
+        let create_domain = RegisterBox::new(
+            IdentifiableBox::Domain(Domain::new(domain_name).into()),
+            IdBox::WorldId,
+        );
         let account1_name = "account1";
         let account2_name = "account2";
         let account1_id = AccountId::new(account1_name, domain_name);
         let account2_id = AccountId::new(account2_name, domain_name);
-        let public_key = configuration.public_key;
-        let create_account1 = Register::<Domain, Account>::new(
-            Account::with_signatory(account1_id.clone(), public_key.clone()),
-            domain_name.to_string(),
+        let create_account1 = RegisterBox::new(
+            IdentifiableBox::Account(
+                Account::with_signatory(
+                    account1_id.clone(),
+                    KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
+                )
+                .into(),
+            ),
+            IdBox::DomainName(domain_name.to_string()),
         );
-        let create_account2 = Register::<Domain, Account>::new(
-            Account::with_signatory(account2_id.clone(), public_key.clone()),
-            domain_name.to_string(),
+        let create_account2 = RegisterBox::new(
+            IdentifiableBox::Account(
+                Account::with_signatory(
+                    account2_id.clone(),
+                    KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
+                )
+                .into(),
+            ),
+            IdBox::DomainName(domain_name.to_string()),
         );
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let quantity: u32 = 200;
-        let create_asset = Register::<Domain, AssetDefinition>::new(
-            AssetDefinition::new(asset_definition_id.clone()),
-            domain_name.to_string(),
+        let create_asset = RegisterBox::new(
+            IdentifiableBox::AssetDefinition(
+                AssetDefinition::new(asset_definition_id.clone()).into(),
+            ),
+            IdBox::DomainName(domain_name.to_string()),
         );
-        let mint_asset = Mint::<Asset, u32>::new(
-            quantity,
-            AssetId::new(asset_definition_id.clone(), account1_id.clone()),
+        let mint_asset = MintBox::new(
+            Value::U32(quantity),
+            IdBox::AssetId(AssetId::new(
+                asset_definition_id.clone(),
+                account1_id.clone(),
+            )),
         );
         iroha_client
             .submit_all(vec![
@@ -59,10 +82,13 @@ mod tests {
         thread::sleep(std::time::Duration::from_millis(200 * 2));
         //When
         let quantity = 20;
-        let transfer_asset = Transfer::<Asset, u32, Asset>::new(
-            AssetId::new(asset_definition_id.clone(), account1_id.clone()),
-            quantity,
-            AssetId::new(asset_definition_id.clone(), account2_id.clone()),
+        let transfer_asset = TransferBox::new(
+            IdBox::AssetId(AssetId::new(
+                asset_definition_id.clone(),
+                account1_id.clone(),
+            )),
+            Value::U32(quantity),
+            IdBox::AssetId(AssetId::new(asset_definition_id, account2_id.clone())),
         );
         iroha_client
             .submit(transfer_asset.into())

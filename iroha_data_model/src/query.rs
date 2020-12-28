@@ -1,7 +1,6 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
 use self::{account::*, asset::*, domain::*, peer::*};
-use crate::ValueBox;
 use iroha_crypto::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
@@ -153,12 +152,6 @@ impl SignedQueryRequest {
         let mut payload: Vec<u8> = self.query.clone().into();
         payload.extend_from_slice(self.timestamp.as_bytes());
         Hash::new(&payload)
-    }
-}
-
-impl<I: Into<QueryBox>> From<I> for ValueBox {
-    fn from(query_box: I) -> ValueBox {
-        ValueBox::Query(Box::new(query_box.into()))
     }
 }
 
@@ -489,14 +482,6 @@ pub mod asset {
         }
     }
 
-    impl Value for FindAssetsByAccountIdAndAssetDefinitionId {
-        type Type = Vec<Asset>;
-    }
-
-    impl Value for FindAssetQuantityById {
-        type Type = u32;
-    }
-
     impl From<FindAllAssets> for QueryBox {
         fn from(query: FindAllAssets) -> QueryBox {
             QueryBox::FindAllAssets(Box::new(query))
@@ -596,14 +581,6 @@ pub mod domain {
         }
     }
 
-    impl Value for FindAllDomains {
-        type Type = Vec<Domain>;
-    }
-
-    impl Value for FindDomainByName {
-        type Type = Domain;
-    }
-
     impl From<FindAllDomains> for QueryBox {
         fn from(query: FindAllDomains) -> QueryBox {
             QueryBox::FindAllDomains(Box::new(query))
@@ -688,18 +665,6 @@ pub mod peer {
         pub fn new() -> Self {
             FindAllParameters {}
         }
-    }
-
-    impl Value for FindAllPeers {
-        type Type = Vec<Peer>;
-    }
-
-    impl Value for FindPeerById {
-        type Type = Peer;
-    }
-
-    impl Value for FindAllParameters {
-        type Type = Vec<Parameter>;
     }
 
     impl From<FindAllPeers> for QueryBox {

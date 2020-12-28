@@ -16,7 +16,7 @@ const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 pub struct IrohaWorld {
     client: Client,
-    peer_id: PeerId,
+    _peer_id: PeerId,
     block_build_time: u64,
     iroha_port: u16,
     result: Option<QueryResult>,
@@ -35,7 +35,7 @@ impl CucumberWorld for IrohaWorld {
         let iroha_client = Client::new(&configuration);
         Ok(IrohaWorld {
             client: iroha_client,
-            peer_id: PeerId::new(&configuration.torii_api_url, &configuration.public_key),
+            _peer_id: PeerId::new(&configuration.torii_api_url, &configuration.public_key),
             block_build_time: 300,
             iroha_port: free_port,
             result: Option::None,
@@ -99,12 +99,12 @@ mod asset_steps {
                     world
                         .client
                         .submit(
-                            Register::<Domain, AssetDefinition>::new (
-                                AssetDefinition::new(AssetDefinitionId::new(
+                            RegisterBox::new (
+                                IdentifiableBox::AssetDefinition(AssetDefinition::new(AssetDefinitionId::new(
                                         &asset_definition_name,
                                         &asset_definition_domain,
-                                        )),
-                                        asset_definition_domain.to_string(),
+                                        )).into()),
+                                        IdBox::DomainName(asset_definition_domain.to_string()),
                                         )
                             .into(),
                             )
@@ -125,13 +125,13 @@ mod asset_steps {
                     world
                         .client
                         .submit(
-                            Mint::<Asset, u32>::new(
-                                asset_quantity,
-                                AssetId::new(AssetDefinitionId::new(
+                            MintBox::new(
+                                Value::U32(asset_quantity),
+                                IdBox::AssetId(AssetId::new(AssetDefinitionId::new(
                                         &asset_definition_name,
                                         &asset_definition_domain,
                                         ), AccountId::new(account_name, account_domain)),
-                                        )
+                                        ))
                             .into(),
                             )
                 .expect("Failed to execute request.");
@@ -213,9 +213,9 @@ mod account_steps {
                         "Going to register an account with id: {}@{}",
                         &account_name, &domain_name
                         );
-                    let register_account = Register::<Domain, Account>::new(
-                         Account::new(AccountId::new(&account_name, &domain_name)),
-                         domain_name.to_string(),
+                    let register_account = RegisterBox::new(
+                         IdentifiableBox::Account(Account::new(AccountId::new(&account_name, &domain_name)).into()),
+                         IdBox::DomainName(domain_name.to_string()),
                     );
                         world.client.submit(register_account.into())
                     .expect("Failed to register an account.");
@@ -239,9 +239,9 @@ mod account_steps {
                         quantity, asset_definition_name, asset_definition_domain,
                         account_name, account_domain_name);
                         world.client.submit(
-                            Mint::<Asset, u32>::new(
-                                 quantity,
-                                 AssetId::new(
+                            MintBox::new(
+                                 Value::U32(quantity),
+                                 IdBox::AssetId(AssetId::new(
                                      AssetDefinitionId::new(
                                                        &asset_definition_name,
                                                        &asset_definition_domain
@@ -249,7 +249,7 @@ mod account_steps {
                                                         AccountId::new(
                                                            &account_name,
                                                            &account_domain_name
-                                                           )
+                                                           ))
                                 )
                             ).into()
                         ).expect("Failed to submit Mint instruction.");
@@ -294,8 +294,10 @@ mod domain_steps {
                 |mut world, matches, _step| {
                     let domain_name = matches[1].trim();
                     println!("Going to add domain with name: {}", domain_name);
-                    let add_domain =
-                        Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
+                    let add_domain = RegisterBox::new(
+                        IdentifiableBox::Domain(Domain::new(domain_name).into()),
+                        IdBox::WorldId,
+                    );
                     world
                         .client
                         .submit(add_domain.into())
@@ -549,12 +551,12 @@ mod peer_steps {
                     world
                         .client
                         .submit(
-                            Register::<World, Peer>::new (
-                                Peer::new(
+                            RegisterBox::new (
+                                IdentifiableBox::Peer(Peer::new(
                                     PeerId::new(
                                         trusted_peer_url,
-                                        &public_key)),
-                                        WorldId
+                                        &public_key)).into()),
+                                        IdBox::WorldId
                                         )
                             .into(),
                             )
@@ -573,9 +575,9 @@ mod peer_steps {
                     world
                         .client
                         .submit(
-                            Mint::<Peer, Parameter>::new (
-                                Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount),
-                                world.peer_id.clone()
+                            MintBox::new (
+                                Value::Parameter(Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)),
+                                IdBox::WorldId
                                 )
                             .into(),
                             )
@@ -595,9 +597,9 @@ mod peer_steps {
                     world
                         .client
                         .submit(
-                            Mint::<Peer, Parameter>::new (
-                                Parameter::CommitTime(commit_time_milliseconds),
-                                world.peer_id.clone()
+                            MintBox::new (
+                                Value::Parameter(Parameter::CommitTime(commit_time_milliseconds)),
+                                IdBox::WorldId
                                 )
                             .into(),
                             )
@@ -618,9 +620,9 @@ mod peer_steps {
                     world
                         .client
                         .submit(
-                            Mint::<Peer, Parameter>::new (
-                                Parameter::TransactionReceiptTime(transaction_receipt_time_milliseconds),
-                                world.peer_id.clone()
+                            MintBox::new (
+                                Value::Parameter(Parameter::TransactionReceiptTime(transaction_receipt_time_milliseconds)),
+                                IdBox::WorldId
                                 )
                             .into(),
                             )
@@ -641,9 +643,9 @@ mod peer_steps {
                     world
                         .client
                         .submit(
-                            Mint::<Peer, Parameter>::new (
-                                Parameter::BlockTime(block_time_milliseconds),
-                                world.peer_id.clone()
+                            MintBox::new (
+                                Value::Parameter(Parameter::BlockTime(block_time_milliseconds)),
+                                IdBox::WorldId
                                 )
                             .into(),
                             )

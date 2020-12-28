@@ -23,9 +23,9 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     let account_name = "root";
     let account_id = AccountId::new(account_name, domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id.clone()),
-        domain_name.to_string(),
+    let create_asset = RegisterBox::new(
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
     );
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
@@ -39,9 +39,12 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     ));
     //When
     let quantity: u32 = 200;
-    let mint_asset = Mint::<Asset, u32>::new(
-        quantity,
-        AssetId::new(asset_definition_id, account_id.clone()),
+    let mint_asset = MintBox::new(
+        Value::U32(quantity),
+        IdBox::AssetId(AssetId::new(
+            asset_definition_id.clone(),
+            account_id.clone(),
+        )),
     );
     iroha_client
         .submit(mint_asset.into())
