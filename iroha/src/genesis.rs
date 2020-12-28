@@ -1,7 +1,7 @@
 //! This module contains execution Genesis Block logic, and GenesisBlock definition.
 use crate::{init::config::InitConfiguration, tx::Accept, tx::AcceptedTransaction, Identifiable};
 use iroha_crypto::KeyPair;
-use iroha_data_model::{account::Account, isi::InstructionBox, prelude::*};
+use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use serde::Deserialize;
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 /// GenesisBlock contains transactions for inisialize settings.
@@ -19,7 +19,7 @@ struct RawGenesisBlock {
 /// GenesisTransaction is a transaction for inisialize settings.
 #[derive(Clone, Deserialize, Debug)]
 struct GenesisTransaction {
-    isi: Vec<InstructionBox>,
+    isi: Vec<Instruction>,
 }
 
 impl GenesisTransaction {
@@ -64,5 +64,27 @@ impl GenesisBlock {
                 .filter_map(Result::ok)
                 .collect(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GENESIS_BLOCK_PATH: &str = "tests/genesis.json";
+
+    #[test]
+    fn load_genesis_block() -> Result<(), String> {
+        let root_key_pair = KeyPair::generate()?;
+        let genesis_key_pair = KeyPair::generate()?;
+        let _genesis_block = GenesisBlock::from_configuration(
+            GENESIS_BLOCK_PATH,
+            &InitConfiguration {
+                root_public_key: root_key_pair.public_key,
+                genesis_account_public_key: genesis_key_pair.public_key,
+                genesis_account_private_key: Some(genesis_key_pair.private_key),
+            },
+        )?;
+        Ok(())
     }
 }

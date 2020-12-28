@@ -133,7 +133,10 @@ mod domain {
 
     fn create_domain(domain_name: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
-        let create_domain = Register::<World, Domain>::new(Domain::new(domain_name), WorldId);
+        let create_domain = RegisterBox::new(
+            IdentifiableBox::from(Domain::new(domain_name)),
+            IdBox::from(WorldId),
+        );
         iroha_client
             .submit(create_domain.into())
             .expect("Failed to create domain.");
@@ -205,12 +208,12 @@ mod account {
         configuration: &Configuration,
     ) {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let create_account = Register::<Domain, Account>::new(
-            Account::with_signatory(
+        let create_account = RegisterBox::new(
+            IdentifiableBox::from(Account::with_signatory(
                 AccountId::new(account_name, domain_name),
                 key_pair.public_key,
-            ),
-            Name::from(domain_name),
+            )),
+            IdBox::from(Name::from(domain_name)),
         );
         let mut iroha_client = Client::new(configuration);
         iroha_client
@@ -360,9 +363,12 @@ mod asset {
         let mut iroha_client = Client::new(configuration);
         iroha_client
             .submit(
-                Register::<Domain, AssetDefinition>::new(
-                    AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)),
-                    domain_name.to_string(),
+                RegisterBox::new(
+                    IdentifiableBox::AssetDefinition(
+                        AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name))
+                            .into(),
+                    ),
+                    IdBox::DomainName(domain_name.to_string()),
                 )
                 .into(),
             )
@@ -376,13 +382,13 @@ mod asset {
         configuration: &Configuration,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
-        let mint_asset = Mint::<Asset, u32>::new(
-            quantity,
-            AssetId::new(
+        let mint_asset = MintBox::new(
+            Value::U32(quantity),
+            IdBox::AssetId(AssetId::new(
                 AssetDefinitionId::from_str(asset_definition_id)
                     .expect("Failed to parse Asset Definition Id."),
                 AccountId::from_str(account_id).expect("Failed to parse Account Id."),
-            ),
+            )),
         );
         let mut iroha_client = Client::new(configuration);
         iroha_client
@@ -398,18 +404,18 @@ mod asset {
         configuration: &Configuration,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
-        let transfer_asset = Transfer::<Asset, u32, Asset>::new(
-            AssetId::new(
+        let transfer_asset = TransferBox::new(
+            IdBox::AssetId(AssetId::new(
                 AssetDefinitionId::from_str(asset_definition_id)
                     .expect("Failed to parse Source Definition Id"),
                 AccountId::from_str(account1_id).expect("Failed to parse Source Account Id."),
-            ),
-            quantity,
-            AssetId::new(
+            )),
+            Value::U32(quantity),
+            IdBox::AssetId(AssetId::new(
                 AssetDefinitionId::from_str(asset_definition_id)
                     .expect("Failed to parse Destination Definition Id"),
                 AccountId::from_str(account2_id).expect("Failed to parse Destination Account Id."),
-            ),
+            )),
         );
         let mut iroha_client = Client::new(configuration);
         iroha_client

@@ -13,7 +13,7 @@ pub trait PermissionsValidator {
     fn check_instruction(
         &self,
         authority: AccountId,
-        instruction: InstructionBox,
+        instruction: Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason>;
 }
@@ -39,23 +39,19 @@ impl PermissionsValidator for RecursivePermissionsValidator {
     fn check_instruction(
         &self,
         authority: AccountId,
-        instruction: InstructionBox,
+        instruction: Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         match instruction {
-            InstructionBox::Add(_)
-            | InstructionBox::Subtract(_)
-            | InstructionBox::Register(_)
-            | InstructionBox::Unregister(_)
-            | InstructionBox::Mint(_)
-            | InstructionBox::Burn(_)
-            | InstructionBox::Transfer(_)
-            | InstructionBox::Greater(_)
-            | InstructionBox::Fail(_) => {
-                self.validator
-                    .check_instruction(authority, instruction, wsv)
-            }
-            InstructionBox::If(if_box) => self
+            Instruction::Register(_)
+            | Instruction::Unregister(_)
+            | Instruction::Mint(_)
+            | Instruction::Burn(_)
+            | Instruction::Transfer(_)
+            | Instruction::Fail(_) => self
+                .validator
+                .check_instruction(authority, instruction, wsv),
+            Instruction::If(if_box) => self
                 .check_instruction(authority.clone(), if_box.clone().then, wsv)
                 .and_then(|_| match if_box.otherwise {
                     Some(instruction) => {
@@ -63,18 +59,15 @@ impl PermissionsValidator for RecursivePermissionsValidator {
                     }
                     None => Ok(()),
                 }),
-            InstructionBox::Pair(pair_box) => self
+            Instruction::Pair(pair_box) => self
                 .check_instruction(authority.clone(), pair_box.left_instruction, wsv)
                 .and(self.check_instruction(authority, pair_box.right_instruction, wsv)),
-            InstructionBox::Sequence(sequence_box) => sequence_box
+            Instruction::Sequence(sequence_box) => sequence_box
                 .instructions
                 .into_iter()
                 .try_for_each(|instruction| {
                     self.check_instruction(authority.clone(), instruction, wsv)
                 }),
-            InstructionBox::Not(not_box) => {
-                self.check_instruction(authority, not_box.instruction, wsv)
-            }
         }
     }
 }
@@ -95,7 +88,7 @@ impl PermissionsValidator for CombinedPermissionsValidator {
     fn check_instruction(
         &self,
         authority: AccountId,
-        instruction: InstructionBox,
+        instruction: Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         for validator in &self.validators {
@@ -159,7 +152,7 @@ impl PermissionsValidator for AllowAll {
     fn check_instruction(
         &self,
         _authority: AccountId,
-        _instruction: InstructionBox,
+        _instruction: Instruction,
         _wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         Ok(())
@@ -183,17 +176,17 @@ mod tests {
     use super::*;
     use iroha_data_model::isi::*;
 
-    struct DenyGreater;
+    struct DenyBurn;
 
-    impl PermissionsValidator for DenyGreater {
+    impl PermissionsValidator for DenyBurn {
         fn check_instruction(
             &self,
             _authority: AccountId,
-            instruction: InstructionBox,
+            instruction: Instruction,
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
             match instruction {
-                InstructionBox::Greater(_) => Err("Denying greater isi.".to_string()),
+                Instruction::Burn(_) => Err("Denying sequence isi.".to_string()),
                 _ => Ok(()),
             }
         }
@@ -205,7 +198,7 @@ mod tests {
         fn check_instruction(
             &self,
             authority: AccountId,
-            _instruction: InstructionBox,
+            _instruction: Instruction,
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
             if authority.name == "alice" {
@@ -219,27 +212,28 @@ mod tests {
     #[test]
     pub fn multiple_validators_combined() {
         let permissions_validator = PermissionsValidatorBuilder::new()
-            .with_validator(Box::new(DenyGreater))
+            .with_validator(Box::new(DenyBurn))
             .with_validator(Box::new(DenyAlice))
             .build();
-        let instruction_greater = InstructionBox::Greater(GreaterBox {
-            left: ValueBox::U32(0),
-            right: ValueBox::U32(1),
-        });
-        let instruction_fail = InstructionBox::Fail(Box::new(Fail {
+        let instruction_burn: Instruction = BurnBox::new(
+            Value::U32(10),
+            IdBox::AssetId(AssetId::from_names("xor", "test", "alice", "test")),
+        )
+        .into();
+        let instruction_fail = Instruction::Fail(Box::new(Fail {
             message: "fail message".to_string(),
         }));
         let account_bob = <Account as Identifiable>::Id::new("bob", "test");
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check_instruction(account_bob.clone(), instruction_greater.clone(), &wsv)
+            .check_instruction(account_bob.clone(), instruction_burn.clone(), &wsv)
             .is_err());
         assert!(permissions_validator
             .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_greater.clone(), &wsv)
+            .check_instruction(account_alice.clone(), instruction_burn.clone(), &wsv)
             .is_err());
         assert!(permissions_validator
             .check_instruction(account_bob.clone(), instruction_fail.clone(), &wsv)
@@ -249,30 +243,30 @@ mod tests {
     #[test]
     pub fn recursive_validator() {
         let permissions_validator = PermissionsValidatorBuilder::new()
-            .with_recursive_validator(Box::new(DenyGreater))
+            .with_recursive_validator(Box::new(DenyBurn))
             .build();
-        let instruction_greater = InstructionBox::Greater(GreaterBox {
-            left: ValueBox::U32(0),
-            right: ValueBox::U32(1),
-        });
-        let instruction_fail = InstructionBox::Fail(Box::new(Fail {
+        let instruction_burn: Instruction = BurnBox::new(
+            Value::U32(10),
+            IdBox::AssetId(AssetId::from_names("xor", "test", "alice", "test")),
+        )
+        .into();
+        let instruction_fail = Instruction::Fail(Box::new(Fail {
             message: "fail message".to_string(),
         }));
-        let nested_instruction_greater = InstructionBox::Not(Box::new(Not {
-            instruction: instruction_greater.clone(),
-        }));
+        let nested_instruction_sequence =
+            Instruction::If(If::new(true, instruction_burn.clone()).into());
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
             .is_ok());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_greater.clone(), &wsv)
+            .check_instruction(account_alice.clone(), instruction_burn.clone(), &wsv)
             .is_err());
         assert!(permissions_validator
             .check_instruction(
                 account_alice.clone(),
-                nested_instruction_greater.clone(),
+                nested_instruction_sequence.clone(),
                 &wsv
             )
             .is_err());

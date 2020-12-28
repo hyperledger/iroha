@@ -23,12 +23,14 @@ fn permissions_disallow_asset_transfer() {
     let root_id = AccountId::new("root", domain_name);
     let alice_id = AccountId::new("alice", domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id.clone()),
-        domain_name.to_string(),
+    let create_asset = RegisterBox::new(
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
     );
-    let register_alice =
-        Register::<Domain, Account>::new(Account::new(alice_id.clone()), domain_name.to_string());
+    let register_alice = RegisterBox::new(
+        IdentifiableBox::Account(Account::new(alice_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
+    );
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration."),
@@ -40,9 +42,9 @@ fn permissions_disallow_asset_transfer() {
         &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
     ));
     let quantity: u32 = 200;
-    let mint_asset = Mint::<Asset, u32>::new(
-        quantity,
-        AssetId::new(asset_definition_id.clone(), alice_id.clone()),
+    let mint_asset = MintBox::new(
+        Value::U32(quantity),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
     iroha_client
         .submit_all(vec![mint_asset.into()])
@@ -51,10 +53,10 @@ fn permissions_disallow_asset_transfer() {
         &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
     ));
     //When
-    let transfer_asset = Transfer::<Asset, u32, Asset>::new(
-        AssetId::new(asset_definition_id.clone(), alice_id.clone()),
-        quantity,
-        AssetId::new(asset_definition_id, root_id.clone()),
+    let transfer_asset = TransferBox::new(
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
+        Value::U32(quantity),
+        IdBox::AssetId(AssetId::new(asset_definition_id, root_id.clone())),
     );
     let rejection_reason = iroha_client
         .submit_blocking(transfer_asset.into())
@@ -86,12 +88,14 @@ fn permissions_disallow_asset_burn() {
     let root_id = AccountId::new("root", domain_name);
     let alice_id = AccountId::new("alice", domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id.clone()),
-        domain_name.to_string(),
+    let create_asset = RegisterBox::new(
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
     );
-    let register_alice =
-        Register::<Domain, Account>::new(Account::new(alice_id.clone()), domain_name.to_string());
+    let register_alice = RegisterBox::new(
+        IdentifiableBox::Account(Account::new(alice_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
+    );
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration."),
@@ -103,9 +107,9 @@ fn permissions_disallow_asset_burn() {
         &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
     ));
     let quantity: u32 = 200;
-    let mint_asset = Mint::<Asset, u32>::new(
-        quantity,
-        AssetId::new(asset_definition_id.clone(), alice_id.clone()),
+    let mint_asset = MintBox::new(
+        Value::U32(quantity),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
     iroha_client
         .submit_all(vec![mint_asset.into()])
@@ -114,12 +118,12 @@ fn permissions_disallow_asset_burn() {
         &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
     ));
     //When
-    let transfer_asset = Burn::<Asset, u32>::new(
-        quantity,
-        AssetId::new(asset_definition_id.clone(), alice_id.clone()),
+    let burn_asset = BurnBox::new(
+        Value::U32(quantity),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
     let rejection_reason = iroha_client
-        .submit_blocking(transfer_asset.into())
+        .submit_blocking(burn_asset.into())
         .expect_err("Transaction was not rejected.");
     //Then
     assert_eq!(rejection_reason, "Can't burn assets from another account.");

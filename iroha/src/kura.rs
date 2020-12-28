@@ -19,7 +19,6 @@ use std::{
 #[derive(Debug)]
 pub struct Kura {
     mode: Mode,
-    //TODO: decide whether to store blockchain in WSV or in Kura, right now it is duplicated.
     /// Blockchain.
     pub blocks: Vec<ValidBlock>,
     block_store: BlockStore,
