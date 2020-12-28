@@ -27,14 +27,19 @@ mod tests {
         let account_id = AccountId::new(account_name, domain_name);
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let wrong_asset_definition_id = AssetDefinitionId::new("ksor", domain_name);
-        let create_asset = Register::<Domain, AssetDefinition>::new(
-            AssetDefinition::new(asset_definition_id.clone()),
-            domain_name.to_string(),
+        let create_asset = RegisterBox::new(
+            IdentifiableBox::AssetDefinition(
+                AssetDefinition::new(asset_definition_id.clone()).into(),
+            ),
+            IdBox::DomainName(domain_name.to_string()),
         );
         let quantity: u32 = 200;
-        let mint_asset = Mint::<Asset, u32>::new(
-            quantity,
-            AssetId::new(wrong_asset_definition_id.clone(), account_id.clone()),
+        let mint_asset = MintBox::new(
+            Value::U32(quantity),
+            IdBox::AssetId(AssetId::new(
+                wrong_asset_definition_id.clone(),
+                account_id.clone(),
+            )),
         );
         let mut iroha_client = Client::new(
             &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)

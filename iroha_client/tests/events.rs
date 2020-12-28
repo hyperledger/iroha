@@ -21,9 +21,9 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "global";
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = Register::<Domain, AssetDefinition>::new(
-        AssetDefinition::new(asset_definition_id.clone()),
-        domain_name.to_string(),
+    let create_asset = RegisterBox::new(
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
+        IdBox::DomainName(domain_name.to_string()),
     );
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)

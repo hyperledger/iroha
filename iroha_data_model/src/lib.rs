@@ -27,7 +27,7 @@ pub mod query;
 use iroha_crypto::PublicKey;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::{convert::TryFrom, fmt::Debug};
 
 /// `Name` struct represents type for Iroha Entities names, like `Domain`'s name or `Account`'s
 /// name.
@@ -83,16 +83,176 @@ pub enum IdentifiableBox {
     World,
 }
 
+/// Boxed `Value`.
+pub type ValueBox = Box<Value>;
+
 /// Sized container for all possible values.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub enum ValueBox {
-    /// `u32` variant.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+pub enum Value {
+    /// `u32` integer.
     U32(u32),
-    /// Iroha `Query` variant.
-    Query(Box<query::QueryBox>),
+    /// `bool` value.
+    Bool(bool),
+    /// `Vec` of `Value`.
+    Vec(Vec<Value>),
+    /// `Id` of `Asset`, `Account`, etc.
+    Id(IdBox),
+    /// `Identifiable` as `Asset`, `Account` etc.
+    Identifiable(IdentifiableBox),
+    /// `PublicKey`.
+    PublicKey(PublicKey),
     /// Iroha `Parameter` variant.
     Parameter(Parameter),
 }
+
+impl TryFrom<Value> for u32 {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<u32, Self::Error> {
+        if let Value::U32(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not U32.", value))
+        }
+    }
+}
+
+impl TryFrom<Value> for bool {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<bool, Self::Error> {
+        if let Value::Bool(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not bool.", value))
+        }
+    }
+}
+
+impl TryFrom<Value> for Vec<Value> {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<Vec<Value>, Self::Error> {
+        if let Value::Vec(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not vec.", value))
+        }
+    }
+}
+
+impl TryFrom<Value> for IdBox {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<IdBox, Self::Error> {
+        if let Value::Id(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not an id.", value))
+        }
+    }
+}
+
+impl TryFrom<Value> for IdentifiableBox {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<IdentifiableBox, Self::Error> {
+        if let Value::Identifiable(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not an identifiable entity.", value))
+        }
+    }
+}
+
+impl TryFrom<Value> for PublicKey {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<PublicKey, Self::Error> {
+        if let Value::PublicKey(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not a public key.", value))
+        }
+    }
+}
+
+impl TryFrom<Value> for Parameter {
+    type Error = String;
+
+    fn try_from(value: Value) -> Result<Parameter, Self::Error> {
+        if let Value::Parameter(value) = value {
+            Ok(value)
+        } else {
+            Err(format!("Value {:?} is not a parameter.", value))
+        }
+    }
+}
+
+impl From<u32> for Value {
+    fn from(value: u32) -> Value {
+        Value::U32(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Value {
+        Value::Bool(value)
+    }
+}
+
+impl From<Parameter> for Value {
+    fn from(value: Parameter) -> Value {
+        Value::Parameter(value)
+    }
+}
+
+impl From<IdentifiableBox> for Value {
+    fn from(value: IdentifiableBox) -> Value {
+        Value::Identifiable(value)
+    }
+}
+
+impl From<IdBox> for Value {
+    fn from(value: IdBox) -> Value {
+        Value::Id(value)
+    }
+}
+
+impl<V: Into<Value>> From<Vec<V>> for Value {
+    fn from(values: Vec<V>) -> Value {
+        Value::Vec(values.into_iter().map(|value| value.into()).collect())
+    }
+}
+
+impl From<PublicKey> for Value {
+    fn from(value: PublicKey) -> Value {
+        Value::PublicKey(value)
+    }
+}
+
+impl From<u128> for Value {
+    fn from(_: u128) -> Value {
+        unimplemented!()
+    }
+}
+
+impl From<String> for Value {
+    fn from(_: String) -> Value {
+        unimplemented!()
+    }
+}
+
+impl From<(String, Vec<u8>)> for Value {
+    fn from(_: (String, Vec<u8>)) -> Value {
+        unimplemented!()
+    }
+}
+
+/// Marker trait for values.
+pub trait ValueMarker: Debug + Clone + Into<Value> {}
+
+impl<V: Into<Value> + Debug + Clone> ValueMarker for V {}
 
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
 pub trait Identifiable: Debug + Clone {
@@ -100,54 +260,12 @@ pub trait Identifiable: Debug + Clone {
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
 }
 
-/// This trait marks entity that can be used as a value for different Iroha Special Instructions.
-pub trait Value: Debug + Clone {
-    /// Defines the type of the value.
-    type Type: Debug + Clone;
-}
-
-impl Value for u32 {
-    type Type = u32;
-}
-
-impl Value for u128 {
-    type Type = u128;
-}
-
-impl Value for Name {
-    type Type = Name;
-}
-
-impl Value for (Name, Bytes) {
-    type Type = (Name, Bytes);
-}
-
-impl Value for PublicKey {
-    type Type = PublicKey;
-}
-
-impl Value for Parameter {
-    type Type = Parameter;
-}
-
-impl From<u32> for ValueBox {
-    fn from(value: u32) -> ValueBox {
-        ValueBox::U32(value)
-    }
-}
-
-impl From<Parameter> for ValueBox {
-    fn from(value: Parameter) -> ValueBox {
-        ValueBox::Parameter(value)
-    }
-}
-
 pub mod world {
     //! Structures, traits and impls related to `World`.
 
     use crate::{
-        domain::DomainsMap, isi::InstructionBox, peer::PeersIds, IdBox, Identifiable,
-        IdentifiableBox, Parameter,
+        domain::DomainsMap, isi::Instruction, peer::PeersIds, IdBox, Identifiable, IdentifiableBox,
+        Parameter,
     };
 
     /// The global entity consisting of `domains`, `triggers` and etc.
@@ -159,7 +277,7 @@ pub mod world {
         /// Identifications of discovered trusted peers.
         pub trusted_peers_ids: PeersIds,
         /// Iroha `Triggers` registered on the peer.
-        pub triggers: Vec<InstructionBox>,
+        pub triggers: Vec<Instruction>,
         /// Iroha parameters.
         pub parameters: Vec<Parameter>,
     }
@@ -572,10 +690,6 @@ pub mod asset {
         type Id = Id;
     }
 
-    impl Value for Asset {
-        type Type = Asset;
-    }
-
     impl Identifiable for AssetDefinition {
         type Id = DefinitionId;
     }
@@ -583,6 +697,12 @@ pub mod asset {
     impl From<Asset> for IdentifiableBox {
         fn from(asset: Asset) -> IdentifiableBox {
             IdentifiableBox::Asset(Box::new(asset))
+        }
+    }
+
+    impl From<Asset> for Value {
+        fn from(asset: Asset) -> Value {
+            Value::Identifiable(asset.into())
         }
     }
 
@@ -807,7 +927,7 @@ pub mod transaction {
     //! This module contains `Transaction` structures and related implementations
     //! and traits implementations.
 
-    use crate::{account::Account, isi::InstructionBox, Identifiable};
+    use crate::{account::Account, isi::Instruction, Identifiable};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
@@ -832,7 +952,7 @@ pub mod transaction {
         /// Account ID of transaction creator.
         pub account_id: <Account as Identifiable>::Id,
         /// An ordered set of instructions.
-        pub instructions: Vec<InstructionBox>,
+        pub instructions: Vec<Instruction>,
         /// Time of creation (unix time, in milliseconds).
         pub creation_time: u64,
         /// The transaction will be dropped after this time if it is still in a `Queue`.
@@ -842,7 +962,7 @@ pub mod transaction {
     impl Transaction {
         /// Default `Transaction` constructor.
         pub fn new(
-            instructions: Vec<InstructionBox>,
+            instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
             proposed_ttl_ms: u64,
         ) -> Transaction {
@@ -890,7 +1010,9 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
         transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox,
-        Name, Parameter, Value, ValueBox,
+        Name, Parameter, Value,
     };
-    pub use crate::{events::prelude::*, isi::prelude::*, query::prelude::*};
+    pub use crate::{
+        events::prelude::*, expression::prelude::*, isi::prelude::*, query::prelude::*,
+    };
 }

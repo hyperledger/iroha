@@ -19,6 +19,7 @@
 )]
 
 use iroha::{
+    expression::Evaluate,
     permissions::{prelude::*, PermissionsValidator, PermissionsValidatorBuilder},
     prelude::*,
 };
@@ -47,22 +48,23 @@ pub mod public_blockchain {
         fn check_instruction(
             &self,
             authority: AccountId,
-            instruction: InstructionBox,
-            _wsv: &WorldStateView,
+            instruction: Instruction,
+            wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
-            match instruction {
-                InstructionBox::Transfer(TransferBox {
-                    source_id: IdBox::AssetId(source_id),
-                    object: ValueBox::U32(_),
-                    destination_id: IdBox::AssetId(_),
-                }) => {
+            if let Instruction::Transfer(transfer_box) = instruction {
+                if let IdBox::AssetId(source_id) =
+                    transfer_box.source_id.evaluate(wsv, &Context::new())?
+                {
                     if source_id.account_id == authority {
                         Ok(())
                     } else {
                         Err("Can't transfer assets of the other account.".to_string())
                     }
+                } else {
+                    Ok(())
                 }
-                _ => Ok(()),
+            } else {
+                Ok(())
             }
         }
     }
@@ -81,14 +83,13 @@ pub mod public_blockchain {
         fn check_instruction(
             &self,
             authority: AccountId,
-            instruction: InstructionBox,
+            instruction: Instruction,
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
-            match instruction {
-                InstructionBox::Unregister(UnregisterBox {
-                    object: IdentifiableBox::AssetDefinition(asset_definition),
-                    ..
-                }) => {
+            if let Instruction::Unregister(instruction) = instruction {
+                if let IdentifiableBox::AssetDefinition(asset_definition) =
+                    instruction.object.evaluate(wsv, &Context::new())?
+                {
                     if let Some(asset_definiton_entry) =
                         wsv.read_asset_definition_entry(&asset_definition.id)
                     {
@@ -100,8 +101,11 @@ pub mod public_blockchain {
                     } else {
                         Ok(())
                     }
+                } else {
+                    Ok(())
                 }
-                _ => Ok(()),
+            } else {
+                Ok(())
             }
         }
     }
@@ -120,14 +124,13 @@ pub mod public_blockchain {
         fn check_instruction(
             &self,
             authority: AccountId,
-            instruction: InstructionBox,
+            instruction: Instruction,
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
-            match instruction {
-                InstructionBox::Mint(MintBox {
-                    destination_id: IdBox::AssetId(asset_id),
-                    ..
-                }) => {
+            if let Instruction::Mint(instruction) = instruction {
+                if let IdBox::AssetId(asset_id) =
+                    instruction.destination_id.evaluate(wsv, &Context::new())?
+                {
                     if let Some(asset_definiton_entry) =
                         wsv.read_asset_definition_entry(&asset_id.definition_id)
                     {
@@ -139,8 +142,11 @@ pub mod public_blockchain {
                     } else {
                         Ok(())
                     }
+                } else {
+                    Ok(())
                 }
-                _ => Ok(()),
+            } else {
+                Ok(())
             }
         }
     }
@@ -159,14 +165,13 @@ pub mod public_blockchain {
         fn check_instruction(
             &self,
             authority: AccountId,
-            instruction: InstructionBox,
+            instruction: Instruction,
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
-            match instruction {
-                InstructionBox::Burn(BurnBox {
-                    destination_id: IdBox::AssetId(asset_id),
-                    ..
-                }) => {
+            if let Instruction::Burn(instruction) = instruction {
+                if let IdBox::AssetId(asset_id) =
+                    instruction.destination_id.evaluate(wsv, &Context::new())?
+                {
                     if let Some(asset_definiton_entry) =
                         wsv.read_asset_definition_entry(&asset_id.definition_id)
                     {
@@ -178,8 +183,11 @@ pub mod public_blockchain {
                     } else {
                         Ok(())
                     }
+                } else {
+                    Ok(())
                 }
-                _ => Ok(()),
+            } else {
+                Ok(())
             }
         }
     }
@@ -198,21 +206,23 @@ pub mod public_blockchain {
         fn check_instruction(
             &self,
             authority: AccountId,
-            instruction: InstructionBox,
-            _wsv: &WorldStateView,
+            instruction: Instruction,
+            wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
-            match instruction {
-                InstructionBox::Burn(BurnBox {
-                    destination_id: IdBox::AssetId(asset_id),
-                    ..
-                }) => {
+            if let Instruction::Burn(instruction) = instruction {
+                if let IdBox::AssetId(asset_id) =
+                    instruction.destination_id.evaluate(wsv, &Context::new())?
+                {
                     if asset_id.account_id == authority {
                         Ok(())
                     } else {
                         Err("Can't burn assets from another account.".to_string())
                     }
+                } else {
+                    Ok(())
                 }
-                _ => Ok(()),
+            } else {
+                Ok(())
             }
         }
     }
@@ -236,10 +246,10 @@ pub mod public_blockchain {
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
             let wsv = WorldStateView::new(World::new());
-            let transfer = InstructionBox::Transfer(TransferBox {
-                source_id: IdBox::AssetId(alice_xor_id),
-                object: ValueBox::U32(10),
-                destination_id: IdBox::AssetId(bob_xor_id),
+            let transfer = Instruction::Transfer(TransferBox {
+                source_id: IdBox::AssetId(alice_xor_id).into(),
+                object: Value::U32(10).into(),
+                destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
             assert!(TransferOnlyOwnedAssets
                 .check_instruction(alice_id, transfer.clone(), &wsv)
@@ -270,9 +280,9 @@ pub mod public_blockchain {
                 }},
                 btreeset! {},
             ));
-            let unregister = InstructionBox::Unregister(UnregisterBox {
-                object: IdentifiableBox::AssetDefinition(Box::new(xor_definition)),
-                destination_id: IdBox::DomainName("test".to_string()),
+            let unregister = Instruction::Unregister(UnregisterBox {
+                object: IdentifiableBox::AssetDefinition(Box::new(xor_definition)).into(),
+                destination_id: IdBox::DomainName("test".to_string()).into(),
             });
             assert!(UnregisterOnlyAssetsCreatedByThisAccount
                 .check_instruction(alice_id, unregister.clone(), &wsv)
@@ -305,9 +315,9 @@ pub mod public_blockchain {
                 }},
                 btreeset! {},
             ));
-            let mint = InstructionBox::Mint(MintBox {
-                object: ValueBox::U32(100),
-                destination_id: IdBox::AssetId(alice_xor_id),
+            let mint = Instruction::Mint(MintBox {
+                object: Value::U32(100).into(),
+                destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(MintOnlyAssetsCreatedByThisAccount
                 .check_instruction(alice_id, mint.clone(), &wsv)
@@ -340,9 +350,9 @@ pub mod public_blockchain {
                 }},
                 btreeset! {},
             ));
-            let burn = InstructionBox::Burn(BurnBox {
-                object: ValueBox::U32(100),
-                destination_id: IdBox::AssetId(alice_xor_id),
+            let burn = Instruction::Burn(BurnBox {
+                object: Value::U32(100).into(),
+                destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(BurnOnlyAssetsCreatedByThisAccount
                 .check_instruction(alice_id, burn.clone(), &wsv)
@@ -359,9 +369,9 @@ pub mod public_blockchain {
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let wsv = WorldStateView::new(World::new());
-            let burn = InstructionBox::Burn(BurnBox {
-                object: ValueBox::U32(100),
-                destination_id: IdBox::AssetId(alice_xor_id),
+            let burn = Instruction::Burn(BurnBox {
+                object: Value::U32(100).into(),
+                destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(BurnOnlyOwnedAssets
                 .check_instruction(alice_id, burn.clone(), &wsv)
