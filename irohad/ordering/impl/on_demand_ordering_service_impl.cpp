@@ -73,6 +73,7 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
 boost::optional<
     std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
+  log_->debug("Requesting a proposal for round {}", round);
   boost::optional<
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
       result;

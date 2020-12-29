@@ -30,6 +30,18 @@ namespace iroha {
       UniqueCreationProposalStrategy &operator=(
           UniqueCreationProposalStrategy &&) = delete;
 
+      inline bool contains(RoundType round) {
+        bool is_exists = false;
+        requested_.foreach ([&is_exists, &round](auto /*h*/, auto const &data) {
+          if (round == data) {
+            is_exists = true;
+            return false;
+          }
+          return true;
+        });
+        return is_exists;
+      }
+
      public:
       UniqueCreationProposalStrategy() = default;
 
@@ -38,29 +50,20 @@ namespace iroha {
 
       bool shouldCreateRound(RoundType round) override {
         std::lock_guard<std::mutex> guard(mutex_);
-        bool was_requested = false;
-        requested_.foreach (
-            [&was_requested, &round](auto /*h*/, auto const &data) {
-              if (round == data) {
-                was_requested = true;
-                return false;
-              }
-              return true;
-            });
-
-        if (!was_requested) {
-          requested_.push([](auto, auto &) {}, [](auto, auto &) {}, round);
-        }
-        return !was_requested;
+        return contains(round);
       }
 
-      boost::optional<RoundType> onProposalRequest(
-          RoundType requested_round) override {
+      boost::optional<RoundType> onProposalRequest(RoundType round) override {
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (!contains(round)) {
+          requested_.push([](auto, auto &) {}, [](auto, auto &) {}, round);
+        }
         return boost::none;
       }
 
      private:
-      using RoundCollectionType = containers::RingBuffer<RoundType, 3ull>;
+      /// items count is something random must be more than 3
+      using RoundCollectionType = containers::RingBuffer<RoundType, 5ull>;
 
       std::mutex mutex_;
       RoundCollectionType requested_;
