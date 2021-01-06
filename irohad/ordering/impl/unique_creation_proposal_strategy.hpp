@@ -50,7 +50,7 @@ namespace iroha {
 
       bool shouldCreateRound(RoundType round) override {
         std::lock_guard<std::mutex> guard(mutex_);
-        return contains(round);
+        return !contains(round);
       }
 
       boost::optional<RoundType> onProposalRequest(RoundType round) override {
