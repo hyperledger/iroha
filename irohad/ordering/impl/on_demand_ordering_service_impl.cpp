@@ -47,6 +47,7 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
     consensus::Round round) {
   log_->info("onCollaborationOutcome => {}", round);
   current_round_ = round;
+  uploadProposal(round);
   tryErase(round);
 }
 
@@ -72,21 +73,10 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
 boost::optional<
     std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
+  log_->debug("Requesting a proposal for round {}", round);
   boost::optional<
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-      result;
-  do {
-    log_->debug("Requesting a proposal for round {}", round);
-    std::lock_guard<std::mutex> lock(proposals_mutex_);
-    auto it = proposal_map_.find(round);
-    if (it != proposal_map_.end()) {
-      result = it->second;
-      break;
-    }
-
-    result = packNextProposals(round);
-  } while (false);
-
+      result = uploadProposal(round);
   log_->debug("onRequestProposal, {}, {}returning a proposal.",
               round,
               result ? "" : "NOT ");
