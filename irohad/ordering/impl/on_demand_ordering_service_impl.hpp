@@ -81,6 +81,32 @@ namespace iroha {
       boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
       packNextProposals(const consensus::Round &round);
 
+      boost::optional<
+          std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+      uploadProposal(consensus::Round round) {
+        boost::optional<
+            std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+            result;
+        do {
+          std::lock_guard<std::mutex> lock(proposals_mutex_);
+          auto it = proposal_map_.find(round);
+          if (it != proposal_map_.end()) {
+            result = it->second;
+            break;
+          }
+
+          bool const is_current_round_or_next2 =
+              (round.block_round == current_round_.block_round
+                   ? (round.reject_round - current_round_.reject_round)
+                   : (round.block_round - current_round_.block_round))
+              <= 2ull;
+
+          if (is_current_round_or_next2)
+            result = packNextProposals(round);
+        } while (false);
+        return result;
+      }
+
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
 
