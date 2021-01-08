@@ -48,6 +48,12 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
   log_->info("onCollaborationOutcome => {}", round);
   current_round_ = round;
   uploadProposal(round);
+
+  /// Clear block
+  if (round.reject_round == kFirstRejectRound) {
+    std::lock_guard<std::shared_timed_mutex> lock(batches_mutex_);
+    pending_batches_.clear();
+  }
   tryErase(round);
 }
 
@@ -156,12 +162,7 @@ OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   }
 
   log_->debug("Packed proposal contains: {} transactions.", txs.size());
-  auto proposal = tryCreateProposal(round, txs, now);
-  if (round.reject_round == kFirstRejectRound) {
-    std::lock_guard<std::shared_timed_mutex> lock(batches_mutex_);
-    pending_batches_.clear();
-  }
-  return proposal;
+  return tryCreateProposal(round, txs, now);
 }
 
 void OnDemandOrderingServiceImpl::tryErase(
