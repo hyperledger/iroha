@@ -29,7 +29,6 @@ OnDemandOrderingGate::OnDemandOrderingGate(
         std::shared_ptr<const cache::OrderingGateCache::HashesSetType>>
         processed_tx_hashes,
     rxcpp::observable<RoundSwitch> round_switch_events,
-    std::shared_ptr<cache::OrderingGateCache> cache,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory> factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
