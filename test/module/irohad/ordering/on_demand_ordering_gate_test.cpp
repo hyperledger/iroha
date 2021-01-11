@@ -42,7 +42,6 @@ class OnDemandOrderingGateTest : public ::testing::Test {
   void SetUp() override {
     ordering_service = std::make_shared<MockOnDemandOrderingService>();
     notification = new MockOdOsNotification();
-    cache = std::make_shared<cache::MockOrderingGateCache>();
     auto ufactory = std::make_unique<NiceMock<MockUnsafeProposalFactory>>();
     factory = ufactory.get();
     tx_cache = std::make_shared<ametsuchi::MockTxPresenceCache>();
@@ -58,7 +57,6 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         std::unique_ptr<OdOsNotification>(notification),
         processed_tx_hashes.get_observable(),
         rounds.get_observable(),
-        cache,
         std::move(ufactory),
         tx_cache,
         proposal_creation_strategy,
@@ -101,9 +99,6 @@ class OnDemandOrderingGateTest : public ::testing::Test {
   std::shared_ptr<ametsuchi::MockTxPresenceCache> tx_cache;
   std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;
   std::shared_ptr<OnDemandOrderingGate> ordering_gate;
-
-  std::shared_ptr<cache::MockOrderingGateCache> cache;
-
   const consensus::Round round = {2, kFirstRejectRound};
 
   std::shared_ptr<LedgerState> ledger_state;
@@ -119,8 +114,8 @@ TEST_F(OnDemandOrderingGateTest, propagateBatch) {
   auto batch = createMockBatchWithHash(hash1);
   OdOsNotification::CollectionType collection{batch};
 
-  EXPECT_CALL(*cache, addToBack(UnorderedElementsAre(batch))).Times(1);
   EXPECT_CALL(*notification, onBatches(collection)).Times(1);
+  EXPECT_CALL(*ordering_service, onBatches(collection)).Times(1);
 
   ordering_gate->propagateBatch(batch);
 }
@@ -372,10 +367,6 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 
   cache::OrderingGateCache::BatchesSetType collection{batch1, batch2};
 
-  EXPECT_CALL(*cache, pop()).WillOnce(Return(collection));
-
-  EXPECT_CALL(*cache, addToBack(UnorderedElementsAreArray(collection)))
-      .Times(1);
   EXPECT_CALL(*notification, onBatches(UnorderedElementsAreArray(collection)))
       .Times(1);
 
@@ -392,9 +383,6 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 TEST_F(OnDemandOrderingGateTest, PopEmptyBatchesFromTheCache) {
   cache::OrderingGateCache::BatchesSetType empty_collection{};
 
-  EXPECT_CALL(*cache, pop()).WillOnce(Return(empty_collection));
-  EXPECT_CALL(*cache, addToBack(UnorderedElementsAreArray(empty_collection)))
-      .Times(1);
   EXPECT_CALL(*notification, onBatches(_)).Times(0);
 
   rounds.get_subscriber().on_next(
@@ -414,9 +402,6 @@ TEST_F(OnDemandOrderingGateTest, BatchesRemoveFromCache) {
   // prepare batches
   auto batch1 = createMockBatchWithHash(hash1);
   auto batch2 = createMockBatchWithHash(hash2);
-
-  EXPECT_CALL(*cache, pop()).Times(1);
-  EXPECT_CALL(*cache, remove(UnorderedElementsAre(hash1, hash2))).Times(1);
 
   auto hashes =
       std::make_shared<ordering::cache::OrderingGateCache::HashesSetType>();
