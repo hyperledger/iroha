@@ -129,6 +129,59 @@ namespace iroha {
       bool batchAlreadyProcessed(
           const shared_model::interface::TransactionBatch &batch);
 
+      void insertBatchToCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+        std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
+        batches_cache_.insert(batch);
+      }
+
+      void removeFromBatchesCache(const OnDemandOrderingService::HashesSetType &hashes) {
+        std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
+        for (auto it = batches_cache_.begin(); it != batches_cache_.end();) {
+          if (std::any_of(it->get()->transactions().begin(),
+                          it->get()->transactions().end(),
+                          [&hashes](const auto &tx) {
+                            return hashes.find(tx->hash()) != hashes.end();
+                          })) {
+            it = batches_cache_.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
+
+      bool isEmptyBatchesCache() const {
+        std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+        return batches_cache_.empty();
+      }
+
+      std::vector<std::shared_ptr<shared_model::interface::Transaction>>
+      getTransactionsFromBatchesCache(size_t requested_tx_amount,
+                      boost::optional<size_t &> discarded_txs_amount) {
+        std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
+        collection.reserve(requested_tx_amount);
+
+        std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+        auto it = batches_cache_.begin();
+        for (; it != batches_cache_.end()
+               and collection.size() + boost::size((*it)->transactions())
+                   <= requested_tx_amount;
+               ++it) {
+          collection.insert(std::end(collection),
+                            std::begin((*it)->transactions()),
+                            std::end((*it)->transactions()));
+        }
+
+        if (discarded_txs_amount) {
+          *discarded_txs_amount = 0;
+          for (; it != batches_cache_.end(); ++it) {
+            *discarded_txs_amount += boost::size((*it)->transactions());
+          }
+        }
+
+        return collection;
+      }
+
+
       /**
        * Max number of transaction in one proposal
        */
@@ -147,13 +200,16 @@ namespace iroha {
       /**
        * Collections of batches for current round
        */
-      detail::BatchSetType pending_batches_;
+      //detail::BatchSetType pending_batches_;
 
       /**
        * Batches and proposal collection mutexes for public methods
        */
-      std::shared_timed_mutex batches_mutex_;
+      //std::shared_timed_mutex batches_mutex_;
       std::mutex proposals_mutex_;
+
+      mutable std::shared_timed_mutex batches_cache_cs_;
+      BatchesSetType batches_cache_;
 
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;

@@ -48,12 +48,6 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
   log_->info("onCollaborationOutcome => {}", round);
   current_round_ = round;
   uploadProposal(round);
-
-  /// Clear block
-  if (round.reject_round == kFirstRejectRound) {
-    std::lock_guard<std::shared_timed_mutex> lock(batches_mutex_);
-    pending_batches_.clear();
-  }
   tryErase(round);
 }
 
@@ -70,8 +64,7 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
       unprocessed_batches.begin(),
       unprocessed_batches.end(),
       [this](auto &obj) {
-        std::shared_lock<std::shared_timed_mutex> lock(batches_mutex_);
-        pending_batches_.insert(std::move(obj));
+        insertBatchToCache(obj);
       });
   log_->info("onBatches => collection size = {}", batches.size());
 }
@@ -90,42 +83,6 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
 }
 
 // ---------------------------------| Private |---------------------------------
-
-/**
- * Get transactions from the given batches queue. Does not break batches -
- * continues getting all the transactions from the ongoing batch until the
- * required amount is collected.
- * @param requested_tx_amount - amount of transactions to get
- * @param batch_collection - the collection to get transactions from
- * @param discarded_txs_amount - the amount of discarded txs
- * @return transactions
- */
-static std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-getTransactions(size_t requested_tx_amount,
-                detail::BatchSetType &batch_collection,
-                boost::optional<size_t &> discarded_txs_amount) {
-  std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
-
-  auto it = batch_collection.begin();
-  for (; it != batch_collection.end()
-       and collection.size() + boost::size((*it)->transactions())
-           <= requested_tx_amount;
-       ++it) {
-    collection.insert(std::end(collection),
-                      std::begin((*it)->transactions()),
-                      std::end((*it)->transactions()));
-  }
-
-  if (discarded_txs_amount) {
-    *discarded_txs_amount = 0;
-    for (; it != batch_collection.end(); ++it) {
-      *discarded_txs_amount += boost::size((*it)->transactions());
-    }
-  }
-
-  return collection;
-}
-
 boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
 OnDemandOrderingServiceImpl::tryCreateProposal(
     consensus::Round const &round,
@@ -154,10 +111,9 @@ boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto now = iroha::time::now();
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
-  if (not pending_batches_.empty()) {
+  if (!isEmptyBatchesCache()) {
     size_t discarded_txs_quantity;
-    txs = getTransactions(
-        transaction_limit_, pending_batches_, discarded_txs_quantity);
+    txs = getTransactionsFromBatchesCache(transaction_limit_, discarded_txs_quantity);
     log_->debug("Discarded {} transactions", discarded_txs_quantity);
   }
 
