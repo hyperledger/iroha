@@ -44,7 +44,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
             // remove transaction hashes from cache
             log_->debug("Asking to remove {} transactions from cache.",
                         hashes->size());
-            cache_->remove(*hashes);
+            ordering_service_->onTxsCommitted(*hashes);
           })),
       round_switch_subscription_(round_switch_events.subscribe(
           [this,
@@ -74,7 +74,6 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                                        event.next_round,
                                        std::move(event.ledger_state)});
           })),
-      cache_(std::move(cache)),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
       proposal_notifier_(proposal_notifier_lifetime_) {}
@@ -91,10 +90,9 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
-  cache_->addToBack({batch});
-
-  network_client_->onBatches(
-      transport::OdOsNotification::CollectionType{batch});
+  /// iceseer: refactor to avoid copiing.
+  ordering_service_->onBatches(transport::OdOsNotification::CollectionType{batch});
+  network_client_->onBatches(transport::OdOsNotification::CollectionType{batch});
 }
 
 rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
@@ -134,25 +132,25 @@ void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO mboldyrev 22.03.2019 IR-425
   // make cache_->getBatchesForRound(current_round) that respects sync
-  auto batches = cache_->pop();
-  cache_->addToBack(batches);
 
-  // get only transactions which fit to next proposal
-  auto end_iterator = batches.begin();
-  auto current_number_of_transactions = 0u;
-  for (; end_iterator != batches.end(); ++end_iterator) {
-    auto batch_size = (*end_iterator)->transactions().size();
-    if (current_number_of_transactions + batch_size <= transaction_limit_) {
-      current_number_of_transactions += batch_size;
-    } else {
-      break;
+  // iceseer: check that OS is remote
+  ordering_service_->forCachedBatches([this](auto const &batches){
+    auto end_iterator = batches.begin();
+    auto current_number_of_transactions = 0u;
+    for (; end_iterator != batches.end(); ++end_iterator) {
+      auto batch_size = (*end_iterator)->transactions().size();
+      if (current_number_of_transactions + batch_size <= transaction_limit_) {
+        current_number_of_transactions += batch_size;
+      } else {
+        break;
+      }
     }
-  }
 
-  if (not batches.empty()) {
-    network_client_->onBatches(transport::OdOsNotification::CollectionType{
-        batches.begin(), end_iterator});
-  }
+    if (not batches.empty()) {
+      network_client_->onBatches(transport::OdOsNotification::CollectionType{
+          batches.begin(), end_iterator});
+    }
+  });
 }
 
 std::shared_ptr<const shared_model::interface::Proposal>

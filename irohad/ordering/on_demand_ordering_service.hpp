@@ -25,6 +25,18 @@ namespace iroha {
        * @param round - proposal round which has started
        */
       virtual void onCollaborationOutcome(consensus::Round round) = 0;
+
+      /**
+       * Method to be invoked when transactions commited into ledger.
+       * @param hashes - txs list
+       */
+      virtual void onTxsCommitted(const HashesSetType &hashes) = 0;
+
+      /**
+       * Method to get betches under lock
+       * @param f - callback function
+       */
+      virtual void forCachedBatches(std::function<void(const transport::OdOsNotification::BatchesSetType &)> const &f) = 0;
     };
 
   }  // namespace ordering

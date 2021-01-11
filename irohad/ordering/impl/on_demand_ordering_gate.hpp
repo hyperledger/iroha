@@ -98,7 +98,7 @@ namespace iroha {
       std::unique_ptr<transport::OdOsNotification> network_client_;
       rxcpp::composite_subscription processed_tx_hashes_subscription_;
       rxcpp::composite_subscription round_switch_subscription_;
-      std::shared_ptr<cache::OrderingGateCache> cache_;
+      //std::shared_ptr<cache::OrderingGateCache> cache_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
