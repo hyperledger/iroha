@@ -66,6 +66,10 @@ namespace iroha {
 
       void onCollaborationOutcome(consensus::Round round) override;
 
+      void onTxsCommitted(const HashesSetType &hashes) override {
+        removeFromBatchesCache(hashes);
+      }
+
       // ----------------------- | OdOsNotification | --------------------------
 
       void onBatches(CollectionType batches) override;
@@ -152,6 +156,11 @@ namespace iroha {
       bool isEmptyBatchesCache() const {
         std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
         return batches_cache_.empty();
+      }
+
+      void forCachedBatches(std::function<void(const transport::OdOsNotification::BatchesSetType &)> const &f) override {
+        std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+        f(batches_cache_);
       }
 
       std::vector<std::shared_ptr<shared_model::interface::Transaction>>
