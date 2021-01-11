@@ -16,6 +16,10 @@ namespace iroha {
      */
     class OnDemandOrderingService : public transport::OdOsNotification {
      public:
+      using HashesSetType =
+      std::unordered_set<shared_model::crypto::Hash,
+          shared_model::crypto::Hash::Hasher>;
+
       /**
        * Method which should be invoked on outcome of collaboration for round
        * @param round - proposal round which has started
