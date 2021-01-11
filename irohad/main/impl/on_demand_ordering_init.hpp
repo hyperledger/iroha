@@ -96,7 +96,6 @@ namespace iroha {
       auto createGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
           std::unique_ptr<transport::OdOsNotification> network_client,
-          std::shared_ptr<cache::OrderingGateCache> cache,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,

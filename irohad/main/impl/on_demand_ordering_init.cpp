@@ -212,7 +212,6 @@ auto OnDemandOrderingInit::createConnectionManager(
 auto OnDemandOrderingInit::createGate(
     std::shared_ptr<OnDemandOrderingService> ordering_service,
     std::unique_ptr<transport::OdOsNotification> network_client,
-    std::shared_ptr<cache::OrderingGateCache> cache,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
@@ -265,7 +264,6 @@ auto OnDemandOrderingInit::createGate(
             return ordering::OnDemandOrderingGate::RoundSwitch{
                 std::move(current_round), event.ledger_state};
           }),
-      std::move(cache),
       std::move(proposal_factory),
       std::move(tx_cache),
       std::move(creation_strategy),
@@ -332,7 +330,6 @@ OnDemandOrderingInit::initOrderingGate(
                               std::move(initial_hashes),
                               ordering_log_manager,
                               std::move(client_factory)),
-      std::make_shared<cache::OnDemandCache>(),
       std::move(proposal_factory),
       std::move(tx_cache),
       std::move(creation_strategy),
