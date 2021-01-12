@@ -129,9 +129,6 @@ OnDemandOrderingGate::processProposalRequest(
 
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
-  // TODO mboldyrev 22.03.2019 IR-425
-  // make cache_->getBatchesForRound(current_round) that respects sync
-
   // iceseer: check that OS is remote
   ordering_service_->forCachedBatches([this](auto const &batches){
     auto end_iterator = batches.begin();

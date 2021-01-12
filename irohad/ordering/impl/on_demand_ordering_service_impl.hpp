@@ -164,8 +164,7 @@ namespace iroha {
       }
 
       std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-      getTransactionsFromBatchesCache(size_t requested_tx_amount,
-                      boost::optional<size_t &> discarded_txs_amount) {
+      getTransactionsFromBatchesCache(size_t requested_tx_amount) {
         std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
         collection.reserve(requested_tx_amount);
 
@@ -178,13 +177,6 @@ namespace iroha {
           collection.insert(std::end(collection),
                             std::begin((*it)->transactions()),
                             std::end((*it)->transactions()));
-        }
-
-        if (discarded_txs_amount) {
-          *discarded_txs_amount = 0;
-          for (; it != batches_cache_.end(); ++it) {
-            *discarded_txs_amount += boost::size((*it)->transactions());
-          }
         }
 
         return collection;
