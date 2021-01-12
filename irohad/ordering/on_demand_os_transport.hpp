@@ -7,9 +7,9 @@
 #define IROHA_ON_DEMAND_OS_TRANSPORT_HPP
 
 #include <memory>
+#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <unordered_set>
 
 #include <boost/optional.hpp>
 #include "common/result_fwd.hpp"
@@ -41,14 +41,17 @@ namespace iroha {
 
         struct BatchPointerHasher {
           shared_model::crypto::Hash::Hasher hasher_;
-          size_t operator()(const std::shared_ptr<shared_model::interface::TransactionBatch> &a) const {
+          size_t operator()(
+              const std::shared_ptr<shared_model::interface::TransactionBatch>
+                  &a) const {
             return hasher_(a->reducedHash());
           }
         };
 
         using BatchesSetType = std::unordered_set<
             std::shared_ptr<shared_model::interface::TransactionBatch>,
-            BatchPointerHasher>;
+            BatchPointerHasher,
+            shared_model::interface::BatchHashEquality>;
 
         /**
          * Type of stored transaction batches

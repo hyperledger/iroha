@@ -25,13 +25,14 @@ class UniqueCreationProposalStrategyTest : public testing::Test {
  * @given initialized UniqueCreationProposalStrategy
  *        @and onCollaborationOutcome is invoked for the first round
  * @when  shouldCreateRound calls N times
- * @then  shouldCreateRound returns true only the first time
+ * @then  shouldCreateRound returns true
  */
 TEST_F(UniqueCreationProposalStrategyTest, OnNonMaliciousCase) {
   ASSERT_TRUE(strategy_->shouldCreateRound({1, 0}));
-  ASSERT_FALSE(strategy_->shouldCreateRound({1, 0}));
+  strategy_->onProposalRequest({1, 0});
   ASSERT_FALSE(strategy_->shouldCreateRound({1, 0}));
 
   ASSERT_TRUE(strategy_->shouldCreateRound({2, 0}));
+  strategy_->onProposalRequest({2, 0});
   ASSERT_FALSE(strategy_->shouldCreateRound({2, 0}));
 }
