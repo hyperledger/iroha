@@ -51,8 +51,7 @@ impl Evaluate for Expression {
             Expression::Or(or) => or.evaluate(world_state_view, context),
             Expression::If(if_expression) => if_expression.evaluate(world_state_view, context),
             Expression::Raw(value) => Ok(*value.clone()),
-            // TODO: support queries in expressions.
-            Expression::Query(_query) => unimplemented!(),
+            Expression::Query(query) => query.execute(world_state_view),
             Expression::Contains(contains) => contains.evaluate(world_state_view, context),
             Expression::ContainsAll(contains_all) => {
                 contains_all.evaluate(world_state_view, context)

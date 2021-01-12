@@ -1,5 +1,7 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
+use crate::Value;
+
 use self::{account::*, asset::*, domain::*, peer::*};
 use iroha_crypto::prelude::*;
 use iroha_derive::Io;
@@ -73,48 +75,7 @@ pub struct SignedQueryRequest {
 
 /// Sized container for all possible Query results.
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode)]
-pub enum QueryResult {
-    /// `FindAllAccounts` variant.
-    FindAllAccounts(Box<FindAllAccountsResult>),
-    /// `FindAccountById` variant.
-    FindAccountById(Box<FindAccountByIdResult>),
-    /// `FindAccountsByName` variant.
-    FindAccountsByName(Box<FindAccountsByNameResult>),
-    /// `FindAccountsByDomainName` variant.
-    FindAccountsByDomainName(Box<FindAccountsByDomainNameResult>),
-    /// `FindAllAssets` variant.
-    FindAllAssets(Box<FindAllAssetsResult>),
-    /// `FindAllAssetsDefinitions` variant.
-    FindAllAssetsDefinitions(Box<FindAllAssetsDefinitionsResult>),
-    /// `FindAssetById` variant.
-    FindAssetById(Box<FindAssetByIdResult>),
-    /// `FindAssetByName` variant.
-    FindAssetsByName(Box<FindAssetsByNameResult>),
-    /// `FindAssetsByAccountId` variant.
-    FindAssetsByAccountId(Box<FindAssetsByAccountIdResult>),
-    /// `FindAssetsByAssetDefinitionId` variant.
-    FindAssetsByAssetDefinitionId(Box<FindAssetsByAssetDefinitionIdResult>),
-    /// `FindAssetsByDomainName` variant.
-    FindAssetsByDomainName(Box<FindAssetsByDomainNameResult>),
-    /// `FindAssetsByAccountIdAndAssetDefinitionId` variant.
-    FindAssetsByAccountIdAndAssetDefinitionId(Box<FindAssetsByAccountIdAndAssetDefinitionIdResult>),
-    /// `FindAssetsByDomainNameAndAssetDefinitionId` variant.
-    FindAssetsByDomainNameAndAssetDefinitionId(
-        Box<FindAssetsByDomainNameAndAssetDefinitionIdResult>,
-    ),
-    /// `FindAssetQuantityById` variant.
-    FindAssetQuantityById(Box<FindAssetQuantityByIdResult>),
-    /// `FindAllDomains` variant.
-    FindAllDomains(Box<FindAllDomainsResult>),
-    /// `FindDomainByName` variant.
-    FindDomainByName(Box<FindDomainByNameResult>),
-    /// `FindAllPeers` variant.
-    FindAllPeers(Box<FindAllPeersResult>),
-    /// `FindPeerById` variant.
-    FindPeerById(Box<FindPeerByIdResult>),
-    /// `FindAllParameters` variant.
-    FindAllParameters(Box<FindAllParametersResult>),
-}
+pub struct QueryResult(pub Value);
 
 impl QueryRequest {
     /// Constructs a new request with the `query`.
@@ -166,25 +127,11 @@ pub mod account {
     #[derive(Default, Copy, Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAccounts {}
 
-    /// Result of the `FindAllAccounts` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAllAccountsResult {
-        /// Accounts information.
-        pub accounts: Vec<Account>,
-    }
-
     /// `FindAccountById` Iroha Query will find an `Account` by it's identification in Iroha `Peer`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAccountById {
         /// `Id` of an account to find.
         pub id: AccountId,
-    }
-
-    /// Result of the `FindAccountById` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAccountByIdResult {
-        /// Account information.
-        pub account: Account,
     }
 
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
@@ -195,26 +142,12 @@ pub mod account {
         pub name: Name,
     }
 
-    /// Result of the `FindAccountsByName` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAccountsByNameResult {
-        /// Accounts information.
-        pub accounts: Vec<Account>,
-    }
-
     /// `FindAccountsByDomainName` Iroha Query will get `Domain`s name as input and
     /// find all `Account`s under this `Domain` in Iroha `Peer`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAccountsByDomainName {
         /// `domain_name` under which accounts should be found.
         pub domain_name: Name,
-    }
-
-    /// Result of the `FindAccountsByDomainName` execution.
-    #[derive(Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAccountsByDomainNameResult {
-        /// Accounts information.
-        pub accounts: Vec<Account>,
     }
 
     impl FindAllAccounts {
@@ -272,9 +205,7 @@ pub mod account {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAccountById, FindAccountByIdResult, FindAccountsByDomainName,
-            FindAccountsByDomainNameResult, FindAccountsByName, FindAccountsByNameResult,
-            FindAllAccounts, FindAllAccountsResult,
+            FindAccountById, FindAccountsByDomainName, FindAccountsByName, FindAllAccounts,
         };
     }
 }
@@ -291,37 +222,16 @@ pub mod asset {
     #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAssets {}
 
-    /// Result of the `FindAllAssets` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAllAssetsResult {
-        /// Assets which are needed to be included in query result.
-        pub assets: Vec<Asset>,
-    }
-
     /// `FindAllAssetsDefinitions` Iroha Query will find all `AssetDefinition`s presented
     /// in Iroha Peer.
     #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllAssetsDefinitions {}
-
-    /// Result of the `FindAllAssetsDefinitions` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAllAssetsDefinitionsResult {
-        /// Assets types which are needed to be included in query result.
-        pub assets_definitions_entries: Vec<AssetDefinitionEntry>,
-    }
 
     /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetById {
         /// `Id` of an `Asset` to find.
         pub id: AssetId,
-    }
-
-    /// Result of the `FindAssetById` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetByIdResult {
-        /// Asset which is needed to be included in query result.
-        pub asset: Asset,
     }
 
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
@@ -332,26 +242,12 @@ pub mod asset {
         pub name: Name,
     }
 
-    /// Result of the `FindAssetsByName` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetsByNameResult {
-        /// Assets which are needed to be included in query result.
-        pub assets: Vec<Asset>,
-    }
-
     /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
     /// owned by the `Account` in Iroha Peer.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByAccountId {
         /// `AccountId` under which assets should be found.
         pub account_id: AccountId,
-    }
-
-    /// Result of the `FindAssetsByAccountId` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetsByAccountIdResult {
-        /// Assets types which are needed to be included in query result.
-        pub assets: Vec<Asset>,
     }
 
     /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
@@ -362,26 +258,12 @@ pub mod asset {
         pub asset_definition_id: AssetDefinitionId,
     }
 
-    /// Result of the `FindAssetsByAssetDefinitionId` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetsByAssetDefinitionIdResult {
-        /// Assets which are needed to be included in query result.
-        pub assets: Vec<Asset>,
-    }
-
     /// `FindAssetsByDomainName` Iroha Query will get `Domain`s name as input and
     /// find all `Asset`s under this `Domain` in Iroha `Peer`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetsByDomainName {
         /// `Name` of the domain under which assets should be found.
         pub domain_name: Name,
-    }
-
-    /// Result of the `FindAssetsByDomainName` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetsByDomainNameResult {
-        /// Assets which are needed to be included in query result.
-        pub assets: Vec<Asset>,
     }
 
     /// `FindAssetsByAccountIdAndAssetDefinitionId` Iroha Query will get `AccountId` and
@@ -395,13 +277,6 @@ pub mod asset {
         pub asset_definition_id: AssetDefinitionId,
     }
 
-    /// Result of the `FindAssetsByAccountId` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetsByAccountIdAndAssetDefinitionIdResult {
-        /// Assets types which are needed to be included in query result.
-        pub assets: Vec<Asset>,
-    }
-
     /// `FindAssetsByDomainNameAndAssetDefinitionId` Iroha Query will get `Domain`'s name and
     /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
@@ -413,26 +288,12 @@ pub mod asset {
         pub asset_definition_id: AssetDefinitionId,
     }
 
-    /// Result of the `FindAssetsByDomainNameAndAssetDefinitionId` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetsByDomainNameAndAssetDefinitionIdResult {
-        /// Assets which are needed to be included in query result.
-        pub assets: Vec<Asset>,
-    }
-
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
     /// parameter's value if `Asset` is presented in Iroha Peer.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAssetQuantityById {
         /// `Id` of an `Asset` to find quantity of.
         pub id: AssetId,
-    }
-
-    /// Result of the `FindAssetQuantityById` execution.
-    #[derive(Copy, Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAssetQuantityByIdResult {
-        /// Assets which are needed to be included in query result.
-        pub quantity: u32,
     }
 
     impl FindAllAssets {
@@ -521,15 +382,10 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssets, FindAllAssetsDefinitions, FindAllAssetsDefinitionsResult,
-            FindAllAssetsResult, FindAssetById, FindAssetByIdResult, FindAssetQuantityById,
-            FindAssetQuantityByIdResult, FindAssetsByAccountId,
-            FindAssetsByAccountIdAndAssetDefinitionId,
-            FindAssetsByAccountIdAndAssetDefinitionIdResult, FindAssetsByAccountIdResult,
-            FindAssetsByAssetDefinitionId, FindAssetsByAssetDefinitionIdResult,
-            FindAssetsByDomainName, FindAssetsByDomainNameAndAssetDefinitionId,
-            FindAssetsByDomainNameAndAssetDefinitionIdResult, FindAssetsByDomainNameResult,
-            FindAssetsByName, FindAssetsByNameResult,
+            FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetQuantityById,
+            FindAssetsByAccountId, FindAssetsByAccountIdAndAssetDefinitionId,
+            FindAssetsByAssetDefinitionId, FindAssetsByDomainName,
+            FindAssetsByDomainNameAndAssetDefinitionId, FindAssetsByName,
         };
     }
 }
@@ -546,25 +402,11 @@ pub mod domain {
     #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllDomains {}
 
-    /// Result of the `FindAllDomains` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAllDomainsResult {
-        /// Domain information.
-        pub domains: Vec<Domain>,
-    }
-
     /// `FindDomainByName` Iroha Query will find a `Domain` by it's identification in Iroha `Peer`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindDomainByName {
         /// Name of the domain to find.
         pub name: Name,
-    }
-
-    /// Result of the `FindDomainByName` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindDomainByNameResult {
-        /// Domain information.
-        pub domain: Domain,
     }
 
     impl FindAllDomains {
@@ -595,9 +437,7 @@ pub mod domain {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{
-            FindAllDomains, FindAllDomainsResult, FindDomainByName, FindDomainByNameResult,
-        };
+        pub use super::{FindAllDomains, FindDomainByName};
     }
 }
 
@@ -613,13 +453,6 @@ pub mod peer {
     #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllPeers {}
 
-    /// Result of the `FindAllPeers` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAllPeersResult {
-        /// Peers which are needed to be included in query result.
-        pub peers: Vec<PeerId>,
-    }
-
     /// `FindPeerById` Iroha Query will find a trusted `Peer` by it's identification in
     /// current Iroha `Peer`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
@@ -628,23 +461,9 @@ pub mod peer {
         pub id: PeerId,
     }
 
-    /// Result of the `FindPeerById` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindPeerByIdResult {
-        /// Peer which is needed to be included in query result.
-        pub peer: PeerId,
-    }
-
     /// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
     #[derive(Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode)]
     pub struct FindAllParameters {}
-
-    /// Result of the `FindAllParameters` execution.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode)]
-    pub struct FindAllParametersResult {
-        /// Iroha `Parameter`s.
-        pub parameters: Vec<Parameter>,
-    }
 
     impl FindAllPeers {
         ///Default `FindAllPeers` constructor.
@@ -687,10 +506,7 @@ pub mod peer {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{
-            FindAllParameters, FindAllParametersResult, FindAllPeers, FindAllPeersResult,
-            FindPeerById, FindPeerByIdResult,
-        };
+        pub use super::{FindAllParameters, FindAllPeers, FindPeerById};
     }
 }
 
