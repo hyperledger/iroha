@@ -423,15 +423,16 @@ mod asset {
             .expect("Failed to transfer asset.");
     }
 
-    fn get_asset(_asset_id: &str, account_id: &str, configuration: &Configuration) {
+    fn get_asset(asset_id: &str, account_id: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
         let query_result = iroha_client
-            .request(&asset::by_account_id(
+            .request(&asset::by_account_id_and_definition_id(
                 AccountId::from_str(account_id).expect("Failed to parse Account Id."),
+                AssetDefinitionId::from_str(asset_id)
+                    .expect("Failed to parse Asset Definition Id."),
             ))
             .expect("Failed to get asset.");
-        if let QueryResult::FindAssetsByAccountId(result) = query_result {
-            println!("Get Asset result: {:?}", result);
-        }
+        let QueryResult(value) = query_result;
+        println!("Get Asset result: {:?}", value);
     }
 }

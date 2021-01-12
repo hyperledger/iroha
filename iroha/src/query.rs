@@ -28,7 +28,7 @@ pub trait Query {
     /// Execute query on the `WorldStateView`.
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String>;
+    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String>;
 }
 
 //TODO: replace with From<SignedQueryRequest> for VerifiedQueryRequest.
@@ -46,7 +46,7 @@ impl Verify for SignedQueryRequest {
 }
 
 impl Query for QueryBox {
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
         match self {
             QueryBox::FindAllAccounts(query) => query.execute(world_state_view),
             QueryBox::FindAccountById(query) => query.execute(world_state_view),

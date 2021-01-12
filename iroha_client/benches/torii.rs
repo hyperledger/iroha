@@ -70,8 +70,8 @@ fn query_requests(criterion: &mut Criterion) {
     group.bench_function("query", |b| {
         b.iter(|| match iroha_client.request(&request) {
             Ok(query_result) => {
-                if let QueryResult::FindAssetsByAccountId(result) = query_result {
-                    assert!(!result.assets.is_empty());
+                if let QueryResult(Value::Vec(assets)) = query_result {
+                    assert!(!assets.is_empty());
                     success_count += 1;
                 } else {
                     panic!("Wrong Query Result Type.");

@@ -337,14 +337,14 @@ pub mod account {
 
     use crate::{
         asset::AssetsMap, domain::GENESIS_DOMAIN_NAME, permissions::PermissionRaw, IdBox,
-        Identifiable, IdentifiableBox, Name, PublicKey,
+        Identifiable, IdentifiableBox, Name, PublicKey, Value,
     };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
     //TODO: get rid of it?
     use iroha_crypto::prelude::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::{collections::BTreeMap, fmt};
+    use std::{collections::BTreeMap, fmt, iter::FromIterator};
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
@@ -487,6 +487,21 @@ pub mod account {
         }
     }
 
+    impl From<Account> for Value {
+        fn from(account: Account) -> Self {
+            Value::Identifiable(account.into())
+        }
+    }
+
+    impl FromIterator<Account> for Value {
+        fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
+            iter.into_iter()
+                .map(|account| account.into())
+                .collect::<Vec<Value>>()
+                .into()
+        }
+    }
+
     impl From<Id> for IdBox {
         fn from(id: Id) -> IdBox {
             IdBox::AccountId(id)
@@ -529,6 +544,7 @@ pub mod asset {
     use std::{
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
+        iter::FromIterator,
     };
 
     /// `AssetsMap` provides an API to work with collection of key (`Id`) - value
@@ -706,9 +722,33 @@ pub mod asset {
         }
     }
 
+    impl FromIterator<Asset> for Value {
+        fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
+            iter.into_iter()
+                .map(|asset| asset.into())
+                .collect::<Vec<Value>>()
+                .into()
+        }
+    }
+
     impl From<AssetDefinition> for IdentifiableBox {
         fn from(asset_definition: AssetDefinition) -> IdentifiableBox {
             IdentifiableBox::AssetDefinition(Box::new(asset_definition))
+        }
+    }
+
+    impl From<AssetDefinition> for Value {
+        fn from(asset_definition: AssetDefinition) -> Value {
+            Value::Identifiable(asset_definition.into())
+        }
+    }
+
+    impl FromIterator<AssetDefinition> for Value {
+        fn from_iter<T: IntoIterator<Item = AssetDefinition>>(iter: T) -> Self {
+            iter.into_iter()
+                .map(|asset_definition| asset_definition.into())
+                .collect::<Vec<Value>>()
+                .into()
         }
     }
 
@@ -764,13 +804,13 @@ pub mod domain {
     use crate::{
         account::{Account, AccountsMap, GenesisAccount},
         asset::AssetDefinitionsMap,
-        IdBox, Identifiable, IdentifiableBox, Name,
+        IdBox, Identifiable, IdentifiableBox, Name, Value,
     };
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    use std::{collections::BTreeMap, iter};
+    use std::{collections::BTreeMap, iter, iter::FromIterator};
 
     /// Genesis domain name. Genesis domain should contain only genesis account.
     pub const GENESIS_DOMAIN_NAME: &str = "genesis";
@@ -842,6 +882,21 @@ pub mod domain {
         }
     }
 
+    impl From<Domain> for Value {
+        fn from(domain: Domain) -> Value {
+            Value::Identifiable(domain.into())
+        }
+    }
+
+    impl FromIterator<Domain> for Value {
+        fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
+            iter.into_iter()
+                .map(|domain| domain.into())
+                .collect::<Vec<Value>>()
+                .into()
+        }
+    }
+
     impl From<Name> for IdBox {
         fn from(name: Name) -> IdBox {
             IdBox::DomainName(name)
@@ -857,11 +912,11 @@ pub mod domain {
 pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
 
-    use crate::{IdBox, Identifiable, IdentifiableBox, PublicKey};
+    use crate::{IdBox, Identifiable, IdentifiableBox, PublicKey, Value};
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, iter::FromIterator};
 
     /// Ids of peers.
     pub type PeersIds = BTreeSet<Id>;
@@ -908,6 +963,21 @@ pub mod peer {
     impl From<Peer> for IdentifiableBox {
         fn from(peer: Peer) -> IdentifiableBox {
             IdentifiableBox::Peer(Box::new(peer))
+        }
+    }
+
+    impl From<Id> for Value {
+        fn from(id: Id) -> Value {
+            Value::Id(id.into())
+        }
+    }
+
+    impl FromIterator<Id> for Value {
+        fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
+            iter.into_iter()
+                .map(|id| id.into())
+                .collect::<Vec<Value>>()
+                .into()
         }
     }
 

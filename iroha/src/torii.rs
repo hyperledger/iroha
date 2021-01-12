@@ -147,8 +147,8 @@ async fn handle_queries(
                     .query
                     .execute(&*state.read().await.world_state_view.read().await)
                 {
-                    Ok(result) => {
-                        let result = &result;
+                    Ok(value) => {
+                        let result = &QueryResult(value);
                         Ok(HttpResponse::ok(Headers::new(), result.into()))
                     }
                     Err(e) => {
