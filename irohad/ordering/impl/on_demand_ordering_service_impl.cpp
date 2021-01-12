@@ -60,12 +60,9 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
                     batch->reducedHash().hex());
         return not this->batchAlreadyProcessed(*batch);
       });
-  std::for_each(
-      unprocessed_batches.begin(),
-      unprocessed_batches.end(),
-      [this](auto &obj) {
-        insertBatchToCache(obj);
-      });
+  std::for_each(unprocessed_batches.begin(),
+                unprocessed_batches.end(),
+                [this](auto &obj) { insertBatchToCache(obj); });
   log_->info("onBatches => collection size = {}", batches.size());
 }
 

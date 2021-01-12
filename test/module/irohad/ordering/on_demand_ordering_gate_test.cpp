@@ -32,13 +32,13 @@ using ::testing::_;
 using ::testing::AtMost;
 using ::testing::ByMove;
 using ::testing::get;
+using ::testing::InvokeArgument;
 using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
 using ::testing::Truly;
 using ::testing::UnorderedElementsAre;
 using ::testing::UnorderedElementsAreArray;
-using ::testing::InvokeArgument;
 
 class OnDemandOrderingGateTest : public ::testing::Test {
  public:
@@ -144,9 +144,11 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
   transport::OdOsNotification::BatchesSetType transactions;
-  EXPECT_CALL(*ordering_service, forCachedBatches(_)).WillOnce(InvokeArgument<0>(transactions));
+  EXPECT_CALL(*ordering_service, forCachedBatches(_))
+      .WillOnce(InvokeArgument<0>(transactions));
 
-  EXPECT_CALL(*proposal_creation_strategy, onCollaborationOutcome(round, 1)).Times(1);
+  EXPECT_CALL(*proposal_creation_strategy, onCollaborationOutcome(round, 1))
+      .Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(oproposal))));
 
@@ -375,7 +377,8 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 
   cache::OrderingGateCache::BatchesSetType collection{batch1, batch2};
   transport::OdOsNotification::BatchesSetType collection2{batch1, batch2};
-  EXPECT_CALL(*ordering_service, forCachedBatches(_)).WillOnce(InvokeArgument<0>(collection2));
+  EXPECT_CALL(*ordering_service, forCachedBatches(_))
+      .WillOnce(InvokeArgument<0>(collection2));
 
   EXPECT_CALL(*notification, onBatches(UnorderedElementsAreArray(collection)))
       .Times(1);

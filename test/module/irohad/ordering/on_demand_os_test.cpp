@@ -367,8 +367,8 @@ TEST_F(OnDemandOsTest, RejectCommit) {
 
 /**
  * @given initialized on-demand OS with a batch inside
- * @when creation strategy denies creation of new proposals
- * @then check that proposal isn't created
+ * @when next proposal requested
+ * @then it created
  */
 TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
   EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_))
@@ -378,5 +378,5 @@ TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
 
   os->onCollaborationOutcome(commit_round);
 
-  ASSERT_FALSE(os->onRequestProposal(target_round));
+  ASSERT_TRUE(os->onRequestProposal(target_round));
 }

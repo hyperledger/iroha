@@ -90,8 +90,10 @@ void OnDemandOrderingGate::propagateBatch(
   }
 
   /// iceseer: refactor to avoid copiing.
-  ordering_service_->onBatches(transport::OdOsNotification::CollectionType{batch});
-  network_client_->onBatches(transport::OdOsNotification::CollectionType{batch});
+  ordering_service_->onBatches(
+      transport::OdOsNotification::CollectionType{batch});
+  network_client_->onBatches(
+      transport::OdOsNotification::CollectionType{batch});
 }
 
 rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
@@ -130,7 +132,7 @@ OnDemandOrderingGate::processProposalRequest(
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
   // iceseer: check that OS is remote
-  ordering_service_->forCachedBatches([this](auto const &batches){
+  ordering_service_->forCachedBatches([this](auto const &batches) {
     auto end_iterator = batches.begin();
     auto current_number_of_transactions = 0u;
     for (; end_iterator != batches.end(); ++end_iterator) {

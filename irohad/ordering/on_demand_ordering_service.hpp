@@ -17,8 +17,8 @@ namespace iroha {
     class OnDemandOrderingService : public transport::OdOsNotification {
      public:
       using HashesSetType =
-      std::unordered_set<shared_model::crypto::Hash,
-          shared_model::crypto::Hash::Hasher>;
+          std::unordered_set<shared_model::crypto::Hash,
+                             shared_model::crypto::Hash::Hasher>;
 
       /**
        * Method which should be invoked on outcome of collaboration for round
@@ -36,7 +36,9 @@ namespace iroha {
        * Method to get betches under lock
        * @param f - callback function
        */
-      virtual void forCachedBatches(std::function<void(const transport::OdOsNotification::BatchesSetType &)> const &f) = 0;
+      virtual void forCachedBatches(
+          std::function<void(const transport::OdOsNotification::BatchesSetType
+                                 &)> const &f) = 0;
     };
 
   }  // namespace ordering
