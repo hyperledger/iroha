@@ -189,163 +189,130 @@ pub mod query {
 
     impl Query for FindAllAssets {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            let assets: Vec<Asset> = world_state_view
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
                 .cloned()
-                .collect();
-            Ok(QueryResult::FindAllAssets(Box::new(FindAllAssetsResult {
-                assets,
-            })))
+                .collect())
         }
     }
 
     impl Query for FindAllAssetsDefinitions {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            let assets_definitions_entries: Vec<AssetDefinitionEntry> = world_state_view
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
                 .read_all_assets_definitions_entries()
                 .into_iter()
                 .cloned()
-                .collect();
-            Ok(QueryResult::FindAllAssetsDefinitions(Box::new(
-                FindAllAssetsDefinitionsResult {
-                    assets_definitions_entries,
-                },
-            )))
+                .map(|entry| entry.definition)
+                .collect())
         }
     }
 
     impl Query for FindAssetById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAssetById(Box::new(FindAssetByIdResult {
-                asset: world_state_view
-                    .read_asset(&self.id)
-                    .map(Clone::clone)
-                    .ok_or(format!(
-                        "Failed to get an asset with identification: {}.",
-                        &self.id
-                    ))?,
-            })))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_asset(&self.id)
+                .cloned()
+                .ok_or(format!(
+                    "Failed to get an asset with identification: {}.",
+                    &self.id
+                ))?
+                .into())
         }
     }
 
     impl Query for FindAssetsByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAssetsByName(Box::new(
-                FindAssetsByNameResult {
-                    assets: world_state_view
-                        .read_all_assets()
-                        .into_iter()
-                        .filter(|asset| asset.id.definition_id.name == self.name)
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_assets()
+                .into_iter()
+                .filter(|asset| asset.id.definition_id.name == self.name)
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindAssetsByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            let assets: Vec<Asset> = world_state_view
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
                 .read_account(&self.account_id)
                 .ok_or(format!("No account with id: {} found.", &self.account_id))?
                 .assets
                 .values()
                 .cloned()
-                .collect();
-            Ok(QueryResult::FindAssetsByAccountId(Box::new(
-                FindAssetsByAccountIdResult { assets },
-            )))
+                .collect())
         }
     }
 
     impl Query for FindAssetsByAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAssetsByAssetDefinitionId(Box::new(
-                FindAssetsByAssetDefinitionIdResult {
-                    assets: world_state_view
-                        .read_all_assets()
-                        .into_iter()
-                        .filter(|asset| asset.id.definition_id == self.asset_definition_id)
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_assets()
+                .into_iter()
+                .filter(|asset| asset.id.definition_id == self.asset_definition_id)
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindAssetsByDomainName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAssetsByDomainName(Box::new(
-                FindAssetsByDomainNameResult {
-                    assets: world_state_view
-                        .read_all_assets()
-                        .into_iter()
-                        .filter(|asset| asset.id.account_id.domain_name == self.domain_name)
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_assets()
+                .into_iter()
+                .filter(|asset| asset.id.account_id.domain_name == self.domain_name)
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindAssetsByAccountIdAndAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            let assets: Vec<Asset> = world_state_view
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
                 .read_account(&self.account_id)
                 .ok_or(format!("No account with id: {} found.", &self.account_id))?
                 .assets
                 .values()
                 .cloned()
                 .filter(|asset| asset.id.definition_id == self.asset_definition_id)
-                .collect();
-            Ok(QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(
-                Box::new(FindAssetsByAccountIdAndAssetDefinitionIdResult { assets }),
-            ))
+                .collect())
         }
     }
 
     impl Query for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAssetsByDomainNameAndAssetDefinitionId(
-                Box::new(FindAssetsByDomainNameAndAssetDefinitionIdResult {
-                    assets: world_state_view
-                        .read_all_assets()
-                        .into_iter()
-                        .filter(|asset| {
-                            asset.id.account_id.domain_name == self.domain_name
-                                && asset.id.definition_id == self.asset_definition_id
-                        })
-                        .cloned()
-                        .collect(),
-                }),
-            ))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_assets()
+                .into_iter()
+                .filter(|asset| {
+                    asset.id.account_id.domain_name == self.domain_name
+                        && asset.id.definition_id == self.asset_definition_id
+                })
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindAssetQuantityById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAssetQuantityById(Box::new(
-                FindAssetQuantityByIdResult {
-                    quantity: world_state_view
-                        .read_asset(&self.id)
-                        .map(|asset| asset.quantity)
-                        .ok_or(format!(
-                            "Failed to get an asset with identification: {}.",
-                            &self.id
-                        ))?,
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_asset(&self.id)
+                .map(|asset| asset.quantity)
+                .ok_or(format!(
+                    "Failed to get an asset with identification: {}.",
+                    &self.id
+                ))?
+                .into())
         }
     }
 }

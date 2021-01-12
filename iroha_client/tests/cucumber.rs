@@ -154,11 +154,11 @@ mod asset_steps {
                 let query_result =
                     world.client.request(&request)
                     .expect("Failed to execute request.");
-                if let QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(result) = query_result {
-                    assert!(!result.assets.is_empty());
-                } else {
-                    panic!("Wrong Query Result Type.");
-                }
+                    if let QueryResult(Value::Vec(assets)) = query_result {
+                        assert!(!assets.is_empty());
+                    } else {
+                        panic!("Wrong Query Result Type.");
+                    }
                 world
             }
         ).then_regex(
@@ -178,11 +178,15 @@ mod asset_steps {
                 let query_result =
                     world.client.request(&request)
                     .expect("Failed to execute request.");
-                if let QueryResult::FindAssetsByAccountIdAndAssetDefinitionId(result) = query_result {
-                    assert!(!result.assets.is_empty());
+                if let QueryResult(Value::Vec(assets)) = query_result {
+                    assert!(!assets.is_empty());
                     let mut total_quantity = 0;
-                    result.assets.iter().for_each(|asset| {
-                        total_quantity += asset.quantity;
+                    assets.iter().for_each(|asset| {
+                        if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
+                            asset
+                        {
+                            total_quantity += asset.quantity;
+                        }
                     });
                     assert_eq!(asset_quantity, total_quantity);
                 } else {
@@ -270,11 +274,7 @@ mod account_steps {
                     let query_result =
                         world.client.request(&request)
                         .expect("Failed to execute request.");
-                    if let QueryResult::FindAccountById(_) = query_result {
-                        println!("Account found.");
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                        world.result = Some(query_result);
                     world
                 }
                 );
@@ -316,11 +316,7 @@ mod domain_steps {
                         .client
                         .request(&request)
                         .expect("Failed to execute request.");
-                    if let QueryResult::FindDomainByName(_) = query_result {
-                        println!("Domain found.");
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                    world.result = Some(query_result);
                     world
                 },
             );
@@ -349,11 +345,7 @@ mod query_steps {
                         .client
                         .request(&request)
                         .expect("Failed to execute request.");
-                    if let QueryResult::FindAllDomains(_) = query_result {
-                        world.result = Some(query_result);
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                    world.result = Some(query_result);
                     world
                 },
             )
@@ -371,11 +363,7 @@ mod query_steps {
                         .client
                         .request(&request)
                         .expect("Failed to execute request.");
-                    if let QueryResult::FindAllAssets(_) = query_result {
-                        world.result = Some(query_result);
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                    world.result = Some(query_result);
                     world
                 },
             )
@@ -393,11 +381,7 @@ mod query_steps {
                         .client
                         .request(&request)
                         .expect("Failed to execute request.");
-                    if let QueryResult::FindAllAccounts(_) = query_result {
-                        world.result = Some(query_result);
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                    world.result = Some(query_result);
                     world
                 },
             )
@@ -415,11 +399,7 @@ mod query_steps {
                         .client
                         .request(&request)
                         .expect("Failed to execute request.");
-                    if let QueryResult::FindAllAssetsDefinitions(_) = query_result {
-                        world.result = Some(query_result);
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                    world.result = Some(query_result);
                     world
                 },
             )
@@ -429,8 +409,8 @@ mod query_steps {
                     let domain_name = matches[1].trim();
                     println!("Check that result has {} domain in it.", domain_name);
                     if let Some(query_result) = &world.result {
-                        if let QueryResult::FindAllDomains(result) = query_result {
-                            assert!(result.domains.contains(&Domain::new(domain_name)));
+                        if let QueryResult(Value::Vec(domains)) = query_result {
+                            assert!(domains.contains(&Domain::new(domain_name).into()));
                         } else {
                             panic!("Wrong Query Result Type.");
                         }
@@ -446,13 +426,23 @@ mod query_steps {
                     let account_name = matches[1].trim();
                     println!("Check that result has {} account in it.", account_name);
                     if let Some(query_result) = &world.result {
-                        if let QueryResult::FindAllAccounts(result) = query_result {
-                            assert!(!result
-                                .accounts
-                                .iter()
-                                .filter(|account| { account.id.name == account_name })
-                                .collect::<Vec<&Account>>()
-                                .is_empty());
+                        if let QueryResult(Value::Vec(accounts)) = query_result {
+                            assert_ne!(
+                                accounts
+                                    .iter()
+                                    .filter(|account| {
+                                        if let Value::Identifiable(IdentifiableBox::Account(
+                                            account,
+                                        )) = account
+                                        {
+                                            account.id.name == account_name
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .count(),
+                                0
+                            );
                         } else {
                             panic!("Wrong Query Result Type.");
                         }
@@ -473,19 +463,27 @@ mod query_steps {
                     );
                     if let Some(query_result) = &world.result {
                         println!("{:?}", query_result);
-                        if let QueryResult::FindAllAssetsDefinitions(result) = query_result {
-                            assert!(!result
-                                .assets_definitions_entries
-                                .iter()
-                                .filter(|asset_definition| {
-                                    asset_definition.definition.id
-                                        == AssetDefinitionId::new(
-                                            &asset_definition_name,
-                                            &asset_definition_domain,
-                                        )
-                                })
-                                .collect::<Vec<&AssetDefinitionEntry>>()
-                                .is_empty());
+                        if let QueryResult(Value::Vec(assets_definitions)) = query_result {
+                            assert_ne!(
+                                assets_definitions
+                                    .iter()
+                                    .filter(|asset_definition| {
+                                        if let Value::Identifiable(
+                                            IdentifiableBox::AssetDefinition(asset_definition),
+                                        ) = asset_definition
+                                        {
+                                            asset_definition.id
+                                                == AssetDefinitionId::new(
+                                                    &asset_definition_name,
+                                                    &asset_definition_domain,
+                                                )
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .count(),
+                                0
+                            );
                         } else {
                             panic!("Wrong Query Result Type.");
                         }
@@ -506,19 +504,26 @@ mod query_steps {
                     );
                     if let Some(query_result) = &world.result {
                         println!("{:?}", query_result);
-                        if let QueryResult::FindAllAssets(result) = query_result {
-                            assert!(!result
-                                .assets
-                                .iter()
-                                .filter(|asset| {
-                                    asset.id.definition_id
-                                        == AssetDefinitionId::new(
-                                            &asset_definition_name,
-                                            &asset_definition_domain,
-                                        )
-                                })
-                                .collect::<Vec<&Asset>>()
-                                .is_empty());
+                        if let QueryResult(Value::Vec(assets)) = query_result {
+                            assert_ne!(
+                                assets
+                                    .iter()
+                                    .filter(|asset| {
+                                        if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
+                                            asset
+                                        {
+                                            asset.id.definition_id
+                                                == AssetDefinitionId::new(
+                                                    &asset_definition_name,
+                                                    &asset_definition_domain,
+                                                )
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .count(),
+                                0
+                            );
                         } else {
                             panic!("Wrong Query Result Type.");
                         }
@@ -669,9 +674,7 @@ mod peer_steps {
                             )
 
                 .expect("Failed to execute request.");
-                if let QueryResult::FindAllPeers(_) = query_result {
-                    world.result = Some(query_result);
-                }
+                world.result = Some(query_result);
                 world
             })
         .when_regex(
@@ -689,9 +692,7 @@ mod peer_steps {
                             )
 
                 .expect("Failed to execute request.");
-                if let QueryResult::FindAllParameters(_) = query_result {
-                    world.result = Some(query_result);
-                }
+                world.result = Some(query_result);
                 world
             })
         .when_regex(
@@ -710,9 +711,7 @@ mod peer_steps {
                             )
 
                 .expect("Failed to execute request.");
-                if let QueryResult::FindAllParameters(_) = query_result {
-                    world.result = Some(query_result);
-                }
+                world.result = Some(query_result);
                 world
             })
         .when_regex(
@@ -731,9 +730,7 @@ mod peer_steps {
                             )
 
                 .expect("Failed to execute request.");
-                if let QueryResult::FindAllParameters(_) = query_result {
-                    world.result = Some(query_result);
-                }
+                world.result = Some(query_result);
                 world
             })
         .when_regex(
@@ -752,9 +749,7 @@ mod peer_steps {
                             )
 
                 .expect("Failed to execute request.");
-                if let QueryResult::FindAllParameters(_) = query_result {
-                    world.result = Some(query_result);
-                }
+                world.result = Some(query_result);
                 world
             })
         .then_regex(
@@ -765,8 +760,14 @@ mod peer_steps {
                 let trusted_peer_url = matches[1].trim();
                 let trusted_peer_public_key = matches[2].trim();
                 let public_key: PublicKey = serde_json::from_value(serde_json::json!(trusted_peer_public_key)).expect("Failed to parse Public Key.");
-                if let QueryResult::FindAllPeers(result) = world.result.clone().expect("Result is missing.") {
-                    assert!(result.peers.iter().find(|peer_id|  peer_id.address == trusted_peer_url && peer_id.public_key == public_key ).is_some());
+                if let QueryResult(Value::Vec(peers)) = world.result.clone().expect("Result is missing.") {
+                    assert!(peers.iter().find(
+                        |peer_id| if let Value::Id(IdBox::PeerId(peer_id)) = peer_id {
+                            peer_id.address == trusted_peer_url && peer_id.public_key == public_key
+                        } else {
+                            false
+                        }
+                    ).is_some());
                 }
                 world
             })
@@ -776,8 +777,14 @@ mod peer_steps {
             matches,
             _step | {
                 let maximum_faulty_peers_amount = matches[1].parse().expect("Failed to parse MaximumFaultyPeersAmount.");
-                if let QueryResult::FindAllParameters(result) = world.result.clone().expect("Result is missing.") {
-                    assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)).is_some());
+                if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
+                    assert!(parameters.iter().find(
+                        |parameter| if let Value::Parameter(parameter) = parameter {
+                            *parameter == Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)
+                        } else {
+                            false
+                        }
+                    ).is_some());
                 }
                 world
             })
@@ -787,8 +794,14 @@ mod peer_steps {
             matches,
             _step | {
                 let commit_time_milliseconds = matches[1].parse().expect("Failed to parse CommitTime.");
-                if let QueryResult::FindAllParameters(result) = world.result.clone().expect("Result is missing.") {
-                    assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::CommitTime(commit_time_milliseconds)).is_some());
+                if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
+                    assert!(parameters.iter().find(
+                        |parameter| if let Value::Parameter(parameter) = parameter {
+                            *parameter == Parameter::CommitTime(commit_time_milliseconds)
+                        } else {
+                            false
+                        }
+                    ).is_some());
                 }
                 world
             })
@@ -798,8 +811,14 @@ mod peer_steps {
             matches,
             _step | {
                 let transaction_receipt_time_milliseconds = matches[1].parse().expect("Failed to parse TransactionReceiptTime.");
-                if let QueryResult::FindAllParameters(result) = world.result.clone().expect("Result is missing.") {
-                    assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::TransactionReceiptTime(transaction_receipt_time_milliseconds)).is_some());
+                if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
+                    assert!(parameters.iter().find(
+                        |parameter| if let Value::Parameter(parameter) = parameter {
+                            *parameter == Parameter::TransactionReceiptTime(transaction_receipt_time_milliseconds)
+                        } else {
+                            false
+                        }
+                    ).is_some());
                 }
                 world
             })
@@ -809,8 +828,14 @@ mod peer_steps {
             matches,
             _step | {
                 let block_time_milliseconds = matches[1].parse().expect("Failed to parse BlockTime.");
-                if let QueryResult::FindAllParameters(result) = world.result.clone().expect("Result is missing.") {
-                    assert!(result.parameters.iter().find(|parameter| *parameter == &Parameter::BlockTime(block_time_milliseconds)).is_some());
+                if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
+                    assert!(parameters.iter().find(
+                        |parameter| if let Value::Parameter(parameter) = parameter {
+                            *parameter == Parameter::BlockTime(block_time_milliseconds)
+                        } else {
+                            false
+                        }
+                    ).is_some());
                 }
                 world
             });

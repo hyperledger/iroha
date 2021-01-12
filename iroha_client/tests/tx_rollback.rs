@@ -56,28 +56,43 @@ mod tests {
         let query_result = iroha_client
             .request(&request)
             .expect("Failed to execute request.");
-        if let QueryResult::FindAssetsByAccountId(result) = query_result {
-            assert!(result
-                .assets
-                .iter()
-                .filter(|asset| asset.id.definition_id == wrong_asset_definition_id)
-                .collect::<Vec<&Asset>>()
-                .is_empty());
+        if let QueryResult(Value::Vec(assets)) = query_result {
+            assert_eq!(
+                assets
+                    .iter()
+                    .filter(|asset| {
+                        if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
+                            asset.id.definition_id == wrong_asset_definition_id
+                        } else {
+                            false
+                        }
+                    })
+                    .count(),
+                0
+            );
         } else {
             panic!("Wrong Query Result Type.");
         }
         let definition_query_result = iroha_client
             .request(&client::asset::all_definitions())
             .expect("Failed to execute request.");
-        if let QueryResult::FindAllAssetsDefinitions(result) = definition_query_result {
-            assert!(result
-                .assets_definitions_entries
-                .iter()
-                .filter(
-                    |asset_definition| asset_definition.definition.id == wrong_asset_definition_id
-                )
-                .collect::<Vec<&AssetDefinitionEntry>>()
-                .is_empty());
+        if let QueryResult(Value::Vec(asset_definitions)) = definition_query_result {
+            assert_eq!(
+                asset_definitions
+                    .iter()
+                    .filter(|asset_definition| {
+                        if let Value::Identifiable(IdentifiableBox::AssetDefinition(
+                            asset_definition,
+                        )) = asset_definition
+                        {
+                            asset_definition.id == wrong_asset_definition_id
+                        } else {
+                            false
+                        }
+                    })
+                    .count(),
+                0
+            );
         } else {
             panic!("Wrong Query Result Type.");
         }
