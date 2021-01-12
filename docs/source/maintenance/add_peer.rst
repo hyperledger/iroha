@@ -14,7 +14,7 @@ Requirements
 
 — has a resolvable address;
 
-— has a peer keypair (Ed25519 with SHA-3)
+— has a peer keypair (Ed25519 with SHA-2/SHA-3)
 
 **The account that is sending the transaction adding a peer must have a `root permission <../develop/api/permissions.html#root>`_ in their role - this must be set in the genesis block.**
 
