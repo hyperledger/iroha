@@ -75,42 +75,42 @@ pub mod query {
 
     impl Query for FindAllPeers {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAllPeers(Box::new(FindAllPeersResult {
-                peers: world_state_view
-                    .read_world()
-                    .clone()
-                    .trusted_peers_ids
-                    .into_iter()
-                    .collect(),
-            })))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_world()
+                .clone()
+                .trusted_peers_ids
+                .into_iter()
+                .collect())
         }
     }
 
     impl Query for FindPeerById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindPeerById(Box::new(FindPeerByIdResult {
-                peer: world_state_view
-                    .read_world()
-                    .clone()
-                    .trusted_peers_ids
-                    .iter()
-                    .find(|peer_id| *peer_id == &self.id)
-                    .ok_or("Failed to find Peer.")?
-                    .clone(),
-            })))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_world()
+                .clone()
+                .trusted_peers_ids
+                .iter()
+                .find(|peer_id| *peer_id == &self.id)
+                .ok_or("Failed to find Peer.")?
+                .clone()
+                .into())
         }
     }
 
     impl Query for FindAllParameters {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAllParameters(Box::new(
-                FindAllParametersResult {
-                    parameters: world_state_view.read_world().parameters.clone(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_world()
+                .parameters
+                .iter()
+                .cloned()
+                .map(Value::Parameter)
+                .collect::<Vec<Value>>()
+                .into())
         }
     }
 }

@@ -95,30 +95,23 @@ pub mod query {
 
     impl Query for FindAllDomains {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAllDomains(Box::new(
-                FindAllDomainsResult {
-                    domains: world_state_view
-                        .read_all_domains()
-                        .into_iter()
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_domains()
+                .into_iter()
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindDomainByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindDomainByName(Box::new(
-                FindDomainByNameResult {
-                    domain: world_state_view
-                        .read_domain(&self.name)
-                        .map(Clone::clone)
-                        .ok_or("Failed to get a domain.")?,
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_domain(&self.name)
+                .map(Clone::clone)
+                .ok_or("Failed to get a domain.")?
+                .into())
         }
     }
 }

@@ -99,13 +99,17 @@ mod tests {
         let query_result = iroha_client
             .request(&request)
             .expect("Failed to execute request.");
-        if let QueryResult::FindAssetsByAccountId(result) = query_result {
+        if let QueryResult(Value::Vec(assets)) = query_result {
+            assert!(!assets.is_empty());
             assert_eq!(
-                result
-                    .assets
+                assets
                     .iter()
                     .filter(|asset| {
-                        asset.quantity == quantity && asset.id.account_id == account2_id
+                        if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
+                            asset.quantity == quantity && asset.id.account_id == account2_id
+                        } else {
+                            false
+                        }
                     })
                     .count(),
                 1

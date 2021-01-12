@@ -58,12 +58,15 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let query_result = iroha_client
         .request(&request)
         .expect("Failed to execute request.");
-    if let QueryResult::FindAssetsByAccountId(result) = query_result {
-        assert!(!result.assets.is_empty());
-        assert_eq!(
-            quantity,
-            result.assets.last().expect("Asset should exist.").quantity,
-        );
+    if let QueryResult(Value::Vec(assets)) = query_result {
+        assert!(!assets.is_empty());
+        if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
+            assets.first().expect("Asset should exist.")
+        {
+            assert_eq!(quantity, asset.quantity);
+        } else {
+            panic!("Wrong Query Result Type.")
+        }
     } else {
         panic!("Wrong Query Result Type.");
     }
@@ -76,12 +79,15 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let query_result = iroha_client
         .request(&request)
         .expect("Failed to execute request.");
-    if let QueryResult::FindAssetsByAccountId(result) = query_result {
-        assert!(!result.assets.is_empty());
-        assert_eq!(
-            quantity,
-            result.assets.last().expect("Asset should exist.").quantity,
-        );
+    if let QueryResult(Value::Vec(assets)) = query_result {
+        assert!(!assets.is_empty());
+        if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
+            assets.first().expect("Asset should exist.")
+        {
+            assert_eq!(quantity, asset.quantity);
+        } else {
+            panic!("Wrong Query Result Type.")
+        }
     } else {
         panic!("Wrong Query Result Type.");
     }

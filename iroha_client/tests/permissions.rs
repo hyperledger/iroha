@@ -70,8 +70,8 @@ fn permissions_disallow_asset_transfer() {
     let query_result = iroha_client
         .request(&request)
         .expect("Failed to execute request.");
-    if let QueryResult::FindAssetsByAccountId(result) = query_result {
-        assert!(result.assets.is_empty());
+    if let QueryResult(Value::Vec(assets)) = query_result {
+        assert!(assets.is_empty());
     } else {
         panic!("Wrong Query Result Type.");
     }
@@ -131,8 +131,8 @@ fn permissions_disallow_asset_burn() {
     let query_result = iroha_client
         .request(&request)
         .expect("Failed to execute request.");
-    if let QueryResult::FindAssetsByAccountId(result) = query_result {
-        assert!(result.assets.is_empty());
+    if let QueryResult(Value::Vec(assets)) = query_result {
+        assert!(assets.is_empty());
     } else {
         panic!("Wrong Query Result Type.");
     }

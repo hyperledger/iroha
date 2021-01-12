@@ -104,62 +104,47 @@ pub mod query {
 
     impl Query for FindAllAccounts {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAllAccounts(Box::new(
-                FindAllAccountsResult {
-                    accounts: world_state_view
-                        .read_all_accounts()
-                        .into_iter()
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_accounts()
+                .into_iter()
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindAccountById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAccountById(Box::new(
-                FindAccountByIdResult {
-                    account: world_state_view
-                        .read_account(&self.id)
-                        .map(Clone::clone)
-                        .ok_or("Failed to get an account.")?,
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_account(&self.id)
+                .map(Clone::clone)
+                .ok_or("Failed to get an account.")?
+                .into())
         }
     }
 
     impl Query for FindAccountsByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAccountsByName(Box::new(
-                FindAccountsByNameResult {
-                    accounts: world_state_view
-                        .read_all_accounts()
-                        .into_iter()
-                        .filter(|account| account.id.name == self.name)
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_accounts()
+                .into_iter()
+                .filter(|account| account.id.name == self.name)
+                .cloned()
+                .collect())
         }
     }
 
     impl Query for FindAccountsByDomainName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
-            Ok(QueryResult::FindAccountsByDomainName(Box::new(
-                FindAccountsByDomainNameResult {
-                    accounts: world_state_view
-                        .read_all_accounts()
-                        .into_iter()
-                        .filter(|account| account.id.domain_name == self.domain_name)
-                        .cloned()
-                        .collect(),
-                },
-            )))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+            Ok(world_state_view
+                .read_all_accounts()
+                .into_iter()
+                .filter(|account| account.id.domain_name == self.domain_name)
+                .cloned()
+                .collect())
         }
     }
 }
