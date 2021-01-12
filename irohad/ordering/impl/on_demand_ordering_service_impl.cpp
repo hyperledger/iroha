@@ -111,11 +111,8 @@ boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto now = iroha::time::now();
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
-  if (!isEmptyBatchesCache()) {
-    size_t discarded_txs_quantity;
-    txs = getTransactionsFromBatchesCache(transaction_limit_, discarded_txs_quantity);
-    log_->debug("Discarded {} transactions", discarded_txs_quantity);
-  }
+  if (!isEmptyBatchesCache())
+    txs = getTransactionsFromBatchesCache(transaction_limit_);
 
   log_->debug("Packed proposal contains: {} transactions.", txs.size());
   return tryCreateProposal(round, txs, now);
