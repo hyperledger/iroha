@@ -89,7 +89,7 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
-  /// iceseer: refactor to avoid copiing.
+  // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
   ordering_service_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
   network_client_->onBatches(
@@ -131,7 +131,7 @@ OnDemandOrderingGate::processProposalRequest(
 
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
-  // iceseer: check that OS is remote
+  // TODO iceseer 14.01.21 IR-958 Check that OS is remote
   ordering_service_->forCachedBatches([this](auto const &batches) {
     auto end_iterator = batches.begin();
     auto current_number_of_transactions = 0u;
