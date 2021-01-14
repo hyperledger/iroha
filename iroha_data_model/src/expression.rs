@@ -21,6 +21,7 @@ pub struct EvaluatesTo<V: TryFrom<Value>> {
     #[serde(flatten)]
     pub expression: ExpressionBox,
     #[serde(skip)]
+    #[codec(skip)]
     _value_type: PhantomData<V>,
 }
 
