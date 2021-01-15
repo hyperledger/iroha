@@ -27,7 +27,8 @@ pub struct Sumeragi {
     key_pair: KeyPair,
     /// The current topology of the peer to peer network.
     pub network_topology: InitializedNetworkTopology,
-    peer_id: PeerId,
+    /// The peer id of myself.
+    pub peer_id: PeerId,
     /// The block in discussion this round, received from a leader.
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
     /// This field is used to count votes when the peer is a proxy tail role.

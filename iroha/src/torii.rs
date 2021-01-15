@@ -272,6 +272,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
+        uri::HEALTH_URI => Ok(Response::empty_ok()),
         non_supported_uri => {
             log::error!("URI not supported: {}.", &non_supported_uri);
             Ok(Response::InternalError)
