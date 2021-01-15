@@ -184,23 +184,40 @@ namespace iroha {
       // ------|Private interface|------
 
       void Yac::votingStep(VoteMessage vote) {
-        std::unique_lock<std::mutex> lock(mutex_);
+        try {
+          std::unique_lock<std::mutex> lock(mutex_);
 
-        auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
-        if (committed) {
-          return;
+          auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
+          if (committed) {
+            return;
+          }
+
+          auto &cluster_order = getCurrentOrder();
+
+          const auto &current_leader = cluster_order.currentLeader();
+
+          log_->info("Vote {} to peer {}", vote, current_leader);
+
+          propagateStateDirectly(current_leader, {vote});
+          cluster_order.switchToNext();
+          lock.unlock();
+        }
+        catch (std::exception &e) {
+          log_->error("EXCEPTION: {}", e.what());
+        }
+        catch (...) {
+          log_->error("EXCEPTION: {no_data}");
         }
 
-        auto &cluster_order = getCurrentOrder();
-
-        const auto &current_leader = cluster_order.currentLeader();
-
-        log_->info("Vote {} to peer {}", vote, current_leader);
-
-        propagateStateDirectly(current_leader, {vote});
-        cluster_order.switchToNext();
-        lock.unlock();
-        timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
+        try {
+          timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
+        }
+        catch (std::exception &e) {
+          log_->error("RECREATION TIMER EXCEPTION: {}", e.what());
+        }
+        catch (...) {
+          log_->error("RECREATION TIMER EXCEPTION: {no_data}");
+        }
       }
 
       void Yac::closeRound() {
