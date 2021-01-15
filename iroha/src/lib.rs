@@ -51,7 +51,7 @@ use crate::{
     prelude::*,
     queue::Queue,
     sumeragi::{message::Message as SumeragiMessage, Sumeragi},
-    torii::Torii,
+    torii::{uri, Torii},
 };
 use async_std::{
     prelude::*,
@@ -59,6 +59,7 @@ use async_std::{
     task,
 };
 use iroha_data_model::prelude::*;
+use iroha_network::{Network, Request, Response};
 use permissions::PermissionsValidatorBox;
 use std::{sync::Arc, time::Duration};
 
@@ -102,7 +103,7 @@ pub struct Iroha {
     block_sync_message_receiver: Arc<RwLock<BlockSyncMessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
-    genesis_block: Option<GenesisBlock>,
+    genesis_block: Arc<Option<GenesisBlock>>,
 }
 
 impl Iroha {
@@ -155,13 +156,12 @@ impl Iroha {
             &config.queue_configuration,
         )));
 
-        let genesis_block = config
-            .genesis_block_path
-            .as_ref()
-            .map(|genesis_block_path| {
+        let genesis_block = Arc::new(config.genesis_block_path.as_ref().map(
+            |genesis_block_path| {
                 GenesisBlock::from_configuration(genesis_block_path, &config.init_configuration)
                     .expect("Failed to initialize genesis.")
-            });
+            },
+        ));
 
         Iroha {
             queue,
@@ -269,21 +269,34 @@ impl Iroha {
         });
 
         let queue = Arc::clone(&self.queue);
-        if let Some(ref genesis_block) = self.genesis_block {
-            log::info!("Initialize iroha using the genesis block");
-            for transaction in genesis_block.transactions.iter() {
-                if let Err(e) = queue
-                    .write()
-                    .await
-                    .push_pending_transaction(transaction.clone())
-                {
-                    log::error!(
-                        "Failed to push transactions from genesis block to queue error: {}",
-                        e
-                    )
+        let sumeragi = Arc::clone(&self.sumeragi);
+        let genesis_block = Arc::clone(&self.genesis_block);
+        let genesis_block_handle = task::spawn(async move {
+            Iroha::wait_for_active_peers(
+                &sumeragi.read().await.network_topology.sorted_peers,
+                &sumeragi.read().await.peer_id,
+            )
+            .await
+            .map(|_| async {
+                if let Some(ref genesis_block) = *genesis_block {
+                    log::info!("Initialize iroha using the genesis block");
+                    for transaction in genesis_block.transactions.iter() {
+                        if let Err(e) = queue
+                            .write()
+                            .await
+                            .push_pending_transaction(transaction.clone())
+                        {
+                            log::error!(
+                                "Failed to push transactions from genesis block to queue error: {}",
+                                e
+                            )
+                        }
+                    }
                 }
-            }
-        }
+            })
+            .expect("Failed to wait for active peers")
+            .await;
+        });
 
         futures::join!(
             torii_handle,
@@ -293,7 +306,62 @@ impl Iroha {
             sumeragi_message_handle,
             tx_handle,
             block_sync_message_handle,
+            genesis_block_handle,
         );
+        Ok(())
+    }
+
+    /// To wait for active peers(this is provisional code)
+    /// Wait 500ms, 1000ms, 1500ms, ...
+    async fn wait_for_active_peers(
+        sorted_peers: &[PeerId],
+        myself_peer_id: &PeerId,
+    ) -> Result<(), String> {
+        log::info!("Waiting for active peers");
+        let retry_count = 10;
+        let retry_duration_ms = 500;
+        for peer in sorted_peers.iter() {
+            let mut failed_to_connect = true;
+            for i in 0..=retry_count {
+                if peer == myself_peer_id {
+                    failed_to_connect = false;
+                    break;
+                }
+                match Network::send_request_to(
+                    &peer.address,
+                    Request::new(uri::HEALTH_URI.to_string(), Vec::new()),
+                )
+                .await
+                {
+                    Ok(Response::Ok(_)) => {
+                        failed_to_connect = false;
+                        break;
+                    }
+                    Ok(Response::InternalError) => {
+                        log::info!(
+                            "Failed to send message - Internal Error on peer: {}",
+                            &peer.address.as_str()
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        log::info!(
+                            "Try to connect the peer {}, err:{}",
+                            &peer.address.as_str(),
+                            e
+                        );
+                        task::sleep(Duration::from_millis(retry_duration_ms * i)).await;
+                    }
+                }
+            }
+            if failed_to_connect {
+                return Err(format!(
+                    "Failed to connect the peer {}",
+                    peer.address.as_str()
+                ));
+            }
+        }
+        log::info!("Waiting for active peers finished");
         Ok(())
     }
 }
