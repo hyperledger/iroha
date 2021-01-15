@@ -51,6 +51,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
             }
         }
     });
+    thread::sleep(Duration::from_millis(1000));
     //When
     iroha_client
         .submit(create_asset.into())
