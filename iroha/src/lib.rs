@@ -215,19 +215,25 @@ impl Iroha {
             }
         });
         let queue = Arc::clone(&self.queue);
-        let voting_handle = task::spawn(async move {
-            loop {
-                if !sumeragi.write().await.voting_in_progress().await {
-                    sumeragi
-                        .write()
-                        .await
-                        .round(queue.write().await.pop_pending_transactions())
-                        .await
-                        .expect("Round failed.");
+        let world_state_view = Arc::clone(&self.world_state_view);
+        let voting_handle =
+            task::spawn(async move {
+                loop {
+                    if !sumeragi.write().await.voting_in_progress().await {
+                        let is_leader = sumeragi.read().await.is_leader();
+                        sumeragi
+                            .write()
+                            .await
+                            .round(queue.write().await.pop_pending_transactions(
+                                is_leader,
+                                &*world_state_view.read().await,
+                            ))
+                            .await
+                            .expect("Round failed.");
+                    }
+                    task::sleep(TX_RETRIEVAL_INTERVAL).await;
                 }
-                task::sleep(TX_RETRIEVAL_INTERVAL).await;
-            }
-        });
+            });
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
         let sumeragi = Arc::clone(&self.sumeragi);

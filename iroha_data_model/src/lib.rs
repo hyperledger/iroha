@@ -50,7 +50,7 @@ pub enum Parameter {
 }
 
 /// Sized container for all possible identifications.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub enum IdBox {
     /// `AccountId` variant.
     AccountId(account::Id),
@@ -67,7 +67,7 @@ pub enum IdBox {
 }
 
 /// Sized container for all possible entities.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub enum IdentifiableBox {
     /// `Account` variant.
     Account(Box<account::Account>),
@@ -87,7 +87,7 @@ pub enum IdentifiableBox {
 pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub enum Value {
     /// `u32` integer.
     U32(u32),
@@ -336,8 +336,11 @@ pub mod account {
     //! Structures, traits and impls related to `Account`s.
 
     use crate::{
-        asset::AssetsMap, domain::GENESIS_DOMAIN_NAME, permissions::PermissionRaw, IdBox,
-        Identifiable, IdentifiableBox, Name, PublicKey, Value,
+        asset::AssetsMap,
+        domain::GENESIS_DOMAIN_NAME,
+        expression::{ContainsAny, ContextValue, EvaluatesTo, WhereBuilder},
+        permissions::PermissionRaw,
+        IdBox, Identifiable, IdentifiableBox, Name, PublicKey, Value,
     };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
@@ -354,6 +357,12 @@ pub mod account {
 
     /// Genesis account name.
     pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
+
+    /// The context value name for transaction signatories.
+    pub const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
+
+    /// The context value name for account signatories.
+    pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
     /// Genesis account. Used to mainly be converted to ordinary `Account` struct.
     #[derive(Debug)]
@@ -374,10 +383,22 @@ pub mod account {
         }
     }
 
+    /// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
+    #[derive(Debug, Clone, Copy)]
+    pub struct DefaultSignatureConditionCheck;
+
+    impl From<DefaultSignatureConditionCheck> for EvaluatesTo<bool> {
+        fn from(_: DefaultSignatureConditionCheck) -> Self {
+            ContainsAny::new(
+                ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
+                ContextValue::new(ACCOUNT_SIGNATORIES_VALUE),
+            )
+            .into()
+        }
+    }
+
     /// Account entity is an authority which is used to execute `Iroha Special Insturctions`.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
-    )]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Account {
         /// An Identification of the `Account`.
         pub id: Id,
@@ -387,6 +408,25 @@ pub mod account {
         pub signatories: Signatories,
         /// Permissions of this account
         pub permissions: Permissions,
+        /// Condition which checks if the account has the right signatures.
+        #[serde(default = "default_signature_check_condition")]
+        pub signature_check_condition: EvaluatesTo<bool>,
+    }
+
+    fn default_signature_check_condition() -> EvaluatesTo<bool> {
+        DefaultSignatureConditionCheck.into()
+    }
+
+    impl PartialOrd for Account {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            self.id.partial_cmp(&other.id)
+        }
+    }
+
+    impl Ord for Account {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.id.cmp(&other.id)
+        }
     }
 
     /// Identification of an Account. Consists of Account's name and Domain's name.
@@ -427,6 +467,7 @@ pub mod account {
                 assets: AssetsMap::new(),
                 signatories: Signatories::new(),
                 permissions: Permissions::new(),
+                signature_check_condition: DefaultSignatureConditionCheck.into(),
             }
         }
 
@@ -439,22 +480,29 @@ pub mod account {
                 assets: AssetsMap::new(),
                 signatories,
                 permissions: Permissions::new(),
+                signature_check_condition: DefaultSignatureConditionCheck.into(),
             }
         }
-        /// Verify if the signature is produced by the owner of this account.
-        pub fn verify_signature(
-            &self,
-            signature: &Signature,
-            payload: &[u8],
-        ) -> Result<(), String> {
-            if self.signatories.contains(&signature.public_key) {
-                signature.verify(payload)
-            } else {
-                Err(format!(
-                    "Account does not have a signatory with this public key: {}",
-                    signature.public_key
-                ))
-            }
+
+        /// Returns a prebuilt expression that when executed
+        /// returns if the needed signatures are gathered.
+        pub fn check_signature_condition(&self, signatures: &[Signature]) -> EvaluatesTo<bool> {
+            let transaction_signatories: Signatories = signatures
+                .iter()
+                .cloned()
+                .map(|signature| signature.public_key)
+                .collect();
+            WhereBuilder::evaluate(self.signature_check_condition.expression.clone())
+                .with_value(
+                    TRANSACTION_SIGNATORIES_VALUE.to_string(),
+                    transaction_signatories,
+                )
+                .with_value(
+                    ACCOUNT_SIGNATORIES_VALUE.to_string(),
+                    self.signatories.clone(),
+                )
+                .build()
+                .into()
         }
     }
 
@@ -922,7 +970,7 @@ pub mod peer {
     pub type PeersIds = BTreeSet<Id>;
 
     /// Peer represents Iroha instance.
-    #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode, PartialEq)]
+    #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode, PartialEq, Eq)]
     pub struct Peer {
         /// Peer Identification.
         pub id: Id,
