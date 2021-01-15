@@ -2,7 +2,7 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use crate::{isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
+use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
@@ -40,8 +40,10 @@ impl Accept for Transaction {
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct AcceptedTransaction {
-    payload: Payload,
-    signatures: Vec<Signature>,
+    /// Payload of this transaction.
+    pub payload: Payload,
+    /// Signatures for this transaction.
+    pub signatures: Vec<Signature>,
 }
 
 impl AcceptedTransaction {
@@ -81,19 +83,19 @@ impl AcceptedTransaction {
                 self.reject("Genesis account can sign only transactions in the genesis block.")
             );
         }
-        world_state_view
-            .read_account(&account_id)
-            .ok_or_else(|| {
-                self.clone()
-                    .reject(&format!("Account with id {} not found", account_id))
-            })?
-            .verify_signature(
-                self.signatures
-                    .first()
-                    .ok_or_else(|| self.clone().reject("No signatures found."))?,
-                self.hash().as_ref(),
-            )
-            .map_err(|error| self.clone().reject(&error))?;
+        for signature in &self.signatures {
+            if let Err(e) = signature.verify(self.hash().as_ref()) {
+                return Err(self
+                    .clone()
+                    .reject(&format!("Failed to verify signatures: {}", e)));
+            }
+        }
+        if !self
+            .check_signature_condition(world_state_view)
+            .map_err(|error| self.clone().reject(&error))?
+        {
+            return Err(self.reject("Signature condition not satisfied."));
+        }
         for instruction in &self.payload.instructions {
             let account_id = self.payload.account_id.clone();
             world_state_view_temp = instruction
@@ -110,6 +112,19 @@ impl AcceptedTransaction {
             payload: self.payload,
             signatures: self.signatures,
         })
+    }
+
+    /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
+    pub fn check_signature_condition(
+        &self,
+        world_state_view: &WorldStateView,
+    ) -> Result<bool, String> {
+        let account_id = self.payload.account_id.clone();
+        world_state_view
+            .read_account(&account_id)
+            .ok_or_else(|| format!("Account with id {} not found", account_id))?
+            .check_signature_condition(&self.signatures)
+            .evaluate(world_state_view, &Context::new())
     }
 
     /// Rejects transaction with the `rejection_reason`.

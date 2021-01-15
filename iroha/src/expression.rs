@@ -56,6 +56,9 @@ impl Evaluate for Expression {
             Expression::ContainsAll(contains_all) => {
                 contains_all.evaluate(world_state_view, context)
             }
+            Expression::ContainsAny(contains_any) => {
+                contains_any.evaluate(world_state_view, context)
+            }
             Expression::Where(where_expression) => {
                 where_expression.evaluate(world_state_view, context)
             }
@@ -222,6 +225,23 @@ impl Evaluate for ContainsAll {
         Ok(elements
             .iter()
             .all(|element| collection.contains(element))
+            .into())
+    }
+}
+
+impl Evaluate for ContainsAny {
+    type Value = Value;
+
+    fn evaluate(
+        &self,
+        world_state_view: &WorldStateView,
+        context: &Context,
+    ) -> Result<Self::Value, String> {
+        let collection = self.collection.evaluate(world_state_view, context)?;
+        let elements = self.elements.evaluate(world_state_view, context)?;
+        Ok(elements
+            .iter()
+            .any(|element| collection.contains(element))
             .into())
     }
 }
