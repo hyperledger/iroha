@@ -316,6 +316,11 @@ impl Sumeragi {
             self.number_of_view_changes,
         );
     }
+
+    /// If this peer is a leader in this round.
+    pub fn is_leader(&self) -> bool {
+        self.network_topology.role(&self.peer_id) == Role::Leader
+    }
 }
 
 impl Debug for Sumeragi {

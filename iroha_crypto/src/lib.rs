@@ -321,7 +321,7 @@ impl Display for PrivateKey {
 }
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
-#[derive(Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Signature {
     /// Ed25519 (Edwards-curve Digital Signature Algorithm scheme using SHA-512 and Curve25519)
     /// public-key of an approved authority.

@@ -15,7 +15,7 @@ pub type Context = BTreeMap<ValueName, Value>;
 pub type ExpressionBox = Box<Expression>;
 
 /// Struct for type checking and converting expression results.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EvaluatesTo<V: TryFrom<Value>> {
     /// Expression.
     #[serde(flatten)]
@@ -35,7 +35,7 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
 }
 
 /// Represents all possible expressions.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Expression {
     /// Add expression.
     Add(Add),
@@ -61,8 +61,10 @@ pub enum Expression {
     Query(QueryBox),
     /// Contains expression for vectors.
     Contains(Contains),
-    /// Contains all expression.
+    /// Contains all expression for vectors.
     ContainsAll(ContainsAll),
+    /// Contains any expression for vectors.
+    ContainsAny(ContainsAny),
     /// Where expression to supply temporary values to local context.
     Where(Where),
     /// Get a temporary value by name
@@ -77,7 +79,7 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
 
 /// Get a temporary value by name.
 /// The values are brought into [`Context`] by [`Where`] expression.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContextValue {
     /// Name binded to the value.
     pub value_name: String,
@@ -100,7 +102,7 @@ impl From<ContextValue> for ExpressionBox {
 
 /// Evaluates to the sum of right and left expressions.
 /// Works only for `Value::U32`
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Add {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -126,7 +128,7 @@ impl From<Add> for ExpressionBox {
 
 /// Evaluates to the difference of right and left expressions.
 /// Works only for `Value::U32`
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Subtract {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -152,7 +154,7 @@ impl From<Subtract> for ExpressionBox {
 
 /// Returns whether the `left` expression is greater than the `right`.
 /// Works only for `Value::U32`.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Greater {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -178,7 +180,7 @@ impl From<Greater> for ExpressionBox {
 
 /// Returns whether the `left` expression is less than the `right`.
 /// Works only for `Value::U32`.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Less {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -204,7 +206,7 @@ impl From<Less> for ExpressionBox {
 
 /// Negates the result of the `expression`.
 /// Works only for `Value::Bool`.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Not {
     /// Expression that should evaluate to `Value::Bool`.
     pub expression: EvaluatesTo<bool>,
@@ -226,7 +228,7 @@ impl From<Not> for ExpressionBox {
 }
 
 /// Applies the logical `and` to two `Value::Bool` operands.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct And {
     /// Left operand.
     pub left: EvaluatesTo<bool>,
@@ -251,7 +253,7 @@ impl From<And> for ExpressionBox {
 }
 
 /// Applies the logical `or` to two `Value::Bool` operands.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Or {
     /// Left operand.
     pub left: EvaluatesTo<bool>,
@@ -327,7 +329,7 @@ impl IfBuilder {
 
 /// If expression. Returns either a result of `then_expression`, or a result of `else_expression`
 /// based on the `condition`.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct If {
     /// Condition expression, which should evaluate to `Value::Bool`.
     pub condition: EvaluatesTo<bool>,
@@ -364,7 +366,7 @@ impl From<If> for ExpressionBox {
 
 /// `Contains` expression.
 /// Returns `true` if `collection` contains an `element`, `false` otherwise.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Contains {
     /// Expression, which should evaluate to `Value::Vec`.
     pub collection: EvaluatesTo<Vec<Value>>,
@@ -393,7 +395,7 @@ impl From<Contains> for ExpressionBox {
 
 /// `Contains` expression.
 /// Returns `true` if `collection` contains all `elements`, `false` otherwise.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContainsAll {
     /// Expression, which should evaluate to `Value::Vec`.
     pub collection: EvaluatesTo<Vec<Value>>,
@@ -420,8 +422,37 @@ impl From<ContainsAll> for ExpressionBox {
     }
 }
 
+/// `Contains` expression.
+/// Returns `true` if `collection` contains any element out of the `elements`, `false` otherwise.
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContainsAny {
+    /// Expression, which should evaluate to `Value::Vec`.
+    pub collection: EvaluatesTo<Vec<Value>>,
+    /// Expression, which should evaluate to `Value::Vec`.
+    pub elements: EvaluatesTo<Vec<Value>>,
+}
+
+impl ContainsAny {
+    /// Constructs `Contains` expression.
+    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
+        collection: C,
+        elements: E,
+    ) -> Self {
+        Self {
+            collection: collection.into(),
+            elements: elements.into(),
+        }
+    }
+}
+
+impl From<ContainsAny> for ExpressionBox {
+    fn from(expression: ContainsAny) -> Self {
+        Expression::ContainsAny(expression).into()
+    }
+}
+
 /// Returns `true` if `left` operand is equal to the `right` operand.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Equal {
     /// Left operand.
     pub left: EvaluatesTo<Value>,
@@ -484,7 +515,7 @@ impl WhereBuilder {
 
 /// Adds a local context of `values` for the `expression`.
 /// It is similar to *Haskell's where syntax* although, evaluated eagerly.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Where {
     /// Expression to be evaluated.
     pub expression: EvaluatesTo<Value>,
@@ -520,8 +551,8 @@ impl From<QueryBox> for ExpressionBox {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Add, And, Contains, ContainsAll, Context, ContextValue, Equal, EvaluatesTo, Expression,
-        ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Not, Or, Subtract, ValueName,
-        Where, WhereBuilder,
+        Add, And, Contains, ContainsAll, ContainsAny, Context, ContextValue, Equal, EvaluatesTo,
+        Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Not, Or, Subtract,
+        ValueName, Where, WhereBuilder,
     };
 }
