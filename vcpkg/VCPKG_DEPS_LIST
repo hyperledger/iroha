@@ -21,4 +21,6 @@ boost-uuid
 boost-accumulators
 boost-property-tree
 boost-process
+boost-iostreams
 iroha-ed25519
+pybind11
