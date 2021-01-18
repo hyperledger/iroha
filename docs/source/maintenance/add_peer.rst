@@ -16,7 +16,7 @@ Requirements
 
 — has a peer keypair (Ed25519 with SHA-2/SHA-3)
 
-**The account that is sending the transaction adding a peer must have a `root permission <../develop/api/permissions.html#root>`_ in their role - this must be set in the genesis block.**
+**The account that is sending the transaction adding a peer must have the `Can Add Peer permission <../develop/api/permissions.html#can-add-peer>`_ and to remove a peer —`Can Remove Peer permission <../develop/api/permissions.html#can-remove-peer>`_ in their role - this must be set in the genesis block. **
 
 Usage
 =====
@@ -29,9 +29,9 @@ As described in `the API reference <../develop/api/commands.html#add-peer>`_ to 
 
 Steps:
 
-1. Create a network with ``root`` permission set up in the genesis block assigned to a user;
+1. Create a network with **`Can Add Peer <../develop/api/permissions.html#can-add-peer>`_ ** and **`Can Remove Peer <../develop/api/permissions.html#can-remove-peer>`_** permissions set up in the genesis block assigned to a user;
 2. Create another peer running HL Iroha with the same genesis block and similar configuration;
-3. Send a transaction from the account with ``root`` permission that has ``add peer`` command in it (see an example below)
+3. Send a transaction from the account with the necessary permissions that has ``add peer`` command in it (see an example below)
 4. Check the logs of the peers to see if everything is working correctly.
 You can also make sure the everything is ok by sending a transaction and checking if the number of blocks is the same on the nodes.
 
@@ -40,7 +40,8 @@ You can also make sure the everything is ok by sending a transaction and checkin
 Example
 =======
 
-Here is what a command might look like in Python:
+Here is what a command might look like in Python.
+In this example we used `Root permission <../develop/api/permissions.html#root>`_ that has all permissions, including `Can Add Peer permission <../develop/api/permissions.html#can-add-peer>`_ and `Can Remove Peer permission <../develop/api/permissions.html#can-remove-peer>`_: 
 
 .. code-block:: python
 
