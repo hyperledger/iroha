@@ -469,7 +469,6 @@ pub mod web_socket {
     use async_trait::async_trait;
     pub use async_tungstenite::tungstenite::Message as WebSocketMessage;
     use async_tungstenite::WebSocketStream as TungsteniteWebSocketStream;
-
     pub type WebSocketStream = TungsteniteWebSocketStream<TcpStream>;
 
     pub const WEB_SOCKET_UPGRADE: &[u8] = b"websocket";
@@ -570,6 +569,7 @@ mod tests {
     use super::{prelude::*, Server};
     use async_std::sync::RwLock;
     use futures::{SinkExt, StreamExt};
+    use isahc::AsyncReadResponseExt;
     use std::sync::Arc;
     use std::{thread, time::Duration};
     use tungstenite::client as web_socket_client;
@@ -597,6 +597,29 @@ mod tests {
             .expect("Failed to send request.");
         assert!(response.is_success());
         assert_eq!(response.text().expect("Failed to get text"), "Hi!")
+    }
+
+    #[async_std::test]
+    async fn get_request_isahc() {
+        let port = port_check::free_local_port().expect("Failed to get free local port.");
+        async_std::task::spawn(async move {
+            let mut server = Server::new(());
+            server.at("/hello/world").get(
+                |_state: (),
+                 _path_params: PathParams,
+                 _query_params: QueryParams,
+                 _request: HttpRequest| async move {
+                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
+                },
+            );
+            let _result = server.start(format!("localhost:{}", port).as_ref()).await;
+        });
+        thread::sleep(Duration::from_millis(100));
+        let mut response = isahc::get_async(format!("http://localhost:{}/hello/world", port))
+            .await
+            .expect("Failed to send request.");
+        assert!(response.status().is_success());
+        assert_eq!(response.text().await.expect("Failed to get text"), "Hi!")
     }
 
     #[test]
