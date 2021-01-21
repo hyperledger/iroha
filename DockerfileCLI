@@ -1,5 +1,13 @@
-FROM debian:stable-slim
-COPY target/release/iroha_client_cli .
-COPY iroha_client_cli/config.json .
-RUN apt-get update && apt-get -y upgrade && apt-get install -y libssl-dev
+FROM rust:slim AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y apt-utils
+RUN apt-get install -y libssl-dev pkg-config
+COPY . iroha/
+WORKDIR iroha
+RUN cargo build --bin iroha_client_cli
+
+FROM debian:buster-slim
+RUN apt-get update && apt-get -y upgrade && apt-get install -y apt-utils
+RUN apt-get install -y libssl-dev pkg-config
+COPY iroha_client/config.json .
+COPY --from=builder /iroha/target/debug/iroha_client_cli .
 ENTRYPOINT ["./iroha_client_cli"]

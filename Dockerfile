@@ -1,7 +1,13 @@
-FROM debian:stable-slim
-COPY target/release/iroha .
+FROM rust:slim AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y apt-utils
+RUN apt-get install -y libssl-dev pkg-config
+COPY . iroha/
+WORKDIR iroha
+RUN cargo build --release
+
+FROM debian:buster-slim
+RUN apt-get update && apt-get -y upgrade && apt-get install -y apt-utils
+RUN apt-get install -y libssl-dev pkg-config
 COPY iroha/config.json .
-RUN apt-get update && apt-get -y upgrade && apt-get install -y libssl-dev
-RUN ln -s -f /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /usr/lib/x86_64-linux-gnu/libcrypto.so.1.0.0
-RUN ln -s -f /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /usr/lib/x86_64-linux-gnu/libssl.so.1.0.0 
+COPY --from=builder /iroha/target/release/iroha .
 CMD ["./iroha"]
