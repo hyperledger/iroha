@@ -69,9 +69,7 @@ namespace iroha {
         static proto::Vote serializeVote(const VoteMessage &vote) {
           auto pb_vote = serializeRoundAndHashes(vote);
 
-          if (&vote.hash.block_signature->publicKey() != nullptr
-              && &vote.hash.block_signature->signedData() != nullptr
-              && vote.hash.block_signature) {
+          if (vote.hash.block_signature) {
             auto block_signature =
                 pb_vote.mutable_hash()->mutable_block_signature();
             auto signature = hexstringToBytestringResult(
@@ -82,16 +80,13 @@ namespace iroha {
             block_signature->set_pubkey(std::move(public_key).assumeValue());
           }
 
-          if (&vote.signature->signedData() != nullptr
-              && &vote.signature->publicKey() != nullptr) {
-            auto vote_signature = pb_vote.mutable_signature();
-            auto signature =
-                hexstringToBytestringResult(vote.signature->signedData());
-            auto public_key =
-                hexstringToBytestringResult(vote.signature->publicKey());
-            vote_signature->set_signature(std::move(signature).assumeValue());
-            vote_signature->set_pubkey(std::move(public_key).assumeValue());
-          }
+          auto vote_signature = pb_vote.mutable_signature();
+          auto signature =
+              hexstringToBytestringResult(vote.signature->signedData());
+          auto public_key =
+              hexstringToBytestringResult(vote.signature->publicKey());
+          vote_signature->set_signature(std::move(signature).assumeValue());
+          vote_signature->set_pubkey(std::move(public_key).assumeValue());
 
           return pb_vote;
         }
