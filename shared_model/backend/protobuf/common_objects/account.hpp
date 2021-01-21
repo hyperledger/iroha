@@ -25,19 +25,19 @@ namespace shared_model {
       Account(Account &&o) noexcept : Account(std::move(o.proto_)) {}
 
       const interface::types::AccountIdType &accountId() const override {
-        return proto_->account_id();
+        return proto_.account_id();
       }
 
       const interface::types::DomainIdType &domainId() const override {
-        return proto_->domain_id();
+        return proto_.domain_id();
       }
 
       interface::types::QuorumType quorum() const override {
-        return proto_->quorum();
+        return proto_.quorum();
       }
 
       const interface::types::JsonType &jsonData() const override {
-        return proto_->json_data();
+        return proto_.json_data();
       }
     };
   }  // namespace proto

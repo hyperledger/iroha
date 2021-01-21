@@ -25,15 +25,15 @@ namespace shared_model {
       Asset(Asset &&o) noexcept : Asset(std::move(o.proto_)) {}
 
       const interface::types::AssetIdType &assetId() const override {
-        return proto_->asset_id();
+        return proto_.asset_id();
       }
 
       const interface::types::DomainIdType &domainId() const override {
-        return proto_->domain_id();
+        return proto_.domain_id();
       }
 
       interface::types::PrecisionType precision() const override {
-        return proto_->precision();
+        return proto_.precision();
       }
     };
   }  // namespace proto

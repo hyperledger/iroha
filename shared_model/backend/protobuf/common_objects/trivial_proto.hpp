@@ -29,11 +29,11 @@ namespace shared_model {
           : proto_(std::forward<ProtoLoader>(ref)) {}
 
       const Proto &getTransport() const {
-        return *proto_;
+        return proto_;
       }
 
      protected:
-      detail::ReferenceHolder<Proto> proto_;
+      Proto proto_;
     };
 
   }  // namespace proto

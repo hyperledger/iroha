@@ -27,11 +27,11 @@ namespace shared_model {
           : AccountAsset(std::move(o.proto_)) {}
 
       const interface::types::AccountIdType &accountId() const override {
-        return proto_->account_id();
+        return proto_.account_id();
       }
 
       const interface::types::AssetIdType &assetId() const override {
-        return proto_->asset_id();
+        return proto_.asset_id();
       }
 
       const interface::Amount &balance() const override {
@@ -39,7 +39,7 @@ namespace shared_model {
       }
 
      private:
-      const interface::Amount balance_{proto_->balance()};
+      const interface::Amount balance_{proto_.balance()};
     };
   }  // namespace proto
 }  // namespace shared_model
