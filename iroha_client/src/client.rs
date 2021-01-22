@@ -40,6 +40,20 @@ impl Client {
         }
     }
 
+    /// Builds transaction out of supplied instructions.
+    pub fn build_transaction(&self, instructions: Vec<Instruction>) -> Result<Transaction, String> {
+        Ok(Transaction::new(
+            instructions,
+            self.account_id.clone(),
+            self.proposed_transaction_ttl_ms,
+        )
+        .sign(&self.key_pair)?)
+    }
+
+    pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction, String> {
+        transaction.sign(&self.key_pair)
+    }
+
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
     #[log]
@@ -50,12 +64,7 @@ impl Client {
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
     pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
-        let transaction = Transaction::new(
-            instructions,
-            self.account_id.clone(),
-            self.proposed_transaction_ttl_ms,
-        )
-        .sign(&self.key_pair)?;
+        let transaction = self.build_transaction(instructions)?;
         self.submit_transaction(transaction)
     }
 
@@ -95,12 +104,7 @@ impl Client {
     pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
-        let transaction = Transaction::new(
-            instructions,
-            self.account_id.clone(),
-            self.proposed_transaction_ttl_ms,
-        )
-        .sign(&self.key_pair)?;
+        let transaction = self.build_transaction(instructions)?;
         let hash = transaction.hash();
         thread::spawn(move || {
             for event in client
@@ -155,6 +159,49 @@ impl Client {
             &format!("ws://{}{}", self.torii_url, uri::SUBSCRIPTION_URI),
             event_filter,
         )
+    }
+
+    /// Tries to find the original transaction in the pending tx queue on the leader peer.
+    /// Should be used for an MST case.
+    pub fn get_original_transaction(
+        &mut self,
+        transaction: &Transaction,
+        retry_count: u32,
+        retry_in: Duration,
+    ) -> Result<Option<Transaction>, String> {
+        for _ in 0..retry_count {
+            let response = http_client::get(
+                &format!(
+                    "http://{}{}",
+                    self.torii_url,
+                    uri::PENDING_TRANSACTIONS_ON_LEADER_URI
+                ),
+                Vec::new(),
+            )?;
+            if response.status() == StatusCode::OK {
+                let pending_transactions: PendingTransactions =
+                    response.body().clone().try_into()?;
+                println!("Pending tx {:?}", pending_transactions);
+                let transaction = pending_transactions
+                    .into_iter()
+                    .find(|pending_transaction| {
+                        pending_transaction
+                            .payload
+                            .equals_excluding_creation_time(&transaction.payload)
+                    });
+                if transaction.is_some() {
+                    return Ok(transaction);
+                } else {
+                    thread::sleep(retry_in)
+                }
+            } else {
+                return Err(format!(
+                    "Failed to make query request with HTTP status: {}",
+                    response.status()
+                ));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -282,4 +329,6 @@ pub mod uri {
     pub const BLOCK_SYNC_URI: &str = "/block";
     /// The web socket uri used to subscribe to pipeline and data events.
     pub const SUBSCRIPTION_URI: &str = "/events";
+    /// Get pending transactions on leader.
+    pub const PENDING_TRANSACTIONS_ON_LEADER_URI: &str = "/pending_transactions_on_leader";
 }

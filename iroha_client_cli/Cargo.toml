@@ -23,6 +23,7 @@ iroha_dsl = { path = "../iroha_dsl" }
 async-std = { version = "=1.6.2", features = ["attributes"] }
 clap = "2.33.0"
 futures = "0.3.4"
+dialoguer = "0.7.1"
 
 [dev-dependencies]
 async-std = { version = "1.5", features = ["attributes"] }

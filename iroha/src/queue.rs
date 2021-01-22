@@ -1,5 +1,6 @@
 use self::config::QueueConfiguration;
 use crate::prelude::*;
+use iroha_data_model::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
@@ -13,6 +14,15 @@ pub struct Queue {
 }
 
 impl Queue {
+    /// Get cloned transactions that are currently in a queue.
+    pub fn pending_transactions(&self) -> PendingTransactions {
+        self.pending_tx_by_hash
+            .values()
+            .cloned()
+            .map(Transaction::from)
+            .collect()
+    }
+
     pub fn from_configuration(config: &QueueConfiguration) -> Queue {
         Queue {
             pending_tx_hash_queue: VecDeque::new(),

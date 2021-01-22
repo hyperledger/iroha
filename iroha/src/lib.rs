@@ -121,27 +121,32 @@ impl Iroha {
             init::domains(&config.init_configuration),
             config.sumeragi_configuration.trusted_peers.clone(),
         ))));
-        let torii = Torii::from_configuration(
-            &config.torii_configuration,
-            Arc::clone(&world_state_view),
-            transactions_sender.clone(),
-            sumeragi_message_sender,
-            block_sync_message_sender,
-            System::new(&config),
-            (events_sender.clone(), events_receiver),
-        );
-        let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender);
+        let queue = Arc::new(RwLock::new(Queue::from_configuration(
+            &config.queue_configuration,
+        )));
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::from_configuration(
                 &config.sumeragi_configuration,
                 Arc::new(RwLock::new(kura_blocks_sender)),
-                events_sender,
+                events_sender.clone(),
                 world_state_view.clone(),
-                transactions_sender,
+                transactions_sender.clone(),
                 permissions_checker,
             )
             .expect("Failed to initialize Sumeragi."),
         ));
+        let torii = Torii::from_configuration(
+            &config.torii_configuration,
+            Arc::clone(&world_state_view),
+            transactions_sender,
+            sumeragi_message_sender,
+            block_sync_message_sender,
+            System::new(&config),
+            queue.clone(),
+            sumeragi.clone(),
+            (events_sender, events_receiver),
+        );
+        let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender);
         let kura = Arc::new(RwLock::new(kura));
         let block_sync = Arc::new(RwLock::new(BlockSynchronizer::from_configuration(
             &config.block_sync_configuration,
@@ -151,9 +156,6 @@ impl Iroha {
                 &config.torii_configuration.torii_p2p_url,
                 &config.public_key,
             ),
-        )));
-        let queue = Arc::new(RwLock::new(Queue::from_configuration(
-            &config.queue_configuration,
         )));
 
         let genesis_block = Arc::new(config.genesis_block_path.as_ref().map(

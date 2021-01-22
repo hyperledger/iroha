@@ -123,6 +123,19 @@ impl Execute for MintBox {
                     .execute(authority, world_state_view),
                 _ => Err("Unsupported instruction.".to_string()),
             },
+            IdBox::AccountId(account_id) => {
+                match self.object.evaluate(world_state_view, &context)? {
+                    Value::PublicKey(public_key) => {
+                        Mint::<Account, PublicKey>::new(public_key, account_id)
+                            .execute(authority, world_state_view)
+                    }
+                    Value::SignatureCheckCondition(condition) => {
+                        Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
+                            .execute(authority, world_state_view)
+                    }
+                    _ => Err("Unsupported instruction.".to_string()),
+                }
+            }
             _ => Err("Unsupported instruction.".to_string()),
         }
     }
@@ -143,6 +156,15 @@ impl Execute for BurnBox {
                 }
                 _ => Err("Unsupported instruction.".to_string()),
             },
+            IdBox::AccountId(account_id) => {
+                match self.object.evaluate(world_state_view, &context)? {
+                    Value::PublicKey(public_key) => {
+                        Burn::<Account, PublicKey>::new(public_key, account_id)
+                            .execute(authority, world_state_view)
+                    }
+                    _ => Err("Unsupported instruction.".to_string()),
+                }
+            }
             _ => Err("Unsupported instruction.".to_string()),
         }
     }

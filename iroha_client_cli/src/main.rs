@@ -1,14 +1,19 @@
 use clap::{App, Arg};
-use iroha_client::config::Configuration;
+use dialoguer::Confirm;
+use iroha_client::{client::Client, config::Configuration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
 const ACCOUNT: &str = "account";
 const ASSET: &str = "asset";
 const EVENTS: &str = "listen";
+
+// TODO: move into config.
+const RETRY_COUNT_MST: u32 = 1;
+const RETRY_IN_MST_MS: u64 = 100;
 
 fn main() {
     let matches = App::new("Iroha CLI Client")
@@ -52,6 +57,39 @@ fn main() {
     }
     if let Some(ref matches) = matches.subcommand_matches(EVENTS) {
         events::process(matches, &configuration);
+    }
+}
+
+pub fn submit(instruction: Instruction, configuration: &Configuration) {
+    let mut iroha_client = Client::new(configuration);
+    let transaction = iroha_client
+        .build_transaction(vec![instruction])
+        .expect("Failed to build transaction.");
+    if let Some(original_transaction) = iroha_client
+        .get_original_transaction(
+            &transaction,
+            RETRY_COUNT_MST,
+            Duration::from_millis(RETRY_IN_MST_MS),
+        )
+        .expect("Failed to query pending transactions.")
+    {
+        if Confirm::new()
+            .with_prompt("There is a similar transaction from your account waiting for more signatures. Do you want to sign it instead of submitting a new transaction?")
+            .interact()
+            .expect("Failed to show interactive prompt.") 
+        {
+            iroha_client
+                .submit_transaction(iroha_client.sign_transaction(original_transaction).expect("Failed to sign transaction."))
+                .expect("Failed to submit transaction.");
+        } else {
+            iroha_client
+            .submit_transaction(transaction)
+            .expect("Failed to submit transaction.");
+        }
+    } else {
+        iroha_client
+            .submit_transaction(transaction)
+            .expect("Failed to submit transaction.");
     }
 }
 
@@ -102,7 +140,7 @@ mod events {
 mod domain {
     use super::*;
     use clap::ArgMatches;
-    use iroha_client::{client::Client, config::Configuration};
+    use iroha_client::config::Configuration;
 
     const DOMAIN_NAME: &str = "name";
     const ADD: &str = "add";
@@ -132,21 +170,18 @@ mod domain {
     }
 
     fn create_domain(domain_name: &str, configuration: &Configuration) {
-        let mut iroha_client = Client::new(configuration);
         let create_domain = RegisterBox::new(
             IdentifiableBox::from(Domain::new(domain_name)),
             IdBox::from(WorldId),
         );
-        iroha_client
-            .submit(create_domain.into())
-            .expect("Failed to create domain.");
+        submit(create_domain.into(), configuration);
     }
 }
 
 mod account {
     use super::*;
     use clap::ArgMatches;
-    use iroha_client::{client::Client, config::Configuration};
+    use iroha_client::config::Configuration;
 
     const REGISTER: &str = "register";
     const ACCOUNT_NAME: &str = "name";
@@ -215,10 +250,7 @@ mod account {
             )),
             IdBox::from(Name::from(domain_name)),
         );
-        let mut iroha_client = Client::new(configuration);
-        iroha_client
-            .submit(create_account.into())
-            .expect("Failed to create account.");
+        submit(create_account.into(), configuration);
     }
 }
 
@@ -360,19 +392,16 @@ mod asset {
         domain_name: &str,
         configuration: &Configuration,
     ) {
-        let mut iroha_client = Client::new(configuration);
-        iroha_client
-            .submit(
-                RegisterBox::new(
-                    IdentifiableBox::AssetDefinition(
-                        AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name))
-                            .into(),
-                    ),
-                    IdBox::DomainName(domain_name.to_string()),
-                )
-                .into(),
+        submit(
+            RegisterBox::new(
+                IdentifiableBox::AssetDefinition(
+                    AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)).into(),
+                ),
+                IdBox::DomainName(domain_name.to_string()),
             )
-            .expect("Failed to create account.");
+            .into(),
+            configuration,
+        );
     }
 
     fn mint_asset(
@@ -390,10 +419,7 @@ mod asset {
                 AccountId::from_str(account_id).expect("Failed to parse Account Id."),
             )),
         );
-        let mut iroha_client = Client::new(configuration);
-        iroha_client
-            .submit(mint_asset.into())
-            .expect("Failed to create account.");
+        submit(mint_asset.into(), configuration);
     }
 
     fn transfer_asset(
@@ -417,10 +443,7 @@ mod asset {
                 AccountId::from_str(account2_id).expect("Failed to parse Destination Account Id."),
             )),
         );
-        let mut iroha_client = Client::new(configuration);
-        iroha_client
-            .submit(transfer_asset.into())
-            .expect("Failed to transfer asset.");
+        submit(transfer_asset.into(), configuration);
     }
 
     fn get_asset(asset_id: &str, account_id: &str, configuration: &Configuration) {

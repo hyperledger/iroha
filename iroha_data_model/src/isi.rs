@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// Sized structure for all possible Instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub enum Instruction {
     /// `Register` variant.
     Register(RegisterBox),
@@ -29,14 +29,14 @@ pub enum Instruction {
 }
 
 /// Sized structure for all possible Sets.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct SetBox {
     /// Object to set as a value.
     pub object: EvaluatesTo<Value>,
 }
 
 /// Sized structure for all possible Registers.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct RegisterBox {
     /// Object to register on `destination_id`.
     pub object: EvaluatesTo<IdentifiableBox>,
@@ -45,7 +45,7 @@ pub struct RegisterBox {
 }
 
 /// Sized structure for all possible Unregisters.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct UnregisterBox {
     /// Object to unregister from `destination_id`.
     pub object: EvaluatesTo<IdentifiableBox>,
@@ -54,7 +54,7 @@ pub struct UnregisterBox {
 }
 
 /// Sized structure for all possible Mints.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -63,7 +63,7 @@ pub struct MintBox {
 }
 
 /// Sized structure for all possible Burns.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -72,7 +72,7 @@ pub struct BurnBox {
 }
 
 /// Sized structure for all possible Transfers.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
@@ -83,7 +83,7 @@ pub struct TransferBox {
 }
 
 /// Composite instruction for a pair of instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct Pair {
     /// Left instruction
     pub left_instruction: Instruction,
@@ -92,14 +92,14 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct Sequence {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -110,7 +110,7 @@ pub struct If {
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct Fail {
     /// Message to submit.
     pub message: String,

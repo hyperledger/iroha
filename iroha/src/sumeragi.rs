@@ -284,6 +284,11 @@ impl Sumeragi {
         let block_hash = block.hash();
         self.latest_block_hash = block_hash;
         self.invalidated_blocks_hashes.clear();
+        self.transactions_awaiting_created_block
+            .write()
+            .await
+            .clear();
+        self.transactions_awaiting_receipts.write().await.clear();
         self.block_height = block.header.height;
         for event in Vec::<Event>::from(&block.clone().commit()) {
             self.events_sender.send(event).await;
@@ -304,6 +309,11 @@ impl Sumeragi {
     }
 
     async fn change_view(&mut self) {
+        self.transactions_awaiting_created_block
+            .write()
+            .await
+            .clear();
+        self.transactions_awaiting_receipts.write().await.clear();
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology.shift_peers_by_one();
         *self.voting_block.write().await = None;
@@ -1370,6 +1380,7 @@ mod tests {
         config::Configuration,
         init::{self, config::InitConfiguration},
         maintenance::System,
+        queue::Queue,
         torii::Torii,
         tx::Accept,
     };
@@ -1536,18 +1547,6 @@ mod tests {
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
-                wsv.clone(),
-                tx,
-                sumeragi_message_sender,
-                block_sync_message_sender,
-                System::new(&config),
-                (events_sender.clone(), events_receiver),
-            );
-            task::spawn(async move {
-                torii.start().await.expect("Torii failed.");
-            });
             let mut config = config.clone();
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
@@ -1558,13 +1557,30 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
-                    events_sender,
-                    wsv,
+                    events_sender.clone(),
+                    wsv.clone(),
                     transactions_sender,
                     AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            let queue = Arc::new(RwLock::new(Queue::from_configuration(
+                &config.queue_configuration,
+            )));
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
+                wsv.clone(),
+                tx,
+                sumeragi_message_sender,
+                block_sync_message_sender,
+                System::new(&config),
+                queue,
+                sumeragi.clone(),
+                (events_sender.clone(), events_receiver),
+            );
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             task::spawn(async move {
@@ -1662,18 +1678,6 @@ mod tests {
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
-                wsv.clone(),
-                tx,
-                sumeragi_message_sender,
-                block_sync_message_sender,
-                System::new(&config),
-                (events_sender.clone(), events_receiver),
-            );
-            task::spawn(async move {
-                torii.start().await.expect("Torii failed.");
-            });
             let mut config = config.clone();
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
@@ -1684,13 +1688,30 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
-                    events_sender,
-                    wsv,
+                    events_sender.clone(),
+                    wsv.clone(),
                     transactions_sender,
                     AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            let queue = Arc::new(RwLock::new(Queue::from_configuration(
+                &config.queue_configuration,
+            )));
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
+                wsv.clone(),
+                tx,
+                sumeragi_message_sender,
+                block_sync_message_sender,
+                System::new(&config),
+                queue,
+                sumeragi.clone(),
+                (events_sender.clone(), events_receiver),
+            );
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             task::spawn(async move {
@@ -1798,6 +1819,7 @@ mod tests {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
@@ -1811,18 +1833,6 @@ mod tests {
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
-                wsv.clone(),
-                transactions_sender.clone(),
-                sumeragi_message_sender,
-                block_sync_message_sender,
-                System::new(&config),
-                (events_sender.clone(), events_receiver),
-            );
-            task::spawn(async move {
-                torii.start().await.expect("Torii failed.");
-            });
             let mut config = config.clone();
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
@@ -1833,13 +1843,30 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
-                    events_sender,
-                    wsv,
+                    events_sender.clone(),
+                    wsv.clone(),
                     transactions_sender,
                     AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            let queue = Arc::new(RwLock::new(Queue::from_configuration(
+                &config.queue_configuration,
+            )));
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
+                wsv.clone(),
+                tx,
+                sumeragi_message_sender,
+                block_sync_message_sender,
+                System::new(&config),
+                queue,
+                sumeragi.clone(),
+                (events_sender.clone(), events_receiver),
+            );
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
@@ -1958,6 +1985,7 @@ mod tests {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
@@ -1971,18 +1999,6 @@ mod tests {
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
-                wsv.clone(),
-                transactions_sender.clone(),
-                sumeragi_message_sender,
-                block_sync_message_sender,
-                System::new(&config),
-                (events_sender.clone(), events_receiver),
-            );
-            task::spawn(async move {
-                torii.start().await.expect("Torii failed.");
-            });
             let mut config = config.clone();
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
@@ -1993,13 +2009,30 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
-                    events_sender,
-                    wsv,
+                    events_sender.clone(),
+                    wsv.clone(),
                     transactions_sender,
                     AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            let queue = Arc::new(RwLock::new(Queue::from_configuration(
+                &config.queue_configuration,
+            )));
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
+                wsv.clone(),
+                tx,
+                sumeragi_message_sender,
+                block_sync_message_sender,
+                System::new(&config),
+                queue,
+                sumeragi.clone(),
+                (events_sender.clone(), events_receiver),
+            );
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
@@ -2129,18 +2162,6 @@ mod tests {
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
-            let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
-                wsv.clone(),
-                tx,
-                sumeragi_message_sender,
-                block_sync_message_sender,
-                System::new(&config),
-                (events_sender.clone(), events_receiver),
-            );
-            task::spawn(async move {
-                torii.start().await.expect("Torii failed.");
-            });
             let mut config = config.clone();
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
@@ -2151,13 +2172,30 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
-                    events_sender,
-                    wsv,
+                    events_sender.clone(),
+                    wsv.clone(),
                     transactions_sender,
                     AllowAll.into(),
                 )
                 .expect("Failed to create Sumeragi."),
             ));
+            let queue = Arc::new(RwLock::new(Queue::from_configuration(
+                &config.queue_configuration,
+            )));
+            let mut torii = Torii::from_configuration(
+                &config.torii_configuration,
+                wsv.clone(),
+                tx,
+                sumeragi_message_sender,
+                block_sync_message_sender,
+                System::new(&config),
+                queue,
+                sumeragi.clone(),
+                (events_sender.clone(), events_receiver),
+            );
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             task::spawn(async move {
