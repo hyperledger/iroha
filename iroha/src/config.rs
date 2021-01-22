@@ -133,6 +133,10 @@ mod tests {
                 address: "195.162.0.1:23".to_string(),
                 public_key: public_key.clone(),
             },
+            PeerId {
+                address: "195.162.0.1:24".to_string(),
+                public_key: public_key.clone(),
+            },
         ]
         .into_iter()
         .collect();

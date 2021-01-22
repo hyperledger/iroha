@@ -7,7 +7,8 @@ use crate::{
     maintenance::{Health, System},
     prelude::*,
     query::Verify,
-    sumeragi::message::Message as SumeragiMessage,
+    queue::Queue,
+    sumeragi::{message::Message as SumeragiMessage, Sumeragi},
     tx::Accept,
     BlockSyncMessageSender, SumeragiMessageSender,
 };
@@ -19,7 +20,11 @@ use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
 use iroha_network::prelude::*;
-use std::{convert::TryFrom, fmt::Debug, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt::Debug,
+    sync::Arc,
+};
 
 /// Main network handler and the only entrypoint of the Iroha.
 #[derive(Debug)]
@@ -33,10 +38,13 @@ pub struct Torii {
     system: Arc<RwLock<System>>,
     events_sender: EventsSender,
     events_receiver: EventsReceiver,
+    transactions_queue: Arc<RwLock<Queue>>,
+    sumeragi: Arc<RwLock<Sumeragi>>,
 }
 
 impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
+    #[allow(clippy::clippy::too_many_arguments)]
     pub fn from_configuration(
         configuration: &config::ToriiConfiguration,
         world_state_view: Arc<RwLock<WorldStateView>>,
@@ -44,6 +52,8 @@ impl Torii {
         sumeragi_message_sender: SumeragiMessageSender,
         block_sync_message_sender: BlockSyncMessageSender,
         system: System,
+        transactions_queue: Arc<RwLock<Queue>>,
+        sumeragi: Arc<RwLock<Sumeragi>>,
         (events_sender, events_receiver): (EventsSender, EventsReceiver),
     ) -> Self {
         Torii {
@@ -56,12 +66,16 @@ impl Torii {
             system: Arc::new(RwLock::new(system)),
             events_sender,
             events_receiver,
+            transactions_queue,
+            sumeragi,
         }
     }
 
     /// To handle incoming requests `Torii` should be started first.
     pub async fn start(&mut self) -> Result<(), String> {
         let world_state_view = Arc::clone(&self.world_state_view);
+        let transactions_queue = Arc::clone(&self.transactions_queue);
+        let sumeragi = Arc::clone(&self.sumeragi);
         let transaction_sender = Arc::clone(&self.transaction_sender);
         let sumeragi_message_sender = Arc::clone(&self.sumeragi_message_sender);
         let block_sync_message_sender = Arc::clone(&self.block_sync_message_sender);
@@ -75,6 +89,8 @@ impl Torii {
             system,
             consumers: connections.clone(),
             events_sender: self.events_sender.clone(),
+            transactions_queue,
+            sumeragi,
         };
         let state = Arc::new(RwLock::new(state));
         let mut server = Server::new(state.clone());
@@ -82,6 +98,9 @@ impl Torii {
         server.at(uri::QUERY_URI).get(handle_queries);
         server.at(uri::HEALTH_URI).get(handle_health);
         server.at(uri::METRICS_URI).get(handle_metrics);
+        server
+            .at(uri::PENDING_TRANSACTIONS_ON_LEADER_URI)
+            .get(handle_pending_transactions_on_leader);
         server
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
@@ -105,6 +124,8 @@ struct ToriiState {
     consumers: Arc<RwLock<Vec<Consumer>>>,
     system: Arc<RwLock<System>>,
     events_sender: EventsSender,
+    transactions_queue: Arc<RwLock<Queue>>,
+    sumeragi: Arc<RwLock<Sumeragi>>,
 }
 
 async fn handle_instructions(
@@ -176,6 +197,48 @@ async fn handle_health(
     _request: HttpRequest,
 ) -> Result<HttpResponse, String> {
     Ok(HttpResponse::ok(Headers::new(), Health::Healthy.into()))
+}
+
+async fn handle_pending_transactions_on_leader(
+    state: State<ToriiState>,
+    _path_params: PathParams,
+    _query_params: QueryParams,
+    _request: HttpRequest,
+) -> Result<HttpResponse, String> {
+    if state.read().await.sumeragi.read().await.is_leader() {
+        Ok(HttpResponse::ok(
+            Headers::new(),
+            state
+                .read()
+                .await
+                .transactions_queue
+                .read()
+                .await
+                .pending_transactions()
+                .into(),
+        ))
+    } else {
+        let pending_transactions: PendingTransactions = Network::send_request_to(
+            state
+                .read()
+                .await
+                .sumeragi
+                .read()
+                .await
+                .network_topology
+                .leader()
+                .address
+                .as_ref(),
+            Request::new(uri::PENDING_TRANSACTIONS_URI.to_string(), Vec::new()),
+        )
+        .await?
+        .into_result()?
+        .try_into()?;
+        Ok(HttpResponse::ok(
+            Headers::new(),
+            pending_transactions.into(),
+        ))
+    }
 }
 
 async fn handle_metrics(
@@ -273,6 +336,16 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
             }
         },
         uri::HEALTH_URI => Ok(Response::empty_ok()),
+        uri::PENDING_TRANSACTIONS_URI => Ok(Response::Ok(
+            state
+                .read()
+                .await
+                .transactions_queue
+                .read()
+                .await
+                .pending_transactions()
+                .into(),
+        )),
         non_supported_uri => {
             log::error!("URI not supported: {}.", &non_supported_uri);
             Ok(Response::InternalError)
@@ -295,8 +368,12 @@ pub mod uri {
     pub const METRICS_URI: &str = "/metrics";
     /// The URI used for block synchronization.
     pub const BLOCK_SYNC_URI: &str = "/block";
-    /// The web socket uri used to subscribe to block and transactions statuses
+    /// The web socket uri used to subscribe to block and transactions statuses.
     pub const SUBSCRIPTION_URI: &str = "/events";
+    /// Get pending transactions.
+    pub const PENDING_TRANSACTIONS_URI: &str = "/pending_transactions";
+    /// Get pending transactions on leader.
+    pub const PENDING_TRANSACTIONS_ON_LEADER_URI: &str = "/pending_transactions_on_leader";
 }
 
 /// This module contains all configuration related logic.
@@ -360,14 +437,28 @@ mod tests {
         let (tx_tx, _) = sync::channel(100);
         let (sumeragi_message_sender, _) = sync::channel(100);
         let (block_sync_message_sender, _) = sync::channel(100);
+        let (block_sender, _) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
+        let queue = Queue::from_configuration(&config.queue_configuration);
+        let wsv = Arc::new(RwLock::new(WorldStateView::new(World::new())));
+        let sumeragi = Sumeragi::from_configuration(
+            &config.sumeragi_configuration,
+            Arc::new(RwLock::new(block_sender)),
+            events_sender.clone(),
+            wsv.clone(),
+            tx_tx.clone(),
+            AllowAll.into(),
+        )
+        .expect("Failed to initialize sumeragi.");
         let mut torii = Torii::from_configuration(
             &config.torii_configuration,
-            Arc::new(RwLock::new(WorldStateView::new(World::new()))),
+            wsv.clone(),
             tx_tx,
             sumeragi_message_sender,
             block_sync_message_sender,
             System::new(&config),
+            Arc::new(RwLock::new(queue)),
+            Arc::new(RwLock::new(sumeragi)),
             (events_sender, events_receiver),
         );
         let _ = task::spawn(async move {

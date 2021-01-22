@@ -137,6 +137,15 @@ impl AcceptedTransaction {
     }
 }
 
+impl From<AcceptedTransaction> for Transaction {
+    fn from(transaction: AcceptedTransaction) -> Self {
+        Transaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
+        }
+    }
+}
+
 /// `ValidTransaction` represents trustfull Transaction state.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidTransaction {
