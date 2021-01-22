@@ -13,7 +13,7 @@ namespace shared_model {
     template <typename QueryType>
     GetEngineReceipts::GetEngineReceipts(QueryType &&query)
         : TrivialProto(std::forward<QueryType>(query)),
-          get_engine_response_{proto_.payload().get_engine_receipts()} {}
+          get_engine_response_{proto_->payload().get_engine_receipts()} {}
 
     template GetEngineReceipts::GetEngineReceipts(
         GetEngineReceipts::TransportType &);

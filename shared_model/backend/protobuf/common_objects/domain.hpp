@@ -24,11 +24,11 @@ namespace shared_model {
       Domain(Domain &&o) noexcept : Domain(std::move(o.proto_)) {}
 
       const interface::types::DomainIdType &domainId() const override {
-        return proto_.domain_id();
+        return proto_->domain_id();
       }
 
       const interface::types::RoleIdType &defaultRole() const override {
-        return proto_.default_role();
+        return proto_->default_role();
       }
     };
   }  // namespace proto

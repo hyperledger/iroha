@@ -24,11 +24,11 @@ namespace shared_model {
       Signature(Signature &&o) noexcept : Signature(std::move(o.proto_)) {}
 
       const std::string &publicKey() const override {
-        return proto_.public_key();
+        return proto_->public_key();
       }
 
       const std::string &signedData() const override {
-        return proto_.signature();
+        return proto_->signature();
       }
 
      private:
