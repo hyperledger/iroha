@@ -33,7 +33,7 @@ namespace shared_model {
 
      private:
       interface::Signature *clone() const override {
-        return new Signature(proto_);
+        return new Signature(iroha::protocol::Signature(*proto_));
       }
     };
   }  // namespace proto
