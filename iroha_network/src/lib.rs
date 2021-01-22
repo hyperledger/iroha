@@ -272,6 +272,13 @@ impl Response {
     pub fn empty_ok() -> Self {
         Response::Ok(Vec::new())
     }
+
+    pub fn into_result(self) -> Result<Vec<u8>, String> {
+        match self {
+            Response::Ok(bytes) => Ok(bytes),
+            Response::InternalError => Err("Internal Server Error.".to_string()),
+        }
+    }
 }
 
 pub mod prelude {

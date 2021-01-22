@@ -27,6 +27,22 @@ pub mod isi {
         }
     }
 
+    impl Execute for Mint<Account, SignatureCheckCondition> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &WorldStateView,
+        ) -> Result<WorldStateView, String> {
+            let mut world_state_view = world_state_view.clone();
+            let SignatureCheckCondition(condition) = self.object.clone();
+            let account = world_state_view
+                .account(&self.destination_id)
+                .ok_or("Failed to find account.")?;
+            account.signature_check_condition = condition;
+            Ok(world_state_view)
+        }
+    }
+
     impl Execute for Burn<Account, PublicKey> {
         fn execute(
             self,

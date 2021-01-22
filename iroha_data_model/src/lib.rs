@@ -103,6 +103,8 @@ pub enum Value {
     PublicKey(PublicKey),
     /// Iroha `Parameter` variant.
     Parameter(Parameter),
+    /// Signature check condition.
+    SignatureCheckCondition(account::SignatureCheckCondition),
 }
 
 impl TryFrom<Value> for u32 {
@@ -459,6 +461,10 @@ pub mod account {
         pub domain_name: Name,
     }
 
+    /// Condition which checks if the account has the right signatures.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+
     impl Account {
         /// Default `Account` constructor.
         pub fn new(id: Id) -> Self {
@@ -556,6 +562,12 @@ pub mod account {
         }
     }
 
+    impl From<SignatureCheckCondition> for Value {
+        fn from(condition: SignatureCheckCondition) -> Value {
+            Value::SignatureCheckCondition(condition)
+        }
+    }
+
     /// Account Identification is represented by `name@domain_name` string.
     impl std::str::FromStr for Id {
         type Err = String;
@@ -577,7 +589,7 @@ pub mod account {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Account, Id as AccountId};
+        pub use super::{Account, Id as AccountId, SignatureCheckCondition};
     }
 }
 
@@ -1049,7 +1061,7 @@ pub mod transaction {
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
-    use std::time::SystemTime;
+    use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
 
     /// This structure represents transaction in non-trusted form.
     ///
@@ -1117,9 +1129,39 @@ pub mod transaction {
         }
     }
 
+    impl Payload {
+        /// Used to compare the contents of the transaction independent of when it was created.
+        pub fn equals_excluding_creation_time(&self, other: &Payload) -> bool {
+            self.account_id == other.account_id
+                && self.instructions == other.instructions
+                && self.time_to_live_ms == other.time_to_live_ms
+        }
+    }
+
+    /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
+    #[derive(Debug, Clone, Encode, Decode, Io)]
+    pub struct PendingTransactions(Vec<Transaction>);
+
+    impl FromIterator<Transaction> for PendingTransactions {
+        fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+            PendingTransactions(iter.into_iter().collect())
+        }
+    }
+
+    impl IntoIterator for PendingTransactions {
+        type Item = Transaction;
+
+        type IntoIter = VecIter<Self::Item>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            let PendingTransactions(transactions) = self;
+            transactions.into_iter()
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Payload, Transaction};
+        pub use super::{Payload, PendingTransactions, Transaction};
     }
 }
 
