@@ -35,7 +35,7 @@ Steps:
 4. Check the logs of the peers to see if everything is working correctly.
 You can also make sure the everything is ok by sending a transaction and checking if the number of blocks is the same on the nodes.
 
-.. note:: If there are only 1 existing peer running, you will need to configure the peers that you are adding so that they would have all of the peers (both already existing and the new ones) in the "initial_peers" parameter in the `configuration <../configure/index.html#environment-specific-parameters>`_. If you have more than 2f+1 peers, this step is not needed, as the consensus will work without it.
+.. note:: If there are only 1 existing peer running, you will need to configure the peers that you are adding so that they would have all of the peers (both already existing and the new ones) in the "initial_peers" parameter in the `configuration <../configure/index.html#environment-specific-parameters>`_. Another case when this is needed is when the network has been running for some time and the peers indicated in the genesis block are no longer there (because they were removed using Remove Peer command while new peers were added). 
 
 Example
 =======
