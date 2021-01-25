@@ -9,6 +9,7 @@ rapidjson
 fmt
 spdlog
 boost-filesystem
+boost-iostreams
 boost-system
 boost-thread
 boost-variant
