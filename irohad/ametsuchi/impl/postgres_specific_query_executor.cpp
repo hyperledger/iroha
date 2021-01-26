@@ -491,13 +491,16 @@ namespace iroha {
             if (not boost::empty(range_without_nulls)) {
               total_size = boost::get<2>(*range_without_nulls.begin());
             }
-            std::map<uint64_t, std::vector<uint64_t>> index;
-            // unpack results to get map from block height to index of tx in
-            // a block
+
+            std::vector<std::pair<uint64_t, std::vector<uint64_t>>> index;
             for (auto t : range_without_nulls) {
               iroha::ametsuchi::apply(
                   t, [&index](auto &height, auto &idx, auto &) {
-                    index[height].push_back(idx);
+                    if (index.empty() || index.back().first != height)
+                      index.emplace_back(
+                          std::make_pair(height, std::vector<uint64_t>{idx}));
+                    else
+                      index.back().second.emplace_back(idx);
                   });
             }
 
