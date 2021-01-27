@@ -250,6 +250,15 @@ To build Iroha, use these commands:
   cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
   cmake --build . --target all -- -j<number of threads>
 
+.. warning:: If you are building Iroha on the **Apple Silicon CPU (with arm64 architecture)**, please use following commands to build. They are differs from standard one by adding ``-DVCPKG_TARGET_TRIPLET=arm64-osx`` parameter, which explicitly tells to CMake which artifacts it should use.
+
+.. code-block:: shell
+
+  mkdir build
+  cd build
+  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=arm64-osx -G "Ninja" ..
+  cmake --build . --target irohad -- -j<number of threads>
+
 .. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
   environment please use the path you have got in previous steps.
 
