@@ -45,13 +45,13 @@ pub mod wsv;
 use crate::{
     block_sync::{message::Message as BlockSyncMessage, BlockSynchronizer},
     config::Configuration,
-    genesis::GenesisBlock,
+    genesis::GenesisNetwork,
     kura::Kura,
     maintenance::System,
     prelude::*,
     queue::Queue,
     sumeragi::{message::Message as SumeragiMessage, Sumeragi},
-    torii::{uri, Torii},
+    torii::Torii,
 };
 use async_std::{
     prelude::*,
@@ -59,7 +59,6 @@ use async_std::{
     task,
 };
 use iroha_data_model::prelude::*;
-use iroha_network::{Network, Request, Response};
 use permissions::PermissionsValidatorBox;
 use std::{sync::Arc, time::Duration};
 
@@ -103,12 +102,12 @@ pub struct Iroha {
     block_sync_message_receiver: Arc<RwLock<BlockSyncMessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
-    genesis_block: Arc<Option<GenesisBlock>>,
+    genesis_network: Option<GenesisNetwork>,
 }
 
 impl Iroha {
     /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
-    pub fn new(config: Configuration, permissions_checker: PermissionsValidatorBox) -> Self {
+    pub fn new(config: Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         log::info!("Configuration: {:?}", config);
         let (transactions_sender, transactions_receiver) = sync::channel(100);
@@ -118,7 +117,7 @@ impl Iroha {
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(World::with(
-            init::domains(&config.init_configuration),
+            init::domains(&config),
             config.sumeragi_configuration.trusted_peers.clone(),
         ))));
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
@@ -131,7 +130,7 @@ impl Iroha {
                 events_sender.clone(),
                 world_state_view.clone(),
                 transactions_sender.clone(),
-                permissions_checker,
+                permissions_validator,
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -157,14 +156,8 @@ impl Iroha {
                 &config.public_key,
             ),
         )));
-
-        let genesis_block = Arc::new(config.genesis_block_path.as_ref().map(
-            |genesis_block_path| {
-                GenesisBlock::from_configuration(genesis_block_path, &config.init_configuration)
-                    .expect("Failed to initialize genesis.")
-            },
-        ));
-
+        let genesis_network = GenesisNetwork::from_configuration(&config.genesis_configuration)
+            .expect("Failed to initialize genesis.");
         Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),
@@ -177,7 +170,7 @@ impl Iroha {
             kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
             block_sync_message_receiver: Arc::new(RwLock::new(block_sync_message_receiver)),
             block_sync,
-            genesis_block,
+            genesis_network,
         }
     }
 
@@ -276,34 +269,14 @@ impl Iroha {
             }
         });
 
-        let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
-        let genesis_block = Arc::clone(&self.genesis_block);
-        let genesis_block_handle = task::spawn(async move {
-            Iroha::wait_for_active_peers(
-                &sumeragi.read().await.network_topology.sorted_peers,
-                &sumeragi.read().await.peer_id,
-            )
-            .await
-            .map(|_| async {
-                if let Some(ref genesis_block) = *genesis_block {
-                    log::info!("Initialize iroha using the genesis block");
-                    for transaction in genesis_block.transactions.iter() {
-                        if let Err(e) = queue
-                            .write()
-                            .await
-                            .push_pending_transaction(transaction.clone())
-                        {
-                            log::error!(
-                                "Failed to push transactions from genesis block to queue error: {}",
-                                e
-                            )
-                        }
-                    }
+        let genesis_network = self.genesis_network.clone();
+        let genesis_network_handle = task::spawn(async move {
+            if let Some(genesis_network) = genesis_network {
+                if let Err(err) = genesis_network.submit_transactions(sumeragi).await {
+                    log::error!("Failed to submit genesis transactions: {}", err)
                 }
-            })
-            .expect("Failed to wait for active peers")
-            .await;
+            }
         });
 
         futures::join!(
@@ -314,63 +287,8 @@ impl Iroha {
             sumeragi_message_handle,
             tx_handle,
             block_sync_message_handle,
-            genesis_block_handle,
+            genesis_network_handle,
         );
-        Ok(())
-    }
-
-    /// To wait for active peers(this is provisional code)
-    /// Wait 500ms, 1000ms, 1500ms, ...
-    async fn wait_for_active_peers(
-        sorted_peers: &[PeerId],
-        myself_peer_id: &PeerId,
-    ) -> Result<(), String> {
-        log::info!("Waiting for active peers.");
-        let retry_count = 10;
-        let retry_duration_ms = 500;
-        for peer in sorted_peers.iter() {
-            let mut failed_to_connect = true;
-            for i in 0..=retry_count {
-                if peer == myself_peer_id {
-                    failed_to_connect = false;
-                    break;
-                }
-                match Network::send_request_to(
-                    &peer.address,
-                    Request::new(uri::HEALTH_URI.to_string(), Vec::new()),
-                )
-                .await
-                {
-                    Ok(Response::Ok(_)) => {
-                        failed_to_connect = false;
-                        break;
-                    }
-                    Ok(Response::InternalError) => {
-                        log::info!(
-                            "Failed to send message - Internal Error on peer: {}.",
-                            &peer.address.as_str()
-                        );
-                        break;
-                    }
-                    Err(_) => {
-                        let sleep_ms = retry_duration_ms * i;
-                        log::info!(
-                            "Retrying to connect the peer {} in {} ms.",
-                            &peer.address.as_str(),
-                            sleep_ms
-                        );
-                        task::sleep(Duration::from_millis(sleep_ms)).await;
-                    }
-                }
-            }
-            if failed_to_connect {
-                return Err(format!(
-                    "Failed to connect the peer {}.",
-                    peer.address.as_str()
-                ));
-            }
-        }
-        log::info!("Waiting for active peers finished.");
         Ok(())
     }
 }

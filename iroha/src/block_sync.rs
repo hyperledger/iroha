@@ -86,7 +86,11 @@ impl BlockSynchronizer {
                 blocks.len()
             );
             if let Some((block, blocks)) = blocks.split_first() {
-                let mut network_topology = self.sumeragi.read().await.network_topology.clone();
+                let mut network_topology = self
+                    .sumeragi
+                    .read()
+                    .await
+                    .network_topology_current_or_genesis(block);
                 network_topology.shift_peers_by_n(block.header.number_of_view_changes);
                 if self.kura.read().await.latest_block_hash() == block.header.previous_block_hash
                     && network_topology
@@ -95,7 +99,7 @@ impl BlockSynchronizer {
                             &block.verified_signatures(),
                         )
                         .len()
-                        >= network_topology.min_votes_for_commit()
+                        >= network_topology.min_votes_for_commit() as usize
                 {
                     self.state = State::InProgress(blocks.to_vec(), peer_id);
                     self.sumeragi

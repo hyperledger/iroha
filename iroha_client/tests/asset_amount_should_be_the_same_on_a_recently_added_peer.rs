@@ -13,7 +13,7 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
     const N_PEERS: usize = 4;
-    const MAX_FAULTS: usize = 1;
+    const MAX_FAULTS: u32 = 1;
 
     #[test]
     fn asset_amount_should_be_the_same_on_a_recently_added_peer() {

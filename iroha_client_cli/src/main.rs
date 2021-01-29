@@ -65,14 +65,11 @@ pub fn submit(instruction: Instruction, configuration: &Configuration) {
     let transaction = iroha_client
         .build_transaction(vec![instruction])
         .expect("Failed to build transaction.");
-    if let Some(original_transaction) = iroha_client
-        .get_original_transaction(
-            &transaction,
-            RETRY_COUNT_MST,
-            Duration::from_millis(RETRY_IN_MST_MS),
-        )
-        .expect("Failed to query pending transactions.")
-    {
+    if let Ok(Some(original_transaction)) = iroha_client.get_original_transaction(
+        &transaction,
+        RETRY_COUNT_MST,
+        Duration::from_millis(RETRY_IN_MST_MS),
+    ) {
         if Confirm::new()
             .with_prompt("There is a similar transaction from your account waiting for more signatures. Do you want to sign it instead of submitting a new transaction?")
             .interact()

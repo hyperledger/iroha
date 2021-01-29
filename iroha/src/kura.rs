@@ -179,7 +179,7 @@ impl BlockStore {
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
     async fn read_all(&self) -> Vec<ValidBlock> {
-        let mut height = 0;
+        let mut height = 1;
         let mut blocks = Vec::new();
         while let Ok(block) = self.read(height).await {
             blocks.push(block);
@@ -283,7 +283,7 @@ mod tests {
             .write(&block)
             .await
             .expect("Failed to write block to file.");
-        assert!(block_store.read(0).await.is_ok())
+        assert!(block_store.read(1).await.is_ok())
     }
 
     #[async_std::test]
@@ -297,7 +297,7 @@ mod tests {
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
             .expect("Failed to sign blocks.");
-        for height in 0..n {
+        for height in 1..(n + 1) {
             let hash = block_store
                 .write(&block)
                 .await
