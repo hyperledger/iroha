@@ -1,8 +1,9 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
-    block_sync::config::BlockSyncConfiguration, init::config::InitConfiguration,
-    kura::config::KuraConfiguration, queue::config::QueueConfiguration,
-    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
+    block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
+    init::config::InitConfiguration, kura::config::KuraConfiguration,
+    queue::config::QueueConfiguration, sumeragi::config::SumeragiConfiguration,
+    torii::config::ToriiConfiguration,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
@@ -33,10 +34,10 @@ pub struct Configuration {
     pub queue_configuration: QueueConfiguration,
     /// `Logger` configuration.
     pub logger_configuration: LoggerConfiguration,
-    /// Configuration for initial setup
+    /// Configuration for initial setup.
     pub init_configuration: InitConfiguration,
-    /// `GenesisBlock` path.
-    pub genesis_block_path: Option<String>,
+    /// Configuration for `GenesisBlock`.
+    pub genesis_configuration: GenesisConfiguration,
 }
 
 impl Configuration {
@@ -71,6 +72,7 @@ impl Configuration {
         self.queue_configuration.load_environment()?;
         self.logger_configuration.load_environment()?;
         self.init_configuration.load_environment()?;
+        self.genesis_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
@@ -87,13 +89,12 @@ impl Configuration {
             &self.torii_configuration.torii_p2p_url,
             &self.public_key.clone(),
         );
-        self.genesis_block_path = None;
         Ok(())
     }
 
     /// Add genesis block path to config
     pub fn add_genesis_block_path(&mut self, path: &str) {
-        self.genesis_block_path = Some(path.to_string());
+        self.genesis_configuration.genesis_block_path = Some(path.to_string());
     }
 
     /// Gets `public_key` and `private_key` configuration parameters.

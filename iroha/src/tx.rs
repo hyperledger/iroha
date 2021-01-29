@@ -212,32 +212,26 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        init::{self, config::InitConfiguration},
-        permissions::AllowAll,
-    };
+    use crate::{config::Configuration, init, permissions::AllowAll};
     use std::collections::BTreeSet;
+
+    const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[test]
     fn hash_should_be_the_same() {
+        let mut config =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let tx = Transaction::new(vec![], AccountId::new("root", "global"), 1000);
         let tx_hash = tx.hash();
         let root_key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
-        let genesis_key_pair = &KeyPair::generate().expect("Failed to generate Genesis key pair.");
+        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         let signed_tx = tx.sign(&root_key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
         let accepted_tx = signed_tx.accept().expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
-                &WorldStateView::new(World::with(
-                    init::domains(&InitConfiguration {
-                        root_public_key: root_key_pair.public_key.clone(),
-                        genesis_account_public_key: genesis_key_pair.public_key.clone(),
-                        genesis_account_private_key: Some(genesis_key_pair.private_key.clone()),
-                    }),
-                    BTreeSet::new(),
-                )),
+                &WorldStateView::new(World::with(init::domains(&config), BTreeSet::new())),
                 &AllowAll.into(),
                 false,
             )

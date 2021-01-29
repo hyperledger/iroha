@@ -174,7 +174,6 @@ pub mod config {
 mod tests {
     use super::*;
     use crate::tx::Accept;
-    use iroha_data_model::prelude::*;
     use std::{collections::BTreeMap, thread, time::Duration};
 
     #[test]
