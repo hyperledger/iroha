@@ -2,7 +2,8 @@
 //! implementations.
 
 use crate::{
-    merkle::MerkleTree, permissions::PermissionsValidatorBox, prelude::*, tx::RejectedTransaction,
+    merkle::MerkleTree, permissions::PermissionsValidatorBox, prelude::*,
+    sumeragi::InitializedNetworkTopology, tx::RejectedTransaction,
 };
 use iroha_crypto::{KeyPair, Signatures};
 use iroha_data_model::events::prelude::*;
@@ -52,6 +53,27 @@ impl PendingBlock {
                 rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes,
                 invalidated_blocks_hashes,
+                genesis_topology: None,
+            },
+        }
+    }
+
+    /// Create a new blockchain with current block as a first block.
+    pub fn chain_first_with_genesis_topology(
+        self,
+        genesis_topology: InitializedNetworkTopology,
+    ) -> ChainedBlock {
+        ChainedBlock {
+            transactions: self.transactions,
+            header: BlockHeader {
+                timestamp: self.timestamp,
+                height: 1,
+                previous_block_hash: Hash([0u8; 32]),
+                transactions_merkle_root_hash: Hash([0u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
+                number_of_view_changes: 0,
+                invalidated_blocks_hashes: Vec::new(),
+                genesis_topology: Some(genesis_topology),
             },
         }
     }
@@ -62,12 +84,13 @@ impl PendingBlock {
             transactions: self.transactions,
             header: BlockHeader {
                 timestamp: self.timestamp,
-                height: 0,
+                height: 1,
                 previous_block_hash: Hash([0u8; 32]),
                 transactions_merkle_root_hash: Hash([0u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
+                genesis_topology: None,
             },
         }
     }
@@ -100,6 +123,8 @@ pub struct BlockHeader {
     pub number_of_view_changes: u32,
     /// Hashes of the blocks that were rejected by consensus.
     pub invalidated_blocks_hashes: Vec<Hash>,
+    /// Genesis topology
+    pub genesis_topology: Option<InitializedNetworkTopology>,
 }
 
 impl BlockHeader {
@@ -380,6 +405,7 @@ mod tests {
                 rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
+                genesis_topology: None,
             },
             rejected_transactions: vec![],
             transactions: vec![],
