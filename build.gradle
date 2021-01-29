@@ -1,0 +1,36 @@
+plugins {
+    id 'java'
+    id "io.freefair.lombok" version "5.3.0"
+    id 'jacoco'
+}
+
+group 'jp.co.soramitsu'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.11
+
+repositories {
+    mavenCentral()
+
+    // polkaj public repo
+    maven { url "https://dl.bintray.com/emerald/polkaj" }
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'io.emeraldpay.polkaj:polkaj-scale:0.3.0'
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.65'
+    compile group: 'org.eclipse.jetty', name: 'jetty-client', version: '11.0.0'
+    compile "net.i2p.crypto:eddsa:0.3.0"
+    compile group: 'javax.xml.bind', name: 'jaxb-api', version: '2.3.1'
+    implementation 'com.google.code.gson:gson:2.8.6'
+
+    testImplementation 'org.slf4j:slf4j-nop:1.8.0-beta4'
+    testImplementation 'commons-codec:commons-codec:1.15'
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
+}
+
+test {
+    useJUnitPlatform()
+}
