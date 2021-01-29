@@ -7,91 +7,37 @@ mod tests {
         config::Configuration as ClientConfiguration,
     };
     use iroha_data_model::prelude::*;
-    use std::thread;
+    use rand::seq::SliceRandom;
+    use std::{collections::BTreeSet, thread};
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const GENESIS_PATH: &str = "tests/genesis.json";
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
     const N_PEERS: usize = 4;
     const MAX_FAULTS: u32 = 1;
-    const N_BLOCKS: usize = 510;
+    const OFFLINE_PEERS: usize = 1;
     const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
 
-    #[ignore]
     #[test]
-    //TODO: use cucumber_rust to write `gherkin` instead of code.
-    fn multiple_blocks_created() {
+    fn genesis_block_is_commited_with_some_offline_peers() {
         // Given
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let peers = create_and_start_iroha_peers(N_PEERS);
-        thread::sleep(std::time::Duration::from_millis(1000));
-        let domain_name = "domain";
-        let create_domain = RegisterBox::new(
-            IdentifiableBox::Domain(Domain::new(domain_name).into()),
-            IdBox::WorldId,
-        );
-        let account_name = "account";
-        let account_id = AccountId::new(account_name, domain_name);
-        let create_account = RegisterBox::new(
-            IdentifiableBox::Account(
-                Account::with_signatory(
-                    account_id.clone(),
-                    KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                )
-                .into(),
-            ),
-            IdBox::DomainName(domain_name.to_string()),
-        );
-        let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-        let create_asset = RegisterBox::new(
-            IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(asset_definition_id.clone()).into(),
-            ),
-            IdBox::DomainName(domain_name.to_string()),
-        );
+        thread::sleep(std::time::Duration::from_millis(
+            configuration.sumeragi_configuration.pipeline_time_ms() * 3,
+        ));
         let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         client_configuration.torii_api_url =
             peers.first().expect("Failed to get first peer.").clone();
-        let mut iroha_client = Client::new(&client_configuration);
-        iroha_client
-            .submit_all(vec![
-                create_domain.into(),
-                create_account.into(),
-                create_asset.into(),
-            ])
-            .expect("Failed to prepare state.");
-        thread::sleep(std::time::Duration::from_millis(
-            configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-        ));
-        let mut account_has_quantity = 0;
         //When
-        for _ in 0..N_BLOCKS {
-            let quantity: u32 = 1;
-            let mint_asset = MintBox::new(
-                Value::U32(quantity),
-                IdBox::AssetId(AssetId::new(
-                    asset_definition_id.clone(),
-                    account_id.clone(),
-                )),
-            );
-            iroha_client
-                .submit(mint_asset.into())
-                .expect("Failed to create asset.");
-            account_has_quantity += quantity;
-            thread::sleep(std::time::Duration::from_millis(1000));
-        }
-        thread::sleep(std::time::Duration::from_millis(
-            configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-        ));
-        //Then
-        client_configuration.torii_api_url =
-            peers.last().expect("Failed to get last peer.").clone();
         let mut iroha_client = Client::new(&client_configuration);
-        let request = client::asset::by_account_id(account_id.clone());
+        let alice_id = AccountId::new("alice", "wonderland");
+        let alice_has_roses = 13;
+        //Then
+        let request = client::asset::by_account_id(alice_id.clone());
         let query_result = iroha_client
             .request(&request)
             .expect("Failed to execute request.");
@@ -100,7 +46,7 @@ mod tests {
             if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
                 assets.first().expect("Asset should exist.")
             {
-                assert_eq!(account_has_quantity, asset.quantity);
+                assert_eq!(alice_has_roses, asset.quantity);
             } else {
                 panic!("Wrong Query Result Type.")
             }
@@ -132,9 +78,17 @@ mod tests {
                 }
             })
             .collect();
+        let rng = &mut rand::thread_rng();
+        let offline_peers: BTreeSet<_> = peer_ids[1..]
+            .choose_multiple(rng, OFFLINE_PEERS)
+            .cloned()
+            .collect();
         for i in 0..n_peers {
             let peer_ids = peer_ids.clone();
             let peer_id = peer_ids[i].clone();
+            if offline_peers.contains(&peer_id) {
+                continue;
+            }
             let key_pair = peer_keys[i].clone();
             let (p2p_address, api_address) = addresses[i].clone();
             task::spawn(async move {
@@ -159,6 +113,10 @@ mod tests {
                 configuration
                     .sumeragi_configuration
                     .max_faulty_peers(MAX_FAULTS);
+                if i == 0 {
+                    configuration.genesis_configuration.genesis_block_path =
+                        Some(GENESIS_PATH.to_string());
+                }
                 let iroha = Iroha::new(configuration, AllowAll.into());
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.

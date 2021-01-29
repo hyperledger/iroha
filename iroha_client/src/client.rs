@@ -181,7 +181,6 @@ impl Client {
             if response.status() == StatusCode::OK {
                 let pending_transactions: PendingTransactions =
                     response.body().clone().try_into()?;
-                println!("Pending tx {:?}", pending_transactions);
                 let transaction = pending_transactions
                     .into_iter()
                     .find(|pending_transaction| {
