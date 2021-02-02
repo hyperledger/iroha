@@ -340,7 +340,7 @@ pub mod account {
     use crate::{
         asset::AssetsMap,
         domain::GENESIS_DOMAIN_NAME,
-        expression::{ContainsAny, ContextValue, EvaluatesTo, WhereBuilder},
+        expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         permissions::PermissionRaw,
         IdBox, Identifiable, IdentifiableBox, Name, PublicKey, Value,
     };
@@ -385,17 +385,34 @@ pub mod account {
         }
     }
 
-    /// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
-    #[derive(Debug, Clone, Copy)]
-    pub struct DefaultSignatureConditionCheck;
+    /// Condition which checks if the account has the right signatures.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
-    impl From<DefaultSignatureConditionCheck> for EvaluatesTo<bool> {
-        fn from(_: DefaultSignatureConditionCheck) -> Self {
-            ContainsAny::new(
-                ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
-                ContextValue::new(ACCOUNT_SIGNATORIES_VALUE),
+    impl SignatureCheckCondition {
+        /// Gets reference to the raw `ExpressionBox`.
+        pub fn as_expression(&self) -> &ExpressionBox {
+            let Self(condition) = self;
+            &condition.expression
+        }
+    }
+
+    impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
+        fn from(condition: EvaluatesTo<bool>) -> Self {
+            SignatureCheckCondition(condition)
+        }
+    }
+
+    /// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
+    impl Default for SignatureCheckCondition {
+        fn default() -> Self {
+            Self(
+                ContainsAny::new(
+                    ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
+                    ContextValue::new(ACCOUNT_SIGNATORIES_VALUE),
+                )
+                .into(),
             )
-            .into()
         }
     }
 
@@ -411,12 +428,9 @@ pub mod account {
         /// Permissions of this account
         pub permissions: Permissions,
         /// Condition which checks if the account has the right signatures.
-        #[serde(default = "default_signature_check_condition")]
-        pub signature_check_condition: EvaluatesTo<bool>,
-    }
-
-    fn default_signature_check_condition() -> EvaluatesTo<bool> {
-        DefaultSignatureConditionCheck.into()
+        #[serde(default)]
+        #[codec(skip)]
+        pub signature_check_condition: SignatureCheckCondition,
     }
 
     impl PartialOrd for Account {
@@ -461,10 +475,6 @@ pub mod account {
         pub domain_name: Name,
     }
 
-    /// Condition which checks if the account has the right signatures.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
-    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
-
     impl Account {
         /// Default `Account` constructor.
         pub fn new(id: Id) -> Self {
@@ -473,7 +483,7 @@ pub mod account {
                 assets: AssetsMap::new(),
                 signatories: Signatories::new(),
                 permissions: Permissions::new(),
-                signature_check_condition: DefaultSignatureConditionCheck.into(),
+                signature_check_condition: Default::default(),
             }
         }
 
@@ -486,7 +496,7 @@ pub mod account {
                 assets: AssetsMap::new(),
                 signatories,
                 permissions: Permissions::new(),
-                signature_check_condition: DefaultSignatureConditionCheck.into(),
+                signature_check_condition: Default::default(),
             }
         }
 
@@ -498,7 +508,7 @@ pub mod account {
                 .cloned()
                 .map(|signature| signature.public_key)
                 .collect();
-            WhereBuilder::evaluate(self.signature_check_condition.expression.clone())
+            WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
                 .with_value(
                     TRANSACTION_SIGNATORIES_VALUE.to_string(),
                     transaction_signatories,
