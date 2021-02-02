@@ -1,7 +1,7 @@
 name: Iroha 2 pull requests workflow
 on:
   pull_request:
-    branches: [ iroha2-dev ]
+    branches: [iroha2-dev]
 env:
   CACHE_PATHS: |
     ~/.cargo/registry
@@ -14,60 +14,60 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: ${{ env.CACHE_PATHS }}
-        key: ${{ hashFiles('Cargo.toml') }}
-    - name: Format check
-      run: cargo fmt --all --verbose -- --check
-    - name: Static analysis
-      run: cargo clippy --workspace --all-features -- -Dwarnings
-    - name: Documentation check
-      run: cargo doc --no-deps --verbose
-    - name: Archive documentation 
-      uses: actions/upload-artifact@v1
-      with:
-        name: cargo-doc
-        path: target/doc
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Format check
+        run: cargo fmt --all --verbose -- --check
+      - name: Static analysis
+        run: cargo clippy --workspace --all-features -- -Dwarnings
+      - name: Documentation check
+        run: cargo doc --no-deps --verbose
+      - name: Archive documentation
+        uses: actions/upload-artifact@v1
+        with:
+          name: cargo-doc
+          path: target/doc
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: ${{ env.CACHE_PATHS }}
-        key: ${{ hashFiles('Cargo.toml') }}
-    - name: Run tests	
-      run: cargo test --workspace --verbose -- --test-threads=1
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Run tests
+        run: cargo test --workspace --verbose -- --test-threads=1
   test-iroha_network-mock:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: ${{ env.CACHE_PATHS }}
-        key: ${{ hashFiles('Cargo.toml') }}
-    - name: Run iroha_network mock tests
-      run: cd ./iroha_network && cargo test --features mock --verbose -- --test-threads=1
-    - name: Run iroha tests with network mock	
-      run: cd ./iroha && cargo test --features network-mock --verbose -- --test-threads=1
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Run iroha_network mock tests
+        run: cd ./iroha_network && cargo test --features mock --verbose -- --test-threads=1
+      - name: Run iroha tests with network mock
+        run: cd ./iroha && cargo test --features network-mock --verbose -- --test-threads=1
   test-docker:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: ${{ env.CACHE_PATHS }}
-        key: ${{ hashFiles('Cargo.toml') }}
-    - name: Build
-      run: cargo build --verbose
-    - name: Setup docker test environment
-      run: ./scripts/setup_docker_test_env.sh
-    - name: Docker compose genesis test
-      run: ./scripts/test_genesis_docker_compose.sh
-    - name: Docker compose test
-      run: ./scripts/test_docker_compose.sh
-    - name: Cleanup docker test environment
-      run: ./scripts/cleanup_docker_test_env.sh
-
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Build Client CLI
+        run: cargo build --verbose
+        working-directory: iroha_client_cli
+      - name: Setup docker test environment
+        run: ./scripts/setup_docker_test_env.sh
+      - name: Docker compose genesis test
+        run: ./scripts/test_genesis_docker_compose.sh
+      - name: Docker compose test
+        run: ./scripts/test_docker_compose.sh
+      - name: Cleanup docker test environment
+        run: ./scripts/cleanup_docker_test_env.sh
