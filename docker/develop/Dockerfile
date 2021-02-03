@@ -1,58 +1,61 @@
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
 # number of concurrent threads during build
 # usage: docker build --build-arg PARALLELISM=8 -t name/name .
-ARG PARALLELISM=1
+#ARG PARALLELISM=1
+ARG DEBIAN_FRONTEND=noninteractive
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
 
 RUN apt-get update && \
     apt-get -y --no-install-recommends install apt-utils software-properties-common wget gpg-agent; \
-    apt-get -y clean
-
-# add repos
-RUN set -e; \
-    add-apt-repository -y ppa:ubuntu-toolchain-r/test; \
-    wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1 apt-key add -; \
-    echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-6.0 main' >> /etc/apt/sources.list; \
-    echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-7 main' >> /etc/apt/sources.list; \
-    apt-get update
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN set -e; \
+    apt-get update && \
     apt-get -y --no-install-recommends install libtool \
-        # compilers (gcc-7, gcc-9, clang-6)
-        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-9 ninja-build \
+        # compilers (gcc-9, gcc-10)
+        build-essential g++-9 g++-10 cmake ninja-build \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
-        # Pythons
-        python-pip python3-pip python3-setuptools python-dev \
+        # code coverage
+        lcov \
+        # Python3
+        python3-pip python-is-python3 \
         # other
-        curl file gdb gdbserver ccache python3.6-dev \
+        curl file gdb gdbserver ccache python3-dev libssl-dev \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
-    apt-get -y clean
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# compiler clang-7 and libc++ only on x86_64, for debug purpose
+# compiler clang-10 and libc++ only on x86_64, for debug purpose
 RUN set -e; \
     if [ `uname -m` = "x86_64" ]; then \
+      apt-get update && \
       apt-get -y --no-install-recommends install \
-        clang-7 lldb-7 lld-7 libc++-7-dev libc++abi-7-dev clang-format-7; \
-      apt-get -y clean; \
+        clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format-7; \
+      apt-get -y clean && \
+      rm -rf /var/lib/apt/lists/*; \
     fi
 
-# install cmake 3.14.0
-RUN set -e; \
-    curl -L -o /tmp/cmake.sh https://github.com/Kitware/CMake/releases/download/v3.14.0/cmake-3.14.0-Linux-x86_64.sh; \
-    sh /tmp/cmake.sh --prefix=/usr/local --skip-license; \
-    rm /tmp/cmake.sh
+# golang stuff
+RUN curl https://dl.google.com/go/go1.14.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
+ENV GOPATH=/opt/gopath
+RUN mkdir ${GOPATH}
+ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
+RUN go get github.com/golang/protobuf/protoc-gen-go
 
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -e; \
+    export VCPKG_FORCE_SYSTEM_BINARIES=1; \
     sh /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
-    chmod +x /opt/dependencies/installed/x64-linux/tools/protobuf/protoc*; \
+    chmod +x /opt/dependencies/installed/*/tools/protobuf/protoc*; \
+    unset VCPKG_FORCE_SYSTEM_BINARIES; \
     rm -rf /tmp/vcpkg*
 
 # install sonar cli
@@ -73,23 +76,23 @@ RUN set -e; \
 RUN set -e; \
     apt-get update; \
     apt-get -y install openjdk-8-jre; \
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/*; \
     java -version
 
 # python bindings dependencies
 RUN set -e; \
-    pip install grpcio_tools pysha3; \
-    pip3 install grpcio_tools pysha3 iroha==0.0.5.4
-
-# install lcov
-RUN set -e; \
-    curl -L -o /tmp/lcov-1.13.tar.gz https://github.com/linux-test-project/lcov/releases/download/v1.13/lcov-1.13.tar.gz; cd /tmp; tar zxf lcov-1.13.tar.gz; cd lcov-1.13; make install
+    export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1; \
+    pip3 install setuptools wheel; \
+    pip3 install grpcio_tools pysha3 iroha==0.0.5.4; \
+    unset GRPC_PYTHON_BUILD_SYSTEM_OPENSSL
 
 # install rust
 RUN set -e; \
-    curl -L -o /tmp/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz https://static.rust-lang.org/dist/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz; \
-    tar xf /tmp/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz -C /tmp; \
-    /tmp/rust-1.37.0-x86_64-unknown-linux-gnu/install.sh; \
-    rm -rf /tmp/rust-1.37.0-x86_64-unknown-linux-gnu*
+    curl -L -o /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu.tar.gz https://static.rust-lang.org/dist/rust-1.37.0-$(uname -m)-unknown-linux-gnu.tar.gz; \
+    tar xf /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu.tar.gz -C /tmp; \
+    /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu/install.sh; \
+    rm -rf /tmp/rust-1.37.0-$(uname -m)-unknown-linux-gnu*
 
 # non-interactive adduser
 #   -m = create home dir
@@ -104,6 +107,12 @@ WORKDIR /opt/iroha
 RUN set -e; \
     chmod -R 777 /opt/iroha; \
     mkdir -p /tmp/ccache -m 777; \
+    ccache --clear
+
+
+USER iroha-ci
+ENV CMAKE_TOOLCHAIN_FILE /opt/dependencies/scripts/buildsystems/vcpkg.cmake
+CMD ["/bin/bash"]/ccache -m 777; \
     ccache --clear
 
 

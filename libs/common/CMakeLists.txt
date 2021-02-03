@@ -37,6 +37,13 @@ target_link_libraries(libs_timeout INTERFACE
 
 add_library(irohad_version irohad_version.cpp)
 
+add_library(libs_to_string INTERFACE
+  # to_string.hpp
+  )
+target_link_libraries(libs_to_string INTERFACE
+  Boost::boost
+  )
+
 # Get the git repo data
 set(GIT_REPO_PRETTY_VER "version info unavailable")
 if (EXISTS "${PROJECT_SOURCE_DIR}/.git")
