@@ -8,6 +8,7 @@
 #include <soci/soci.h>
 #include <boost/format.hpp>
 #include "cryptography/hash.hpp"
+#include <fmt/core.h>
 
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
@@ -43,12 +44,20 @@ void PostgresIndexer::txPositions(
 
 iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
   try {
+    cache_.clear();
     assert(tx_hash_status_.hash.size() == tx_hash_status_.status.size());
     if (not tx_hash_status_.hash.empty()) {
-      sql_ << "INSERT INTO tx_status_by_hash"
-              "(hash, status) VALUES "
-              "(:hash, :status);",
-          soci::use(tx_hash_status_.hash), soci::use(tx_hash_status_.status);
+      cache_ +=
+          "INSERT INTO tx_status_by_hash"
+          "(hash, status) VALUES ";
+      for (size_t ix = 0; ix < tx_hash_status_.hash.size(); ++ix) {
+        cache_ += fmt::format("('{}','{}')",
+                              tx_hash_status_.hash[ix],
+                              tx_hash_status_.status[ix]);
+        if (ix != tx_hash_status_.hash.size() - 1)
+          cache_ += ',';
+      }
+      cache_ += ";\n";
 
       tx_hash_status_.hash.clear();
       tx_hash_status_.status.clear();
@@ -60,13 +69,30 @@ iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
     assert(tx_positions_.account.size() == tx_positions_.height.size());
     assert(tx_positions_.account.size() == tx_positions_.index.size());
     if (!tx_positions_.account.empty()) {
-      sql_ << "INSERT INTO tx_positions"
-              "(creator_id, hash, asset_id, ts, height, index) VALUES "
-              "(:creator_id, :hash, :asset_id, :ts, :height, :index) ON "
-              "CONFLICT DO NOTHING;",
-          soci::use(tx_positions_.account), soci::use(tx_positions_.hash),
-          soci::use(tx_positions_.asset_id), soci::use(tx_positions_.ts),
-          soci::use(tx_positions_.height), soci::use(tx_positions_.index);
+      cache_ +=
+          "INSERT INTO tx_positions"
+          "(creator_id, hash, asset_id, ts, height, index) VALUES ";
+      for (size_t ix = 0; ix < tx_positions_.account.size(); ++ix) {
+        if (tx_positions_.asset_id[ix]) {
+          cache_ += fmt::format("('{}','{}','{}',{},{},{})",
+                                tx_positions_.account[ix],
+                                tx_positions_.hash[ix],
+                                *tx_positions_.asset_id[ix],
+                                tx_positions_.ts[ix],
+                                tx_positions_.height[ix],
+                                tx_positions_.index[ix]);
+        } else {
+          cache_ += fmt::format("('{}','{}',NULL,{},{},{})",
+                                tx_positions_.account[ix],
+                                tx_positions_.hash[ix],
+                                tx_positions_.ts[ix],
+                                tx_positions_.height[ix],
+                                tx_positions_.index[ix]);
+        }
+        if (ix != tx_positions_.account.size() - 1)
+          cache_ += ',';
+      }
+      cache_ += " ON CONFLICT DO NOTHING;\n";
 
       tx_positions_.account.clear();
       tx_positions_.hash.clear();
@@ -76,6 +102,8 @@ iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
       tx_positions_.index.clear();
     }
 
+    if (!cache_.empty())
+      sql_ << cache_;
   } catch (const std::exception &e) {
     return e.what();
   }
