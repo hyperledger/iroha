@@ -6,6 +6,7 @@ use std::{thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
@@ -269,6 +270,9 @@ fn create_and_start_iroha(free_port: u16) {
     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration
+        .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+        .expect("Failed to load trusted peers.");
     configuration.torii_configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
     configuration
         .kura_configuration

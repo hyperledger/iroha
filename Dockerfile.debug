@@ -10,5 +10,6 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y apt-utils
 RUN apt-get install -y libssl-dev pkg-config
 COPY iroha/config.json .
 COPY iroha/genesis.json .
+COPY iroha/trusted_peers.json .
 COPY --from=builder /iroha/target/debug/iroha .
 CMD ["./iroha"]

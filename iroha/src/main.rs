@@ -3,6 +3,7 @@ use iroha::{config::Configuration, permissions::AllowAll, Iroha};
 use std::{thread, time::Duration};
 
 const CONFIGURATION_PATH: &str = "config.json";
+const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
 const GENESIS: &str = "genesis";
 
 #[async_std::main]
@@ -22,6 +23,8 @@ async fn main() -> Result<(), String> {
         .get_matches();
 
     let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
+    configuration.load_trusted_peers_from_path(TRUSTED_PEERS_PATH)?;
+
     configuration.load_environment()?;
 
     let genesis_path_option = matches.value_of(GENESIS);

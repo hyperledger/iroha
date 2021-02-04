@@ -490,6 +490,7 @@ mod tests {
     use std::time::Duration;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 
     fn get_config() -> Configuration {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")
@@ -497,6 +498,9 @@ mod tests {
 
     async fn create_torii() -> Torii {
         let config = get_config();
+        config
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         let (tx_tx, _) = sync::channel(100);
         let (sumeragi_message_sender, _) = sync::channel(100);
         let (block_sync_message_sender, _) = sync::channel(100);

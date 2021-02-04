@@ -9,6 +9,7 @@ use std::{path::Path, thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
@@ -93,6 +94,9 @@ fn restarted_peer_should_have_the_same_asset_amount() {
 fn create_and_start_iroha(block_store_path: &Path) {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration
+        .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+        .expect("Failed to load trusted peers.");
     configuration
         .kura_configuration
         .kura_block_store_path(block_store_path);

@@ -10,6 +10,7 @@ use std::{thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
 #[test]
@@ -142,6 +143,9 @@ fn create_and_start_iroha() {
     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration
+        .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+        .expect("Failed to load trusted peers.");
     configuration
         .kura_configuration
         .kura_block_store_path(temp_dir.path());
