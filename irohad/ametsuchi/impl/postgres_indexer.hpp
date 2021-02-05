@@ -60,6 +60,7 @@ namespace iroha {
                         bool is_committed);
 
       soci::session &sql_;
+      std::string cache_;
     };
 
   }  // namespace ametsuchi
