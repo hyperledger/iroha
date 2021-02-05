@@ -49,7 +49,7 @@ pub struct Sumeragi {
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
-    //TODO: Think about moving `latest_block_hash` to `NetworkTopology` or get it from wsv so there is no controversy
+    //TODO: Move latest_block_hash and block_height into `State` struct and get NetworkTopology as a function of state.
     latest_block_hash: Hash,
     block_height: u64,
     /// Number of view changes after the previous block was committed
@@ -150,7 +150,7 @@ impl Sumeragi {
         }
     }
 
-    /// the leader of each round just uses the transactions they have at hand to create a block
+    /// The leader of each round just uses the transactions they have at hand to create a block.
     pub async fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Result<(), String> {
         if transactions.is_empty() {
             return Ok(());
@@ -164,82 +164,128 @@ impl Sumeragi {
             );
             self.validate_and_publish_created_block(block).await
         } else {
-            //Sends transactions to leader
-            log::info!(
-                "{:?} - Forwarding transactions to leader. Number of transactions to forward: {}",
-                self.network_topology.role(&self.peer_id),
-                transactions.len(),
-            );
-            let mut send_futures = Vec::new();
-            for transaction in &transactions {
-                send_futures.push(
-                    Message::TransactionForwarded(TransactionForwarded {
-                        transaction: transaction.clone(),
-                        peer: self.peer_id.clone(),
-                    })
+            self.forward_transactions_to_leader(&transactions).await?;
+            self.gossip_transactions(&transactions).await
+        }
+    }
+
+    /// Forwards transactions to the leader and waits for receipts.
+    pub async fn forward_transactions_to_leader(
+        &mut self,
+        transactions: &[AcceptedTransaction],
+    ) -> Result<(), String> {
+        log::info!(
+            "{:?} - Forwarding transactions to leader. Number of transactions to forward: {}",
+            self.network_topology.role(&self.peer_id),
+            transactions.len(),
+        );
+        let mut send_futures = Vec::new();
+        for transaction in transactions {
+            send_futures.push(
+                Message::from(TransactionForwarded::new(&transaction, &self.peer_id))
                     .send_to(self.network_topology.leader()),
-                );
+            );
+            // Don't require leader to submit receipts and therefore create blocks if the transaction is still waiting for more signatures.
+            if let Ok(true) =
+                transaction.check_signature_condition(&*self.world_state_view.read().await)
+            {
                 let _ = self
                     .transactions_awaiting_receipts
                     .write()
                     .await
                     .insert(transaction.hash());
-                let transactions_awaiting_receipts = self.transactions_awaiting_receipts.clone();
-                let mut no_tx_receipt = NoTransactionReceiptReceived::new(
-                    &transaction,
-                    self.network_topology.leader().clone(),
-                );
-                let role = self.network_topology.role(&self.peer_id);
-                if role == Role::ValidatingPeer || role == Role::ProxyTail {
-                    no_tx_receipt = no_tx_receipt
-                        .sign(&self.key_pair)
-                        .expect("Failed to put first signature.");
-                }
-                let recipient_peers = self.network_topology.sorted_peers.clone();
-                let transaction_hash = transaction.hash();
-                let peer_id = self.peer_id.clone();
-                let tx_receipt_time = self.tx_receipt_time;
-                let _ = async_std::task::spawn(async move {
-                    async_std::task::sleep(tx_receipt_time).await;
-                    if transactions_awaiting_receipts
-                        .write()
-                        .await
-                        .contains(&transaction_hash)
-                    {
-                        let mut send_futures = Vec::new();
-                        for peer in &recipient_peers {
-                            if *peer != peer_id {
-                                send_futures.push(
-                                    Message::NoTransactionReceiptReceived(no_tx_receipt.clone())
-                                        .send_to(peer),
-                                );
-                            }
-                        }
-                        let results = futures::future::join_all(send_futures).await;
-                        results
-                            .iter()
-                            .filter(|result| result.is_err())
-                            .for_each(|error_result| {
-                                log::error!(
-                                    "Failed to send NoTransactionReceiptReceived message to peers: {:?}",
-                                    error_result
-                                )
-                            });
-                    }
-                });
             }
-            let results = futures::future::join_all(send_futures).await;
-            results
-                .iter()
-                .filter(|result| result.is_err())
-                .for_each(|error_result| {
-                    log::error!(
-                        "Failed to send transactions to the leader: {:?}",
-                        error_result
-                    )
-                });
-            Ok(())
+            let transactions_awaiting_receipts = self.transactions_awaiting_receipts.clone();
+            let mut no_tx_receipt = NoTransactionReceiptReceived::new(
+                &transaction,
+                self.network_topology.leader().clone(),
+                self.latest_block_hash,
+                self.number_of_view_changes,
+            );
+            let role = self.network_topology.role(&self.peer_id);
+            if role == Role::ValidatingPeer || role == Role::ProxyTail {
+                no_tx_receipt = no_tx_receipt
+                    .sign(&self.key_pair)
+                    .expect("Failed to put first signature.");
+            }
+            let recipient_peers = self.network_topology.sorted_peers.clone();
+            let transaction_hash = transaction.hash();
+            let peer_id = self.peer_id.clone();
+            let tx_receipt_time = self.tx_receipt_time;
+            let _ = async_std::task::spawn(async move {
+                async_std::task::sleep(tx_receipt_time).await;
+                if transactions_awaiting_receipts
+                    .write()
+                    .await
+                    .contains(&transaction_hash)
+                {
+                    let mut send_futures = Vec::new();
+                    for peer in &recipient_peers {
+                        if *peer != peer_id {
+                            send_futures.push(
+                                Message::NoTransactionReceiptReceived(no_tx_receipt.clone())
+                                    .send_to(peer),
+                            );
+                        }
+                    }
+                    let results = futures::future::join_all(send_futures).await;
+                    results
+                        .into_iter()
+                        .filter_map(|result| result.err())
+                        .for_each(|error| {
+                            log::error!(
+                                "Failed to send NoTransactionReceiptReceived message to peers: {:?}",
+                                error
+                            )
+                        });
+                }
+            });
         }
+        let results = futures::future::join_all(send_futures).await;
+        results
+            .iter()
+            .filter(|result| result.is_err())
+            .for_each(|error_result| {
+                log::error!(
+                    "Failed to send transactions to the leader: {:?}",
+                    error_result
+                )
+            });
+        Ok(())
+    }
+
+    /// Gossip transactions to other peers.
+    pub async fn gossip_transactions(
+        &mut self,
+        transactions: &[AcceptedTransaction],
+    ) -> Result<(), String> {
+        log::debug!(
+            "{:?} - Gossiping transactions. Number of transactions to forward: {}",
+            self.network_topology.role(&self.peer_id),
+            transactions.len(),
+        );
+        let leader = self.network_topology.leader().clone();
+        let this_peer = self.peer_id.clone();
+        let peers = self.network_topology.sorted_peers.clone();
+        let transactions = transactions.to_vec();
+        let mut send_futures = Vec::new();
+        // TODO: send transactions in batch not to crowd message channels.
+        for peer in &peers {
+            for transaction in &transactions {
+                if peer != &leader && peer != &this_peer {
+                    send_futures.push(
+                        Message::from(TransactionForwarded::new(transaction, &this_peer))
+                            .send_to(peer),
+                    );
+                }
+            }
+        }
+        let results = futures::future::join_all(send_futures).await;
+        results
+            .into_iter()
+            .filter_map(|result| result.err())
+            .for_each(|error| log::error!("Failed to gossip transactions: {:?}", error));
+        Ok(())
     }
 
     /// Should be called by a leader to start the consensus round with `BlockCreated` message.
@@ -265,18 +311,23 @@ impl Sumeragi {
             *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
             let message = Message::BlockCreated(block.clone().sign(&self.key_pair)?.into());
             let recipient_peers = network_topology.sorted_peers.clone();
+            let this_peer = self.peer_id.clone();
             let mut send_futures = Vec::new();
             for peer in &recipient_peers {
-                if self.peer_id != *peer {
+                if this_peer != *peer {
                     send_futures.push(message.clone().send_to(peer));
                 }
             }
             let results = futures::future::join_all(send_futures).await;
             results
-                .iter()
-                .filter(|result| result.is_err())
+                .into_iter()
+                .filter_map(|result| result.err())
                 .for_each(|error_result| {
-                    log::error!("Failed to send BlockCreated messages: {:?}", error_result)
+                    log::error!(
+                        "Failed to send BlockCreated messages from {}: {:?}",
+                        this_peer.address,
+                        error_result
+                    )
                 });
             Ok(())
         }
@@ -284,7 +335,12 @@ impl Sumeragi {
 
     /// Starts countdown for a period in which the `voting_block` should be committed.
     #[log]
-    pub async fn start_commit_countdown(&self, voting_block: VotingBlock) {
+    pub async fn start_commit_countdown(
+        &self,
+        voting_block: VotingBlock,
+        latest_block_hash: Hash,
+        number_of_view_changes: u32,
+    ) {
         let old_voting_block = voting_block;
         let voting_block = self.voting_block.clone();
         let key_pair = self.key_pair.clone();
@@ -297,7 +353,7 @@ impl Sumeragi {
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
                 if voting_block.block.hash() == old_voting_block.block.hash() {
                     let message = Message::CommitTimeout(
-                        CommitTimeout::new(voting_block)
+                        CommitTimeout::new(voting_block, latest_block_hash, number_of_view_changes)
                             .sign(&key_pair)
                             .expect("Failed to sign CommitTimeout"),
                     );
@@ -360,7 +416,8 @@ impl Sumeragi {
         *self.voting_block.write().await = None;
         self.number_of_view_changes += 1;
         log::info!(
-            "{:?} - Changing view at block with hash {}. New role: {:?}. Number of view changes (including this): {}",
+            "{} - {:?} - Changing view at block with hash {}. New role: {:?}. Number of view changes (including this): {}",
+            self.peer_id.address,
             previous_role,
             self.latest_block_hash,
             self.network_topology.role(&self.peer_id),
@@ -676,6 +733,7 @@ pub mod message {
         torii::uri,
         tx::AcceptedTransaction,
     };
+    use async_std::task;
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
@@ -683,6 +741,7 @@ pub mod message {
     use parity_scale_codec::{Decode, Encode};
     use std::time::{Duration, SystemTime};
 
+    // TODO: implement `From` for each of the inner structures in this message.
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub enum Message {
@@ -712,8 +771,13 @@ pub mod message {
                 &peer.address,
                 Request::new(uri::CONSENSUS_URI.to_string(), self.into()),
             )
-            .await?
-            {
+            .await
+            .map_err(|err| {
+                format!(
+                    "Failed to send to peer {} with error: {}",
+                    peer.address, err
+                )
+            })? {
                 Response::Ok(_) => Ok(()),
                 Response::InternalError => Err(format!(
                     "Failed to send message - Internal Error on peer: {:?}",
@@ -756,6 +820,9 @@ pub mod message {
     impl BlockCreated {
         /// Handles this message as part of `Sumeragi` consensus.
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+            for event in Vec::<Event>::from(&self.block.clone()) {
+                sumeragi.events_sender.send(event).await;
+            }
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             if network_topology
                 .filter_signatures_by_roles(&[Role::Leader], &self.block.verified_signatures())
@@ -772,12 +839,12 @@ pub mod message {
                 .write()
                 .await
                 .clear();
-            for event in Vec::<Event>::from(&self.block.clone()) {
-                sumeragi.events_sender.send(event).await;
-            }
             match network_topology.role(&sumeragi.peer_id) {
                 Role::ValidatingPeer => {
                     if !self.block.is_empty()
+                        && !self
+                            .block
+                            .has_committed_transactions(&*sumeragi.world_state_view.read().await)
                         && sumeragi.latest_block_hash == self.block.header.previous_block_hash
                         && sumeragi.number_of_view_changes
                             == self.block.header.number_of_view_changes
@@ -809,7 +876,13 @@ pub mod message {
                     }
                     let voting_block = VotingBlock::new(self.block.clone());
                     *sumeragi.voting_block.write().await = Some(voting_block.clone());
-                    sumeragi.start_commit_countdown(voting_block.clone()).await;
+                    sumeragi
+                        .start_commit_countdown(
+                            voting_block.clone(),
+                            sumeragi.latest_block_hash,
+                            sumeragi.number_of_view_changes,
+                        )
+                        .await;
                 }
                 Role::ProxyTail => {
                     if sumeragi.voting_block.write().await.is_none() {
@@ -952,9 +1025,27 @@ pub mod message {
         pub transaction_receipt: TransactionReceipt,
         /// Signatures of the peers who voted for changing the leader.
         pub signatures: Signatures,
+        /// The block hash of the latest committed block.
+        pub latest_block_hash: Hash,
+        /// Number of view changes since the last commit.
+        pub number_of_view_changes: u32,
     }
 
     impl BlockCreationTimeout {
+        /// Construct `BlockCreationTimeout` message.
+        pub fn new(
+            transaction_receipt: TransactionReceipt,
+            latest_block_hash: Hash,
+            number_of_view_changes: u32,
+        ) -> Self {
+            BlockCreationTimeout {
+                transaction_receipt,
+                signatures: Signatures::default(),
+                latest_block_hash,
+                number_of_view_changes,
+            }
+        }
+
         /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader does not produce a block
         /// after receiving transaction in `block_time`.
@@ -973,8 +1064,16 @@ pub mod message {
                 .verified(&Vec::<u8>::from(self.transaction_receipt.clone()))
         }
 
+        fn has_same_state(&self, sumeragi: &Sumeragi) -> bool {
+            sumeragi.number_of_view_changes == self.number_of_view_changes
+                && sumeragi.latest_block_hash == self.latest_block_hash
+        }
+
         /// Handles this message as part of `Sumeragi` consensus.
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+            if !self.has_same_state(sumeragi) {
+                return Ok(());
+            }
             let role = sumeragi.network_topology.role(&sumeragi.peer_id);
             let tx_receipt = self.transaction_receipt.clone();
             if tx_receipt.is_valid(&sumeragi.network_topology)
@@ -1018,15 +1117,6 @@ pub mod message {
         }
     }
 
-    impl From<TransactionReceipt> for BlockCreationTimeout {
-        fn from(transaction_receipt: TransactionReceipt) -> Self {
-            BlockCreationTimeout {
-                transaction_receipt,
-                signatures: Signatures::default(),
-            }
-        }
-    }
-
     /// Message structure describing a failed attempt to forward transaction to a leader.
     /// Peers sign it if they are not able to get a TxReceipt from a leader after sending the specified transaction.
     #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -1037,6 +1127,10 @@ pub mod message {
         pub signatures: Signatures,
         /// The id of the leader, to determine that peer topologies are synchronized.
         pub leader_id: PeerId,
+        /// The block hash of the latest committed block.
+        pub latest_block_hash: Hash,
+        /// Number of view changes since the last commit.
+        pub number_of_view_changes: u32,
     }
 
     impl NoTransactionReceiptReceived {
@@ -1044,11 +1138,15 @@ pub mod message {
         pub fn new(
             transaction: &AcceptedTransaction,
             leader_id: PeerId,
+            latest_block_hash: Hash,
+            number_of_view_changes: u32,
         ) -> NoTransactionReceiptReceived {
             NoTransactionReceiptReceived {
                 transaction: transaction.clone(),
                 signatures: Signatures::default(),
                 leader_id,
+                latest_block_hash,
+                number_of_view_changes,
             }
         }
 
@@ -1067,9 +1165,14 @@ pub mod message {
                 .verified(&Vec::<u8>::from(self.transaction.clone()))
         }
 
+        fn has_same_state(&self, sumeragi: &Sumeragi) -> bool {
+            sumeragi.number_of_view_changes == self.number_of_view_changes
+                && sumeragi.latest_block_hash == self.latest_block_hash
+        }
+
         /// Handles this message as part of `Sumeragi` consensus.
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
-            if self.leader_id != *sumeragi.network_topology.leader() {
+            if !self.has_same_state(sumeragi) {
                 return Ok(());
             }
             if sumeragi
@@ -1143,19 +1246,43 @@ pub mod message {
     }
 
     impl TransactionForwarded {
+        /// Constructs `TransactionForwarded` message.
+        pub fn new(transaction: &AcceptedTransaction, peer: &PeerId) -> TransactionForwarded {
+            TransactionForwarded {
+                transaction: transaction.clone(),
+                peer: peer.clone(),
+            }
+        }
+
         /// Handles this message as part of `Sumeragi` consensus.
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
-            let _result = Message::TransactionReceived(TransactionReceipt::new(
-                &self.transaction,
-                &sumeragi.key_pair,
-            )?)
-            .send_to(&self.peer)
-            .await;
+            if sumeragi.is_leader() {
+                if let Err(err) = Message::TransactionReceived(TransactionReceipt::new(
+                    &self.transaction,
+                    &sumeragi.key_pair,
+                )?)
+                .send_to(&self.peer)
+                .await
+                {
+                    log::error!(
+                        "{:?} - Failed to send a transaction receipt to peer {}: {}",
+                        sumeragi.network_topology.role(&sumeragi.peer_id),
+                        self.peer.address,
+                        err
+                    )
+                }
+            }
             sumeragi
                 .transactions_sender
                 .send(self.transaction.clone())
                 .await;
             Ok(())
+        }
+    }
+
+    impl From<TransactionForwarded> for Message {
+        fn from(message: TransactionForwarded) -> Self {
+            Message::TransactionForwarded(message)
         }
     }
 
@@ -1230,7 +1357,11 @@ pub mod message {
                     sumeragi.transactions_awaiting_created_block.clone();
                 let tx_hash = self.transaction_hash;
                 let role = sumeragi.network_topology.role(&sumeragi.peer_id);
-                let mut block_creation_timeout: BlockCreationTimeout = self.clone().into();
+                let mut block_creation_timeout = BlockCreationTimeout::new(
+                    self.clone(),
+                    sumeragi.latest_block_hash,
+                    sumeragi.number_of_view_changes,
+                );
                 if role == Role::ValidatingPeer || role == Role::ProxyTail {
                     block_creation_timeout = block_creation_timeout
                         .sign(&sumeragi.key_pair)
@@ -1272,14 +1403,24 @@ pub mod message {
         pub voting_block_hash: Hash,
         /// The signatures of the peers who vote to for a view change.
         pub signatures: Signatures,
+        /// The block hash of the latest committed block.
+        pub latest_block_hash: Hash,
+        /// Number of view changes since the last commit.
+        pub number_of_view_changes: u32,
     }
 
     impl CommitTimeout {
         /// Constructs a new commit timeout message with no signatures.
-        pub fn new(voting_block: VotingBlock) -> CommitTimeout {
+        pub fn new(
+            voting_block: VotingBlock,
+            latest_block_hash: Hash,
+            number_of_view_changes: u32,
+        ) -> CommitTimeout {
             CommitTimeout {
                 voting_block_hash: voting_block.block.hash(),
                 signatures: Signatures::default(),
+                latest_block_hash,
+                number_of_view_changes,
             }
         }
 
@@ -1296,40 +1437,15 @@ pub mod message {
             self.signatures.verified(self.voting_block_hash.as_ref())
         }
 
+        fn has_same_state(&self, sumeragi: &Sumeragi) -> bool {
+            sumeragi.number_of_view_changes == self.number_of_view_changes
+                && sumeragi.latest_block_hash == self.latest_block_hash
+        }
+
         /// Handles this message as part of `Sumeragi` consensus.
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
-            let current_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.");
-            let role = sumeragi.network_topology.role(&sumeragi.peer_id);
-            if role == Role::ValidatingPeer || role == Role::Leader {
-                let voting_block = sumeragi.voting_block.read().await.clone();
-                if let Some(voting_block) = voting_block {
-                    if voting_block.block.hash() == self.voting_block_hash
-                        && (current_time - voting_block.voted_at) >= sumeragi.commit_time
-                        && !self.signatures.contains(&sumeragi.key_pair.public_key)
-                    {
-                        let message = Message::CommitTimeout(
-                            self.clone()
-                                .sign(&sumeragi.key_pair)
-                                .expect("Failed to sign."),
-                        );
-                        let mut send_futures = Vec::new();
-                        for peer in &sumeragi.network_topology.sorted_peers {
-                            send_futures.push(message.clone().send_to(peer));
-                        }
-                        let results = futures::future::join_all(send_futures).await;
-                        results
-                            .iter()
-                            .filter(|result| result.is_err())
-                            .for_each(|error_result| {
-                                log::error!(
-                                    "Failed to send CommitTimeout messages: {:?}",
-                                    error_result
-                                )
-                            });
-                    }
-                }
+            if !self.has_same_state(sumeragi) {
+                return Ok(());
             }
             if sumeragi
                 .network_topology
@@ -1339,6 +1455,13 @@ pub mod message {
                 )
                 .len()
                 >= sumeragi.network_topology.min_votes_for_view_change() as usize
+                && sumeragi
+                    .voting_block
+                    .read()
+                    .await
+                    .clone()
+                    .map(|block| block.block.hash())
+                    == Some(self.voting_block_hash)
             {
                 sumeragi
                     .invalidated_blocks_hashes
@@ -1349,6 +1472,43 @@ pub mod message {
                     sumeragi.latest_block_hash,
                 );
                 sumeragi.change_view().await;
+            } else {
+                let role = sumeragi.network_topology.role(&sumeragi.peer_id);
+                if role == Role::ValidatingPeer || role == Role::Leader {
+                    let voting_block = sumeragi.voting_block.read().await.clone();
+                    if let Some(voting_block) = voting_block {
+                        let current_time = SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .expect("Failed to get System Time.");
+                        if voting_block.block.hash() == self.voting_block_hash
+                            && (current_time - voting_block.voted_at) >= sumeragi.commit_time
+                            && !self.signatures.contains(&sumeragi.key_pair.public_key)
+                        {
+                            let message = Message::CommitTimeout(
+                                self.clone()
+                                    .sign(&sumeragi.key_pair)
+                                    .expect("Failed to sign."),
+                            );
+                            let sorted_peers = sumeragi.network_topology.sorted_peers.clone();
+                            let _ = task::spawn(async move {
+                                let mut send_futures = Vec::new();
+                                for peer in &sorted_peers {
+                                    send_futures.push(message.clone().send_to(peer));
+                                }
+                                let results = futures::future::join_all(send_futures).await;
+                                results
+                                    .into_iter()
+                                    .filter_map(|result| result.err())
+                                    .for_each(|error| {
+                                        log::error!(
+                                            "Failed to send CommitTimeout messages: {:?}",
+                                            error
+                                        )
+                                    });
+                            });
+                        }
+                    }
+                }
             }
             Ok(())
         }
@@ -1622,6 +1782,7 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -1751,6 +1912,7 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -1904,6 +2066,7 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -1982,14 +2145,17 @@ mod tests {
             let sumeragi_arc_clone = sumeragi.clone();
             let _ = task::spawn(async move {
                 while let Some(transaction) = transactions_receiver.next().await {
-                    if let Err(e) = sumeragi_arc_clone
-                        .write()
-                        .await
-                        .round(vec![transaction])
-                        .await
-                    {
-                        eprintln!("{}", e);
+                    if sumeragi_arc_clone.read().await.is_leader() {
+                        if let Err(e) = sumeragi_arc_clone
+                            .write()
+                            .await
+                            .round(vec![transaction])
+                            .await
+                        {
+                            log::error!("{}", e);
+                        }
                     }
+                    task::sleep(Duration::from_millis(500)).await;
                 }
             });
         }
@@ -2068,6 +2234,7 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2143,14 +2310,17 @@ mod tests {
             let sumeragi_arc_clone = sumeragi.clone();
             let _ = task::spawn(async move {
                 while let Some(transaction) = transactions_receiver.next().await {
-                    if let Err(e) = sumeragi_arc_clone
-                        .write()
-                        .await
-                        .round(vec![transaction])
-                        .await
-                    {
-                        log::error!("{}", e);
+                    if sumeragi_arc_clone.read().await.is_leader() {
+                        if let Err(e) = sumeragi_arc_clone
+                            .write()
+                            .await
+                            .round(vec![transaction])
+                            .await
+                        {
+                            log::error!("{}", e);
+                        }
                     }
+                    task::sleep(Duration::from_millis(500)).await;
                 }
             });
         }
@@ -2229,6 +2399,7 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
