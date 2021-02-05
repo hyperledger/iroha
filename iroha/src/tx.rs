@@ -130,6 +130,11 @@ impl AcceptedTransaction {
             rejection_reason: rejection_reason.to_string(),
         }
     }
+
+    /// Checks if this transaction has already been committed or rejected.
+    pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
+        world_state_view.has_transaction(self.hash())
+    }
 }
 
 impl From<AcceptedTransaction> for Transaction {
@@ -166,6 +171,11 @@ impl ValidTransaction {
         let bytes: Vec<u8> = self.payload.clone().into();
         Hash::new(&bytes)
     }
+
+    /// Checks if this transaction has already been committed or rejected.
+    pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
+        world_state_view.has_transaction(self.hash())
+    }
 }
 
 impl From<ValidTransaction> for AcceptedTransaction {
@@ -192,6 +202,11 @@ impl RejectedTransaction {
     pub fn hash(&self) -> Hash {
         let bytes: Vec<u8> = self.payload.clone().into();
         Hash::new(&bytes)
+    }
+
+    /// Checks if this transaction has already been committed or rejected.
+    pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
+        world_state_view.has_transaction(self.hash())
     }
 }
 

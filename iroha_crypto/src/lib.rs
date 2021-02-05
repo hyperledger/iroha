@@ -35,7 +35,9 @@ pub const BLS_NORMAL: &str = "bls_normal";
 pub const BLS_SMALL: &str = "bls_small";
 
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
-#[derive(Eq, PartialEq, Clone, Encode, Decode, Serialize, Deserialize, Ord, PartialOrd, Copy)]
+#[derive(
+    Eq, PartialEq, Clone, Encode, Decode, Serialize, Deserialize, Ord, PartialOrd, Copy, Hash,
+)]
 pub struct Hash(pub [u8; HASH_LENGTH]);
 
 impl Hash {

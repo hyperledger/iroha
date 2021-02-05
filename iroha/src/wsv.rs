@@ -1,6 +1,8 @@
 //! This module provides `WorldStateView` - in-memory representations of the current blockchain
 //! state.
 
+use std::collections::HashSet;
+
 use crate::prelude::*;
 use iroha_data_model::prelude::*;
 
@@ -9,13 +11,18 @@ use iroha_data_model::prelude::*;
 pub struct WorldStateView {
     /// The world - contains `domains`, `triggers`, etc..
     pub world: World,
+    /// Hashes of the committed and rejected transactions.
+    pub transactions_hashes: HashSet<Hash>,
 }
 
 /// WARNING!!! INTERNAL USE ONLY!!!
 impl WorldStateView {
     /// Default `WorldStateView` constructor.
     pub fn new(world: World) -> Self {
-        WorldStateView { world }
+        WorldStateView {
+            world,
+            transactions_hashes: HashSet::new(),
+        }
     }
 
     /// Initializes WSV with the blocks from block storage.
@@ -25,12 +32,16 @@ impl WorldStateView {
         }
     }
 
-    /// Apply `ValidBlock` with changes in form of **Iroha Special Instructions** to `self`.
+    /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
     pub fn apply(&mut self, block: &CommittedBlock) {
         for transaction in &block.transactions {
             if let Err(e) = &transaction.proceed(self) {
                 log::warn!("Failed to procced transaction on WSV: {}", e);
             }
+            let _ = self.transactions_hashes.insert(transaction.hash());
+        }
+        for transaction in &block.rejected_transactions {
+            let _ = self.transactions_hashes.insert(transaction.hash());
         }
     }
 
@@ -135,5 +146,10 @@ impl WorldStateView {
         id: &<AssetDefinition as Identifiable>::Id,
     ) -> Option<&mut AssetDefinitionEntry> {
         self.domain(&id.domain_name)?.asset_definitions.get_mut(id)
+    }
+
+    /// Checks if this `transaction_hash` is already committed or rejected.
+    pub fn has_transaction(&self, transaction_hash: Hash) -> bool {
+        self.transactions_hashes.contains(&transaction_hash)
     }
 }

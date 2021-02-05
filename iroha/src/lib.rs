@@ -222,7 +222,7 @@ impl Iroha {
                         sumeragi
                             .write()
                             .await
-                            .round(queue.write().await.pop_pending_transactions(
+                            .round(queue.write().await.get_pending_transactions(
                                 is_leader,
                                 &*world_state_view.read().await,
                             ))
