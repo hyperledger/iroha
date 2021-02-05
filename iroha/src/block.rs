@@ -267,6 +267,17 @@ impl ValidBlock {
     pub fn is_empty(&self) -> bool {
         self.transactions.is_empty() && self.rejected_transactions.is_empty()
     }
+
+    /// Checks if block has transactions that are already in blockchain.
+    pub fn has_committed_transactions(&self, world_state_view: &WorldStateView) -> bool {
+        self.transactions
+            .iter()
+            .any(|transaction| transaction.is_in_blockchain(world_state_view))
+            || self
+                .rejected_transactions
+                .iter()
+                .any(|transaction| transaction.is_in_blockchain(world_state_view))
+    }
 }
 
 impl From<&ValidBlock> for Vec<Event> {
