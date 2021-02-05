@@ -325,13 +325,16 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
         uri::CONSENSUS_URI => match SumeragiMessage::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
-                    .write()
+                    .read()
                     .await
                     .sumeragi_message_sender
                     .write()
                     .await
-                    .send(message)
-                    .await;
+                    .try_send(message)
+                    .map_err(|_| {
+                        "The sumeragi message channel is full. Dropping the incoming message."
+                            .to_string()
+                    })?;
                 Ok(Response::empty_ok())
             }
             Err(e) => {
@@ -342,13 +345,16 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
         uri::BLOCK_SYNC_URI => match BlockSyncMessage::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
-                    .write()
+                    .read()
                     .await
                     .block_sync_message_sender
                     .write()
                     .await
-                    .send(message)
-                    .await;
+                    .try_send(message)
+                    .map_err(|_| {
+                        "The block sync message channel is full. Dropping the incoming message."
+                            .to_string()
+                    })?;
                 Ok(Response::empty_ok())
             }
             Err(e) => {
