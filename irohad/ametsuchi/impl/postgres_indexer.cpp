@@ -5,10 +5,10 @@
 
 #include "ametsuchi/impl/postgres_indexer.hpp"
 
+#include <fmt/core.h>
 #include <soci/soci.h>
 #include <boost/format.hpp>
 #include "cryptography/hash.hpp"
-#include <fmt/core.h>
 
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
