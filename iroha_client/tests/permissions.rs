@@ -54,7 +54,7 @@ fn permissions_disallow_asset_transfer() {
     ));
     //When
     let transfer_asset = TransferBox::new(
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, root_id.clone())),
     );
@@ -120,7 +120,7 @@ fn permissions_disallow_asset_burn() {
     //When
     let burn_asset = BurnBox::new(
         Value::U32(quantity),
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
+        IdBox::AssetId(AssetId::new(asset_definition_id, alice_id)),
     );
     let rejection_reason = iroha_client
         .submit_blocking(burn_asset.into())

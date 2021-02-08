@@ -68,10 +68,7 @@ mod tests {
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
             Value::U32(quantity),
-            IdBox::AssetId(AssetId::new(
-                asset_definition_id.clone(),
-                account_id.clone(),
-            )),
+            IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
         );
         iroha_client
             .submit(mint_asset.into())

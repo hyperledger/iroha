@@ -83,10 +83,7 @@ mod tests {
         //When
         let quantity = 20;
         let transfer_asset = TransferBox::new(
-            IdBox::AssetId(AssetId::new(
-                asset_definition_id.clone(),
-                account1_id.clone(),
-            )),
+            IdBox::AssetId(AssetId::new(asset_definition_id.clone(), account1_id)),
             Value::U32(quantity),
             IdBox::AssetId(AssetId::new(asset_definition_id, account2_id.clone())),
         );

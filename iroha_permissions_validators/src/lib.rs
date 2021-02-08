@@ -271,7 +271,7 @@ pub mod public_blockchain {
                     accounts: btreemap! {},
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
-                        xor_id.clone() =>
+                        xor_id =>
                         AssetDefinitionEntry {
                             definition: xor_definition.clone(),
                             registered_by: alice_id.clone()
@@ -306,9 +306,9 @@ pub mod public_blockchain {
                     accounts: btreemap! {},
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
-                        xor_id.clone() =>
+                        xor_id =>
                         AssetDefinitionEntry {
-                            definition: xor_definition.clone(),
+                            definition: xor_definition,
                             registered_by: alice_id.clone()
                         }
                     },
@@ -341,9 +341,9 @@ pub mod public_blockchain {
                     accounts: btreemap! {},
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
-                        xor_id.clone() =>
+                        xor_id =>
                         AssetDefinitionEntry {
-                            definition: xor_definition.clone(),
+                            definition: xor_definition,
                             registered_by: alice_id.clone()
                         }
                     },

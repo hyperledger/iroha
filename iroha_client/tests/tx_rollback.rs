@@ -28,9 +28,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let wrong_asset_definition_id = AssetDefinitionId::new("ksor", domain_name);
         let create_asset = RegisterBox::new(
-            IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(asset_definition_id.clone()).into(),
-            ),
+            IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id).into()),
             IdBox::DomainName(domain_name.to_string()),
         );
         let quantity: u32 = 200;
