@@ -8,31 +8,23 @@ use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::{
     cmp::min,
+    convert::TryFrom,
     time::{Duration, SystemTime},
 };
 
-/// Temp trait for transaction acceptance.
-//TODO: replace with From.
 //TODO: check the number of ISI in tx and drop if it exceeds the limit. Also drop if it exceeds the byte limit.
-pub trait Accept {
-    /// Transform transaction to `AcceptedTransaction`.
-    fn accept(self) -> Result<AcceptedTransaction, String>;
-}
+impl TryFrom<Transaction> for AcceptedTransaction {
+    type Error = String;
 
-impl Accept for Transaction {
-    /// Transaction acceptance will check that transaction signatures are valid and move state one
-    /// step forward.
-    ///
-    /// Returns `Ok(AcceptedTransaction)` if succeeded and `Err(String)` if failed.
-    fn accept(self) -> Result<AcceptedTransaction, String> {
-        for signature in &self.signatures {
-            if let Err(e) = signature.verify(self.hash().as_ref()) {
+    fn try_from(t: Transaction) -> Result<Self, Self::Error> {
+        for signature in &t.signatures {
+            if let Err(e) = signature.verify(t.hash().as_ref()) {
                 return Err(format!("Failed to verify signatures: {}", e));
             }
         }
-        Ok(AcceptedTransaction {
-            payload: self.payload,
-            signatures: self.signatures,
+        Ok(Self {
+            payload: t.payload,
+            signatures: t.signatures,
         })
     }
 }
@@ -213,7 +205,7 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 mod tests {
     use super::*;
     use crate::{config::Configuration, init, permissions::AllowAll};
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, convert::TryInto};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
@@ -227,7 +219,7 @@ mod tests {
         config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         let signed_tx = tx.sign(&root_key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
-        let accepted_tx = signed_tx.accept().expect("Failed to accept.");
+        let accepted_tx: AcceptedTransaction = signed_tx.try_into().expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(

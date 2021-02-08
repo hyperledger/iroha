@@ -3,7 +3,6 @@ use self::config::GenesisConfiguration;
 use crate::{
     sumeragi::{InitializedNetworkTopology, Sumeragi},
     torii::uri,
-    tx::Accept,
     tx::AcceptedTransaction,
     Identifiable,
 };
@@ -16,7 +15,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
-use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
+use std::{convert::TryFrom, fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -49,13 +48,13 @@ impl GenesisTransaction {
         &self,
         genesis_key_pair: &KeyPair,
     ) -> Result<AcceptedTransaction, String> {
-        Transaction::new(
+        let transaction = Transaction::new(
             self.isi.clone(),
             <Account as Identifiable>::Id::genesis_account(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
-        .sign(&genesis_key_pair)?
-        .accept()
+        .sign(&genesis_key_pair)?;
+        AcceptedTransaction::try_from(transaction)
     }
 }
 
