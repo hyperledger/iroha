@@ -1478,11 +1478,9 @@ mod tests {
 
     #[cfg(feature = "network-mock")]
     use {
-        crate::{
-            config::Configuration, init, maintenance::System, queue::Queue, torii::Torii,
-            tx::Accept,
-        },
+        crate::{config::Configuration, init, maintenance::System, queue::Queue, torii::Torii},
         async_std::{prelude::*, sync, task},
+        std::convert::TryInto,
         std::time::Duration,
     };
 
@@ -1714,7 +1712,7 @@ mod tests {
             )
             .sign(&root_key_pair)
             .expect("Failed to sign.")
-            .accept()
+            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -1848,7 +1846,7 @@ mod tests {
             )
             .sign(&root_key_pair)
             .expect("Failed to sign.")
-            .accept()
+            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -2011,7 +2009,7 @@ mod tests {
             )
             .sign(&root_key_pair)
             .expect("Failed to sign.")
-            .accept()
+            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -2170,7 +2168,7 @@ mod tests {
             )
             .sign(&root_key_pair)
             .expect("Failed to sign.")
-            .accept()
+            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -2322,7 +2320,7 @@ mod tests {
             )
             .sign(&root_key_pair)
             .expect("Failed to sign.")
-            .accept()
+            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");

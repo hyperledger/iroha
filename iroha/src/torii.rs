@@ -6,10 +6,10 @@ use crate::{
     event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
-    query::Verify,
+    query::VerifiedQueryRequest,
     queue::Queue,
     sumeragi::{message::Message as SumeragiMessage, Sumeragi},
-    tx::Accept,
+    tx::AcceptedTransaction,
     BlockSyncMessageSender, SumeragiMessageSender,
 };
 use async_std::{prelude::*, sync::RwLock, task};
@@ -136,7 +136,7 @@ async fn handle_instructions(
 ) -> Result<HttpResponse, String> {
     match Transaction::try_from(request.body) {
         Ok(transaction) => {
-            let transaction = transaction.accept()?;
+            let transaction = AcceptedTransaction::try_from(transaction)?;
             state
                 .write()
                 .await
@@ -162,7 +162,7 @@ async fn handle_queries(
 ) -> Result<HttpResponse, String> {
     match SignedQueryRequest::try_from(request.body) {
         //TODO: check query permissions based on signature?
-        Ok(request) => match request.verify() {
+        Ok(request) => match VerifiedQueryRequest::try_from(request) {
             Ok(request) => {
                 match request
                     .query
