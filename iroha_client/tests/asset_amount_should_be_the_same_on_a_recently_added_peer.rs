@@ -69,10 +69,7 @@ mod tests {
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
             Value::U32(quantity),
-            IdBox::AssetId(AssetId::new(
-                asset_definition_id.clone(),
-                account_id.clone(),
-            )),
+            IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
         );
         iroha_client
             .submit(mint_asset.into())
@@ -92,13 +89,11 @@ mod tests {
         configuration
             .kura_configuration
             .kura_block_store_path(temp_dir.path());
-        configuration.torii_configuration.torii_p2p_url = p2p_address.clone();
+        configuration.torii_configuration.torii_p2p_url = p2p_address;
         configuration.torii_configuration.torii_api_url = api_address.clone();
         configuration.public_key = key_pair.public_key;
-        configuration.private_key = key_pair.private_key.clone();
-        configuration
-            .sumeragi_configuration
-            .trusted_peers(peer_ids.clone());
+        configuration.private_key = key_pair.private_key;
+        configuration.sumeragi_configuration.trusted_peers(peer_ids);
         configuration
             .sumeragi_configuration
             .max_faulty_peers(MAX_FAULTS);
@@ -117,7 +112,7 @@ mod tests {
                 * 2,
         ));
         let add_peer = RegisterBox::new(
-            IdentifiableBox::Peer(Peer::new(new_peer.clone()).into()),
+            IdentifiableBox::Peer(Peer::new(new_peer).into()),
             IdBox::WorldId,
         );
         iroha_client
@@ -133,7 +128,7 @@ mod tests {
         let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         //The address of a new peer.
-        client_configuration.torii_api_url = api_address.clone();
+        client_configuration.torii_api_url = api_address;
         let mut iroha_client = Client::new(&client_configuration);
         let request = client::asset::by_account_id(account_id);
         let query_result = iroha_client
@@ -209,7 +204,7 @@ mod tests {
             thread::sleep(std::time::Duration::from_millis(100));
         }
         (
-            peer_ids.clone(),
+            peer_ids,
             addresses
                 .iter()
                 .map(|(_, api_url)| api_url)

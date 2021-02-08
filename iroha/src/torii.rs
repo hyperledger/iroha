@@ -452,7 +452,7 @@ mod tests {
         .expect("Failed to initialize sumeragi.");
         let mut torii = Torii::from_configuration(
             &config.torii_configuration,
-            wsv.clone(),
+            wsv,
             tx_tx,
             sumeragi_message_sender,
             block_sync_message_sender,

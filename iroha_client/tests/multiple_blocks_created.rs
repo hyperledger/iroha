@@ -91,7 +91,7 @@ mod tests {
         client_configuration.torii_api_url =
             peers.last().expect("Failed to get last peer.").clone();
         let mut iroha_client = Client::new(&client_configuration);
-        let request = client::asset::by_account_id(account_id.clone());
+        let request = client::asset::by_account_id(account_id);
         let query_result = iroha_client
             .request(&request)
             .expect("Failed to execute request.");

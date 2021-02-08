@@ -41,10 +41,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
     iroha_client
         .submit(mint_asset.into())

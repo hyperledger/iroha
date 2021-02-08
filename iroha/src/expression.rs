@@ -331,7 +331,7 @@ mod tests {
                 "usd_quantity".to_string(),
                 asset_quantity_high.clone(),
             )
-            .with_value("signatories".to_string(), teller_signatory_set.clone())
+            .with_value("signatories".to_string(), teller_signatory_set)
             .build();
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
@@ -341,7 +341,7 @@ mod tests {
         // Signed by manager
         let expression = WhereBuilder::evaluate(condition.clone())
             .with_value("usd_quantity".to_string(), asset_quantity_high.clone())
-            .with_value("signatories".to_string(), manager_signatory_set.clone())
+            .with_value("signatories".to_string(), manager_signatory_set)
             .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -349,7 +349,7 @@ mod tests {
         );
         // Signed by one teller
         let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_high.clone())
+            .with_value("usd_quantity".to_string(), asset_quantity_high)
             .with_value("signatories".to_string(), one_teller_set.clone())
             .build();
         assert_eq!(
@@ -357,9 +357,9 @@ mod tests {
             Value::Bool(false)
         );
         // Signed by one teller with less value
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_low.clone())
-            .with_value("signatories".to_string(), one_teller_set.clone())
+        let expression = WhereBuilder::evaluate(condition)
+            .with_value("usd_quantity".to_string(), asset_quantity_low)
+            .with_value("signatories".to_string(), one_teller_set)
             .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,

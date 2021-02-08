@@ -136,7 +136,7 @@ mod tests {
             },
             PeerId {
                 address: "195.162.0.1:24".to_string(),
-                public_key: public_key.clone(),
+                public_key,
             },
         ]
         .into_iter()
@@ -174,7 +174,7 @@ mod tests {
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: public_key.clone(),
+                public_key,
             },
         ];
         let result: Vec<PeerId> =

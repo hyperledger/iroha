@@ -22,7 +22,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
     let domain_name = "global";
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(
-        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
+        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id).into()),
         IdBox::DomainName(domain_name.to_string()),
     );
     let mut iroha_client = Client::new(
