@@ -262,7 +262,6 @@ mod tests {
         queue
             .push_pending_transaction(
                 transaction
-                    .clone()
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign.")
                     .accept()

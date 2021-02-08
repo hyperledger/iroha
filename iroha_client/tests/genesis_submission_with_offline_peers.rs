@@ -37,7 +37,7 @@ mod tests {
         let alice_id = AccountId::new("alice", "wonderland");
         let alice_has_roses = 13;
         //Then
-        let request = client::asset::by_account_id(alice_id.clone());
+        let request = client::asset::by_account_id(alice_id);
         let query_result = iroha_client
             .request(&request)
             .expect("Failed to execute request.");

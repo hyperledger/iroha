@@ -81,12 +81,12 @@ fn validate_transaction(criterion: &mut Criterion) {
         .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    let mut world_state_view = WorldStateView::new(World::new());
+    let world_state_view = WorldStateView::new(World::new());
     criterion.bench_function("validate", |b| {
         b.iter(|| {
             match transaction
                 .clone()
-                .validate(&mut world_state_view, &AllowAll.into(), false)
+                .validate(&world_state_view, &AllowAll.into(), false)
             {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
@@ -147,7 +147,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     let domain_name = "global".to_string();
     let asset_definitions = BTreeMap::new();
     let account_id = AccountId::new("root", &domain_name);
-    let account = Account::with_signatory(account_id.clone(), key_pair.public_key.clone());
+    let account = Account::with_signatory(account_id.clone(), key_pair.public_key);
     let mut accounts = BTreeMap::new();
     accounts.insert(account_id, account);
     let domain = Domain {

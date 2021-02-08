@@ -20,11 +20,12 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         let network = Network::new("127.0.0.1:8888");
         let mut actual_changes = Vec::new();
-        let mut connection = network
+        let connection = network
             .connect(&[0u8, 10])
             .await
             .expect("Failed to connect.");
-        while let Some(mut change) = connection.next() {
+
+        for mut change in connection {
             println!("Change #{} - {:?}", actual_changes.len(), change);
             actual_changes.append(&mut change);
         }

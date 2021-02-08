@@ -48,6 +48,8 @@ mod iroha_steps {
     use super::*;
     use cucumber_rust::Steps;
 
+    const IROHA_WORLD_SLEEP_TIME: Duration = Duration::from_millis(10);
+
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
         steps
@@ -64,7 +66,9 @@ mod iroha_steps {
                         format!("127.0.0.1:{}", iroha_port);
                     let iroha = Iroha::new(configuration.clone(), AllowAll.into());
                     iroha.start().await.expect("Failed to start Iroha.");
-                    loop {}
+                    loop {
+                        thread::sleep(IROHA_WORLD_SLEEP_TIME);
+                    }
                 }));
                 thread::sleep(Duration::from_millis(world.block_build_time));
                 world
@@ -761,13 +765,13 @@ mod peer_steps {
                 let trusted_peer_public_key = matches[2].trim();
                 let public_key: PublicKey = serde_json::from_value(serde_json::json!(trusted_peer_public_key)).expect("Failed to parse Public Key.");
                 if let QueryResult(Value::Vec(peers)) = world.result.clone().expect("Result is missing.") {
-                    assert!(peers.iter().find(
+                    assert!(peers.iter().any(
                         |peer_id| if let Value::Id(IdBox::PeerId(peer_id)) = peer_id {
                             peer_id.address == trusted_peer_url && peer_id.public_key == public_key
                         } else {
                             false
                         }
-                    ).is_some());
+                    ));
                 }
                 world
             })
@@ -778,13 +782,13 @@ mod peer_steps {
             _step | {
                 let maximum_faulty_peers_amount = matches[1].parse().expect("Failed to parse MaximumFaultyPeersAmount.");
                 if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
-                    assert!(parameters.iter().find(
+                    assert!(parameters.iter().any(
                         |parameter| if let Value::Parameter(parameter) = parameter {
                             *parameter == Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)
                         } else {
                             false
                         }
-                    ).is_some());
+                    ));
                 }
                 world
             })
@@ -795,13 +799,13 @@ mod peer_steps {
             _step | {
                 let commit_time_milliseconds = matches[1].parse().expect("Failed to parse CommitTime.");
                 if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
-                    assert!(parameters.iter().find(
+                    assert!(parameters.iter().any(
                         |parameter| if let Value::Parameter(parameter) = parameter {
                             *parameter == Parameter::CommitTime(commit_time_milliseconds)
                         } else {
                             false
                         }
-                    ).is_some());
+                    ));
                 }
                 world
             })
@@ -812,13 +816,13 @@ mod peer_steps {
             _step | {
                 let transaction_receipt_time_milliseconds = matches[1].parse().expect("Failed to parse TransactionReceiptTime.");
                 if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
-                    assert!(parameters.iter().find(
+                    assert!(parameters.iter().any(
                         |parameter| if let Value::Parameter(parameter) = parameter {
                             *parameter == Parameter::TransactionReceiptTime(transaction_receipt_time_milliseconds)
                         } else {
                             false
                         }
-                    ).is_some());
+                    ));
                 }
                 world
             })
@@ -829,13 +833,13 @@ mod peer_steps {
             _step | {
                 let block_time_milliseconds = matches[1].parse().expect("Failed to parse BlockTime.");
                 if let QueryResult(Value::Vec(parameters)) = world.result.clone().expect("Result is missing.") {
-                    assert!(parameters.iter().find(
+                    assert!(parameters.iter().any(
                         |parameter| if let Value::Parameter(parameter) = parameter {
                             *parameter == Parameter::BlockTime(block_time_milliseconds)
                         } else {
                             false
                         }
-                    ).is_some());
+                    ));
                 }
                 world
             });
