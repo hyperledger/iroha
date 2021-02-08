@@ -76,10 +76,7 @@ mod tests {
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
             Value::U32(quantity),
-            IdBox::AssetId(AssetId::new(
-                asset_definition_id.clone(),
-                account_id.clone(),
-            )),
+            IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
         );
         client_configuration.account_id = account_id.clone();
         client_configuration.public_key = key_pair_1.public_key;
@@ -113,7 +110,7 @@ mod tests {
         client_configuration.private_key = key_pair_2.private_key;
         let mut iroha_client = Client::new(&client_configuration);
         let transaction = iroha_client
-            .build_transaction(vec![mint_asset.clone().into()])
+            .build_transaction(vec![mint_asset.into()])
             .expect("Failed to create transaction.");
         let transaction = iroha_client
             .get_original_transaction(&transaction, 3, Duration::from_millis(100))

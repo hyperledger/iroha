@@ -1474,18 +1474,27 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::Configuration, init, maintenance::System, queue::Queue, torii::Torii, tx::Accept,
-    };
-    use async_std::{prelude::*, sync, task};
-    use iroha_data_model::prelude::*;
     use std::collections::BTreeSet;
-    use std::time::Duration;
 
+    #[cfg(feature = "network-mock")]
+    use {
+        crate::{
+            config::Configuration, init, maintenance::System, queue::Queue, torii::Torii,
+            tx::Accept,
+        },
+        async_std::{prelude::*, sync, task},
+        std::time::Duration,
+    };
+
+    #[cfg(feature = "network-mock")]
     const CONFIG_PATH: &str = "config.json";
+    #[cfg(feature = "network-mock")]
     const BLOCK_TIME_MS: u64 = 1000;
+    #[cfg(feature = "network-mock")]
     const COMMIT_TIME_MS: u64 = 1000;
+    #[cfg(feature = "network-mock")]
     const TX_RECEIPT_TIME_MS: u64 = 200;
+    #[cfg(feature = "network-mock")]
     const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
     #[test]
@@ -1667,18 +1676,18 @@ mod tests {
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
             );
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     let _result = message.handle(&mut *sumeragi.write().await).await;
                 }
             });
             let block_counter = block_counters[i].clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(_block) = block_receiver.next().await {
                     *block_counter.write().await += 1;
                 }
@@ -1794,12 +1803,12 @@ mod tests {
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
             );
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate faulty proxy tail
@@ -1812,7 +1821,7 @@ mod tests {
                 }
             });
             let block_counter = block_counters[i].clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(_block) = block_receiver.next().await {
                     *block_counter.write().await += 1;
                 }
@@ -1945,13 +1954,13 @@ mod tests {
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
             );
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi_arc_clone.write().await;
                     // Simulate faulty leader
@@ -1964,13 +1973,13 @@ mod tests {
                 }
             });
             let block_counter = block_counters[i].clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(_block) = block_receiver.next().await {
                     *block_counter.write().await += 1;
                 }
             });
             let sumeragi_arc_clone = sumeragi.clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(transaction) = transactions_receiver.next().await {
                     if let Err(e) = sumeragi_arc_clone
                         .write()
@@ -2107,13 +2116,13 @@ mod tests {
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
             );
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     // Simulate faulty leader as if it does not send `BlockCreated` messages
                     if let Message::BlockCreated(..) = message {
@@ -2123,13 +2132,13 @@ mod tests {
                 }
             });
             let block_counter = block_counters[i].clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(_block) = block_receiver.next().await {
                     *block_counter.write().await += 1;
                 }
             });
             let sumeragi_arc_clone = sumeragi.clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(transaction) = transactions_receiver.next().await {
                     if let Err(e) = sumeragi_arc_clone
                         .write()
@@ -2266,12 +2275,12 @@ mod tests {
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
             );
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
             sumeragi.write().await.init(Hash([0u8; 32]), 0);
             peers.push(sumeragi.clone());
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate leader producing empty blocks
@@ -2287,7 +2296,7 @@ mod tests {
                 }
             });
             let block_counter = block_counters[i].clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 while let Some(_block) = block_receiver.next().await {
                     *block_counter.write().await += 1;
                 }

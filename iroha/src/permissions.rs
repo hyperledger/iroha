@@ -233,10 +233,10 @@ mod tests {
             .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_burn.clone(), &wsv)
+            .check_instruction(account_alice, instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_bob.clone(), instruction_fail.clone(), &wsv)
+            .check_instruction(account_bob, instruction_fail, &wsv)
             .is_ok());
     }
 
@@ -258,17 +258,13 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
+            .check_instruction(account_alice.clone(), instruction_fail, &wsv)
             .is_ok());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_burn.clone(), &wsv)
+            .check_instruction(account_alice.clone(), instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(
-                account_alice.clone(),
-                nested_instruction_sequence.clone(),
-                &wsv
-            )
+            .check_instruction(account_alice, nested_instruction_sequence, &wsv)
             .is_err());
     }
 }
