@@ -5,12 +5,7 @@ use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
-//TODO: replace with From<SignedQueryRequest> for VerifiedQueryRequest.
-/// Verify query trait.
-pub trait Verify {
-    /// Verify query.
-    fn verify(self) -> Result<VerifiedQueryRequest, String>;
-}
+use std::convert::TryFrom;
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Io, Encode, Decode)]
@@ -31,17 +26,15 @@ pub trait Query {
     fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String>;
 }
 
-//TODO: replace with From<SignedQueryRequest> for VerifiedQueryRequest.
-impl Verify for SignedQueryRequest {
-    /// Verifies the signature of this query.
-    fn verify(self) -> Result<VerifiedQueryRequest, String> {
-        self.signature
-            .verify(self.hash().as_ref())
-            .map(|_| VerifiedQueryRequest {
-                timestamp: self.timestamp,
-                signature: self.signature,
-                query: self.query,
-            })
+impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
+    type Error = String;
+
+    fn try_from(sr: SignedQueryRequest) -> Result<Self, Self::Error> {
+        sr.signature.verify(sr.hash().as_ref()).map(|_| Self {
+            timestamp: sr.timestamp,
+            signature: sr.signature,
+            query: sr.query,
+        })
     }
 }
 
