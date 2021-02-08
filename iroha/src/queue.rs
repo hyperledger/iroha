@@ -173,8 +173,7 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx::Accept;
-    use std::{collections::BTreeMap, thread, time::Duration};
+    use std::{collections::BTreeMap, convert::TryInto, thread, time::Duration};
 
     #[test]
     fn push_pending_transaction() {
@@ -192,7 +191,7 @@ mod tests {
                 )
                 .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                 .expect("Failed to sign.")
-                .accept()
+                .try_into()
                 .expect("Failed to accept Transaction."),
             )
             .expect("Failed to push tx into queue");
@@ -216,7 +215,7 @@ mod tests {
                     )
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign.")
-                    .accept()
+                    .try_into()
                     .expect("Failed to accept Transaction."),
                 )
                 .expect("Failed to push tx into queue");
@@ -231,7 +230,7 @@ mod tests {
                 )
                 .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                 .expect("Failed to sign.")
-                .accept()
+                .try_into()
                 .expect("Failed to accept Transaction."),
             )
             .is_err());
@@ -255,7 +254,7 @@ mod tests {
                     .clone()
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign.")
-                    .accept()
+                    .try_into()
                     .expect("Failed to accept Transaction."),
             )
             .expect("Failed to push tx into queue");
@@ -264,7 +263,7 @@ mod tests {
                 transaction
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign.")
-                    .accept()
+                    .try_into()
                     .expect("Failed to accept Transaction."),
             )
             .expect("Failed to push tx into queue");
@@ -301,7 +300,7 @@ mod tests {
                     )
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign.")
-                    .accept()
+                    .try_into()
                     .expect("Failed to accept Transaction."),
                 )
                 .expect("Failed to push tx into queue");
@@ -333,7 +332,7 @@ mod tests {
                     )
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign.")
-                    .accept()
+                    .try_into()
                     .expect("Failed to accept Transaction."),
                 )
                 .expect("Failed to push tx into queue");
@@ -348,7 +347,7 @@ mod tests {
                 )
                 .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                 .expect("Failed to sign.")
-                .accept()
+                .try_into()
                 .expect("Failed to accept Transaction."),
             )
             .expect("Failed to push tx into queue");
@@ -368,7 +367,7 @@ mod tests {
                 )
                 .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                 .expect("Failed to sign.")
-                .accept()
+                .try_into()
                 .expect("Failed to accept Transaction."),
             )
             .expect("Failed to push tx into queue");
@@ -392,24 +391,24 @@ mod tests {
         let alice_key_1 = KeyPair::generate().expect("Failed to generate keypair.");
         let alice_key_2 = KeyPair::generate().expect("Failed to generate keypair.");
         let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_transaction_1 = Transaction::new(
+        let alice_transaction_1: AcceptedTransaction = Transaction::new(
             Vec::new(),
             <Account as Identifiable>::Id::new("alice", "wonderland"),
             100000,
         )
         .sign(&alice_key_1)
         .expect("Failed to sign.")
-        .accept()
+        .try_into()
         .expect("Failed to accept Transaction.");
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_2 = Transaction::new(
+        let alice_transaction_2: AcceptedTransaction = Transaction::new(
             Vec::new(),
             <Account as Identifiable>::Id::new("alice", "wonderland"),
             100000,
         )
         .sign(&alice_key_2)
         .expect("Failed to sign.")
-        .accept()
+        .try_into()
         .expect("Failed to accept Transaction.");
         thread::sleep(Duration::from_millis(10));
         let alice_transaction_3 = Transaction::new(
@@ -419,17 +418,17 @@ mod tests {
         )
         .sign(&bob_key)
         .expect("Failed to sign.")
-        .accept()
+        .try_into()
         .expect("Failed to accept Transaction.");
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_4 = Transaction::new(
+        let alice_transaction_4: AcceptedTransaction = Transaction::new(
             Vec::new(),
             <Account as Identifiable>::Id::new("alice", "wonderland"),
             100000,
         )
         .sign(&alice_key_1)
         .expect("Failed to sign.")
-        .accept()
+        .try_into()
         .expect("Failed to accept Transaction.");
         queue
             .push_pending_transaction(alice_transaction_1.clone())
