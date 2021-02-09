@@ -380,9 +380,9 @@ impl From<&CommittedBlock> for Vec<Event> {
                         PipelineEvent::new(
                             PipelineEntityType::Block,
                             //TODO: store rejection reasons for blocks?
-                            PipelineStatus::Rejected(
-                                "Block was rejected during consensus.".to_string(),
-                            ),
+                            PipelineStatus::Rejected(PipelineRejectionReason::Block(
+                                BlockRejectionReason::ConsensusBlockRejection,
+                            )),
                             hash,
                         )
                         .into()

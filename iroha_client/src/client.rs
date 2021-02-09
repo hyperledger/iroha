@@ -132,7 +132,7 @@ impl Client {
             .recv_timeout(self.transaction_status_timout)
             .map_or_else(
                 |err| Err(format!("Timeout waiting for transaction status: {}", err)),
-                |result| result,
+                |result| result.map_err(|e| e.to_string()),
             )
     }
 

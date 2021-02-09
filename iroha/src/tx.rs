@@ -54,11 +54,73 @@ impl AcceptedTransaction {
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get System Time.");
+
         (current_time - Duration::from_millis(self.payload.creation_time))
             > min(
                 Duration::from_millis(self.payload.time_to_live_ms),
                 transaction_time_to_live,
             )
+    }
+
+    fn validate_internal(
+        &self,
+        world_state_view: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+        is_genesis: bool,
+    ) -> Result<(), TransactionRejectionReason> {
+        let mut world_state_view_temp = world_state_view.clone();
+        let account_id = self.payload.account_id.clone();
+        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
+            return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
+        }
+
+        let _ = self
+            .signatures
+            .iter()
+            .map(|signature| {
+                signature
+                    .verify(self.hash().as_ref())
+                    .map_err(|reason| SignatureVerificationFail {
+                        signature: signature.clone(),
+                        reason,
+                    })
+            })
+            .collect::<Result<Vec<()>, _>>()
+            .map_err(TransactionRejectionReason::SignatureVerification)?;
+
+        let option_reason = match self.check_signature_condition(world_state_view) {
+            Ok(true) => None,
+            Ok(false) => Some("Signature condition not satisfied.".to_owned()),
+            Err(reason) => Some(reason),
+        }
+        .map(|reason| UnsatisfiedSignatureConditionFail { reason })
+        .map(TransactionRejectionReason::UnsatisfiedSignatureCondition);
+
+        if let Some(reason) = option_reason {
+            return Err(reason);
+        }
+
+        for instruction in &self.payload.instructions {
+            let account_id = self.payload.account_id.clone();
+
+            world_state_view_temp = instruction
+                .clone()
+                .execute(account_id.clone(), &world_state_view_temp)
+                .map_err(|reason| InstructionExecutionFail {
+                    instruction: instruction.clone(),
+                    reason,
+                })
+                .map_err(TransactionRejectionReason::InstructionExecution)?;
+
+            if !is_genesis {
+                permissions_validator
+                    .check_instruction(account_id.clone(), instruction.clone(), &world_state_view)
+                    .map_err(|reason| NotPermittedFail { reason })
+                    .map_err(TransactionRejectionReason::NotPermitted)?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
@@ -71,42 +133,13 @@ impl AcceptedTransaction {
         permissions_validator: &PermissionsValidatorBox,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
-        let mut world_state_view_temp = world_state_view.clone();
-        let account_id = self.payload.account_id.clone();
-        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
-            return Err(
-                self.reject("Genesis account can sign only transactions in the genesis block.")
-            );
+        match self.validate_internal(world_state_view, permissions_validator, is_genesis) {
+            Ok(()) => Ok(ValidTransaction {
+                payload: self.payload,
+                signatures: self.signatures,
+            }),
+            Err(reason) => Err(self.reject(reason)),
         }
-        for signature in &self.signatures {
-            if let Err(e) = signature.verify(self.hash().as_ref()) {
-                return Err(self
-                    .clone()
-                    .reject(&format!("Failed to verify signatures: {}", e)));
-            }
-        }
-        if !self
-            .check_signature_condition(world_state_view)
-            .map_err(|error| self.clone().reject(&error))?
-        {
-            return Err(self.reject("Signature condition not satisfied."));
-        }
-        for instruction in &self.payload.instructions {
-            let account_id = self.payload.account_id.clone();
-            world_state_view_temp = instruction
-                .clone()
-                .execute(account_id.clone(), &world_state_view_temp)
-                .map_err(|error| self.clone().reject(&error))?;
-            if !is_genesis {
-                permissions_validator
-                    .check_instruction(account_id.clone(), instruction.clone(), &world_state_view)
-                    .map_err(|error| self.clone().reject(&error))?;
-            }
-        }
-        Ok(ValidTransaction {
-            payload: self.payload,
-            signatures: self.signatures,
-        })
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
@@ -123,11 +156,12 @@ impl AcceptedTransaction {
     }
 
     /// Rejects transaction with the `rejection_reason`.
-    pub fn reject(self, rejection_reason: &str) -> RejectedTransaction {
+    pub fn reject(self, rejection_reason: TransactionRejectionReason) -> RejectedTransaction {
+        let rejection_reason = PipelineRejectionReason::Transaction(rejection_reason);
         RejectedTransaction {
             payload: self.payload,
             signatures: self.signatures,
-            rejection_reason: rejection_reason.to_string(),
+            rejection_reason,
         }
     }
 
@@ -192,9 +226,8 @@ impl From<ValidTransaction> for AcceptedTransaction {
 pub struct RejectedTransaction {
     payload: Payload,
     signatures: Vec<Signature>,
-    // TODO: Convert errors in the tx pipeline to enums to simplify translation to other languages.
     /// The reason for rejecting this tranaction during the validation pipeline.
-    pub rejection_reason: String,
+    pub rejection_reason: PipelineRejectionReason,
 }
 
 impl RejectedTransaction {

@@ -563,7 +563,6 @@ impl InitializedNetworkTopology {
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
     pub fn update(&mut self, peers: BTreeSet<PeerId>, latest_block_hash: Hash) {
         let current_peers: BTreeSet<_> = self.sorted_peers.iter().cloned().collect();
-        let peers: BTreeSet<_> = peers.into_iter().collect();
         if peers != current_peers {
             self.sorted_peers = peers.iter().cloned().collect();
             self.sort_peers_by_hash(Some(latest_block_hash));
