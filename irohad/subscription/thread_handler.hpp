@@ -53,11 +53,24 @@ namespace iroha::subscription {
       return Time::now();
     }
 
+    static inline Timepoint &tpFromTimedTask(TimedTask &t) {
+      return t.first;
+    }
+
+    static inline Timepoint const &tpFromTimedTask(TimedTask const &t) {
+      return t.first;
+    }
+
+    static inline Task &taskFromTimedTask(TimedTask &t) {
+      return t.second;
+    }
+
     TaskContainer::const_iterator after(Timepoint const &tp) {
       checkLocked();
-      return std::upper_bound(tasks_.begin(), tasks_.end(), tp, [](auto const &l, auto const &r){
-        return l < r.first;
-      });
+      return std::upper_bound(
+          tasks_.begin(), tasks_.end(), tp, [](auto const &l, auto const &r) {
+            return l < tpFromTimedTask(r);
+          });
     }
 
     template <typename F>
@@ -66,6 +79,18 @@ namespace iroha::subscription {
       tasks_.insert(after, std::forward<F>(f));
     }
 
+    bool extract(Task &task, Timepoint const &before) {
+      std::lock_guard lock(tasks_cs_);
+      if (!tasks_.empty()) {
+        auto &first_task = tasks_.front();
+        if (tpFromTimedTask(first_task) <= before) {
+          taskFromTimedTask(first_task).swap(task);
+          tasks_.pop_front();
+          return true;
+        }
+      }
+      return false;
+    }
 
    public:
     thread_handler() = default;
@@ -83,7 +108,6 @@ namespace iroha::subscription {
       std::lock_guard lock(tasks_cs_);
       insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
     }
-
   };
 
   /*std::deque<int> s;
@@ -92,8 +116,8 @@ s.push_back(2);
 s.push_back(4);
 s.push_back(5);
 
-auto const it = std::upper_bound(s.begin(), s.end(), 3, [](auto const &l, auto const &r){
-  return l < r;
+auto const it = std::upper_bound(s.begin(), s.end(), 3, [](auto const &l, auto
+const &r){ return l < r;
 });
 s.insert(it, 3);*/
 
