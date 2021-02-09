@@ -10,7 +10,15 @@
 
 namespace iroha::subscription {
 
+  template<size_t kCount>
   class Dispatcher final : utils::NoCopy, utils::NoMove {
+   public:
+    static constexpr size_t kHandlersCount = kCount;
+
+   private:
+    threadHandler handlers[kHandlersCount];
+
+   public:
 
   };
 
