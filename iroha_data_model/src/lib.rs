@@ -41,12 +41,12 @@ pub type Bytes = Vec<u8>;
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
     MaximumFaultyPeersAmount(u32),
-    /// TODO: write a doc
+    /// Maximum time for a leader to create a block.
+    BlockTime(u128),
+    /// Maximum time for a proxy tail to send commit message.
     CommitTime(u128),
     /// Time to wait for a transaction Receipt.
     TransactionReceiptTime(u128),
-    /// TODO: write a doc
-    BlockTime(u128),
 }
 
 /// Sized container for all possible identifications.
