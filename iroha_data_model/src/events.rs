@@ -136,8 +136,10 @@ pub mod data {
 
 /// Pipeline events.
 pub mod pipeline {
-    use iroha_crypto::Hash;
+    use crate::isi::Instruction;
+    use iroha_crypto::{Hash, Signature};
     use iroha_derive::FromVariant;
+    use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     /// Event filter.
@@ -207,8 +209,124 @@ pub mod pipeline {
         Transaction,
     }
 
+    /// Transaction was reject during verification of signature
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
+    pub struct SignatureVerificationFail {
+        /// Signature which verification has failed
+        pub signature: Signature,
+        /// Error which happened during verification
+        pub reason: String,
+    }
+
+    /// Transaction was reject because it doesn't satisfy signature condition
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
+    pub struct UnsatisfiedSignatureConditionFail {
+        /// Reason why signature condition failed
+        pub reason: String,
+    }
+
+    /// Transaction was reject because of fail of instruction
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
+    pub struct InstructionExecutionFail {
+        /// Instruction which execution failed
+        pub instruction: Instruction,
+        /// Error which happened during execution
+        pub reason: String,
+    }
+
+    /// Transaction was reject because of low authority
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
+    pub struct NotPermittedFail {
+        /// Reason of failure
+        pub reason: String,
+    }
+
+    /// The reason for rejecting transaction which happened because of new blocks.
+    #[derive(
+        Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant,
+    )]
+    pub enum BlockRejectionReason {
+        /// Block was rejected during consensus.
+        //TODO: store rejection reasons for blocks?
+        ConsensusBlockRejection,
+    }
+
+    /// The reason for rejecting transaction which happened because of transaction.
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant)]
+    pub enum TransactionRejectionReason {
+        /// Failed due to low authority.
+        NotPermitted(NotPermittedFail),
+        /// Failed verify signature condition specified in the account.
+        UnsatisfiedSignatureCondition(UnsatisfiedSignatureConditionFail),
+        /// Failed execute instruction.
+        InstructionExecution(InstructionExecutionFail),
+        /// Failed to verify signatures.
+        SignatureVerification(SignatureVerificationFail),
+        /// Genesis account can sign only transactions in the genesis block.
+        UnexpectedGenesisAccountSignature,
+    }
+
     /// The reason for rejecting transaction.
-    pub type RejectionReason = String;
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant)]
+    pub enum RejectionReason {
+        /// The reason for rejecting the block.
+        Block(BlockRejectionReason),
+        /// The reason for rejecting transaction.
+        Transaction(TransactionRejectionReason),
+    }
+
+    impl std::fmt::Display for RejectionReason {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            use BlockRejectionReason::*;
+            use Instruction::*;
+            use TransactionRejectionReason::*;
+
+            match self {
+                RejectionReason::Transaction(UnexpectedGenesisAccountSignature) => write!(
+                    f,
+                    "Genesis account can sign only transactions in the genesis block."
+                ),
+                RejectionReason::Transaction(SignatureVerification(verification_error)) => write!(
+                    f,
+                    "Failed to verify signatures because of signature {}: {}",
+                    verification_error.signature.public_key, verification_error.reason,
+                ),
+                RejectionReason::Transaction(UnsatisfiedSignatureCondition(
+                    signature_conditon_error,
+                )) => {
+                    write!(
+                        f,
+                        "Failed to verify signature condition specified in the account: {}",
+                        signature_conditon_error.reason,
+                    )
+                }
+                RejectionReason::Transaction(InstructionExecution(execute_instruction)) => {
+                    let type_ = match execute_instruction.instruction {
+                        Burn(_) => "burn",
+                        Fail(_) => "fail",
+                        If(_) => "if",
+                        Mint(_) => "mint",
+                        Pair(_) => "pair",
+                        Register(_) => "register",
+                        Sequence(_) => "sequence",
+                        Transfer(_) => "transfer",
+                        Unregister(_) => "unregister",
+                    };
+                    write!(
+                        f,
+                        "Failed execute instruction of type {}: {}",
+                        type_, execute_instruction.reason
+                    )
+                }
+                RejectionReason::Transaction(NotPermitted(permission_error)) => {
+                    write!(f, "Action not permitted: {}", permission_error.reason)
+                }
+                RejectionReason::Block(ConsensusBlockRejection) => {
+                    write!(f, "Block was rejected during consensus.")
+                }
+            }
+        }
+    }
 
     /// Entity type to filter events.
     #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
@@ -246,14 +364,19 @@ pub mod pipeline {
     /// Exports common structs and enums from this module.
     pub mod prelude {
         pub use super::{
-            EntityType as PipelineEntityType, Event as PipelineEvent,
-            EventFilter as PipelineEventFilter, Status as PipelineStatus,
+            BlockRejectionReason, EntityType as PipelineEntityType, Event as PipelineEvent,
+            EventFilter as PipelineEventFilter, InstructionExecutionFail, NotPermittedFail,
+            RejectionReason as PipelineRejectionReason, SignatureVerificationFail,
+            Status as PipelineStatus, TransactionRejectionReason,
+            UnsatisfiedSignatureConditionFail,
         };
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+        use RejectionReason::*;
+        use TransactionRejectionReason::*;
 
         #[test]
         fn events_are_correctly_filtered() {
@@ -265,7 +388,9 @@ pub mod pipeline {
                 },
                 Event {
                     entity_type: EntityType::Transaction,
-                    status: Status::Rejected("Some reason".to_string()),
+                    status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
+                        reason: "Some reason".to_string(),
+                    }))),
                     hash: Hash([0u8; 32]),
                 },
                 Event {
@@ -288,7 +413,9 @@ pub mod pipeline {
                     },
                     Event {
                         entity_type: EntityType::Transaction,
-                        status: Status::Rejected("Some reason".to_string()),
+                        status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
+                            reason: "Some reason".to_string(),
+                        }))),
                         hash: Hash([0u8; 32]),
                     },
                 ],
