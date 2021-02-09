@@ -62,7 +62,7 @@ fn permissions_disallow_asset_transfer() {
     //Then
     assert_eq!(
         rejection_reason,
-        "Can't transfer assets of the other account."
+        "Action not permitted: Can\'t transfer assets of the other account."
     );
     let request = client::asset::by_account_id(root_id);
     let query_result = iroha_client
@@ -122,7 +122,10 @@ fn permissions_disallow_asset_burn() {
         .submit_blocking(burn_asset.into())
         .expect_err("Transaction was not rejected.");
     //Then
-    assert_eq!(rejection_reason, "Can't burn assets from another account.");
+    assert_eq!(
+        rejection_reason,
+        "Action not permitted: Can\'t burn assets from another account."
+    );
     let request = client::asset::by_account_id(root_id);
     let query_result = iroha_client
         .request(&request)
