@@ -64,7 +64,7 @@ namespace iroha::subscription {
     using TaskContainer = std::deque<TimedTask>;
 
     std::atomic_flag proceed_;
-    std::mutex tasks_cs_;
+    mutable std::mutex tasks_cs_;
     TaskContainer tasks_;
     std::thread worker_;
     utils::waitForSingleObject event_;
@@ -136,18 +136,21 @@ namespace iroha::subscription {
       Task task;
       do {
         while (extract(task, now())) {
-          if (task)
-            task();
+          try {
+            if (task)
+              task();
+          } catch (...) {
+          }
         }
         event_.wait(untilFirst());
-      } while (!proceed_.test_and_set());
+      } while (proceed_.test_and_set());
     }
 
    public:
-    thread_handler()
-        : worker_([](thread_handler *__this) { return __this->proc(); }, this) {
-
-      proceed_
+    thread_handler() {
+      proceed_.test_and_set();
+      worker_ = std::thread(
+          [](thread_handler *__this) { return __this->proc(); }, this);
     }
 
     ~thread_handler() {
