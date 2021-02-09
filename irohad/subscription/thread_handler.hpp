@@ -16,17 +16,39 @@
 namespace iroha::utils {
 
   struct NoCopy {
-    NoCopy(NoCopy const&) = delete;
-    NoCopy& operator=(NoCopy const&) = delete;
+    NoCopy(NoCopy const &) = delete;
+    NoCopy &operator=(NoCopy const &) = delete;
     NoCopy() = default;
   };
 
   struct NoMove {
-    NoMove(NoMove&&) = delete;
-    NoMove& operator=(NoMove&&) = delete;
+    NoMove(NoMove &&) = delete;
+    NoMove &operator=(NoMove &&) = delete;
     NoMove() = default;
   };
 
+  class waitForSingleObject : NoMove, NoCopy {
+    std::condition_variable wait_cv_;
+    std::mutex wait_m_;
+    std::atomic_flag wait_lock_;
+
+   public:
+    waitForSingleObject() {
+      wait_lock_.test_and_set();
+    }
+
+    bool wait(uint64_t const wait_timeout_us) {
+      std::unique_lock<std::mutex> _lock(wait_m_);
+      return wait_cv_.wait_for(_lock,
+                               std::chrono::microseconds(wait_timeout_us),
+                               [&]() { return !wait_lock_.test_and_set(); });
+    }
+
+    void set() {
+      wait_lock_.clear();
+      wait_cv_.notify_one();
+    }
+  };
 }
 
 namespace iroha::subscription {
@@ -41,15 +63,18 @@ namespace iroha::subscription {
     using TimedTask = std::pair<Timepoint, Task>;
     using TaskContainer = std::deque<TimedTask>;
 
+    std::atomic_flag proceed_;
     std::mutex tasks_cs_;
     TaskContainer tasks_;
+    std::thread worker_;
+    utils::waitForSingleObject event_;
 
    private:
     inline void checkLocked() {
       assert(!tasks_cs_.try_lock());
     }
 
-    inline Timepoint now() {
+    inline Timepoint now() const {
       return Time::now();
     }
 
@@ -92,14 +117,51 @@ namespace iroha::subscription {
       return false;
     }
 
+    uint64_t untilFirst() const {
+      auto const before = now();
+      std::lock_guard lock(tasks_cs_);
+      if (!tasks_.empty()) {
+        auto const &first = tasks_.front();
+        if (tpFromTimedTask(first) > before) {
+          return std::chrono::duration_cast<std::chrono::microseconds>(
+                     tpFromTimedTask(first) - before)
+              .count();
+        }
+        return 0ull;
+      }
+      return 10ull * 60 * 1000'000;
+    }
+
+    uint32_t proc() {
+      Task task;
+      do {
+        while (extract(task, now())) {
+          if (task)
+            task();
+        }
+        event_.wait(untilFirst());
+      } while (!proceed_.test_and_set());
+    }
+
    public:
-    thread_handler() = default;
+    thread_handler()
+        : worker_([](thread_handler *__this) { return __this->proc(); }, this) {
+
+      proceed_
+    }
+
+    ~thread_handler() {
+      proceed_.clear();
+      event_.set();
+      worker_.join();
+    }
 
     template <typename F>
     void add(F &&f) {
       auto const tp = now();
       std::lock_guard lock(tasks_cs_);
       insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
+      event_.set();
     }
 
     template <typename F>
@@ -107,6 +169,7 @@ namespace iroha::subscription {
       auto const tp = now() + std::chrono::microseconds(timeoutUs);
       std::lock_guard lock(tasks_cs_);
       insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
+      event_.set();
     }
   };
 
