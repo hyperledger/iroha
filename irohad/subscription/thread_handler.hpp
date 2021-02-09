@@ -11,59 +11,91 @@
 #include <deque>
 #include <mutex>
 #include <shared_mutex>
+#include <chrono>
 
 namespace iroha::utils {
 
-  template <typename T>
-  struct RWObjectHolder {
-    template <typename... Args>
-    RWObjectHolder(Args... &&args) : t(std::forward<Args>(args)...) {}
-
-    template <typename F>
-    void exclusive(F &&f) {
-      std::unique_lock lock(cs_);
-      std::forward<F>(f)(t_);
-    }
-
-    template <typename F>
-    void shared(F &&f) const {
-      std::shared_lock lock(cs_);
-      std::forward<F>(f)(t_);
-    }
-
-   private:
-    T t_;
-    mutable std::shared_mutex cs_;
+  struct NoCopy {
+    NoCopy(NoCopy const&) = delete;
+    NoCopy& operator=(NoCopy const&) = delete;
+    NoCopy() = default;
   };
 
-  template <typename T>
-  struct ObjectHolder {
-    template <typename... Args>
-    ObjectHolder(Args... &&args) : t(std::forward<Args>(args)...) {}
-
-    template <typename F>
-    void exclusive(F &&f) {
-      std::lock_guard lock(cs_);
-      std::forward<F>(f)(t_);
-    }
-
-   private:
-    T t_;
-    std::mutex cs_;
+  struct NoMove {
+    NoMove(NoMove&&) = delete;
+    NoMove& operator=(NoMove&&) = delete;
+    NoMove() = default;
   };
 
 }
 
 namespace iroha::subscription {
 
-  struct thread_handler final {
+  class thread_handler final : utils::NoCopy, utils::NoMove {
+   public:
     using Task = std::function<void()>;
 
    private:
-    using TaskContainer = std::deque<Task>;
+    using Time = std::chrono::high_resolution_clock;
+    using Timepoint = std::chrono::time_point<Time>;
+    using TimedTask = std::pair<Timepoint, Task>;
+    using TaskContainer = std::deque<TimedTask>;
 
-    utils::ObjectHolder<TaskContainer> tasks_;
+    std::mutex tasks_cs_;
+    TaskContainer tasks_;
+
+   private:
+    inline void checkLocked() {
+      assert(!tasks_cs_.try_lock());
+    }
+
+    inline Timepoint now() {
+      return Time::now();
+    }
+
+    TaskContainer::const_iterator after(Timepoint const &tp) {
+      checkLocked();
+      return std::upper_bound(tasks_.begin(), tasks_.end(), tp, [](auto const &l, auto const &r){
+        return l < r.first;
+      });
+    }
+
+    template <typename F>
+    void insert(TaskContainer::const_iterator after, F &&f) {
+      checkLocked();
+      tasks_.insert(after, std::forward<F>(f));
+    }
+
+
+   public:
+    thread_handler() = default;
+
+    template <typename F>
+    void add(F &&f) {
+      auto const tp = now();
+      std::lock_guard lock(tasks_cs_);
+      insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
+    }
+
+    template <typename F>
+    void addDelayed(size_t timeoutUs, F &&f) {
+      auto const tp = now() + std::chrono::microseconds(timeoutUs);
+      std::lock_guard lock(tasks_cs_);
+      insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
+    }
+
   };
+
+  /*std::deque<int> s;
+s.push_back(1);
+s.push_back(2);
+s.push_back(4);
+s.push_back(5);
+
+auto const it = std::upper_bound(s.begin(), s.end(), 3, [](auto const &l, auto const &r){
+  return l < r;
+});
+s.insert(it, 3);*/
 
 }
 
