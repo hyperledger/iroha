@@ -13,47 +13,11 @@
 #include <shared_mutex>
 #include <chrono>
 
-namespace iroha::utils {
-
-  struct NoCopy {
-    NoCopy(NoCopy const &) = delete;
-    NoCopy &operator=(NoCopy const &) = delete;
-    NoCopy() = default;
-  };
-
-  struct NoMove {
-    NoMove(NoMove &&) = delete;
-    NoMove &operator=(NoMove &&) = delete;
-    NoMove() = default;
-  };
-
-  class waitForSingleObject : NoMove, NoCopy {
-    std::condition_variable wait_cv_;
-    std::mutex wait_m_;
-    std::atomic_flag wait_lock_;
-
-   public:
-    waitForSingleObject() {
-      wait_lock_.test_and_set();
-    }
-
-    bool wait(uint64_t const wait_timeout_us) {
-      std::unique_lock<std::mutex> _lock(wait_m_);
-      return wait_cv_.wait_for(_lock,
-                               std::chrono::microseconds(wait_timeout_us),
-                               [&]() { return !wait_lock_.test_and_set(); });
-    }
-
-    void set() {
-      wait_lock_.clear();
-      wait_cv_.notify_one();
-    }
-  };
-}
+#include "subscription/common.hpp"
 
 namespace iroha::subscription {
 
-  class thread_handler final : utils::NoCopy, utils::NoMove {
+  class threadHandler final : utils::NoCopy, utils::NoMove {
    public:
     using Task = std::function<void()>;
 
@@ -147,13 +111,13 @@ namespace iroha::subscription {
     }
 
    public:
-    thread_handler() {
+    threadHandler() {
       proceed_.test_and_set();
       worker_ = std::thread(
-          [](thread_handler *__this) { return __this->proc(); }, this);
+          [](threadHandler *__this) { return __this->proc(); }, this);
     }
 
-    ~thread_handler() {
+    ~threadHandler() {
       proceed_.clear();
       event_.set();
       worker_.join();
@@ -175,17 +139,6 @@ namespace iroha::subscription {
       event_.set();
     }
   };
-
-  /*std::deque<int> s;
-s.push_back(1);
-s.push_back(2);
-s.push_back(4);
-s.push_back(5);
-
-auto const it = std::upper_bound(s.begin(), s.end(), 3, [](auto const &l, auto
-const &r){ return l < r;
-});
-s.insert(it, 3);*/
 
 }
 
