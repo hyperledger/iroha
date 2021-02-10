@@ -2,7 +2,6 @@ use criterion::*;
 use iroha::{prelude::*, tx::AcceptedTransaction};
 use iroha_data_model::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-use std::convert::TryFrom;
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -49,7 +48,7 @@ fn accept_transaction(criterion: &mut Criterion) {
     let mut failures_count = 0;
     criterion.bench_function("accept", |b| {
         b.iter(
-            || match AcceptedTransaction::try_from(transaction.clone()) {
+            || match AcceptedTransaction::from_transaction(transaction.clone(), 4096) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
             },
@@ -79,7 +78,7 @@ fn sign_transaction(criterion: &mut Criterion) {
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
-    let transaction = AcceptedTransaction::try_from(build_test_transaction())
+    let transaction = AcceptedTransaction::from_transaction(build_test_transaction(), 4096)
         .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -102,7 +101,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 }
 
 fn chain_blocks(criterion: &mut Criterion) {
-    let transaction = AcceptedTransaction::try_from(build_test_transaction())
+    let transaction = AcceptedTransaction::from_transaction(build_test_transaction(), 4096)
         .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction]);
     let mut previous_block_hash = block.clone().chain_first().hash();
@@ -120,7 +119,7 @@ fn chain_blocks(criterion: &mut Criterion) {
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
-    let transaction = AcceptedTransaction::try_from(build_test_transaction())
+    let transaction = AcceptedTransaction::from_transaction(build_test_transaction(), 4096)
         .expect("Failed to accept transaction.");
     let world_state_view = WorldStateView::new(World::new());
     let block = PendingBlock::new(vec![transaction])
@@ -159,7 +158,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     domains.insert(domain_name, domain);
     let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
-    let transaction = AcceptedTransaction::try_from(build_test_transaction())
+    let transaction = AcceptedTransaction::from_transaction(build_test_transaction(), 4096)
         .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction]).chain_first();
     criterion.bench_function("validate_block", |b| {

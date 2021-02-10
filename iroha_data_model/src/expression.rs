@@ -34,6 +34,14 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
+impl<V: TryFrom<Value>> EvaluatesTo<V> {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.expression.len()
+    }
+}
+
 /// Represents all possible expressions.
 #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Expression {
@@ -71,6 +79,33 @@ pub enum Expression {
     ContextValue(ContextValue),
 }
 
+#[allow(clippy::len_without_is_empty)]
+impl Expression {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        use Expression::*;
+
+        match self {
+            Add(add) => add.len(),
+            Subtract(subtract) => subtract.len(),
+            Greater(greater) => greater.len(),
+            Less(less) => less.len(),
+            Equal(equal) => equal.len(),
+            Not(not) => not.len(),
+            And(and) => and.len(),
+            Or(or) => or.len(),
+            If(if_expression) => if_expression.len(),
+            Raw(raw) => raw.len(),
+            Query(query) => query.len(),
+            Contains(contains) => contains.len(),
+            ContainsAll(contains_all) => contains_all.len(),
+            ContainsAny(contains_any) => contains_any.len(),
+            Where(where_expression) => where_expression.len(),
+            ContextValue(context_value) => context_value.len(),
+        }
+    }
+}
+
 impl<T: Into<Value>> From<T> for ExpressionBox {
     fn from(value: T) -> Self {
         Expression::Raw(Box::new(value.into())).into()
@@ -85,7 +120,13 @@ pub struct ContextValue {
     pub value_name: String,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl ContextValue {
+    /// Number of underneath expressions.
+    pub const fn len(&self) -> usize {
+        1
+    }
+
     /// Constructs `ContextValue`.
     pub fn new(value_name: &str) -> Self {
         Self {
@@ -110,7 +151,13 @@ pub struct Add {
     pub right: EvaluatesTo<u32>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Add {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `Add` expression.
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
@@ -136,7 +183,13 @@ pub struct Subtract {
     pub right: EvaluatesTo<u32>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Subtract {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `Subtract` expression.
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
@@ -162,7 +215,13 @@ pub struct Greater {
     pub right: EvaluatesTo<u32>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Greater {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `Greater` expression.
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
@@ -188,7 +247,13 @@ pub struct Less {
     pub right: EvaluatesTo<u32>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Less {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `Less` expression.
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
@@ -212,7 +277,13 @@ pub struct Not {
     pub expression: EvaluatesTo<bool>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Not {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.expression.len() + 1
+    }
+
     /// Constructs `Not` expression.
     pub fn new<E: Into<EvaluatesTo<bool>>>(expression: E) -> Self {
         Self {
@@ -236,7 +307,13 @@ pub struct And {
     pub right: EvaluatesTo<bool>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl And {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `And` expression.
     pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
         Self {
@@ -261,7 +338,13 @@ pub struct Or {
     pub right: EvaluatesTo<bool>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Or {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `Or` expression.
     pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
         Self {
@@ -339,7 +422,13 @@ pub struct If {
     pub else_expression: EvaluatesTo<Value>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl If {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.condition.len() + self.then_expression.len() + self.else_expression.len() + 1
+    }
+
     /// Constructs `If` expression.
     pub fn new<
         C: Into<EvaluatesTo<bool>>,
@@ -374,7 +463,13 @@ pub struct Contains {
     pub element: EvaluatesTo<Value>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Contains {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.collection.len() + self.element.len() + 1
+    }
+
     /// Constructs `Contains` expression.
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Value>>>(
         collection: C,
@@ -403,7 +498,13 @@ pub struct ContainsAll {
     pub elements: EvaluatesTo<Vec<Value>>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl ContainsAll {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.collection.len() + self.elements.len() + 1
+    }
+
     /// Constructs `Contains` expression.
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
         collection: C,
@@ -432,7 +533,13 @@ pub struct ContainsAny {
     pub elements: EvaluatesTo<Vec<Value>>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl ContainsAny {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.collection.len() + self.elements.len() + 1
+    }
+
     /// Constructs `Contains` expression.
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
         collection: C,
@@ -460,7 +567,13 @@ pub struct Equal {
     pub right: EvaluatesTo<Value>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Equal {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
     /// Constructs `Or` expression.
     pub fn new<L: Into<EvaluatesTo<Value>>, R: Into<EvaluatesTo<Value>>>(
         left: L,
@@ -523,7 +636,13 @@ pub struct Where {
     pub values: BTreeMap<ValueName, EvaluatesTo<Value>>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Where {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
+    }
+
     /// Constructs `Or` expression.
     pub fn new<E: Into<EvaluatesTo<Value>>>(
         expression: E,
@@ -539,6 +658,14 @@ impl Where {
 impl From<Where> for ExpressionBox {
     fn from(where_expression: Where) -> Self {
         Expression::Where(where_expression).into()
+    }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl QueryBox {
+    /// Number of underneath expressions.
+    pub const fn len(&self) -> usize {
+        1
     }
 }
 
