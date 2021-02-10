@@ -81,7 +81,7 @@ def buildSteps(int parallelism, String compiler, String build_type, boolean buil
              --network=${env.IROHA_NETWORK} postgres:9.5 -c 'max_prepared_transactions=100'
         fi
       """
-      def referenceBranchOrCommit = 'master'
+      def referenceBranchOrCommit = 'main'
       if (scmVars.GIT_LOCAL_BRANCH == referenceBranchOrCommit && scmVars.GIT_PREVIOUS_COMMIT) {
         referenceBranchOrCommit = scmVars.GIT_PREVIOUS_COMMIT
       }
