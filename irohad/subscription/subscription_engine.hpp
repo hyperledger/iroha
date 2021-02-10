@@ -29,19 +29,19 @@ namespace iroha::subscription {
   template <typename EventKey, typename Receiver, typename... EventParams>
   class SubscriptionEngine final
       : public std::enable_shared_from_this<
-          SubscriptionEngine<EventKey, Receiver, EventParams...>> {
+            SubscriptionEngine<EventKey, Receiver, EventParams...>> {
    public:
     using EventKeyType = EventKey;
     using ReceiverType = Receiver;
     using SubscriberType =
-    Subscriber<EventKeyType, ReceiverType, EventParams...>;
+        Subscriber<EventKeyType, ReceiverType, EventParams...>;
     using SubscriberWeakPtr = std::weak_ptr<SubscriberType>;
 
     /// List is preferable here because this container iterators remain
     /// alive after removal from the middle of the container
     /// using custom allocator
     using SubscribersContainer =
-    std::list<std::pair<SubscriptionSetId, SubscriberWeakPtr>>;
+        std::list<std::pair<SubscriptionSetId, SubscriberWeakPtr>>;
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
@@ -58,7 +58,7 @@ namespace iroha::subscription {
     template <typename KeyType, typename ValueType, typename... Args>
     friend class Subscriber;
     using KeyValueContainer =
-    std::unordered_map<EventKeyType, SubscribersContainer>;
+        std::unordered_map<EventKeyType, SubscribersContainer>;
 
     mutable std::shared_mutex subscribers_map_cs_;
     KeyValueContainer subscribers_map_;
@@ -77,7 +77,8 @@ namespace iroha::subscription {
       auto it = subscribers_map_.find(key);
       if (subscribers_map_.end() != it) {
         it->second.erase(it_remove);
-        if (it->second.empty()) subscribers_map_.erase(it);
+        if (it->second.empty())
+          subscribers_map_.erase(it);
       }
     }
 
@@ -100,7 +101,8 @@ namespace iroha::subscription {
     void notify(const EventKeyType &key, const EventParams &... args) {
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
-      if (subscribers_map_.end() == it) return;
+      if (subscribers_map_.end() == it)
+        return;
 
       auto &subscribers_container = it->second;
       for (auto it_sub = subscribers_container.begin();

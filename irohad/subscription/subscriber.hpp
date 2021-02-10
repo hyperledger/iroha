@@ -27,27 +27,27 @@ namespace iroha::subscription {
    */
   template <typename EventKey, typename Receiver, typename... Arguments>
   class Subscriber final : public std::enable_shared_from_this<
-      Subscriber<EventKey, Receiver, Arguments...>> {
+                               Subscriber<EventKey, Receiver, Arguments...>> {
    public:
     using EventType = EventKey;
     using ReceiverType = Receiver;
     using Hash = size_t;
 
     using SubscriptionEngineType =
-    SubscriptionEngine<EventType, ReceiverType, Arguments...>;
+        SubscriptionEngine<EventType, ReceiverType, Arguments...>;
     using SubscriptionEnginePtr = std::shared_ptr<SubscriptionEngineType>;
 
     using CallbackFnType = std::function<void(SubscriptionSetId,
-        ReceiverType &,
-    const EventType &,
-    const Arguments &...)>;
+                                              ReceiverType &,
+                                              const EventType &,
+                                              const Arguments &...)>;
 
    private:
     using SubscriptionsContainer =
-    std::unordered_map<EventType,
-        typename SubscriptionEngineType::IteratorType>;
+        std::unordered_map<EventType,
+                           typename SubscriptionEngineType::IteratorType>;
     using SubscriptionsSets =
-    std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
+        std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
 
     std::atomic<SubscriptionSetId> next_id_;
     SubscriptionEnginePtr engine_;

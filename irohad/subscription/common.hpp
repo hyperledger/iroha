@@ -6,9 +6,9 @@
 #ifndef IROHA_SUBSCRIPTION_COMMON_HPP
 #define IROHA_SUBSCRIPTION_COMMON_HPP
 
+#include <chrono>
 #include <mutex>
 #include <shared_mutex>
-#include <chrono>
 
 namespace iroha::utils {
 
@@ -46,6 +46,6 @@ namespace iroha::utils {
       wait_cv_.notify_one();
     }
   };
-}
+}  // namespace iroha::utils
 
-#endif//IROHA_SUBSCRIPTION_COMMON_HPP
+#endif  // IROHA_SUBSCRIPTION_COMMON_HPP
