@@ -168,7 +168,7 @@ node ('master') {
   use_burrow = false
   forceDockerDevelopBuild = false
 
-  if (scmVars.GIT_LOCAL_BRANCH in ["master"] || env.TAG_NAME )
+  if (scmVars.GIT_LOCAL_BRANCH in ["main"] || env.TAG_NAME )
     specialBranch =  true
   else
     specialBranch = false
@@ -182,8 +182,8 @@ node ('master') {
     use_burrow = true
   }
 
-  if (scmVars.GIT_LOCAL_BRANCH == "master")
-    pushDockerTag = 'master'
+  if (scmVars.GIT_LOCAL_BRANCH == "main")
+    pushDockerTag = 'main'
   else if (env.TAG_NAME)
     pushDockerTag = env.TAG_NAME
   else
@@ -336,13 +336,13 @@ node ('master') {
                            x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${compiler}", x64LinuxWorker, tasks)
       }
     }
-    // If "master" also run Release build
+    // If "main" branch also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
                          parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, false,
                          false, testList, false, false, false, false, true, false, false, false, false, false, use_libursa, use_burrow, false, false, environmentList)}],
                          x64LinuxPostSteps, "x86_64 Linux Release ${first_compiler}", x64LinuxWorker, tasks)
-      // will not be executed in usual case, because x64linux_compiler_list = ['gcc7'] for master branch or tags
+      // will not be executed in usual case, because x64linux_compiler_list = ['gcc7'] for main branch or tags
       if (x64linux_compiler_list.size() > 1){
         x64linux_compiler_list[1..-1].each { compiler ->
           registerBuildSteps([{x64LinuxBuildScript.buildSteps(
@@ -378,7 +378,7 @@ node ('master') {
   if(!mac_compiler_list.isEmpty()){
     x64MacBuildSteps = [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
       mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, environmentList)}]
-    //If "master" or "dev" also run Release build
+    //If "main" or "dev" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64MacBuildSteps += [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
         mac_compiler_list, 'Release', false, false, testList, true, false, false, false, environmentList)}]
