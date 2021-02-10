@@ -9,10 +9,12 @@ const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
 const TRANSACTION_STATUS_TIMEOUT: &str = "TRANSACTION_STATUS_TIMEOUT";
+const MAX_INSTRUCTION_NUMBER: &str = "MAX_INSTRUCTION_NUMBER";
 const ACCOUNT_ID: &str = "IROHA_CLIENT_ACCOUNT_ID";
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 3000;
+const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 4096;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 // TODO: design macro to load config from env.
@@ -36,6 +38,9 @@ pub struct Configuration {
     /// Transaction status wait timeout in milliseconds.
     #[serde(default = "default_transaction_status_timeout_ms")]
     pub transaction_status_timeout_ms: u64,
+    /// Maximum number of instructions per transaction
+    #[serde(default = "default_max_instruction_number")]
+    pub max_instruction_number: usize,
 }
 
 impl Configuration {
@@ -81,6 +86,14 @@ impl Configuration {
             self.account_id = serde_json::from_str(&account_id)
                 .map_err(|e| format!("Failed to parse account id: {}", e))?;
         }
+        if let Ok(max_instruction_number) = env::var(MAX_INSTRUCTION_NUMBER) {
+            self.max_instruction_number = max_instruction_number.parse().map_err(|e| {
+                format!(
+                    "Failed to parse maximum number of instructions per transaction: {}",
+                    e
+                )
+            })?;
+        }
         Ok(())
     }
 }
@@ -95,4 +108,8 @@ fn default_transaction_time_to_live_ms() -> u64 {
 
 fn default_transaction_status_timeout_ms() -> u64 {
     DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS
+}
+
+fn default_max_instruction_number() -> usize {
+    DEFAULT_MAX_INSTRUCTION_NUMBER
 }

@@ -220,9 +220,9 @@ mod tests {
             IdBox::AssetId(AssetId::from_names("xor", "test", "alice", "test")),
         )
         .into();
-        let instruction_fail = Instruction::Fail(Box::new(Fail {
+        let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_string(),
-        }));
+        });
         let account_bob = <Account as Identifiable>::Id::new("bob", "test");
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
@@ -250,9 +250,9 @@ mod tests {
             IdBox::AssetId(AssetId::from_names("xor", "test", "alice", "test")),
         )
         .into();
-        let instruction_fail = Instruction::Fail(Box::new(Fail {
+        let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_string(),
-        }));
+        });
         let nested_instruction_sequence =
             Instruction::If(If::new(true, instruction_burn.clone()).into());
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");

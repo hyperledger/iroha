@@ -29,7 +29,7 @@ impl Execute for Instruction {
             Transfer(transfer_box) => transfer_box.execute(authority, world_state_view),
             If(if_box) => if_box.execute(authority, world_state_view),
             Pair(pair_box) => pair_box.execute(authority, world_state_view),
-            Sequence(sequence_box) => sequence_box.execute(authority, world_state_view),
+            Sequence(sequence) => sequence.execute(authority, world_state_view),
             Fail(fail_box) => fail_box.execute(authority, world_state_view),
         }
     }
@@ -236,7 +236,7 @@ impl Execute for Pair {
     }
 }
 
-impl Execute for Sequence {
+impl Execute for SequenceBox {
     #[log]
     fn execute(
         self,
@@ -251,7 +251,7 @@ impl Execute for Sequence {
     }
 }
 
-impl Execute for Fail {
+impl Execute for FailBox {
     #[log]
     fn execute(
         self,
