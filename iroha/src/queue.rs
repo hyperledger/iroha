@@ -173,7 +173,27 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::BTreeMap, convert::TryInto, thread, time::Duration};
+    use std::{collections::BTreeMap, thread, time::Duration};
+
+    fn accepted_tx(
+        account: &str,
+        domain: &str,
+        proposed_ttl_ms: u64,
+        key: Option<&KeyPair>,
+    ) -> AcceptedTransaction {
+        let key = key
+            .cloned()
+            .unwrap_or_else(|| KeyPair::generate().expect("Failed to generate keypair."));
+
+        let tx = Transaction::new(
+            Vec::new(),
+            <Account as Identifiable>::Id::new(account, domain),
+            proposed_ttl_ms,
+        )
+        .sign(&key)
+        .expect("Failed to sign.");
+        AcceptedTransaction::from_transaction(tx, 4096).expect("Failed to accept Transaction.")
+    }
 
     #[test]
     fn push_pending_transaction() {
@@ -182,18 +202,9 @@ mod tests {
             transaction_time_to_live_ms: 100000,
             maximum_transactions_in_queue: 100,
         });
+
         queue
-            .push_pending_transaction(
-                Transaction::new(
-                    Vec::new(),
-                    <Account as Identifiable>::Id::new("account", "domain"),
-                    100000,
-                )
-                .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                .expect("Failed to sign.")
-                .try_into()
-                .expect("Failed to accept Transaction."),
-            )
+            .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
             .expect("Failed to push tx into queue");
     }
 
@@ -207,32 +218,13 @@ mod tests {
         });
         for _ in 0..maximum_transactions_in_queue {
             queue
-                .push_pending_transaction(
-                    Transaction::new(
-                        Vec::new(),
-                        <Account as Identifiable>::Id::new("account", "domain"),
-                        100000,
-                    )
-                    .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                    .expect("Failed to sign.")
-                    .try_into()
-                    .expect("Failed to accept Transaction."),
-                )
+                .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
+
         assert!(queue
-            .push_pending_transaction(
-                Transaction::new(
-                    Vec::new(),
-                    <Account as Identifiable>::Id::new("account", "domain"),
-                    100000,
-                )
-                .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                .expect("Failed to sign.")
-                .try_into()
-                .expect("Failed to accept Transaction."),
-            )
+            .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
             .is_err());
     }
 
@@ -248,25 +240,25 @@ mod tests {
             <Account as Identifiable>::Id::new("account", "domain"),
             100000,
         );
-        queue
-            .push_pending_transaction(
+        let get_tx = || {
+            AcceptedTransaction::from_transaction(
                 transaction
                     .clone()
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                    .expect("Failed to sign.")
-                    .try_into()
-                    .expect("Failed to accept Transaction."),
+                    .expect("Failed to sign."),
+                4096,
             )
-            .expect("Failed to push tx into queue");
+            .expect("Failed to accept Transaction.")
+        };
+
         queue
-            .push_pending_transaction(
-                transaction
-                    .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                    .expect("Failed to sign.")
-                    .try_into()
-                    .expect("Failed to accept Transaction."),
-            )
+            .push_pending_transaction(get_tx())
             .expect("Failed to push tx into queue");
+
+        queue
+            .push_pending_transaction(get_tx())
+            .expect("Failed to push tx into queue");
+
         assert_eq!(queue.pending_tx_hash_queue.len(), 1);
         let signature_count = queue
             .pending_tx_by_hash
@@ -292,17 +284,7 @@ mod tests {
         });
         for _ in 0..5 {
             queue
-                .push_pending_transaction(
-                    Transaction::new(
-                        Vec::new(),
-                        <Account as Identifiable>::Id::new("account", "domain"),
-                        100000,
-                    )
-                    .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                    .expect("Failed to sign.")
-                    .try_into()
-                    .expect("Failed to accept Transaction."),
-                )
+                .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -324,32 +306,13 @@ mod tests {
         });
         for _ in 0..(max_block_tx - 1) {
             queue
-                .push_pending_transaction(
-                    Transaction::new(
-                        Vec::new(),
-                        <Account as Identifiable>::Id::new("account", "domain"),
-                        100,
-                    )
-                    .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                    .expect("Failed to sign.")
-                    .try_into()
-                    .expect("Failed to accept Transaction."),
-                )
+                .push_pending_transaction(accepted_tx("account", "domain", 100, None))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
+
         queue
-            .push_pending_transaction(
-                Transaction::new(
-                    Vec::new(),
-                    <Account as Identifiable>::Id::new("account", "domain"),
-                    200,
-                )
-                .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                .expect("Failed to sign.")
-                .try_into()
-                .expect("Failed to accept Transaction."),
-            )
+            .push_pending_transaction(accepted_tx("account", "domain", 200, None))
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(
@@ -358,18 +321,9 @@ mod tests {
                 .len(),
             1
         );
+
         queue
-            .push_pending_transaction(
-                Transaction::new(
-                    Vec::new(),
-                    <Account as Identifiable>::Id::new("account", "domain"),
-                    300,
-                )
-                .sign(&KeyPair::generate().expect("Failed to generate keypair."))
-                .expect("Failed to sign.")
-                .try_into()
-                .expect("Failed to accept Transaction."),
-            )
+            .push_pending_transaction(accepted_tx("account", "domain", 300, None))
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(201));
         assert_eq!(
@@ -391,45 +345,13 @@ mod tests {
         let alice_key_1 = KeyPair::generate().expect("Failed to generate keypair.");
         let alice_key_2 = KeyPair::generate().expect("Failed to generate keypair.");
         let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_transaction_1: AcceptedTransaction = Transaction::new(
-            Vec::new(),
-            <Account as Identifiable>::Id::new("alice", "wonderland"),
-            100000,
-        )
-        .sign(&alice_key_1)
-        .expect("Failed to sign.")
-        .try_into()
-        .expect("Failed to accept Transaction.");
+        let alice_transaction_1 = accepted_tx("alice", "wonderland", 100000, Some(&alice_key_1));
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_2: AcceptedTransaction = Transaction::new(
-            Vec::new(),
-            <Account as Identifiable>::Id::new("alice", "wonderland"),
-            100000,
-        )
-        .sign(&alice_key_2)
-        .expect("Failed to sign.")
-        .try_into()
-        .expect("Failed to accept Transaction.");
+        let alice_transaction_2 = accepted_tx("alice", "wonderland", 100000, Some(&alice_key_2));
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_3 = Transaction::new(
-            Vec::new(),
-            <Account as Identifiable>::Id::new("alice", "wonderland"),
-            100000,
-        )
-        .sign(&bob_key)
-        .expect("Failed to sign.")
-        .try_into()
-        .expect("Failed to accept Transaction.");
+        let alice_transaction_3 = accepted_tx("alice", "wonderland", 100000, Some(&bob_key));
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_4: AcceptedTransaction = Transaction::new(
-            Vec::new(),
-            <Account as Identifiable>::Id::new("alice", "wonderland"),
-            100000,
-        )
-        .sign(&alice_key_1)
-        .expect("Failed to sign.")
-        .try_into()
-        .expect("Failed to accept Transaction.");
+        let alice_transaction_4 = accepted_tx("alice", "wonderland", 100000, Some(&alice_key_1));
         queue
             .push_pending_transaction(alice_transaction_1.clone())
             .expect("Failed to push tx into queue");

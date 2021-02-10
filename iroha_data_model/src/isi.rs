@@ -23,9 +23,29 @@ pub enum Instruction {
     /// `Pair` variant.
     Pair(Box<Pair>),
     /// `Sequence` variant.
-    Sequence(Box<Sequence>),
+    Sequence(SequenceBox),
     /// `Fail` variant.
-    Fail(Box<Fail>),
+    Fail(FailBox),
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl Instruction {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        use Instruction::*;
+
+        match self {
+            Register(register_box) => register_box.len(),
+            Unregister(unregister_box) => unregister_box.len(),
+            Mint(mint_box) => mint_box.len(),
+            Burn(burn_box) => burn_box.len(),
+            Transfer(transfer_box) => transfer_box.len(),
+            If(if_box) => if_box.len(),
+            Pair(pair_box) => pair_box.len(),
+            Sequence(sequence) => sequence.len(),
+            Fail(fail_box) => fail_box.len(),
+        }
+    }
 }
 
 /// Sized structure for all possible Sets.
@@ -93,7 +113,7 @@ pub struct Pair {
 
 /// Composite instruction for a sequence of instructions.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
-pub struct Sequence {
+pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
@@ -111,7 +131,7 @@ pub struct If {
 
 /// Utilitary instruction to fail execution and submit an error `message`.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
-pub struct Fail {
+pub struct FailBox {
     /// Message to submit.
     pub message: String,
 }
@@ -273,7 +293,13 @@ where
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl RegisterBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.destination_id.len() + self.object.len() + 1
+    }
+
     /// Default `Register` constructor.
     pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -286,7 +312,13 @@ impl RegisterBox {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl UnregisterBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.destination_id.len() + self.object.len() + 1
+    }
+
     /// Default `Unregister` constructor.
     pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -299,7 +331,13 @@ impl UnregisterBox {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl MintBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.destination_id.len() + self.object.len() + 1
+    }
+
     /// Default `Mint` constructor.
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -312,7 +350,13 @@ impl MintBox {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl BurnBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.destination_id.len() + self.object.len() + 1
+    }
+
     /// Default `Burn` constructor.
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -325,7 +369,13 @@ impl BurnBox {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl TransferBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.destination_id.len() + self.object.len() + self.source_id.len() + 1
+    }
+
     /// Default `Transfer` constructor.
     pub fn new<
         S: Into<EvaluatesTo<IdBox>>,
@@ -344,7 +394,13 @@ impl TransferBox {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Pair {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.left_instruction.len() + self.right_instruction.len() + 1
+    }
+
     /// Default `Pair` constructor.
     pub fn new<LI: Into<Instruction>, RI: Into<Instruction>>(
         left_instruction: LI,
@@ -357,14 +413,31 @@ impl Pair {
     }
 }
 
-impl Sequence {
+#[allow(clippy::len_without_is_empty)]
+impl SequenceBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.instructions
+            .iter()
+            .map(Instruction::len)
+            .sum::<usize>()
+            + 1
+    }
+
     /// Default `Sequence` constructor.
     pub fn new(instructions: Vec<Instruction>) -> Self {
-        Sequence { instructions }
+        Self { instructions }
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl If {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        let otherwise = self.otherwise.as_ref().map(Instruction::len).unwrap_or(0);
+        self.condition.len() + self.then.len() + otherwise + 1
+    }
+
     /// Default `If` constructor.
     pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<Instruction>>(condition: C, then: T) -> Self {
         If {
@@ -391,10 +464,16 @@ impl If {
     }
 }
 
-impl Fail {
+#[allow(clippy::len_without_is_empty)]
+impl FailBox {
+    /// Calculates number of underneath instructions and expressions
+    pub const fn len(&self) -> usize {
+        1
+    }
+
     /// Default `Fail` constructor.
     pub fn new(message: &str) -> Self {
-        Fail {
+        Self {
             message: message.to_string(),
         }
     }
@@ -446,9 +525,9 @@ impl From<Pair> for Instruction {
     }
 }
 
-impl From<Sequence> for Instruction {
-    fn from(instruction: Sequence) -> Instruction {
-        Instruction::Sequence(Box::new(instruction))
+impl From<SequenceBox> for Instruction {
+    fn from(instruction: SequenceBox) -> Instruction {
+        Instruction::Sequence(instruction)
     }
 }
 
@@ -458,9 +537,9 @@ impl From<If> for Instruction {
     }
 }
 
-impl From<Fail> for Instruction {
-    fn from(instruction: Fail) -> Instruction {
-        Instruction::Fail(Box::new(instruction))
+impl From<FailBox> for Instruction {
+    fn from(instruction: FailBox) -> Instruction {
+        Instruction::Fail(instruction)
     }
 }
 
@@ -468,10 +547,77 @@ impl Identifiable for Instruction {
     type Id = Name;
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn if_instruction(
+        c: impl Into<ExpressionBox>,
+        then: Instruction,
+        otherwise: Option<Instruction>,
+    ) -> Instruction {
+        let condition: ExpressionBox = c.into();
+        let condition = condition.into();
+        If {
+            condition,
+            then,
+            otherwise,
+        }
+        .into()
+    }
+
+    fn fail() -> Instruction {
+        FailBox {
+            message: Default::default(),
+        }
+        .into()
+    }
+
+    #[test]
+    fn len_empty_sequence() {
+        let instructions = vec![];
+
+        let inst = Instruction::Sequence(SequenceBox { instructions });
+        assert_eq!(inst.len(), 1);
+    }
+
+    #[test]
+    fn len_if_one_branch() {
+        let instructions = vec![if_instruction(
+            ContextValue {
+                value_name: Default::default(),
+            },
+            fail(),
+            None,
+        )];
+
+        let inst = Instruction::Sequence(SequenceBox { instructions });
+        assert_eq!(inst.len(), 4);
+    }
+
+    #[test]
+    fn len_sequence_if() {
+        let instructions = vec![
+            fail(),
+            if_instruction(
+                ContextValue {
+                    value_name: Default::default(),
+                },
+                fail(),
+                Some(fail()),
+            ),
+            fail(),
+        ];
+
+        let inst = Instruction::Sequence(SequenceBox { instructions });
+        assert_eq!(inst.len(), 7);
+    }
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, Fail, If as IfInstruction, Instruction, Mint, MintBox, Pair, Register,
-        RegisterBox, Sequence, Transfer, TransferBox, Unregister, UnregisterBox,
+        Burn, BurnBox, FailBox, If as IfInstruction, Instruction, Mint, MintBox, Pair, Register,
+        RegisterBox, SequenceBox, Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }

@@ -15,7 +15,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
-use std::{convert::TryFrom, fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
+use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -47,6 +47,7 @@ impl GenesisTransaction {
     pub fn sign_and_accept(
         &self,
         genesis_key_pair: &KeyPair,
+        max_instruction_number: usize,
     ) -> Result<AcceptedTransaction, String> {
         let transaction = Transaction::new(
             self.isi.clone(),
@@ -54,7 +55,7 @@ impl GenesisTransaction {
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(&genesis_key_pair)?;
-        AcceptedTransaction::try_from(transaction)
+        AcceptedTransaction::from_transaction(transaction, max_instruction_number)
     }
 }
 
@@ -62,6 +63,7 @@ impl GenesisNetwork {
     /// Construct `GenesisNetwork` from configuration.
     pub fn from_configuration(
         genesis_config: &GenesisConfiguration,
+        max_instructions_number: usize,
     ) -> Result<Option<GenesisNetwork>, String> {
         if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
             let file = File::open(Path::new(genesis_block_path))
@@ -80,7 +82,9 @@ impl GenesisNetwork {
                 transactions: raw_block
                     .transactions
                     .iter()
-                    .map(|raw_transaction| raw_transaction.sign_and_accept(&genesis_key_pair))
+                    .map(|raw_transaction| {
+                        raw_transaction.sign_and_accept(&genesis_key_pair, max_instructions_number)
+                    })
                     .filter_map(Result::ok)
                     .collect(),
                 wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
@@ -263,12 +267,15 @@ mod tests {
     #[test]
     fn load_genesis_block() -> Result<(), String> {
         let genesis_key_pair = KeyPair::generate()?;
-        let _genesis_block = GenesisNetwork::from_configuration(&GenesisConfiguration {
-            genesis_account_public_key: genesis_key_pair.public_key,
-            genesis_account_private_key: Some(genesis_key_pair.private_key),
-            genesis_block_path: Some(GENESIS_BLOCK_PATH.to_string()),
-            ..Default::default()
-        })?;
+        let _genesis_block = GenesisNetwork::from_configuration(
+            &GenesisConfiguration {
+                genesis_account_public_key: genesis_key_pair.public_key,
+                genesis_account_private_key: Some(genesis_key_pair.private_key),
+                genesis_block_path: Some(GENESIS_BLOCK_PATH.to_string()),
+                ..Default::default()
+            },
+            4096,
+        )?;
         Ok(())
     }
 }

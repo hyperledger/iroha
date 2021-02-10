@@ -52,7 +52,7 @@ fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
             ))),
             10u32,
         )),
-        Fail::new("rate is less or equal to value"),
+        FailBox::new("rate is less or equal to value"),
     );
 }
 
@@ -82,7 +82,7 @@ impl FindRateAndCheckItGreaterThanValue {
                 ))),
                 self.value,
             )),
-            Fail::new("rate is less or equal to value"),
+            FailBox::new("rate is less or equal to value"),
         )
     }
 }

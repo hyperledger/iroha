@@ -156,8 +156,11 @@ impl Iroha {
                 &config.public_key,
             ),
         )));
-        let genesis_network = GenesisNetwork::from_configuration(&config.genesis_configuration)
-            .expect("Failed to initialize genesis.");
+        let genesis_network = GenesisNetwork::from_configuration(
+            &config.genesis_configuration,
+            config.torii_configuration.torii_max_instruction_number,
+        )
+        .expect("Failed to initialize genesis.");
         Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),

@@ -107,6 +107,20 @@ pub enum Value {
     SignatureCheckCondition(account::SignatureCheckCondition),
 }
 
+#[allow(clippy::len_without_is_empty)]
+impl Value {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        use Value::*;
+
+        match self {
+            U32(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_) => 1,
+            Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1,
+            SignatureCheckCondition(s) => s.0.len(),
+        }
+    }
+}
+
 impl TryFrom<Value> for u32 {
     type Error = String;
 
@@ -1073,6 +1087,9 @@ pub mod transaction {
     use parity_scale_codec::{Decode, Encode};
     use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
 
+    /// Maximum number of instructions and expressions per transaction
+    pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
+
     /// This structure represents transaction in non-trusted form.
     ///
     /// `Iroha` and its' clients use `Transaction` to send transactions via network.
@@ -1124,6 +1141,21 @@ pub mod transaction {
         pub fn hash(&self) -> Hash {
             let bytes: Vec<u8> = self.payload.clone().into();
             Hash::new(&bytes)
+        }
+
+        /// Checks if number of instructions in payload exceeds maximum
+        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<(), String> {
+            if self
+                .payload
+                .instructions
+                .iter()
+                .map(Instruction::len)
+                .sum::<usize>()
+                > max_instruction_number
+            {
+                return Err("Too many instructions in payload".to_owned());
+            }
+            Ok(())
         }
 
         /// Sign transaction with the provided key pair.

@@ -8,26 +8,8 @@ use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::{
     cmp::min,
-    convert::TryFrom,
     time::{Duration, SystemTime},
 };
-
-//TODO: check the number of ISI in tx and drop if it exceeds the limit. Also drop if it exceeds the byte limit.
-impl TryFrom<Transaction> for AcceptedTransaction {
-    type Error = String;
-
-    fn try_from(t: Transaction) -> Result<Self, Self::Error> {
-        for signature in &t.signatures {
-            if let Err(e) = signature.verify(t.hash().as_ref()) {
-                return Err(format!("Failed to verify signatures: {}", e));
-            }
-        }
-        Ok(Self {
-            payload: t.payload,
-            signatures: t.signatures,
-        })
-    }
-}
 
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
 #[derive(Clone, Debug, Io, Encode, Decode)]
@@ -39,6 +21,27 @@ pub struct AcceptedTransaction {
 }
 
 impl AcceptedTransaction {
+    /// Accepts transaction
+    pub fn from_transaction(
+        transaction: Transaction,
+        max_instruction_number: usize,
+    ) -> Result<AcceptedTransaction, String> {
+        transaction
+            .check_instruction_len(max_instruction_number)
+            .map_err(|e| format!("Failed to accept transaction: {}", e))?;
+
+        for signature in &transaction.signatures {
+            if let Err(e) = signature.verify(transaction.hash().as_ref()) {
+                return Err(format!("Failed to verify signatures: {}", e));
+            }
+        }
+
+        Ok(Self {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
+        })
+    }
+
     /// Calculate transaction `Hash`.
     pub fn hash(&self) -> Hash {
         let bytes: Vec<u8> = self.payload.clone().into();
@@ -205,7 +208,8 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 mod tests {
     use super::*;
     use crate::{config::Configuration, init, permissions::AllowAll};
-    use std::{collections::BTreeSet, convert::TryInto};
+    use iroha_data_model::transaction::MAX_INSTRUCTION_NUMBER;
+    use std::collections::BTreeSet;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
@@ -219,7 +223,8 @@ mod tests {
         config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         let signed_tx = tx.sign(&root_key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
-        let accepted_tx: AcceptedTransaction = signed_tx.try_into().expect("Failed to accept.");
+        let accepted_tx =
+            AcceptedTransaction::from_transaction(signed_tx, 4096).expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
@@ -232,5 +237,24 @@ mod tests {
         assert_eq!(tx_hash, signed_tx_hash);
         assert_eq!(tx_hash, accepted_tx_hash);
         assert_eq!(tx_hash, valid_tx_hash);
+    }
+
+    #[test]
+    fn transaction_not_accepted() {
+        let inst = FailBox {
+            message: "Will fail".to_owned(),
+        };
+        let tx = Transaction::new(
+            vec![inst.into(); MAX_INSTRUCTION_NUMBER + 1],
+            AccountId::new("root", "global"),
+            1000,
+        );
+        let result: Result<AcceptedTransaction, _> =
+            AcceptedTransaction::from_transaction(tx, 4096);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Failed to accept transaction: Too many instructions in payload".to_owned()
+        );
     }
 }
