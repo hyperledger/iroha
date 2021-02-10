@@ -1480,7 +1480,6 @@ mod tests {
     use {
         crate::{config::Configuration, init, maintenance::System, queue::Queue, torii::Torii},
         async_std::{prelude::*, sync, task},
-        std::convert::TryInto,
         std::time::Duration,
     };
 
@@ -1618,7 +1617,7 @@ mod tests {
                 public_key: key_pair.public_key,
             };
             ids.push(peer_id);
-            block_counters.push(Arc::new(RwLock::new(0)));
+            block_counters.push(Arc::new(RwLock::new(0usize)));
         }
         let mut peers = Vec::new();
         let mut config =
@@ -1705,14 +1704,16 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![Transaction::new(
-                vec![],
-                AccountId::new("root", "global"),
-                TRANSACTION_TIME_TO_LIVE_MS,
+            .round(vec![AcceptedTransaction::from_transaction(
+                Transaction::new(
+                    vec![],
+                    AccountId::new("root", "global"),
+                    TRANSACTION_TIME_TO_LIVE_MS,
+                )
+                .sign(&root_key_pair)
+                .expect("Failed to sign transaction."),
+                4096,
             )
-            .sign(&root_key_pair)
-            .expect("Failed to sign.")
-            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -1839,14 +1840,16 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![Transaction::new(
-                vec![],
-                AccountId::new("root", "global"),
-                TRANSACTION_TIME_TO_LIVE_MS,
+            .round(vec![AcceptedTransaction::from_transaction(
+                Transaction::new(
+                    vec![],
+                    AccountId::new("root", "global"),
+                    TRANSACTION_TIME_TO_LIVE_MS,
+                )
+                .sign(&root_key_pair)
+                .expect("Failed to sign."),
+                4096,
             )
-            .sign(&root_key_pair)
-            .expect("Failed to sign.")
-            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -2002,14 +2005,16 @@ mod tests {
             .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
-            .round(vec![Transaction::new(
-                vec![],
-                AccountId::new("root", "global"),
-                TRANSACTION_TIME_TO_LIVE_MS,
+            .round(vec![AcceptedTransaction::from_transaction(
+                Transaction::new(
+                    vec![],
+                    AccountId::new("root", "global"),
+                    TRANSACTION_TIME_TO_LIVE_MS,
+                )
+                .sign(&root_key_pair)
+                .expect("Failed to sign."),
+                4096,
             )
-            .sign(&root_key_pair)
-            .expect("Failed to sign.")
-            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -2161,14 +2166,16 @@ mod tests {
             .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
-            .round(vec![Transaction::new(
-                vec![],
-                AccountId::new("root", "global"),
-                TRANSACTION_TIME_TO_LIVE_MS,
+            .round(vec![AcceptedTransaction::from_transaction(
+                Transaction::new(
+                    vec![],
+                    AccountId::new("root", "global"),
+                    TRANSACTION_TIME_TO_LIVE_MS,
+                )
+                .sign(&root_key_pair)
+                .expect("Failed to sign."),
+                4096,
             )
-            .sign(&root_key_pair)
-            .expect("Failed to sign.")
-            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
@@ -2313,14 +2320,16 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![Transaction::new(
-                vec![],
-                AccountId::new("root", "global"),
-                TRANSACTION_TIME_TO_LIVE_MS,
+            .round(vec![AcceptedTransaction::from_transaction(
+                Transaction::new(
+                    vec![],
+                    AccountId::new("root", "global"),
+                    TRANSACTION_TIME_TO_LIVE_MS,
+                )
+                .sign(&root_key_pair)
+                .expect("Failed to sign."),
+                4096,
             )
-            .sign(&root_key_pair)
-            .expect("Failed to sign.")
-            .try_into()
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");

@@ -31,6 +31,8 @@ use std::{
 pub struct Torii {
     p2p_url: String,
     api_url: String,
+    max_transaction_size: usize,
+    max_instruction_number: usize,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
     sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
@@ -59,6 +61,8 @@ impl Torii {
         Torii {
             p2p_url: configuration.torii_p2p_url.clone(),
             api_url: configuration.torii_api_url.clone(),
+            max_transaction_size: configuration.torii_max_transaction_size,
+            max_instruction_number: configuration.torii_max_instruction_number,
             world_state_view,
             transaction_sender: Arc::new(RwLock::new(transaction_sender)),
             sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
@@ -71,8 +75,7 @@ impl Torii {
         }
     }
 
-    /// To handle incoming requests `Torii` should be started first.
-    pub async fn start(&mut self) -> Result<(), String> {
+    fn create_state(&self) -> ToriiState {
         let world_state_view = Arc::clone(&self.world_state_view);
         let transactions_queue = Arc::clone(&self.transactions_queue);
         let sumeragi = Arc::clone(&self.sumeragi);
@@ -80,18 +83,27 @@ impl Torii {
         let sumeragi_message_sender = Arc::clone(&self.sumeragi_message_sender);
         let block_sync_message_sender = Arc::clone(&self.block_sync_message_sender);
         let system = Arc::clone(&self.system);
-        let connections = Arc::new(RwLock::new(Vec::new()));
-        let state = ToriiState {
+        let consumers = Arc::new(RwLock::new(Vec::new()));
+
+        ToriiState {
+            max_transaction_size: self.max_transaction_size,
+            max_instruction_number: self.max_instruction_number,
             world_state_view,
             transaction_sender,
             sumeragi_message_sender,
             block_sync_message_sender,
             system,
-            consumers: connections.clone(),
+            consumers,
             events_sender: self.events_sender.clone(),
             transactions_queue,
             sumeragi,
-        };
+        }
+    }
+
+    /// To handle incoming requests `Torii` should be started first.
+    pub async fn start(&mut self) -> Result<(), String> {
+        let state = self.create_state();
+        let connections = state.consumers.clone();
         let state = Arc::new(RwLock::new(state));
         let mut server = Server::new(state.clone());
         server.at(uri::INSTRUCTIONS_URI).post(handle_instructions);
@@ -117,6 +129,8 @@ impl Torii {
 
 #[derive(Debug)]
 struct ToriiState {
+    max_transaction_size: usize,
+    max_instruction_number: usize,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
     sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
@@ -134,9 +148,16 @@ async fn handle_instructions(
     _query_params: QueryParams,
     request: HttpRequest,
 ) -> Result<HttpResponse, String> {
+    if request.body.len() > state.read().await.max_transaction_size {
+        return Err("Transaction is too big".to_owned());
+    }
+
     match Transaction::try_from(request.body) {
         Ok(transaction) => {
-            let transaction = AcceptedTransaction::try_from(transaction)?;
+            let transaction = AcceptedTransaction::from_transaction(
+                transaction,
+                state.read().await.max_instruction_number,
+            )?;
             state
                 .write()
                 .await
@@ -383,8 +404,12 @@ pub mod config {
 
     const TORII_API_URL: &str = "TORII_API_URL";
     const TORII_P2P_URL: &str = "TORII_P2P_URL";
+    const TORII_MAX_TRANSACTION_SIZE: &str = "TORII_MAX_TRANSACTION_SIZE";
+    const TORII_MAX_INSTRUCTION_NUMBER: &str = "TORII_MAX_INSTRUCTION_NUMBER";
     const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
     const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
+    const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 32768;
+    const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: usize = 4096;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Debug)]
@@ -396,6 +421,12 @@ pub mod config {
         /// Torii URL for client API.
         #[serde(default = "default_torii_api_url")]
         pub torii_api_url: String,
+        /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
+        #[serde(default = "default_torii_max_transaction_size")]
+        pub torii_max_transaction_size: usize,
+        /// Maximum number of instruction per transaction. Used to prevent from DOS attacks.
+        #[serde(default = "default_torii_max_instruction_number")]
+        pub torii_max_instruction_number: usize,
     }
 
     impl ToriiConfiguration {
@@ -408,6 +439,21 @@ pub mod config {
             if let Ok(torii_p2p_url) = env::var(TORII_P2P_URL) {
                 self.torii_p2p_url = torii_p2p_url;
             }
+            if let Ok(torii_max_transaction_size) = env::var(TORII_MAX_TRANSACTION_SIZE) {
+                self.torii_max_transaction_size =
+                    torii_max_transaction_size.parse().map_err(|error| {
+                        format!("Failed to get maximum size of transaction: {}", error)
+                    })?;
+            }
+            if let Ok(torii_max_instruction_number) = env::var(TORII_MAX_INSTRUCTION_NUMBER) {
+                self.torii_max_instruction_number =
+                    torii_max_instruction_number.parse().map_err(|error| {
+                        format!(
+                            "Failed to get maximum number of instructions per transaction: {}",
+                            error
+                        )
+                    })?;
+            }
             Ok(())
         }
     }
@@ -419,21 +465,32 @@ pub mod config {
     fn default_torii_api_url() -> String {
         DEFAULT_TORII_API_URL.to_string()
     }
+
+    fn default_torii_max_transaction_size() -> usize {
+        DEFAULT_TORII_MAX_TRANSACTION_SIZE
+    }
+
+    fn default_torii_max_instruction_number() -> usize {
+        DEFAULT_TORII_MAX_INSTRUCTION_NUMBER
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::Configuration;
-    use async_std::{sync, task};
+    use async_std::{future, sync};
+    use iroha_data_model::account::Id;
     use std::time::Duration;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
-    #[async_std::test]
-    async fn create_and_start_torii() {
-        let config =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    fn get_config() -> Configuration {
+        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")
+    }
+
+    async fn create_torii() -> Torii {
+        let config = get_config();
         let (tx_tx, _) = sync::channel(100);
         let (sumeragi_message_sender, _) = sync::channel(100);
         let (block_sync_message_sender, _) = sync::channel(100);
@@ -450,7 +507,8 @@ mod tests {
             AllowAll.into(),
         )
         .expect("Failed to initialize sumeragi.");
-        let mut torii = Torii::from_configuration(
+
+        Torii::from_configuration(
             &config.torii_configuration,
             wsv,
             tx_tx,
@@ -460,12 +518,62 @@ mod tests {
             Arc::new(RwLock::new(queue)),
             Arc::new(RwLock::new(sumeragi)),
             (events_sender, events_receiver),
-        );
-        let _ = task::spawn(async move {
-            if let Err(e) = torii.start().await {
-                eprintln!("Failed to start Torii: {}", e);
+        )
+    }
+
+    #[async_std::test]
+    async fn create_and_start_torii() {
+        let mut torii = create_torii().await;
+
+        let result = future::timeout(
+            Duration::from_millis(50),
+            async move { torii.start().await },
+        )
+        .await;
+
+        assert!(result.is_err() || result.unwrap().is_ok());
+    }
+
+    #[async_std::test]
+    async fn torii_big_transaction() {
+        let torii = create_torii().await;
+        let state = Arc::new(RwLock::new(torii.create_state()));
+        let id = Id {
+            name: Default::default(),
+            domain_name: Default::default(),
+        };
+        let instruction: Instruction = FailBox {
+            message: "Fail message".to_owned(),
+        }
+        .into();
+
+        let mut instruction_number = 32;
+
+        loop {
+            let transaction = Transaction::new(
+                vec![instruction.clone(); instruction_number],
+                id.clone(),
+                10_000,
+            );
+            let body: Vec<u8> = transaction.into();
+            let request = HttpRequest {
+                method: "POST".to_owned(),
+                path: uri::INSTRUCTIONS_URI.to_owned(),
+                version: HttpVersion::Http1_1,
+                headers: Default::default(),
+                body,
+            };
+
+            if request.body.len() <= torii.max_transaction_size {
+                instruction_number *= 2;
+                continue;
             }
-        });
-        std::thread::sleep(Duration::from_millis(50));
+
+            let result =
+                handle_instructions(state, Default::default(), Default::default(), request).await;
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), "Transaction is too big");
+            return;
+        }
     }
 }

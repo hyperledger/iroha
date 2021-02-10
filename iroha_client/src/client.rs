@@ -17,6 +17,7 @@ use std::{
 #[derive(Clone)]
 pub struct Client {
     torii_url: String,
+    max_instruction_number: usize,
     key_pair: KeyPair,
     proposed_transaction_ttl_ms: u64,
     transaction_status_timout: Duration,
@@ -28,6 +29,7 @@ impl Client {
     pub fn new(configuration: &Configuration) -> Self {
         Client {
             torii_url: configuration.torii_api_url.clone(),
+            max_instruction_number: configuration.max_instruction_number,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
                 private_key: configuration.private_key.clone(),
@@ -71,6 +73,7 @@ impl Client {
     /// Submit a prebuilt transaction.
     /// Returns submitted transaction's hash or error string.
     pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash, String> {
+        transaction.check_instruction_len(self.max_instruction_number)?;
         let hash = transaction.hash();
         let transaction: Vec<u8> = transaction.into();
         let response = http_client::post(
