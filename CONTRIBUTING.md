@@ -93,9 +93,10 @@ maintainers team, community or simply assign this issue to yourself.
 
 ### Pull Requests
 
+-  Make PRs from a fork of the repository. Do not create new branches in the core repository.
+-  Only one commit per PR is allowed in general.
 -  Fill in [the required template](https://github.com/hyperledger/iroha/blob/master/.github/PULL_REQUEST_TEMPLATE.md)
--  **Write tests** for new code. Test coverage for new code must be at
-   least 70% and to check coverage use `cargo tarpaulin -v`
+-  **Write tests** for new code. 
 -  Every pull request should be reviewed and **get at least two
    approvals from maintainers team**. Check who is a current maintainer
    in
@@ -144,18 +145,24 @@ complex uses will be easier to incude in dependent modules.
 - Put inner modules after `self` module content, but before `tests` module.
 - Prefer to return `Result` instead of panic.
 - Use `expect` with explicit error message instead of `unwrap`.
-- Split your code into the following sections and keep order in each of them equivalent:
--- submodules declarations (no bodies)
--- `use` block
--- type aliases
--- pub struct
--- pub trait
--- impl `trait-from-this-module` for struct
--- impl struct
--- impl `trait-from-other-modules` for struct
--- impl `trait-from-std` for struct
--- submodules with bodies
--- pub mod prelude
+- Do not access tuple elements by index. Destructure tuples instead.
+- Use only full words in variable, method and etc. names. The only exceptons are if it is used as a convention in Rust (e.g. `.len()`)
+- Do not use structures as enum variants, wrap them in a separate structure instead. Example: `A::B(B)` instead of `A::B { ... }`
+
+#### Code Structure
+
+Split your code into the following sections and keep order in each of them equivalent:
+- submodules declarations (no bodies)
+- `use` block
+- type aliases
+- pub struct
+- pub trait
+- impl `trait-from-this-module` for struct
+- impl struct
+- impl `trait-from-other-modules` for struct
+- impl `trait-from-std` for struct
+- submodules with bodies
+- pub mod prelude
 
 ### Documentation Styleguide
 
