@@ -11,7 +11,7 @@
 def doDoxygen(boolean specialBranch, String local_branch) {
   sh "doxygen Doxyfile"
   if (specialBranch) {
-    def branch = local_branch == "master" ? local_branch : "develop"
+    def branch = local_branch == "main" ? local_branch : "develop"
     sshagent(['jenkins-artifact']) {
       sh "ssh-agent"
       sh """
