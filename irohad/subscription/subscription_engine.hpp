@@ -46,8 +46,9 @@ namespace iroha::subscription {
     /// List is preferable here because this container iterators remain
     /// alive after removal from the middle of the container
     /// using custom allocator
-    using SubscribersContainer =
-        std::list<std::tuple<typename Dispatcher::Tid, SubscriptionSetId, SubscriberWeakPtr>>;
+    using SubscribersContainer = std::list<std::tuple<typename Dispatcher::Tid,
+                                                      SubscriptionSetId,
+                                                      SubscriberWeakPtr>>;
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
@@ -76,15 +77,16 @@ namespace iroha::subscription {
     KeyValueContainer subscribers_map_;
     DispatcherPtr dispatcher_;
 
-    template<typename Dispatcher::Tid kTid>
+    template <typename Dispatcher::Tid kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
                            SubscriberWeakPtr ptr) {
       Dispatcher::template checkTid<kTid>();
       std::unique_lock lock(subscribers_map_cs_);
       auto &subscribers_list = subscribers_map_[key];
-      return subscribers_list.emplace(subscribers_list.end(),
-                                      std::make_tuple(kTid, set_id, std::move(ptr)));
+      return subscribers_list.emplace(
+          subscribers_list.end(),
+          std::make_tuple(kTid, set_id, std::move(ptr)));
     }
 
     void unsubscribe(const EventKeyType &key, const IteratorType &it_remove) {
@@ -114,7 +116,7 @@ namespace iroha::subscription {
     }
 
     template <typename... EventParams>
-    void notify(const EventKeyType &key, const EventParams &... args) {
+    void notify(const EventKeyType &key, EventParams... args) {
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
       if (subscribers_map_.end() == it)
@@ -123,8 +125,22 @@ namespace iroha::subscription {
       auto &subscribers_container = it->second;
       for (auto it_sub = subscribers_container.begin();
            it_sub != subscribers_container.end();) {
-        if (auto sub = std::get<2>(*it_sub).lock()) {
-          sub->on_notify(std::get<1>(*it_sub), key, args...);
+        auto wsub = std::get<2>(*it_sub);
+        auto id = std::get<1>(*it_sub);
+
+        if (auto sub = wsub.lock()) {
+          dispatcher_->add(std::get<0>(*it_sub),
+                           [wsub(std::move(wsub)),
+                            id(id),
+                            key(key),
+                            args = std::make_tuple(args...)]() {
+                             if (auto sub = wsub.lock())
+                               std::apply(
+                                   [&](auto &&... args) {
+                                     sub->on_notify(id, key, args...);
+                                   },
+                                   std::move(args));
+                           });
           ++it_sub;
         } else {
           it_sub = subscribers_container.erase(it_sub);

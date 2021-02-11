@@ -6,12 +6,12 @@
 #ifndef IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
 #define IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
 
-#include <functional>
-#include <thread>
+#include <chrono>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <shared_mutex>
-#include <chrono>
+#include <thread>
 
 #include "subscription/common.hpp"
 
@@ -108,6 +108,8 @@ namespace iroha::subscription {
         }
         event_.wait(untilFirst());
       } while (proceed_.test_and_set());
+
+      return 0;
     }
 
    public:
@@ -140,6 +142,6 @@ namespace iroha::subscription {
     }
   };
 
-}
+}  // namespace iroha::subscription
 
-#endif//IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
+#endif  // IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
