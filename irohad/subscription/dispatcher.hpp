@@ -10,10 +10,10 @@
 
 namespace iroha::subscription {
 
-  template <size_t kCount>
+  template <uint32_t kCount>
   class Dispatcher final : utils::NoCopy, utils::NoMove {
    public:
-    static constexpr size_t kHandlersCount = kCount;
+    static constexpr uint32_t kHandlersCount = kCount;
     using Task = threadHandler::Task;
 
    private:
@@ -22,13 +22,13 @@ namespace iroha::subscription {
    public:
     Dispatcher() = default;
 
-    template <size_t I, typename F>
+    template <uint32_t I, typename F>
     void add(F &&f) {
       static_assert(I < kHandlersCount, "Handler index is out-of-bound.");
       handlers_[I].add(std::forward<F>(f));
     }
 
-    template <size_t I, typename F>
+    template <uint32_t I, typename F>
     void addDelayed(size_t timeoutUs, F &&f) {
       static_assert(I < kHandlersCount, "Handler index is out-of-bound.");
       handlers_[I].addDelayed(timeoutUs, std::forward<F>(f));

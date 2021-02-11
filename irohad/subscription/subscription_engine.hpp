@@ -42,12 +42,13 @@ namespace iroha::subscription {
     using SubscriberWeakPtr = std::weak_ptr<SubscriberType>;
     using DispatcherType = typename std::decay<Dispatcher>::type;
     using DispatcherPtr = std::shared_ptr<DispatcherType>;
+    using Tid = uint32_t;
 
     /// List is preferable here because this container iterators remain
     /// alive after removal from the middle of the container
     /// using custom allocator
     using SubscribersContainer =
-        std::list<std::pair<SubscriptionSetId, SubscriberWeakPtr>>;
+        std::list<std::tuple<Tid, SubscriptionSetId, SubscriberWeakPtr>>;
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
@@ -76,13 +77,15 @@ namespace iroha::subscription {
     KeyValueContainer subscribers_map_;
     DispatcherPtr dispatcher_;
 
+    template<uint32_t kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
                            SubscriberWeakPtr ptr) {
+      static_assert(kTid < DispatcherType::kHandlersCount, "Incorrect handler TID.");
       std::unique_lock lock(subscribers_map_cs_);
       auto &subscribers_list = subscribers_map_[key];
       return subscribers_list.emplace(subscribers_list.end(),
-                                      std::make_pair(set_id, std::move(ptr)));
+                                      std::make_tuple(kTid, set_id, std::move(ptr)));
     }
 
     void unsubscribe(const EventKeyType &key, const IteratorType &it_remove) {
@@ -121,8 +124,8 @@ namespace iroha::subscription {
       auto &subscribers_container = it->second;
       for (auto it_sub = subscribers_container.begin();
            it_sub != subscribers_container.end();) {
-        if (auto sub = it_sub->second.lock()) {
-          sub->on_notify(it_sub->first, key, args...);
+        if (auto sub = std::get<2>(*it_sub).lock()) {
+          sub->on_notify(std::get<1>(*it_sub), key, args...);
           ++it_sub;
         } else {
           it_sub = subscribers_container.erase(it_sub);

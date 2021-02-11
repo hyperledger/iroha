@@ -92,6 +92,7 @@ namespace iroha::subscription {
       return ++next_id_;
     }
 
+    template<uint32_t kTid>
     void subscribe(SubscriptionSetId id, const EventType &key) {
       std::lock_guard lock(subscriptions_cs_);
       auto &&[it, inserted] = subscriptions_sets_[id].emplace(
@@ -100,7 +101,7 @@ namespace iroha::subscription {
       /// Here we check first local subscriptions because of strong connection
       /// with SubscriptionEngine.
       if (inserted)
-        it->second = engine_->subscribe(id, key, this->weak_from_this());
+        it->second = engine_->template subscribe<kTid>(id, key, this->weak_from_this());
     }
 
     /**
