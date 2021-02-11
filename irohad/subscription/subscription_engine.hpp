@@ -42,13 +42,12 @@ namespace iroha::subscription {
     using SubscriberWeakPtr = std::weak_ptr<SubscriberType>;
     using DispatcherType = typename std::decay<Dispatcher>::type;
     using DispatcherPtr = std::shared_ptr<DispatcherType>;
-    using Tid = uint32_t;
 
     /// List is preferable here because this container iterators remain
     /// alive after removal from the middle of the container
     /// using custom allocator
     using SubscribersContainer =
-        std::list<std::tuple<Tid, SubscriptionSetId, SubscriberWeakPtr>>;
+        std::list<std::tuple<typename Dispatcher::Tid, SubscriptionSetId, SubscriberWeakPtr>>;
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
@@ -77,11 +76,11 @@ namespace iroha::subscription {
     KeyValueContainer subscribers_map_;
     DispatcherPtr dispatcher_;
 
-    template<uint32_t kTid>
+    template<typename Dispatcher::Tid kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
                            SubscriberWeakPtr ptr) {
-      static_assert(kTid < DispatcherType::kHandlersCount, "Incorrect handler TID.");
+      Dispatcher::template checkTid<kTid>();
       std::unique_lock lock(subscribers_map_cs_);
       auto &subscribers_list = subscribers_map_[key];
       return subscribers_list.emplace(subscribers_list.end(),

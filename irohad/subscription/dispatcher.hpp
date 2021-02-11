@@ -15,6 +15,7 @@ namespace iroha::subscription {
    public:
     static constexpr uint32_t kHandlersCount = kCount;
     using Task = threadHandler::Task;
+    using Tid = uint32_t;
 
    private:
     threadHandler handlers_[kHandlersCount];
@@ -22,16 +23,21 @@ namespace iroha::subscription {
    public:
     Dispatcher() = default;
 
-    template <uint32_t I, typename F>
-    void add(F &&f) {
-      static_assert(I < kHandlersCount, "Handler index is out-of-bound.");
-      handlers_[I].add(std::forward<F>(f));
+    template<Tid kId>
+    static void checkTid() {
+      static_assert(kId < kHandlersCount, "Unexpected TID handler.");
     }
 
-    template <uint32_t I, typename F>
-    void addDelayed(size_t timeoutUs, F &&f) {
-      static_assert(I < kHandlersCount, "Handler index is out-of-bound.");
-      handlers_[I].addDelayed(timeoutUs, std::forward<F>(f));
+    template <typename F>
+    void add(Tid tid, F &&f) {
+      assert(tid < kHandlersCount);
+      handlers_[tid].add(std::forward<F>(f));
+    }
+
+    template <typename F>
+    void addDelayed(Tid tid, size_t timeoutUs, F &&f) {
+      assert(tid < kHandlersCount);
+      handlers_[tid].addDelayed(timeoutUs, std::forward<F>(f));
     }
   };
 

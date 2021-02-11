@@ -92,7 +92,7 @@ namespace iroha::subscription {
       return ++next_id_;
     }
 
-    template<uint32_t kTid>
+    template<typename Dispatcher::Tid kTid>
     void subscribe(SubscriptionSetId id, const EventType &key) {
       std::lock_guard lock(subscriptions_cs_);
       auto &&[it, inserted] = subscriptions_sets_[id].emplace(
