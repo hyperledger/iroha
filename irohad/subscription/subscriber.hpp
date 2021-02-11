@@ -25,16 +25,22 @@ namespace iroha::subscription {
    * @tparam Arguments is a set of types of objects that are passed on every
    * event notification.
    */
-  template <typename EventKey, typename Receiver, typename... Arguments>
-  class Subscriber final : public std::enable_shared_from_this<
-                               Subscriber<EventKey, Receiver, Arguments...>> {
+  template <typename EventKey,
+            typename Dispatcher,
+            typename Receiver,
+            typename... Arguments>
+  class Subscriber final
+      : public std::enable_shared_from_this<
+            Subscriber<EventKey, Dispatcher, Receiver, Arguments...>> {
    public:
     using EventType = EventKey;
     using ReceiverType = Receiver;
     using Hash = size_t;
 
-    using SubscriptionEngineType =
-        SubscriptionEngine<EventType, Subscriber<EventType, ReceiverType, Arguments...>>;
+    using SubscriptionEngineType = SubscriptionEngine<
+        EventType,
+        Dispatcher,
+        Subscriber<EventType, Dispatcher, ReceiverType, Arguments...>>;
     using SubscriptionEnginePtr = std::shared_ptr<SubscriptionEngineType>;
 
     using CallbackFnType = std::function<void(SubscriptionSetId,

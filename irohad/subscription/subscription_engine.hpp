@@ -15,7 +15,10 @@
 
 namespace iroha::subscription {
 
-  template <typename Event, typename Receiver, typename... Arguments>
+  template <typename Event,
+            typename Dispatcher,
+            typename Receiver,
+            typename... Arguments>
   class Subscriber;
 
   using SubscriptionSetId = uint32_t;
@@ -28,15 +31,17 @@ namespace iroha::subscription {
    * @tparam EventParams - set of types of values passed on each event
    * notification
    */
-  template <typename EventKey, typename Receiver>
+  template <typename EventKey, typename Dispatcher, typename Receiver>
   class SubscriptionEngine final
       : public std::enable_shared_from_this<
-            SubscriptionEngine<EventKey, Receiver>> {
+            SubscriptionEngine<EventKey, Dispatcher, Receiver>> {
    public:
     using EventKeyType = EventKey;
     using ReceiverType = Receiver;
     using SubscriberType = Receiver;
     using SubscriberWeakPtr = std::weak_ptr<SubscriberType>;
+    using DispatcherType = typename std::decay<Dispatcher>::type;
+    using DispatcherPtr = std::shared_ptr<DispatcherType>;
 
     /// List is preferable here because this container iterators remain
     /// alive after removal from the middle of the container
@@ -46,7 +51,10 @@ namespace iroha::subscription {
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
-    SubscriptionEngine() = default;
+    SubscriptionEngine(DispatcherPtr const &dispatcher)
+        : dispatcher_(dispatcher) {
+      assert(dispatcher_);
+    }
     ~SubscriptionEngine() = default;
 
     SubscriptionEngine(SubscriptionEngine &&) = default;             // NOLINT
@@ -56,13 +64,17 @@ namespace iroha::subscription {
     SubscriptionEngine &operator=(const SubscriptionEngine &) = delete;
 
    private:
-    template <typename KeyType, typename ValueType, typename... Args>
+    template <typename KeyType,
+              typename DispatcherType,
+              typename ValueType,
+              typename... Args>
     friend class Subscriber;
     using KeyValueContainer =
         std::unordered_map<EventKeyType, SubscribersContainer>;
 
     mutable std::shared_mutex subscribers_map_cs_;
     KeyValueContainer subscribers_map_;
+    DispatcherPtr dispatcher_;
 
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
@@ -99,7 +111,7 @@ namespace iroha::subscription {
       return count;
     }
 
-    template<typename... EventParams>
+    template <typename... EventParams>
     void notify(const EventKeyType &key, const EventParams &... args) {
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
