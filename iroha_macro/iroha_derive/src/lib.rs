@@ -103,6 +103,12 @@ pub fn into_query_derive(input: TokenStream) -> TokenStream {
     impl_into_query(&ast)
 }
 
+#[proc_macro_derive(FromVariant)]
+pub fn from_variant_derive(input: TokenStream) -> TokenStream {
+    let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
+    impl_from_variant(&ast)
+}
+
 fn param_names(pat: Pat) -> Box<dyn Iterator<Item = Ident>> {
     match pat {
         Pat::Ident(PatIdent { ident, .. }) => Box::new(std::iter::once(ident)),
@@ -151,6 +157,103 @@ fn impl_io(ast: &syn::DeriveInput) -> TokenStream {
                     )
             }
         }
+    };
+    gen.into()
+}
+
+const BOX: &str = "Box";
+
+fn get_struct_argument<'a, 'b>(
+    s: &'a str,
+    ty: &'b syn::TypePath,
+) -> Option<&'b syn::GenericArgument> {
+    let segments = &ty.path.segments;
+    if segments.len() != 1 || segments[0].ident != s {
+        return None;
+    }
+
+    if let syn::PathArguments::AngleBracketed(ref bracketed_arguments) = segments[0].arguments {
+        assert_eq!(bracketed_arguments.args.len(), 1);
+        Some(&bracketed_arguments.args[0])
+    } else {
+        unreachable!("No other arguments for types in enum variants possible")
+    }
+}
+
+fn from_boxed_variant_internal(
+    into_ty: &syn::Ident,
+    from_variant: &syn::Ident,
+    from_ty: &syn::GenericArgument,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl std::convert::From<#from_ty> for #into_ty {
+            fn from(origin: #from_ty) -> Self {
+                #into_ty :: # from_variant (Box::new(origin))
+            }
+        }
+    }
+}
+
+fn from_variant_internal(
+    into_ty: &syn::Ident,
+    from_variant: &syn::Ident,
+    from_ty: &syn::Type,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl std::convert::From<#from_ty> for #into_ty {
+            fn from(origin: #from_ty) -> Self {
+                #into_ty :: # from_variant (origin)
+            }
+        }
+    }
+}
+
+fn from_variant(
+    into_ty: &syn::Ident,
+    from_variant: &syn::Ident,
+    from_ty: &syn::Type,
+) -> proc_macro2::TokenStream {
+    let from_orig = from_variant_internal(into_ty, from_variant, from_ty);
+
+    if let syn::Type::Path(path) = from_ty {
+        if let Some(inner) = get_struct_argument(BOX, path) {
+            let from_inner = from_boxed_variant_internal(into_ty, from_variant, inner);
+            return quote! {
+                #from_orig
+                #from_inner
+            };
+        }
+    }
+
+    from_orig
+}
+
+fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+
+    let froms = if let syn::Data::Enum(ref data_enum) = ast.data {
+        &data_enum.variants
+    } else {
+        panic!("Only enums are supported")
+    }
+    .iter()
+    .filter_map(|variant| {
+        if let syn::Fields::Unnamed(ref unnamed) = variant.fields {
+            if unnamed.unnamed.len() == 1 {
+                let variant_type = &unnamed
+                    .unnamed
+                    .first()
+                    .expect("Won't fail as we have more than  one argument for variant")
+                    .ty;
+                return Some((&variant.ident, variant_type));
+            }
+        }
+        None
+    })
+    .map(|(ident, ty)| from_variant(name, ident, ty));
+
+    let gen = quote! {
+        #(#froms)*
     };
     gen.into()
 }

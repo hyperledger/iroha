@@ -1,12 +1,13 @@
 //! This library contains basic Iroha Special Instructions.
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, ValueMarker};
+use iroha_derive::FromVariant;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// Sized structure for all possible Instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
 pub enum Instruction {
     /// `Register` variant.
     Register(RegisterBox),
@@ -476,70 +477,6 @@ impl FailBox {
         Self {
             message: message.to_string(),
         }
-    }
-}
-
-impl From<RegisterBox> for Instruction {
-    fn from(instruction: RegisterBox) -> Instruction {
-        Instruction::Register(RegisterBox::new(
-            instruction.object,
-            instruction.destination_id,
-        ))
-    }
-}
-
-impl From<UnregisterBox> for Instruction {
-    fn from(instruction: UnregisterBox) -> Instruction {
-        Instruction::Unregister(UnregisterBox::new(
-            instruction.object,
-            instruction.destination_id,
-        ))
-    }
-}
-
-impl From<MintBox> for Instruction {
-    fn from(instruction: MintBox) -> Instruction {
-        Instruction::Mint(MintBox::new(instruction.object, instruction.destination_id))
-    }
-}
-
-impl From<BurnBox> for Instruction {
-    fn from(instruction: BurnBox) -> Instruction {
-        Instruction::Burn(BurnBox::new(instruction.object, instruction.destination_id))
-    }
-}
-
-impl From<TransferBox> for Instruction {
-    fn from(instruction: TransferBox) -> Instruction {
-        Instruction::Transfer(TransferBox::new(
-            instruction.source_id,
-            instruction.object,
-            instruction.destination_id,
-        ))
-    }
-}
-
-impl From<Pair> for Instruction {
-    fn from(instruction: Pair) -> Instruction {
-        Instruction::Pair(Box::new(instruction))
-    }
-}
-
-impl From<SequenceBox> for Instruction {
-    fn from(instruction: SequenceBox) -> Instruction {
-        Instruction::Sequence(instruction)
-    }
-}
-
-impl From<If> for Instruction {
-    fn from(instruction: If) -> Instruction {
-        Instruction::If(Box::new(instruction))
-    }
-}
-
-impl From<FailBox> for Instruction {
-    fn from(instruction: FailBox) -> Instruction {
-        Instruction::Fail(instruction)
     }
 }
 

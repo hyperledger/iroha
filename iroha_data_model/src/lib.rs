@@ -25,6 +25,7 @@ pub mod isi;
 pub mod query;
 
 use iroha_crypto::PublicKey;
+use iroha_derive::FromVariant;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Debug};
@@ -50,7 +51,7 @@ pub enum Parameter {
 }
 
 /// Sized container for all possible identifications.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
 pub enum IdBox {
     /// `AccountId` variant.
     AccountId(account::Id),
@@ -67,7 +68,7 @@ pub enum IdBox {
 }
 
 /// Sized container for all possible entities.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
 pub enum IdentifiableBox {
     /// `Account` variant.
     Account(Box<account::Account>),
@@ -356,7 +357,7 @@ pub mod account {
         domain::GENESIS_DOMAIN_NAME,
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         permissions::PermissionRaw,
-        IdBox, Identifiable, IdentifiableBox, Name, PublicKey, Value,
+        Identifiable, Name, PublicKey, Value,
     };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
@@ -559,12 +560,6 @@ pub mod account {
         type Id = Id;
     }
 
-    impl From<Account> for IdentifiableBox {
-        fn from(account: Account) -> IdentifiableBox {
-            IdentifiableBox::Account(Box::new(account))
-        }
-    }
-
     impl From<Account> for Value {
         fn from(account: Account) -> Self {
             Value::Identifiable(account.into())
@@ -577,12 +572,6 @@ pub mod account {
                 .map(|account| account.into())
                 .collect::<Vec<Value>>()
                 .into()
-        }
-    }
-
-    impl From<Id> for IdBox {
-        fn from(id: Id) -> IdBox {
-            IdBox::AccountId(id)
         }
     }
 
@@ -621,7 +610,7 @@ pub mod asset {
     //! This module contains `Asset` structure, it's implementation and related traits and
     //! instructions implementations.
 
-    use crate::{account::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Value};
+    use crate::{account::prelude::*, Bytes, Identifiable, Name, Value};
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -794,12 +783,6 @@ pub mod asset {
         type Id = DefinitionId;
     }
 
-    impl From<Asset> for IdentifiableBox {
-        fn from(asset: Asset) -> IdentifiableBox {
-            IdentifiableBox::Asset(Box::new(asset))
-        }
-    }
-
     impl From<Asset> for Value {
         fn from(asset: Asset) -> Value {
             Value::Identifiable(asset.into())
@@ -812,12 +795,6 @@ pub mod asset {
                 .map(|asset| asset.into())
                 .collect::<Vec<Value>>()
                 .into()
-        }
-    }
-
-    impl From<AssetDefinition> for IdentifiableBox {
-        fn from(asset_definition: AssetDefinition) -> IdentifiableBox {
-            IdentifiableBox::AssetDefinition(Box::new(asset_definition))
         }
     }
 
@@ -855,21 +832,9 @@ pub mod asset {
         }
     }
 
-    impl From<DefinitionId> for IdBox {
-        fn from(id: DefinitionId) -> IdBox {
-            IdBox::AssetDefinitionId(id)
-        }
-    }
-
     impl Display for Id {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             write!(f, "{}@{}", self.definition_id, self.account_id)
-        }
-    }
-
-    impl From<Id> for IdBox {
-        fn from(id: Id) -> IdBox {
-            IdBox::AssetId(id)
         }
     }
 
@@ -888,7 +853,7 @@ pub mod domain {
     use crate::{
         account::{Account, AccountsMap, GenesisAccount},
         asset::AssetDefinitionsMap,
-        IdBox, Identifiable, IdentifiableBox, Name, Value,
+        Identifiable, Name, Value,
     };
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
@@ -960,12 +925,6 @@ pub mod domain {
         type Id = Name;
     }
 
-    impl From<Domain> for IdentifiableBox {
-        fn from(domain: Domain) -> IdentifiableBox {
-            IdentifiableBox::Domain(Box::new(domain))
-        }
-    }
-
     impl From<Domain> for Value {
         fn from(domain: Domain) -> Value {
             Value::Identifiable(domain.into())
@@ -981,12 +940,6 @@ pub mod domain {
         }
     }
 
-    impl From<Name> for IdBox {
-        fn from(name: Name) -> IdBox {
-            IdBox::DomainName(name)
-        }
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{Domain, GenesisDomain, GENESIS_DOMAIN_NAME};
@@ -996,7 +949,7 @@ pub mod domain {
 pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
 
-    use crate::{IdBox, Identifiable, IdentifiableBox, PublicKey, Value};
+    use crate::{Identifiable, PublicKey, Value};
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1044,12 +997,6 @@ pub mod peer {
         }
     }
 
-    impl From<Peer> for IdentifiableBox {
-        fn from(peer: Peer) -> IdentifiableBox {
-            IdentifiableBox::Peer(Box::new(peer))
-        }
-    }
-
     impl From<Id> for Value {
         fn from(id: Id) -> Value {
             Value::Id(id.into())
@@ -1062,12 +1009,6 @@ pub mod peer {
                 .map(|id| id.into())
                 .collect::<Vec<Value>>()
                 .into()
-        }
-    }
-
-    impl From<Id> for IdBox {
-        fn from(id: Id) -> IdBox {
-            IdBox::PeerId(id)
         }
     }
 
