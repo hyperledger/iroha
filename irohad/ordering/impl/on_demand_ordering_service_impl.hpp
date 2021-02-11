@@ -8,7 +8,10 @@
 
 #include "ordering/on_demand_ordering_service.hpp"
 
+#include <boost/range/adaptor/filtered.hpp>
+#include <boost/range/adaptor/indirected.hpp>
 #include <map>
+#include <mutex>
 #include <shared_mutex>
 
 #include <tbb/concurrent_unordered_set.h>
@@ -31,9 +34,10 @@ namespace iroha {
           model::PointerBatchHasher,
           shared_model::interface::BatchHashEquality>;
 
-      using ProposalMapType = std::map<
-          consensus::Round,
-          std::shared_ptr<const transport::OdOsNotification::ProposalType>>;
+      using ProposalMapType =
+          std::map<consensus::Round,
+                   boost::optional<std::shared_ptr<
+                       const transport::OdOsNotification::ProposalType>>>;
     }  // namespace detail
 
     class OnDemandOrderingServiceImpl : public OnDemandOrderingService {
@@ -62,6 +66,10 @@ namespace iroha {
 
       void onCollaborationOutcome(consensus::Round round) override;
 
+      void onTxsCommitted(const HashesSetType &hashes) override {
+        removeFromBatchesCache(hashes);
+      }
+
       // ----------------------- | OdOsNotification | --------------------------
 
       void onBatches(CollectionType batches) override;
@@ -74,13 +82,19 @@ namespace iroha {
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      void packNextProposals(const consensus::Round &round);
+      boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
+      packNextProposals(const consensus::Round &round);
+
+      boost::optional<
+          std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+      uploadProposal(consensus::Round round);
 
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
 
-      void tryCreateProposal(
-          consensus::Round round,
+      boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
+      tryCreateProposal(
+          consensus::Round const &round,
           const TransactionsCollectionType &txs,
           shared_model::interface::types::TimestampType created_time);
 
@@ -96,6 +110,22 @@ namespace iroha {
        */
       bool batchAlreadyProcessed(
           const shared_model::interface::TransactionBatch &batch);
+
+      void insertBatchToCache(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch);
+
+      void removeFromBatchesCache(
+          const OnDemandOrderingService::HashesSetType &hashes);
+
+      bool isEmptyBatchesCache() const;
+
+      void forCachedBatches(
+          std::function<void(const transport::OdOsNotification::BatchesSetType
+                                 &)> const &f) override;
+
+      std::vector<std::shared_ptr<shared_model::interface::Transaction>>
+      getTransactionsFromBatchesCache(size_t requested_tx_amount);
 
       /**
        * Max number of transaction in one proposal
@@ -113,14 +143,12 @@ namespace iroha {
       detail::ProposalMapType proposal_map_;
 
       /**
-       * Collections of batches for current round
+       * Proposal collection mutexes for public methods
        */
-      detail::BatchSetType pending_batches_;
+      std::mutex proposals_mutex_;
 
-      /**
-       * Batches and proposal collection mutexes for public methods
-       */
-      std::shared_timed_mutex batches_mutex_, proposals_mutex_;
+      mutable std::shared_timed_mutex batches_cache_cs_;
+      BatchesSetType batches_cache_;
 
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
@@ -139,6 +167,11 @@ namespace iroha {
        * Logger instance
        */
       logger::LoggerPtr log_;
+
+      /**
+       * Current round
+       */
+      consensus::Round current_round_;
     };
   }  // namespace ordering
 }  // namespace iroha

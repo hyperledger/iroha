@@ -56,6 +56,7 @@
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
+#include "ordering/impl/unique_creation_proposal_strategy.hpp"
 #include "simulator/impl/simulator.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
@@ -606,8 +607,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
       shared_model::validation::DefaultProposalValidator>>(validators_config_);
 
   std::shared_ptr<iroha::ordering::ProposalCreationStrategy> proposal_strategy =
-      std::make_shared<ordering::KickOutProposalCreationStrategy>(
-          getSupermajorityChecker(kConsensusConsistencyModel));
+      std::make_shared<ordering::UniqueCreationProposalStrategy>();
 
   ordering_gate =
       ordering_init.initOrderingGate(max_proposal_size_,

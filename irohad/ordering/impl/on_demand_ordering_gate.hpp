@@ -50,9 +50,6 @@ namespace iroha {
               std::shared_ptr<const cache::OrderingGateCache::HashesSetType>>
               processed_tx_hashes,
           rxcpp::observable<RoundSwitch> round_switch_events,
-          std::shared_ptr<cache::OrderingGateCache>
-              cache,  // TODO: IR-1863 12.11.18 kamilsa change cache to
-                      // unique_ptr
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
@@ -98,7 +95,6 @@ namespace iroha {
       std::unique_ptr<transport::OdOsNotification> network_client_;
       rxcpp::composite_subscription processed_tx_hashes_subscription_;
       rxcpp::composite_subscription round_switch_subscription_;
-      std::shared_ptr<cache::OrderingGateCache> cache_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;

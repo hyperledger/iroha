@@ -44,6 +44,12 @@ namespace iroha {
                        consensus::Round));
 
       MOCK_METHOD1(onCollaborationOutcome, void(consensus::Round));
+      MOCK_METHOD1(onTxsCommitted, void(const HashesSetType &));
+      MOCK_METHOD1(
+          forCachedBatches,
+          void(std::function<
+               void(const transport::OdOsNotification::BatchesSetType &)> const
+                   &));
     };
 
   }  // namespace ordering

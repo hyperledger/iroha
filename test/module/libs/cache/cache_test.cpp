@@ -41,6 +41,36 @@ TEST(CacheTest, RingBufferInsertion) {
 }
 
 /**
+ * @given ring buffer of ints of size 3
+ * @when insert 4 items [1, 4], then RB will contain exactly 3 items [2,4],
+ * available by foreach
+ */
+TEST(CacheTest, RingBufferForeach) {
+  using RB = iroha::containers::RingBuffer<int, 3>;
+  using Handle = RB::Handle;
+  RB rb;
+  Handle h[3];
+  int v[3] = {2, 3, 4};
+
+  for (int ix = 1; ix <= 4; ++ix) {
+    rb.push(
+        [&](Handle h_, auto const &) {
+          h[0] = h[1];
+          h[1] = h[2];
+          h[2] = h_;
+        },
+        [](Handle, auto const &) {},
+        ix);
+  }
+  rb.foreach ([&v, &h, ix{0ull}](auto handle, auto &value) mutable {
+    assert(h[ix] == handle);
+    assert(v[ix] == value);
+    ++ix;
+    return true;
+  });
+}
+
+/**
  * @given initialized cache
  * @when insert N ToriiResponse objects into it
  * @then amount of items in cache equals N

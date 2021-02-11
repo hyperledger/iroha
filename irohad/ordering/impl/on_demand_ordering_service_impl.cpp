@@ -46,8 +46,8 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
 void OnDemandOrderingServiceImpl::onCollaborationOutcome(
     consensus::Round round) {
   log_->info("onCollaborationOutcome => {}", round);
-
-  packNextProposals(round);
+  current_round_ = round;
+  uploadProposal(round);
   tryErase(round);
 }
 
@@ -60,34 +60,19 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
                     batch->reducedHash().hex());
         return not this->batchAlreadyProcessed(*batch);
       });
-  std::for_each(
-      unprocessed_batches.begin(),
-      unprocessed_batches.end(),
-      [this](auto &obj) {
-        std::shared_lock<std::shared_timed_mutex> lock(batches_mutex_);
-        pending_batches_.insert(std::move(obj));
-      });
+  std::for_each(unprocessed_batches.begin(),
+                unprocessed_batches.end(),
+                [this](auto &obj) { insertBatchToCache(obj); });
   log_->info("onBatches => collection size = {}", batches.size());
 }
 
 boost::optional<
     std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
+  log_->debug("Requesting a proposal for round {}", round);
   boost::optional<
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-      result;
-  {
-    // tryCreateProposal will not be able to aquire the lock and access the map
-    std::shared_lock<std::shared_timed_mutex> lock(proposals_mutex_);
-    proposal_creation_strategy_->onProposalRequest(round);
-    // TODO 2019-08-01 lebdron: IR-487 good case optimization
-    auto it = proposal_map_.find(round);
-    if (it != proposal_map_.end()) {
-      result = it->second;
-    }
-  }
-  // space between '{}' and 'returning' is not missing, since either nothing, or
-  // NOT with space is printed
+      result = uploadProposal(round);
   log_->debug("onRequestProposal, {}, {}returning a proposal.",
               round,
               result ? "" : "NOT ");
@@ -95,24 +80,49 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
 }
 
 // ---------------------------------| Private |---------------------------------
+void OnDemandOrderingServiceImpl::insertBatchToCache(
+    std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+  std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
+  batches_cache_.insert(batch);
+}
 
-/**
- * Get transactions from the given batches queue. Does not break batches -
- * continues getting all the transactions from the ongoing batch until the
- * required amount is collected.
- * @param requested_tx_amount - amount of transactions to get
- * @param batch_collection - the collection to get transactions from
- * @param discarded_txs_amount - the amount of discarded txs
- * @return transactions
- */
-static std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-getTransactions(size_t requested_tx_amount,
-                detail::BatchSetType &batch_collection,
-                boost::optional<size_t &> discarded_txs_amount) {
+void OnDemandOrderingServiceImpl::removeFromBatchesCache(
+    const OnDemandOrderingService::HashesSetType &hashes) {
+  std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
+  for (auto it = batches_cache_.begin(); it != batches_cache_.end();) {
+    if (std::any_of(it->get()->transactions().begin(),
+                    it->get()->transactions().end(),
+                    [&hashes](const auto &tx) {
+                      return hashes.find(tx->hash()) != hashes.end();
+                    })) {
+      it = batches_cache_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() const {
+  std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+  return batches_cache_.empty();
+}
+
+void OnDemandOrderingServiceImpl::forCachedBatches(
+    std::function<
+        void(const transport::OdOsNotification::BatchesSetType &)> const &f) {
+  std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+  f(batches_cache_);
+}
+
+std::vector<std::shared_ptr<shared_model::interface::Transaction>>
+OnDemandOrderingServiceImpl::getTransactionsFromBatchesCache(
+    size_t requested_tx_amount) {
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
+  collection.reserve(requested_tx_amount);
 
-  auto it = batch_collection.begin();
-  for (; it != batch_collection.end()
+  std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+  auto it = batches_cache_.begin();
+  for (; it != batches_cache_.end()
        and collection.size() + boost::size((*it)->transactions())
            <= requested_tx_amount;
        ++it) {
@@ -121,58 +131,68 @@ getTransactions(size_t requested_tx_amount,
                       std::end((*it)->transactions()));
   }
 
-  if (discarded_txs_amount) {
-    *discarded_txs_amount = 0;
-    for (; it != batch_collection.end(); ++it) {
-      *discarded_txs_amount += boost::size((*it)->transactions());
-    }
-  }
-
   return collection;
 }
 
-void OnDemandOrderingServiceImpl::packNextProposals(
-    const consensus::Round &round) {
-  if (not pending_batches_.empty()) {
-    size_t discarded_txs_quantity;
-    auto txs = getTransactions(
-        transaction_limit_, pending_batches_, discarded_txs_quantity);
-    log_->debug("Discarded {} transactions", discarded_txs_quantity);
-    auto now = iroha::time::now();
-    // create proposals for the next commit and reject rounds
-    tryCreateProposal({round.block_round, round.reject_round + 1}, txs, now);
-    tryCreateProposal({round.block_round + 1, kFirstRejectRound}, txs, now);
-  }
+boost::optional<
+    std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+OnDemandOrderingServiceImpl::uploadProposal(consensus::Round round) {
+  boost::optional<
+      std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+      result;
+  do {
+    std::lock_guard<std::mutex> lock(proposals_mutex_);
+    auto it = proposal_map_.find(round);
+    if (it != proposal_map_.end()) {
+      result = it->second;
+      break;
+    }
 
-  if (round.reject_round == kFirstRejectRound) {
-    std::lock_guard<std::shared_timed_mutex> lock(batches_mutex_);
-    pending_batches_.clear();
-  }
+    bool const is_current_round_or_next2 =
+        (round.block_round == current_round_.block_round
+             ? (round.reject_round - current_round_.reject_round)
+             : (round.block_round - current_round_.block_round))
+        <= 2ull;
+
+    if (is_current_round_or_next2)
+      result = packNextProposals(round);
+  } while (false);
+  return result;
 }
 
-void OnDemandOrderingServiceImpl::tryCreateProposal(
-    iroha::consensus::Round round,
+boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
+OnDemandOrderingServiceImpl::tryCreateProposal(
+    consensus::Round const &round,
     const TransactionsCollectionType &txs,
     shared_model::interface::types::TimestampType created_time) {
+  boost::optional<std::shared_ptr<shared_model::interface::Proposal>> proposal;
   if (not txs.empty()) {
-    // onRequestProposal will not be able to aquire the lock and access the map
-    std::lock_guard<std::shared_timed_mutex> lock(proposals_mutex_);
-    if (proposal_creation_strategy_->shouldCreateRound(round)) {
-      auto proposal = proposal_factory_->unsafeCreateProposal(
-          round.block_round, created_time, txs | boost::adaptors::indirected);
-      proposal_map_.erase(round);
-      proposal_map_.emplace(round, std::move(proposal));
-      log_->debug(
-          "packNextProposal: data has been fetched for {}. "
-          "Number of transactions in proposal = {}.",
-          round,
-          txs.size());
-    } else {
-      log_->debug("Proposal for {} not created by the strategy", round);
-    }
+    proposal = proposal_factory_->unsafeCreateProposal(
+        round.block_round, created_time, txs | boost::adaptors::indirected);
+    log_->debug(
+        "packNextProposal: data has been fetched for {}. "
+        "Number of transactions in proposal = {}.",
+        round,
+        txs.size());
   } else {
+    proposal = boost::none;
     log_->debug("No transactions to create a proposal for {}", round);
   }
+
+  assert(proposal_map_.find(round) == proposal_map_.end());
+  proposal_map_.emplace(round, proposal);
+  return proposal;
+}
+
+boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
+OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
+  auto now = iroha::time::now();
+  std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
+  if (!isEmptyBatchesCache())
+    txs = getTransactionsFromBatchesCache(transaction_limit_);
+
+  log_->debug("Packed proposal contains: {} transactions.", txs.size());
+  return tryCreateProposal(round, txs, now);
 }
 
 void OnDemandOrderingServiceImpl::tryErase(
@@ -195,7 +215,7 @@ void OnDemandOrderingServiceImpl::tryErase(
                                        proposal_map_.end()};
 
   {
-    std::lock_guard<std::shared_timed_mutex> lock(proposals_mutex_);
+    std::lock_guard<std::mutex> lock(proposals_mutex_);
     proposal_map_.swap(proposal_map);
   }
 
