@@ -1,6 +1,7 @@
 //! Expressions to use inside of ISIs.
 
 use super::{query::QueryBox, Value, ValueBox};
+use iroha_derive::FromVariant;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, marker::PhantomData};
@@ -43,7 +44,7 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
 }
 
 /// Represents all possible expressions.
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq, FromVariant)]
 pub enum Expression {
     /// Add expression.
     Add(Add),

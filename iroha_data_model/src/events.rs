@@ -1,5 +1,6 @@
 //! Events for streaming API.
 
+use iroha_derive::FromVariant;
 use serde::{Deserialize, Serialize};
 
 //TODO: Sign request?
@@ -13,7 +14,7 @@ pub struct SubscriptionRequest(pub EventFilter);
 pub struct EventReceived;
 
 /// Event.
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, FromVariant)]
 pub enum Event {
     /// Pipeline event.
     Pipeline(pipeline::Event),
@@ -21,37 +22,13 @@ pub enum Event {
     Data(data::Event),
 }
 
-impl From<pipeline::Event> for Event {
-    fn from(event: pipeline::Event) -> Self {
-        Event::Pipeline(event)
-    }
-}
-
-impl From<data::Event> for Event {
-    fn from(event: data::Event) -> Self {
-        Event::Data(event)
-    }
-}
-
 /// Event filter.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, FromVariant)]
 pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
     /// Listen to data events with filter.
     Data(data::EventFilter),
-}
-
-impl From<pipeline::EventFilter> for EventFilter {
-    fn from(filter: pipeline::EventFilter) -> Self {
-        EventFilter::Pipeline(filter)
-    }
-}
-
-impl From<data::EventFilter> for EventFilter {
-    fn from(filter: data::EventFilter) -> Self {
-        EventFilter::Data(filter)
-    }
 }
 
 impl EventFilter {
@@ -73,6 +50,7 @@ impl EventFilter {
 /// Events of data entities.
 pub mod data {
     use crate::prelude::*;
+    use iroha_derive::FromVariant;
     use serde::{Deserialize, Serialize};
 
     /// Entity type to filter events.
@@ -104,7 +82,7 @@ pub mod data {
     }
 
     /// Enumeration of all possible Iroha data entities.
-    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[derive(Clone, Debug, Serialize, Deserialize, FromVariant)]
     pub enum Entity {
         /// Account.
         Account(Account),
@@ -159,6 +137,7 @@ pub mod data {
 /// Pipeline events.
 pub mod pipeline {
     use iroha_crypto::Hash;
+    use iroha_derive::FromVariant;
     use serde::{Deserialize, Serialize};
 
     /// Event filter.
@@ -254,7 +233,7 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
+    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, FromVariant)]
     pub enum Status {
         /// Entity has been seen in blockchain, but has not passed validation.
         Validating,
