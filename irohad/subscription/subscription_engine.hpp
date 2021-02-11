@@ -11,6 +11,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "subscription/common.hpp"
 #include "subscription/dispatcher.hpp"
 
 namespace iroha::subscription {
@@ -34,7 +35,9 @@ namespace iroha::subscription {
   template <typename EventKey, typename Dispatcher, typename Receiver>
   class SubscriptionEngine final
       : public std::enable_shared_from_this<
-            SubscriptionEngine<EventKey, Dispatcher, Receiver>> {
+            SubscriptionEngine<EventKey, Dispatcher, Receiver>>,
+        utils::NoMove,
+        utils::NoCopy {
    public:
     using EventKeyType = EventKey;
     using ReceiverType = Receiver;
@@ -52,17 +55,11 @@ namespace iroha::subscription {
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
-    SubscriptionEngine(DispatcherPtr const &dispatcher)
+    explicit SubscriptionEngine(DispatcherPtr const &dispatcher)
         : dispatcher_(dispatcher) {
       assert(dispatcher_);
     }
     ~SubscriptionEngine() = default;
-
-    SubscriptionEngine(SubscriptionEngine &&) = default;             // NOLINT
-    SubscriptionEngine &operator=(SubscriptionEngine &&) = default;  // NOLINT
-
-    SubscriptionEngine(const SubscriptionEngine &) = delete;
-    SubscriptionEngine &operator=(const SubscriptionEngine &) = delete;
 
    private:
     template <typename KeyType,

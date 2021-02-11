@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 
+#include "subscription/common.hpp"
 #include "subscription/subscription_engine.hpp"
 
 namespace iroha::subscription {
@@ -31,7 +32,9 @@ namespace iroha::subscription {
             typename... Arguments>
   class Subscriber final
       : public std::enable_shared_from_this<
-            Subscriber<EventKey, Dispatcher, Receiver, Arguments...>> {
+            Subscriber<EventKey, Dispatcher, Receiver, Arguments...>>,
+        utils::NoMove,
+        utils::NoCopy {
    public:
     using EventType = EventKey;
     using ReceiverType = Receiver;
@@ -66,8 +69,7 @@ namespace iroha::subscription {
 
    public:
     template <typename... SubscriberConstructorArgs>
-    explicit Subscriber(SubscriptionEnginePtr &ptr,
-                        SubscriberConstructorArgs &&... args)
+    Subscriber(SubscriptionEnginePtr &ptr, SubscriberConstructorArgs &&... args)
         : next_id_(0ull),
           engine_(ptr),
           object_(std::forward<SubscriberConstructorArgs>(args)...) {}
@@ -77,12 +79,6 @@ namespace iroha::subscription {
       for (auto &[_, subscriptions] : subscriptions_sets_)
         for (auto &[key, it] : subscriptions) engine_->unsubscribe(key, it);
     }
-
-    Subscriber(const Subscriber &) = delete;
-    Subscriber &operator=(const Subscriber &) = delete;
-
-    Subscriber(Subscriber &&) = default;             // NOLINT
-    Subscriber &operator=(Subscriber &&) = default;  // NOLINT
 
     void setCallback(CallbackFnType &&f) {
       on_notify_callback_ = std::move(f);
