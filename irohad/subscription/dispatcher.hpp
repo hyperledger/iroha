@@ -23,7 +23,7 @@ namespace iroha::subscription {
    public:
     Dispatcher() = default;
 
-    template<Tid kId>
+    template <Tid kId>
     static void checkTid() {
       static_assert(kId < kHandlersCount, "Unexpected TID handler.");
     }
