@@ -21,24 +21,18 @@ fn main() {
         .author("Nikita Puzankov <puzankov@soramitsu.co.jp>")
         .about("Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.")
         .arg(
-            Arg::with_name(CONFIG)
-            .short("c")
-            .long(CONFIG)
-            .value_name("FILE")
-            .help("Sets a config file path.")
-            .takes_value(true)
-            .default_value("config.json"),
-            )
-        .subcommand(
-            domain::build_app(),
-            )
-        .subcommand(
-            account::build_app(),
-            )
-        .subcommand(
-            asset::build_app(),
-            )
-        .subcommand(events::build_app())
+			Arg::with_name(CONFIG)
+				.short("c")
+				.long(CONFIG)
+				.value_name("FILE")
+				.help("Sets a config file path.")
+				.takes_value(true)
+				.default_value("config.json"),
+		)
+		.subcommand(domain::build_app())
+		.subcommand(account::build_app())
+		.subcommand(asset::build_app())
+		.subcommand(events::build_app())
         .get_matches();
     let configuration_path = matches
         .value_of(CONFIG)
@@ -179,11 +173,15 @@ mod account {
     use super::*;
     use clap::ArgMatches;
     use iroha_client::config::Configuration;
+    use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
     const REGISTER: &str = "register";
+    const SET: &str = "set";
     const ACCOUNT_NAME: &str = "name";
     const ACCOUNT_DOMAIN_NAME: &str = "domain";
     const ACCOUNT_KEY: &str = "key";
+    const ACCOUNT_SIGNATURE_CONDITION: &str = "signature_condition";
+    const ACCOUNT_SIGNATURE_CONDITION_FILE: &str = "file";
 
     pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         App::new(ACCOUNT)
@@ -216,9 +214,30 @@ mod account {
                             .required(true),
                     ),
             )
+            .subcommand(
+                App::new(SET)
+                    .about("Use this command to set Account Parameters in Iroha Peer.")
+					.subcommand(
+						App::new(ACCOUNT_SIGNATURE_CONDITION)
+							.about("Use this command to set Signature Condition for Account in Iroha Peer.")
+							.arg(
+								Arg::with_name(ACCOUNT_SIGNATURE_CONDITION_FILE)
+									.long(ACCOUNT_SIGNATURE_CONDITION_FILE)
+									.value_name("FILE")
+									.help("A JSON file with Iroha Expression that represents signature condition.")
+									.takes_value(true)
+									.required(true),
+							)
+					),
+			)
     }
 
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
+        process_create_account(matches, configuration);
+        process_set_account_signature_condition(matches, configuration);
+    }
+
+    fn process_create_account(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(account_name) = matches.value_of(ACCOUNT_NAME) {
                 println!("Creating account with a name: {}", account_name);
@@ -228,6 +247,20 @@ mod account {
                         println!("Creating account with a public key: {}", public_key);
                         create_account(account_name, domain_name, public_key, configuration);
                     }
+                }
+            }
+        }
+    }
+
+    fn process_set_account_signature_condition(
+        matches: &ArgMatches<'_>,
+        configuration: &Configuration,
+    ) {
+        if let Some(ref matches) = matches.subcommand_matches(SET) {
+            if let Some(ref matches) = matches.subcommand_matches(ACCOUNT_SIGNATURE_CONDITION) {
+                if let Some(file) = matches.value_of(ACCOUNT_SIGNATURE_CONDITION_FILE) {
+                    println!("Setting account signature condition from file: {}", file);
+                    set_account_signature_condition(file, configuration);
                 }
             }
         }
@@ -248,6 +281,23 @@ mod account {
             IdBox::from(Name::from(domain_name)),
         );
         submit(create_account.into(), configuration);
+    }
+
+    fn signature_condition_from_file(
+        path: impl AsRef<Path> + Debug,
+    ) -> Result<SignatureCheckCondition, String> {
+        let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
+        let reader = BufReader::new(file);
+        let condition: Box<Expression> = serde_json::from_reader(reader)
+            .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?;
+        Ok(SignatureCheckCondition(condition.into()))
+    }
+
+    fn set_account_signature_condition(file: &str, configuration: &Configuration) {
+        let account = Account::new(configuration.account_id.clone());
+        let condition = signature_condition_from_file(file)
+            .expect("Failed to get signature condition from file");
+        submit(MintBox::new(account, condition).into(), configuration);
     }
 }
 
