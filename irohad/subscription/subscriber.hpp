@@ -34,7 +34,7 @@ namespace iroha::subscription {
     using Hash = size_t;
 
     using SubscriptionEngineType =
-        SubscriptionEngine<EventType, ReceiverType, Arguments...>;
+        SubscriptionEngine<EventType, Subscriber<EventType, ReceiverType, Arguments...>>;
     using SubscriptionEnginePtr = std::shared_ptr<SubscriptionEngineType>;
 
     using CallbackFnType = std::function<void(SubscriptionSetId,

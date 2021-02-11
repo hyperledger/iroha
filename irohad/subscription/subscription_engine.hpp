@@ -11,6 +11,8 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "subscription/dispatcher.hpp"
+
 namespace iroha::subscription {
 
   template <typename Event, typename Receiver, typename... Arguments>
@@ -26,15 +28,14 @@ namespace iroha::subscription {
    * @tparam EventParams - set of types of values passed on each event
    * notification
    */
-  template <typename EventKey, typename Receiver, typename... EventParams>
+  template <typename EventKey, typename Receiver>
   class SubscriptionEngine final
       : public std::enable_shared_from_this<
-            SubscriptionEngine<EventKey, Receiver, EventParams...>> {
+            SubscriptionEngine<EventKey, Receiver>> {
    public:
     using EventKeyType = EventKey;
     using ReceiverType = Receiver;
-    using SubscriberType =
-        Subscriber<EventKeyType, ReceiverType, EventParams...>;
+    using SubscriberType = Receiver;
     using SubscriberWeakPtr = std::weak_ptr<SubscriberType>;
 
     /// List is preferable here because this container iterators remain
@@ -98,6 +99,7 @@ namespace iroha::subscription {
       return count;
     }
 
+    template<typename... EventParams>
     void notify(const EventKeyType &key, const EventParams &... args) {
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
