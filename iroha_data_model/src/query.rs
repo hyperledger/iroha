@@ -4,13 +4,13 @@ use crate::Value;
 
 use self::{account::*, asset::*, domain::*, peer::*};
 use iroha_crypto::prelude::*;
-use iroha_derive::Io;
+use iroha_derive::{FromVariant, Io};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
 /// Sized container for all possible Queries.
-#[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
 pub enum QueryBox {
     /// `FindAllAccounts` variant.
     FindAllAccounts(Box<FindAllAccounts>),
@@ -180,30 +180,6 @@ pub mod account {
         }
     }
 
-    impl From<FindAllAccounts> for QueryBox {
-        fn from(query: FindAllAccounts) -> QueryBox {
-            QueryBox::FindAllAccounts(Box::new(query))
-        }
-    }
-
-    impl From<FindAccountById> for QueryBox {
-        fn from(query: FindAccountById) -> QueryBox {
-            QueryBox::FindAccountById(Box::new(query))
-        }
-    }
-
-    impl From<FindAccountsByName> for QueryBox {
-        fn from(query: FindAccountsByName) -> QueryBox {
-            QueryBox::FindAccountsByName(Box::new(query))
-        }
-    }
-
-    impl From<FindAccountsByDomainName> for QueryBox {
-        fn from(query: FindAccountsByDomainName) -> QueryBox {
-            QueryBox::FindAccountsByDomainName(Box::new(query))
-        }
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
@@ -349,42 +325,6 @@ pub mod asset {
         }
     }
 
-    impl From<FindAllAssets> for QueryBox {
-        fn from(query: FindAllAssets) -> QueryBox {
-            QueryBox::FindAllAssets(Box::new(query))
-        }
-    }
-
-    impl From<FindAllAssetsDefinitions> for QueryBox {
-        fn from(query: FindAllAssetsDefinitions) -> QueryBox {
-            QueryBox::FindAllAssetsDefinitions(Box::new(query))
-        }
-    }
-
-    impl From<FindAssetsByAccountId> for QueryBox {
-        fn from(query: FindAssetsByAccountId) -> QueryBox {
-            QueryBox::FindAssetsByAccountId(Box::new(query))
-        }
-    }
-
-    impl From<FindAssetsByAssetDefinitionId> for QueryBox {
-        fn from(query: FindAssetsByAssetDefinitionId) -> QueryBox {
-            QueryBox::FindAssetsByAssetDefinitionId(Box::new(query))
-        }
-    }
-
-    impl From<FindAssetsByAccountIdAndAssetDefinitionId> for QueryBox {
-        fn from(query: FindAssetsByAccountIdAndAssetDefinitionId) -> QueryBox {
-            QueryBox::FindAssetsByAccountIdAndAssetDefinitionId(Box::new(query))
-        }
-    }
-
-    impl From<FindAssetQuantityById> for QueryBox {
-        fn from(query: FindAssetQuantityById) -> QueryBox {
-            QueryBox::FindAssetQuantityById(Box::new(query))
-        }
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
@@ -428,18 +368,6 @@ pub mod domain {
         /// Default `FindDomainByName` constructor.
         pub fn new(name: Name) -> Self {
             FindDomainByName { name }
-        }
-    }
-
-    impl From<FindAllDomains> for QueryBox {
-        fn from(query: FindAllDomains) -> QueryBox {
-            QueryBox::FindAllDomains(Box::new(query))
-        }
-    }
-
-    impl From<FindDomainByName> for QueryBox {
-        fn from(query: FindDomainByName) -> QueryBox {
-            QueryBox::FindDomainByName(Box::new(query))
         }
     }
 
@@ -497,25 +425,6 @@ pub mod peer {
             FindAllParameters {}
         }
     }
-
-    impl From<FindAllPeers> for QueryBox {
-        fn from(query: FindAllPeers) -> QueryBox {
-            QueryBox::FindAllPeers(Box::new(query))
-        }
-    }
-
-    impl From<FindPeerById> for QueryBox {
-        fn from(query: FindPeerById) -> QueryBox {
-            QueryBox::FindPeerById(Box::new(query))
-        }
-    }
-
-    impl From<FindAllParameters> for QueryBox {
-        fn from(query: FindAllParameters) -> QueryBox {
-            QueryBox::FindAllParameters(Box::new(query))
-        }
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllParameters, FindAllPeers, FindPeerById};
