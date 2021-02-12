@@ -22,7 +22,7 @@ fn sort_peers(criterion: &mut Criterion) {
         .init()
         .expect("Failed to initialize topology.");
     criterion.bench_function("sort_peers", |b| {
-        b.iter(|| network_topology.sort_peers(Some(Hash([0u8; 32]))));
+        b.iter(|| network_topology.sort_peers_by_hash(Some(Hash([0u8; 32]))));
     });
 }
 

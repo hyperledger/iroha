@@ -155,6 +155,9 @@ impl Iroha {
                 &config.torii_configuration.torii_p2p_url,
                 &config.public_key,
             ),
+            config
+                .sumeragi_configuration
+                .n_topology_shifts_before_reshuffle,
         )));
         let genesis_network = GenesisNetwork::from_configuration(
             &config.genesis_configuration,
