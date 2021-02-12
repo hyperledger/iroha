@@ -161,9 +161,9 @@ fn impl_io(ast: &syn::DeriveInput) -> TokenStream {
     gen.into()
 }
 
-const BOX: &str = "Box";
+const CONTAINERS: &[&str] = &["Box", "RefCell", "Cell", "Rc", "Arc", "Mutex", "RwLock"];
 
-fn get_struct_argument<'a, 'b>(
+fn get_type_argument<'a, 'b>(
     s: &'a str,
     ty: &'b syn::TypePath,
 ) -> Option<&'b syn::GenericArgument> {
@@ -180,15 +180,16 @@ fn get_struct_argument<'a, 'b>(
     }
 }
 
-fn from_boxed_variant_internal(
+fn from_container_variant_internal(
     into_ty: &syn::Ident,
     from_variant: &syn::Ident,
     from_ty: &syn::GenericArgument,
+    container_ty: &syn::TypePath,
 ) -> proc_macro2::TokenStream {
     quote! {
         impl std::convert::From<#from_ty> for #into_ty {
             fn from(origin: #from_ty) -> Self {
-                #into_ty :: # from_variant (Box::new(origin))
+                #into_ty :: #from_variant (#container_ty :: new(origin))
             }
         }
     }
@@ -202,7 +203,7 @@ fn from_variant_internal(
     quote! {
         impl std::convert::From<#from_ty> for #into_ty {
             fn from(origin: #from_ty) -> Self {
-                #into_ty :: # from_variant (origin)
+                #into_ty :: #from_variant (origin)
             }
         }
     }
@@ -216,13 +217,36 @@ fn from_variant(
     let from_orig = from_variant_internal(into_ty, from_variant, from_ty);
 
     if let syn::Type::Path(path) = from_ty {
-        if let Some(inner) = get_struct_argument(BOX, path) {
-            let from_inner = from_boxed_variant_internal(into_ty, from_variant, inner);
-            return quote! {
-                #from_orig
-                #from_inner
-            };
+        let mut code = from_orig;
+
+        for container in CONTAINERS {
+            if let Some(inner) = get_type_argument(container, path) {
+                let segments = path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|segment| {
+                        let mut segment = segment.clone();
+                        segment.arguments = Default::default();
+                        segment
+                    })
+                    .collect::<syn::punctuated::Punctuated<_, syn::token::Colon2>>();
+                let path = syn::Path {
+                    segments,
+                    leading_colon: None,
+                };
+                let path = &syn::TypePath { path, qself: None };
+
+                let from_inner =
+                    from_container_variant_internal(into_ty, from_variant, inner, path);
+                code = quote! {
+                    #code
+                    #from_inner
+                };
+            }
         }
+
+        return code;
     }
 
     from_orig
