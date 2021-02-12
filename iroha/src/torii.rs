@@ -181,6 +181,7 @@ async fn handle_queries(
     _query_params: QueryParams,
     request: HttpRequest,
 ) -> Result<HttpResponse, String> {
+    //TODO: Remove when `Result::flatten` https://github.com/rust-lang/rust/issues/70142 will be stabilized
     match SignedQueryRequest::try_from(request.body) {
         //TODO: check query permissions based on signature?
         Ok(request) => match VerifiedQueryRequest::try_from(request) {

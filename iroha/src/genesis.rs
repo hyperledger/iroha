@@ -237,10 +237,9 @@ pub mod config {
             }
             if let Ok(genesis_account_private_key) = env::var(GENESIS_ACCOUNT_PRIVATE_KEY) {
                 self.genesis_account_private_key =
-                    serde_json::from_value(serde_json::json!(genesis_account_private_key))
-                        .map_err(|e| {
-                            format!("Failed to parse Private Key of genesis account: {}", e)
-                        })?;
+                    serde_json::from_str(&genesis_account_private_key).map_err(|e| {
+                        format!("Failed to parse Private Key of genesis account: {}", e)
+                    })?;
             }
             Ok(())
         }

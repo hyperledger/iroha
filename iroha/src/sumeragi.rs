@@ -1689,21 +1689,27 @@ mod tests {
 
     #[cfg(feature = "network-mock")]
     use {
-        crate::{config::Configuration, init, maintenance::System, queue::Queue, torii::Torii},
+        crate::{config::Configuration, maintenance::System, queue::Queue, torii::Torii},
         async_std::{prelude::*, sync, task},
+        network::*,
         std::time::Duration,
     };
 
     #[cfg(feature = "network-mock")]
-    const CONFIG_PATH: &str = "config.json";
-    #[cfg(feature = "network-mock")]
-    const BLOCK_TIME_MS: u64 = 1000;
-    #[cfg(feature = "network-mock")]
-    const COMMIT_TIME_MS: u64 = 1000;
-    #[cfg(feature = "network-mock")]
-    const TX_RECEIPT_TIME_MS: u64 = 200;
-    #[cfg(feature = "network-mock")]
-    const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
+    mod network {
+        pub const CONFIG_PATH: &str = "config.json";
+        pub const BLOCK_TIME_MS: u64 = 1000;
+        pub const COMMIT_TIME_MS: u64 = 1000;
+        pub const TX_RECEIPT_TIME_MS: u64 = 200;
+        pub const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
+
+        pub fn get_free_address() -> String {
+            format!(
+                "127.0.0.1:{}",
+                unique_port::get_unique_free_port().expect("Failed to get free port")
+            )
+        }
+    }
 
     #[test]
     #[should_panic]
@@ -1719,6 +1725,18 @@ mod tests {
         let _network_topology = NetworkTopology::new(&this_peer, None, 3)
             .init()
             .expect("Failed to create topology.");
+    }
+
+    #[cfg(feature = "network-mock")]
+    pub fn world_with_test_domains(public_key: PublicKey) -> World {
+        let mut domains = BTreeMap::new();
+        let mut domain = Domain::new("global");
+        let account_id = AccountId::new("root", "global");
+        let mut account = Account::new(account_id.clone());
+        account.signatories.push(public_key);
+        let _ = domain.accounts.insert(account_id, account);
+        let _ = domains.insert("global".to_string(), domain);
+        World::with(domains, BTreeSet::new())
     }
 
     fn topology_test_peers() -> BTreeSet<PeerId> {
@@ -1829,10 +1847,7 @@ mod tests {
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
-            addresses.push((
-                format!("127.0.0.1:{}", 7878 + i * 2),
-                format!("127.0.0.1:{}", 7878 + i * 2 + 1),
-            ));
+            addresses.push((get_free_address(), get_free_address()));
             let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
@@ -1849,8 +1864,6 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
-        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
@@ -1858,9 +1871,8 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
-                init::domains(&config),
-                ids_set.clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+                root_key_pair.public_key.clone(),
             ))));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
@@ -1959,10 +1971,7 @@ mod tests {
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
-            addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 + i * 2),
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 + i * 2 + 1),
-            ));
+            addresses.push((get_free_address(), get_free_address()));
             let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
@@ -1979,7 +1988,6 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
@@ -1988,9 +1996,8 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
-                init::domains(&config),
-                ids_set.clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+                root_key_pair.public_key.clone(),
             ))));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
@@ -2113,10 +2120,7 @@ mod tests {
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
-            addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 2 + i * 2),
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 2 + i * 2 + 1),
-            ));
+            addresses.push((get_free_address(), get_free_address()));
             let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
@@ -2133,7 +2137,6 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
@@ -2142,9 +2145,8 @@ mod tests {
             let (tx, _rx) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
-                init::domains(&config),
-                ids_set.clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+                root_key_pair.public_key.clone(),
             ))));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
@@ -2281,10 +2283,7 @@ mod tests {
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
-            addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 3 + i * 2),
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 3 + i * 2 + 1),
-            ));
+            addresses.push((get_free_address(), get_free_address()));
             let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
@@ -2301,7 +2300,6 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
@@ -2310,9 +2308,8 @@ mod tests {
             let (tx, _rx) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
-                init::domains(&config),
-                ids_set.clone(),
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+                root_key_pair.public_key.clone(),
             ))));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
@@ -2446,10 +2443,7 @@ mod tests {
         for i in 0..n_peers {
             let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
             keys.push(key_pair.clone());
-            addresses.push((
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 4 + i * 2),
-                format!("127.0.0.1:{}", 7878 + n_peers * 2 * 4 + i * 2 + 1),
-            ));
+            addresses.push((get_free_address(), get_free_address()));
             let (p2p_address, _) = &addresses[i];
             let peer_id = PeerId {
                 address: p2p_address.clone(),
@@ -2466,7 +2460,6 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
@@ -2474,10 +2467,8 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
-                init::domains(&config),
-                ids_set,
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+                root_key_pair.public_key.clone(),
             ))));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
