@@ -145,6 +145,7 @@ Irohad::Irohad(
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
+      consensus_freezed_round(consensus_freezed_round_lifetime),
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
@@ -172,6 +173,8 @@ Irohad::~Irohad() {
   }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
+  freezed_round_subscription.unsubscribe();
+  consensus_freezed_round_lifetime.unsubscribe();
 }
 
 /**
@@ -622,6 +625,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      persistent_cache,
                                      proposal_strategy,
                                      log_manager_->getChild("Ordering"),
+                                     consensus_freezed_round.get_observable(),
                                      inter_peer_client_factory_);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
@@ -729,6 +733,12 @@ Irohad::RunResult Irohad::initConsensusGate() {
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
       consensus_gate_objects.get_subscriber());
+  //freezed_round_subscription = consensus_freezed_round
+      consensus_gate->onFreezedRound().subscribe(freezed_round_subscription,
+                                                 consensus_freezed_round.get_subscriber());
+/*                                                  [this](auto event) {
+    ordering_gate->requestProposal(network::RequestProposal{event.round, event.ledger_state});
+  });*/
   log_->info("[Init] => consensus gate");
   return {};
 }

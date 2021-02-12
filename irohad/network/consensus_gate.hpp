@@ -43,6 +43,12 @@ namespace iroha {
        */
       virtual rxcpp::observable<consensus::GateObject> onOutcome() = 0;
 
+      /**
+       * Notification called when unable to wrap the round.
+       * @return observable
+       */
+      virtual rxcpp::observable<consensus::FreezedRound> onFreezedRound() = 0;
+
       /// Prevent any new outgoing network activity. Be passive.
       virtual void stop() = 0;
 

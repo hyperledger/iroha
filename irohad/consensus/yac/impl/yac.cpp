@@ -63,14 +63,25 @@ namespace iroha {
             vote_storage_(std::move(vote_storage)),
             network_(std::move(network)),
             crypto_(std::move(crypto)),
-            timer_(std::move(timer)) {}
+            timer_(std::move(timer))//,
+            //freezed_round_notifier_(freezed_round_notifier_lifetime_),
+      //subject_(worker_, freezed_round_notifier_lifetime_)
+      {}
 
       Yac::~Yac() {
         notifier_lifetime_.unsubscribe();
       }
 
+      rxcpp::observable<FreezedRound> Yac::onFreezedRound() {
+        //return freezed_round_notifier_.get_observable();
+        if (!subject_)
+          subject_ = std::make_unique<rxcpp::subjects::synchronize<FreezedRound, rxcpp::identity_one_worker>>(rxcpp::identity_current_thread(), freezed_round_notifier_lifetime_);
+        return subject_->get_observable();
+      }
+
       void Yac::stop() {
         network_->stop();
+        freezed_round_notifier_lifetime_.unsubscribe();
       }
 
       // ------|Hash gate|------
@@ -85,10 +96,15 @@ namespace iroha {
                                  [](const auto &p) { return p->address(); }),
                        ", "));
 
+        if (!subject_)
+          subject_ = std::make_unique<rxcpp::subjects::synchronize<FreezedRound, rxcpp::identity_one_worker>>(rxcpp::identity_current_thread(), freezed_round_notifier_lifetime_);
+
         std::unique_lock<std::mutex> lock(mutex_);
-        cluster_order_ = order;
-        alternative_order_ = std::move(alternative_order);
-        round_ = hash.vote_round;
+        if (round_ != hash.vote_round) {
+          cluster_order_ = order;
+          alternative_order_ = std::move(alternative_order);
+          round_ = hash.vote_round;
+        }
         lock.unlock();
         auto vote = crypto_->getVote(hash);
         // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
@@ -183,12 +199,24 @@ namespace iroha {
 
       // ------|Private interface|------
 
-      void Yac::votingStep(VoteMessage vote) {
+      void Yac::votingStep(VoteMessage vote, uint32_t attempt) {
         log_->info("votingStep got vote: {}", vote);
         std::unique_lock<std::mutex> lock(mutex_);
 
         auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
         if (committed) {
+          return;
+        }
+
+        /**
+         * 3 attempts to build and commit block before we think that round is freezed
+         */
+        if (attempt >= 2) {
+          /*freezed_round_notifier_.get_subscriber().on_next(
+              FreezedRound{vote.hash.vote_round});
+              */
+          subject_->get_subscriber().on_next(
+              FreezedRound{vote.hash.vote_round});
           return;
         }
 
@@ -200,7 +228,10 @@ namespace iroha {
         cluster_order.switchToNext();
         lock.unlock();
 
-        timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
+        //identity_current_thread
+
+        timer_->invokeAfterDelay(
+            [this, vote, attempt] { this->votingStep(vote, attempt + 1); });
       }
 
       void Yac::closeRound() {

@@ -7,6 +7,7 @@
 #define IROHA_YAC_TYPES_HPP
 
 #include <cstddef>
+#include "consensus/round.hpp"
 
 namespace iroha {
   namespace consensus {
@@ -14,6 +15,10 @@ namespace iroha {
 
       /// Type for number of peers in round.
       using PeersNumberType = size_t;
+
+      struct FreezedRound {
+        Round round;
+      };
 
     }  // namespace yac
   }    // namespace consensus

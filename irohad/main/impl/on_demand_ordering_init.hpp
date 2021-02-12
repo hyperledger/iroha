@@ -44,6 +44,9 @@ namespace iroha {
     class AsyncGrpcClient;
     class OrderingGate;
   }  // namespace network
+  namespace consensus {
+    struct FreezedRound;
+  }
   namespace protocol {
     class Proposal;
     class Transaction;
@@ -101,6 +104,7 @@ namespace iroha {
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           size_t max_number_of_transactions,
+          rxcpp::observable<consensus::FreezedRound> round_freezed_event,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
       /**
@@ -167,6 +171,7 @@ namespace iroha {
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           logger::LoggerManagerTreePtr ordering_log_manager,
+          rxcpp::observable<consensus::FreezedRound> round_freezed_event,
           std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       /// gRPC service for ordering service

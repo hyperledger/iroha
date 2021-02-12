@@ -40,6 +40,11 @@ namespace iroha {
        */
       virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
 
+      /**
+       * Command to initiate request proposal
+       */
+      virtual void requestProposal(RequestProposal request) = 0;
+
       virtual ~OrderingGate() = default;
 
       /// Prevent any new outgoing network activity. Be passive.

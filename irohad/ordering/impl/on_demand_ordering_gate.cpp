@@ -33,6 +33,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     size_t transaction_limit,
+    rxcpp::observable<consensus::FreezedRound> round_freezed_event,
     logger::LoggerPtr log)
     : log_(std::move(log)),
       transaction_limit_(transaction_limit),
@@ -50,6 +51,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
            proposal_creation_strategy =
                std::move(proposal_creation_strategy)](auto event) {
             log_->debug("Current: {}", event.next_round);
+            log_->error("==========================");
 
             std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
             if (stop_requested_) {
@@ -75,10 +77,43 @@ OnDemandOrderingGate::OnDemandOrderingGate(
           })),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
-      proposal_notifier_(proposal_notifier_lifetime_) {}
+      proposal_notifier_(proposal_notifier_lifetime_),
+      freezed_round_subscription_(round_freezed_event.subscribe([this](auto event) {
+        std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+        log_->error("--------------------------------");
+        if (stop_requested_) {
+          log_->warn("Not doing anything because stop was requested.");
+          return;
+        }
+        // request proposal for the current round
+        auto proposal = this->processProposalRequest(
+            network_client_->onRequestProposal(event.round));
+        // vote for the object received from the network
+        proposal_notifier_.get_subscriber().on_next(
+            network::OrderingEvent{std::move(proposal),
+                                   event.round,
+                                   std::move(event.ledger_state)});
+      }))
+{}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();
+}
+
+void OnDemandOrderingGate::requestProposal(network::RequestProposal request) {
+  std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+  if (stop_requested_) {
+    log_->warn("Not doing anything because stop was requested.");
+    return;
+  }
+  // request proposal for the current round
+  auto proposal = this->processProposalRequest(
+      network_client_->onRequestProposal(request.round));
+  // vote for the object received from the network
+  proposal_notifier_.get_subscriber().on_next(
+      network::OrderingEvent{std::move(proposal),
+                             request.round,
+                             std::move(request.ledger_state)});
 }
 
 void OnDemandOrderingGate::propagateBatch(
@@ -108,6 +143,7 @@ void OnDemandOrderingGate::stop() {
     proposal_notifier_lifetime_.unsubscribe();
     processed_tx_hashes_subscription_.unsubscribe();
     round_switch_subscription_.unsubscribe();
+    freezed_round_subscription_.unsubscribe();
     network_client_.reset();
   }
 }

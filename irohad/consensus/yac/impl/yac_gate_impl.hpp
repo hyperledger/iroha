@@ -51,6 +51,7 @@ namespace iroha {
         void vote(const simulator::BlockCreatorEvent &event) override;
 
         rxcpp::observable<GateObject> onOutcome() override;
+        rxcpp::observable<consensus::FreezedRound> onFreezedRound() override;
 
         void stop() override;
 
@@ -80,6 +81,9 @@ namespace iroha {
         std::shared_ptr<consensus::ConsensusResultCache>
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;
+
+        rxcpp::composite_subscription freezed_round_notifier_lifetime_;
+        rxcpp::subjects::subject<consensus::FreezedRound> freezed_round_notifier_;
       };
 
     }  // namespace yac

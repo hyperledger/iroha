@@ -87,6 +87,11 @@ namespace iroha {
       using Synchronizable::Synchronizable;
     };
 
+    struct FreezedRound {
+      Round round;
+      std::shared_ptr<const LedgerState> ledger_state;
+    };
+
     using GateObject = boost::variant<PairValid,
                                       VoteOther,
                                       ProposalReject,

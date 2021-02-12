@@ -70,6 +70,8 @@ namespace iroha {
 
         void stop() override;
 
+        rxcpp::observable<FreezedRound> onFreezedRound() override;
+
        private:
         // ------|Private interface|------
 
@@ -77,7 +79,7 @@ namespace iroha {
          * Voting step is strategy of propagating vote
          * until commit/reject message received
          */
-        void votingStep(VoteMessage vote);
+        void votingStep(VoteMessage vote, uint32_t attempt = 0);
 
         /**
          * Erase temporary data of current round
@@ -131,6 +133,12 @@ namespace iroha {
         std::shared_ptr<YacNetwork> network_;
         std::shared_ptr<YacCryptoProvider> crypto_;
         std::shared_ptr<Timer> timer_;
+
+        rxcpp::composite_subscription freezed_round_notifier_lifetime_;
+        rxcpp::subjects::subject<FreezedRound> freezed_round_notifier_;
+
+        std::unique_ptr<rxcpp::subjects::synchronize<FreezedRound, rxcpp::identity_one_worker>>
+            subject_;
       };
     }  // namespace yac
   }    // namespace consensus

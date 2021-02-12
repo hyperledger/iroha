@@ -101,15 +101,21 @@ namespace iroha {
             hash_provider_(std::move(hash_provider)),
             block_creator_(std::move(block_creator)),
             consensus_result_cache_(std::move(consensus_result_cache)),
-            hash_gate_(std::move(hash_gate)) {
+            hash_gate_(std::move(hash_gate)),
+            freezed_round_notifier_(freezed_round_notifier_lifetime_) {
         block_creator_->onBlock().subscribe(
             [this](const auto &event) { this->vote(event); });
+
+        hash_gate_->onFreezedRound().subscribe([this](const auto &event) {
+          freezed_round_notifier_.get_subscriber().on_next(
+              consensus::FreezedRound{event.round, current_ledger_state_});
+        });
       }
 
       void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
-        if (current_hash_.vote_round >= event.round) {
+        if (current_hash_.vote_round > event.round) {
           log_->info(
-              "Current round {} is greater than or equal to vote round {}, "
+              "Current round {} is greater than vote round {}, "
               "skipped",
               current_hash_.vote_round,
               event.round);
@@ -118,8 +124,9 @@ namespace iroha {
 
         current_ledger_state_ = event.ledger_state;
         current_hash_ = hash_provider_->makeHash(event);
-        assert(current_hash_.vote_round.block_round
-               == current_ledger_state_->top_block_info.height + 1);
+        if (current_hash_.vote_round.block_round
+            != current_ledger_state_->top_block_info.height + 1)
+          return;
 
         if (not event.round_data) {
           current_block_ = boost::none;
@@ -155,6 +162,7 @@ namespace iroha {
 
       void YacGateImpl::stop() {
         hash_gate_->stop();
+        freezed_round_notifier_lifetime_.unsubscribe();
       }
 
       void YacGateImpl::copySignatures(const CommitMessage &commit) {
@@ -166,6 +174,10 @@ namespace iroha {
               shared_model::interface::types::PublicKeyHexStringView{
                   sig->publicKey()});
         }
+      }
+
+      rxcpp::observable<consensus::FreezedRound> YacGateImpl::onFreezedRound() {
+        return freezed_round_notifier_.get_observable();
       }
 
       rxcpp::observable<YacGateImpl::GateObject> YacGateImpl::handleCommit(

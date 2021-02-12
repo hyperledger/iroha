@@ -21,6 +21,11 @@ namespace shared_model {
 namespace iroha {
   namespace network {
 
+    struct RequestProposal {
+      consensus::Round round;
+      std::shared_ptr<const LedgerState> ledger_state;
+    };
+
     /**
      * Event, which is emitted by ordering gate, when it requests a proposal
      */

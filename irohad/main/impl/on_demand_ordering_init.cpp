@@ -23,6 +23,7 @@
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "ordering/impl/ordering_gate_cache/on_demand_cache.hpp"
+#include "consensus/gate_object.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
 using namespace iroha::ordering;
@@ -217,6 +218,7 @@ auto OnDemandOrderingInit::createGate(
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> creation_strategy,
     size_t max_number_of_transactions,
+    rxcpp::observable<consensus::FreezedRound> round_freezed_event,
     const logger::LoggerManagerTreePtr &ordering_log_manager) {
   return std::make_shared<OnDemandOrderingGate>(
       std::move(ordering_service),
@@ -268,6 +270,7 @@ auto OnDemandOrderingInit::createGate(
       std::move(tx_cache),
       std::move(creation_strategy),
       max_number_of_transactions,
+      round_freezed_event,
       ordering_log_manager->getChild("Gate")->getLogger());
 }
 
@@ -310,6 +313,7 @@ OnDemandOrderingInit::initOrderingGate(
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> creation_strategy,
     logger::LoggerManagerTreePtr ordering_log_manager,
+    rxcpp::observable<consensus::FreezedRound> round_freezed_event,
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   auto ordering_service = createService(max_number_of_transactions,
                                         proposal_factory,
@@ -334,5 +338,6 @@ OnDemandOrderingInit::initOrderingGate(
       std::move(tx_cache),
       std::move(creation_strategy),
       max_number_of_transactions,
+      round_freezed_event,
       ordering_log_manager);
 }

@@ -6,16 +6,16 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_GATE_HPP
 #define IROHA_ON_DEMAND_ORDERING_GATE_HPP
 
-#include "network/ordering_gate.hpp"
-
+#include <boost/variant.hpp>
+#include <consensus/gate_object.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include <shared_mutex>
 
-#include <boost/variant.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "network/ordering_gate.hpp"
 #include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/ordering_service_proposal_creation_strategy.hpp"
@@ -55,6 +55,7 @@ namespace iroha {
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
           size_t transaction_limit,
+          rxcpp::observable<consensus::FreezedRound> round_freezed_event,
           logger::LoggerPtr log);
 
       ~OnDemandOrderingGate() override;
@@ -64,6 +65,8 @@ namespace iroha {
           override;
 
       rxcpp::observable<network::OrderingEvent> onProposal() override;
+
+      void requestProposal(network::RequestProposal request) override;
 
       void stop() override;
 
@@ -104,6 +107,7 @@ namespace iroha {
 
       rxcpp::composite_subscription proposal_notifier_lifetime_;
       rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;
+      rxcpp::composite_subscription freezed_round_subscription_;
     };
 
   }  // namespace ordering
