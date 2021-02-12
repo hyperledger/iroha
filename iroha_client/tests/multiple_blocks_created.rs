@@ -17,10 +17,9 @@ mod tests {
     const N_BLOCKS: usize = 510;
     const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
 
-    #[ignore]
+    #[ignore = "Takes a lot of time."]
     #[test]
-    //TODO: use cucumber_rust to write `gherkin` instead of code.
-    fn multiple_blocks_created() {
+    fn long_multiple_blocks_created() {
         // Given
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");

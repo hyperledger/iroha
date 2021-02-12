@@ -15,17 +15,25 @@ mod tests {
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
     const N_PEERS: usize = 7;
     const MAX_FAULTS: u32 = 2;
-    const N_TRANSACTONS: usize = 20;
-    const OFFLINE_PEERS: usize = 1;
-    const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
+    const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2;
     const GENESIS_PATH: &str = "tests/genesis.json";
 
     #[test]
-    fn unstable_network() {
+    fn unstable_network_1_fault() {
+        unstable_network(1, 20, 5);
+    }
+
+    #[test]
+    #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
+    fn unstable_network_2_faults() {
+        unstable_network(2, 5, 40);
+    }
+
+    fn unstable_network(n_offline_peers: usize, n_transactions: usize, wait_multiplier: u64) {
         // Given
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let peers = create_and_start_iroha_peers(N_PEERS);
+        let peers = create_and_start_iroha_peers(N_PEERS, n_offline_peers);
         thread::sleep(std::time::Duration::from_millis(
             configuration.sumeragi_configuration.pipeline_time_ms() * 3,
         ));
@@ -38,10 +46,10 @@ mod tests {
         client_configuration.torii_api_url =
             peers.first().expect("Failed to get first peer.").clone();
         let mut iroha_client = Client::new(&client_configuration);
-        // Initially there are 15 roses.
+        // Initially there are 13 roses.
         let mut account_has_quantity = 13;
         //When
-        for _ in 0..N_TRANSACTONS {
+        for _ in 0..n_transactions {
             let quantity: u32 = 1;
             let mint_asset = MintBox::new(
                 Value::U32(quantity),
@@ -59,7 +67,7 @@ mod tests {
             ));
         }
         thread::sleep(std::time::Duration::from_millis(
-            configuration.sumeragi_configuration.pipeline_time_ms() * 5,
+            configuration.sumeragi_configuration.pipeline_time_ms() * wait_multiplier,
         ));
         //Then
         client_configuration.torii_api_url =
@@ -83,7 +91,7 @@ mod tests {
         }
     }
 
-    fn create_and_start_iroha_peers(n_peers: usize) -> Vec<String> {
+    fn create_and_start_iroha_peers(n_peers: usize, n_offline_peers: usize) -> Vec<String> {
         let peer_keys: Vec<KeyPair> = (0..n_peers)
             .map(|_| KeyPair::generate().expect("Failed to generate key pair."))
             .collect();
@@ -108,7 +116,7 @@ mod tests {
             .collect();
         let rng = &mut rand::thread_rng();
         let offline_peers: BTreeSet<_> = peer_ids[1..]
-            .choose_multiple(rng, OFFLINE_PEERS)
+            .choose_multiple(rng, n_offline_peers)
             .cloned()
             .collect();
         for i in 0..n_peers {

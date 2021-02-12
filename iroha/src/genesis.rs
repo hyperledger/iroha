@@ -119,12 +119,9 @@ impl GenesisNetwork {
     ) -> Result<InitializedNetworkTopology, String> {
         log::info!("Waiting for active peers.",);
         for i in 0..self.wait_for_peers_retry_count {
-            let (online_peers, offline_peers): (Vec<_>, Vec<_>) = future::join_all(
-                network_topology
-                    .sorted_peers
-                    .iter()
-                    .cloned()
-                    .map(|peer| async {
+            let (online_peers, offline_peers): (Vec<_>, Vec<_>) =
+                future::join_all(network_topology.sorted_peers().iter().cloned().map(
+                    |peer| async {
                         let reached = if peer == this_peer_id.clone() {
                             true
                         } else {
@@ -152,14 +149,14 @@ impl GenesisNetwork {
                             }
                         };
                         (peer, reached)
-                    }),
-            )
-            .await
-            .into_iter()
-            .partition(|(_, reached)| *reached);
+                    },
+                ))
+                .await
+                .into_iter()
+                .partition(|(_, reached)| *reached);
             let set_a_len = network_topology.min_votes_for_commit() as usize;
             if online_peers.len() >= set_a_len {
-                let genesis_topology = if network_topology.sorted_peers.len() == 1 {
+                let genesis_topology = if network_topology.sorted_peers().len() == 1 {
                     network_topology
                 } else {
                     let online_peers: Vec<_> = online_peers
@@ -182,7 +179,7 @@ impl GenesisNetwork {
                         validating_peers,
                         proxy_tail,
                         observing_peers,
-                        network_topology.max_faults,
+                        network_topology.max_faults(),
                     )?
                 };
                 log::info!("Waiting for active peers finished.");
