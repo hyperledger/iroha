@@ -1,12 +1,12 @@
-use async_std::task;
-use iroha::{config::Configuration, prelude::*};
+use iroha::config::Configuration;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_dsl::prelude::*;
 use std::{thread, time::Duration};
-use tempfile::TempDir;
+use test_network::Peer as TestPeer;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
+const GENESIS_PATH: &str = "tests/genesis.json";
 
 #[test]
 fn find_rate_and_make_exchange_isi_should_be_valid() {
@@ -94,13 +94,22 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
 
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
-    let free_port = port_check::free_local_port().expect("Failed to allocate a free port.");
-    println!("Free port: {}", free_port);
-    thread::spawn(move || create_and_start_iroha(free_port));
-    thread::sleep(Duration::from_millis(300));
+    let mut configuration =
+        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+    let peer = TestPeer::new().expect("Failed to create peer");
+    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+
+    let pipeline_time =
+        Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+
+    // Given
+    peer.start_with_config(configuration);
+    thread::sleep(pipeline_time);
+
     let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
-    configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
+    configuration.torii_api_url = peer.api_address;
     let mut iroha_client = Client::new(&configuration);
     iroha_client
         .submit_all(vec![
@@ -186,11 +195,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             .into(),
         ])
         .expect("Failed to execute Iroha Special Instruction.");
-    let configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    thread::sleep(Duration::from_millis(
-        &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-    ));
+    thread::sleep(pipeline_time * 3);
     let expected_seller_eth = 20;
     let expected_seller_btc = 0;
     let expected_buyer_eth = 180;
@@ -239,19 +244,4 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     } else {
         panic!("Wrong Query Result Type.");
     }
-}
-
-fn create_and_start_iroha(free_port: u16) {
-    let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.torii_configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
-    configuration
-        .kura_configuration
-        .kura_block_store_path(temp_dir.path());
-    let iroha = Iroha::new(configuration, AllowAll.into());
-    task::block_on(iroha.start()).expect("Failed to start Iroha.");
-    //Prevents temp_dir from clean up untill the end of the tests.
-    #[allow(clippy::empty_loop)]
-    loop {}
 }

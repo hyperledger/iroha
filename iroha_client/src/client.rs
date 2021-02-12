@@ -66,8 +66,7 @@ impl Client {
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
     pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
-        let transaction = self.build_transaction(instructions)?;
-        self.submit_transaction(transaction)
+        self.submit_transaction(self.build_transaction(instructions)?)
     }
 
     /// Submit a prebuilt transaction.

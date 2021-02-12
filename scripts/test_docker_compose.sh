@@ -1,4 +1,5 @@
 #!/bin/bash
+set -ex
 cd test_docker
 ./iroha_client_cli domain add --name="Soramitsu"
 sleep 2

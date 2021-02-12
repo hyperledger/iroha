@@ -885,14 +885,14 @@ pub mod domain {
 
     impl From<GenesisDomain> for Domain {
         fn from(domain: GenesisDomain) -> Self {
-            Domain {
+            Self {
                 name: GENESIS_DOMAIN_NAME.to_string(),
                 accounts: iter::once((
                     <Account as Identifiable>::Id::genesis_account(),
                     GenesisAccount::new(domain.genesis_account_public_key).into(),
                 ))
                 .collect(),
-                asset_definitions: AssetDefinitionsMap::new(),
+                asset_definitions: Default::default(),
             }
         }
     }

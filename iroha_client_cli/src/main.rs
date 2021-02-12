@@ -21,18 +21,18 @@ fn main() {
         .author("Nikita Puzankov <puzankov@soramitsu.co.jp>")
         .about("Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.")
         .arg(
-			Arg::with_name(CONFIG)
-				.short("c")
-				.long(CONFIG)
-				.value_name("FILE")
-				.help("Sets a config file path.")
-				.takes_value(true)
-				.default_value("config.json"),
-		)
-		.subcommand(domain::build_app())
-		.subcommand(account::build_app())
-		.subcommand(asset::build_app())
-		.subcommand(events::build_app())
+            Arg::with_name(CONFIG)
+                .short("c")
+                .long(CONFIG)
+                .value_name("FILE")
+                .help("Sets a config file path.")
+                .takes_value(true)
+                .default_value("config.json"),
+        )
+        .subcommand(domain::build_app())
+        .subcommand(account::build_app())
+        .subcommand(asset::build_app())
+        .subcommand(events::build_app())
         .get_matches();
     let configuration_path = matches
         .value_of(CONFIG)
@@ -214,19 +214,19 @@ mod account {
             .subcommand(
                 App::new(SET)
                     .about("Use this command to set Account Parameters in Iroha Peer.")
-					.subcommand(
-						App::new(ACCOUNT_SIGNATURE_CONDITION)
-							.about("Use this command to set Signature Condition for Account in Iroha Peer.")
-							.arg(
-								Arg::with_name(ACCOUNT_SIGNATURE_CONDITION_FILE)
-									.long(ACCOUNT_SIGNATURE_CONDITION_FILE)
-									.value_name("FILE")
-									.help("A JSON file with Iroha Expression that represents signature condition.")
-									.takes_value(true)
-									.required(true),
-							)
-					),
-			)
+                    .subcommand(
+                        App::new(ACCOUNT_SIGNATURE_CONDITION)
+                            .about("Use this command to set Signature Condition for Account in Iroha Peer.")
+                            .arg(
+                                Arg::with_name(ACCOUNT_SIGNATURE_CONDITION_FILE)
+                                    .long(ACCOUNT_SIGNATURE_CONDITION_FILE)
+                                    .value_name("FILE")
+                                    .help("A JSON file with Iroha Expression that represents signature condition.")
+                                    .takes_value(true)
+                                    .required(true),
+                            )
+                    ),
+            )
     }
 
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
