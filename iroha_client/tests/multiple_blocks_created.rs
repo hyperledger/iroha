@@ -23,7 +23,7 @@ mod tests {
         // Given
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let peers = create_and_start_iroha_peers(N_PEERS);
+        let peers = create_and_start_test_network(N_PEERS);
         thread::sleep(std::time::Duration::from_millis(1000));
         let domain_name = "domain";
         let create_domain =
@@ -100,7 +100,7 @@ mod tests {
         }
     }
 
-    fn create_and_start_iroha_peers(n_peers: usize) -> Vec<String> {
+    fn create_and_start_test_network(n_peers: usize) -> Vec<String> {
         let peer_keys: Vec<KeyPair> = (0..n_peers)
             .map(|_| KeyPair::generate().expect("Failed to generate key pair."))
             .collect();

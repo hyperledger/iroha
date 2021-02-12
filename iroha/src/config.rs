@@ -1,9 +1,8 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
     block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
-    init::config::InitConfiguration, kura::config::KuraConfiguration,
-    queue::config::QueueConfiguration, sumeragi::config::SumeragiConfiguration,
-    torii::config::ToriiConfiguration,
+    kura::config::KuraConfiguration, queue::config::QueueConfiguration,
+    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
@@ -34,8 +33,6 @@ pub struct Configuration {
     pub queue_configuration: QueueConfiguration,
     /// `Logger` configuration.
     pub logger_configuration: LoggerConfiguration,
-    /// Configuration for initial setup.
-    pub init_configuration: InitConfiguration,
     /// Configuration for `GenesisBlock`.
     pub genesis_configuration: GenesisConfiguration,
 }
@@ -71,7 +68,6 @@ impl Configuration {
         self.block_sync_configuration.load_environment()?;
         self.queue_configuration.load_environment()?;
         self.logger_configuration.load_environment()?;
-        self.init_configuration.load_environment()?;
         self.genesis_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))

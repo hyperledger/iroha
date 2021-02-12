@@ -256,29 +256,40 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 mod tests {
     use super::*;
     use crate::{config::Configuration, init, permissions::AllowAll};
-    use iroha_data_model::transaction::MAX_INSTRUCTION_NUMBER;
-    use std::collections::BTreeSet;
+    use iroha_data_model::{
+        account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
+        transaction::MAX_INSTRUCTION_NUMBER,
+    };
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[test]
     fn hash_should_be_the_same() {
+        let key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
+
         let mut config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let tx = Transaction::new(vec![], AccountId::new("root", "global"), 1000);
+        config.genesis_configuration.genesis_account_private_key =
+            Some(key_pair.private_key.clone());
+        config.genesis_configuration.genesis_account_public_key = key_pair.public_key.clone();
+
+        let tx = Transaction::new(
+            vec![],
+            AccountId::new(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
+            1000,
+        );
         let tx_hash = tx.hash();
-        let root_key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
-        config.init_configuration.root_public_key = root_key_pair.public_key.clone();
-        let signed_tx = tx.sign(&root_key_pair).expect("Failed to sign.");
+
+        let signed_tx = tx.sign(&key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
         let accepted_tx =
             AcceptedTransaction::from_transaction(signed_tx, 4096).expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
-                &WorldStateView::new(World::with(init::domains(&config), BTreeSet::new())),
+                &WorldStateView::new(World::with(init::domains(&config), Default::default())),
                 &AllowAll.into(),
-                false,
+                true,
             )
             .expect("Failed to validate.")
             .hash();

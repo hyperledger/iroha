@@ -29,7 +29,8 @@ impl CucumberWorld for IrohaWorld {
     async fn new() -> Result<Self, Infallible> {
         let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
-        let free_port = port_check::free_local_port().expect("Failed to allocate a free port.");
+        let free_port =
+            unique_port::get_unique_free_port().expect("Failed to allocate a free port.");
         println!("Free port: {}", free_port);
         configuration.torii_api_url = format!("127.0.0.1:{}", free_port);
         let iroha_client = Client::new(&configuration);
@@ -104,14 +105,19 @@ mod asset_steps {
                         .client
                         .submit(
                             RegisterBox::new (
-                                IdentifiableBox::AssetDefinition(AssetDefinition::new(AssetDefinitionId::new(
-                                        &asset_definition_name,
-                                        &asset_definition_domain,
-                                        )).into()),
+                                IdentifiableBox::AssetDefinition(
+                                    AssetDefinition::new(
+                                        AssetDefinitionId::new(
+                                            &asset_definition_name,
+                                            &asset_definition_domain,
                                         )
-                            .into(),
+                                    )
+                                    .into()
+                                ),
                             )
-                .expect("Failed to execute request.");
+                            .into(),
+                        )
+                    .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             }
@@ -125,19 +131,22 @@ mod asset_steps {
                 let asset_quantity: u32 = matches[3].trim().parse().expect("Failed to parse Assets Quantity.");
                 let asset_definition_name = matches[4].trim();
                 let asset_definition_domain = matches[5].trim();
-                    world
-                        .client
-                        .submit(
-                            MintBox::new(
-                                Value::U32(asset_quantity),
-                                IdBox::AssetId(AssetId::new(AssetDefinitionId::new(
-                                        &asset_definition_name,
-                                        &asset_definition_domain,
-                                        ), AccountId::new(account_name, account_domain)),
-                                        ))
-                            .into(),
+                world
+                    .client
+                    .submit(
+                        MintBox::new(
+                            Value::U32(asset_quantity),
+                            IdBox::AssetId(AssetId::new(
+                                AssetDefinitionId::new(
+                                    &asset_definition_name,
+                                    &asset_definition_domain,
+                                ),
+                                AccountId::new(account_name, account_domain)),
                             )
-                .expect("Failed to execute request.");
+                        )
+                            .into(),
+                    )
+                    .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             }
@@ -153,15 +162,15 @@ mod asset_steps {
                 let request = client::asset::by_account_id_and_definition_id(
                     AccountId::new(&account_name, &account_domain),
                     AssetDefinitionId::new(&asset_definition_name, &asset_definition_domain),
-                    );
+                );
                 let query_result =
                     world.client.request(&request)
                     .expect("Failed to execute request.");
-                    if let QueryResult(Value::Vec(assets)) = query_result {
-                        assert!(!assets.is_empty());
-                    } else {
-                        panic!("Wrong Query Result Type.");
-                    }
+                if let QueryResult(Value::Vec(assets)) = query_result {
+                    assert!(!assets.is_empty());
+                } else {
+                    panic!("Wrong Query Result Type.");
+                }
                 world
             }
         ).then_regex(
@@ -177,7 +186,7 @@ mod asset_steps {
                 let request = client::asset::by_account_id_and_definition_id(
                     AccountId::new(&account_name, &account_domain),
                     AssetDefinitionId::new(&asset_definition_name, &asset_definition_domain),
-                    );
+                );
                 let query_result =
                     world.client.request(&request)
                     .expect("Failed to execute request.");
@@ -223,8 +232,8 @@ mod account_steps {
                     let register_account = RegisterBox::new(
                          IdentifiableBox::Account(Account::new(AccountId::new(&account_name, &domain_name)).into()),
                     );
-                        world.client.submit(register_account.into())
-                    .expect("Failed to register an account.");
+                    world.client.submit(register_account.into())
+                        .expect("Failed to register an account.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
                     world
                 }
@@ -246,23 +255,23 @@ mod account_steps {
                         account_name, account_domain_name);
                         world.client.submit(
                             MintBox::new(
-                                 Value::U32(quantity),
-                                 IdBox::AssetId(AssetId::new(
-                                     AssetDefinitionId::new(
-                                                       &asset_definition_name,
-                                                       &asset_definition_domain
-                                                       ),
-                                                        AccountId::new(
-                                                           &account_name,
-                                                           &account_domain_name
-                                                           ))
+                                Value::U32(quantity),
+                                IdBox::AssetId(AssetId::new(
+                                    AssetDefinitionId::new(
+                                        &asset_definition_name,
+                                        &asset_definition_domain
+                                    ),
+                                    AccountId::new(
+                                        &account_name,
+                                        &account_domain_name
+                                    ))
                                 )
                             ).into()
                         ).expect("Failed to submit Mint instruction.");
                     thread::sleep(Duration::from_millis(world.block_build_time));
                     world
                 }
-        )
+            )
             .then_regex(
                 r"^Peer has Account with name (.+) and domain (.+)$",
                 | mut world,
@@ -276,10 +285,10 @@ mod account_steps {
                     let query_result =
                         world.client.request(&request)
                         .expect("Failed to execute request.");
-                        world.result = Some(query_result);
+                    world.result = Some(query_result);
                     world
                 }
-                );
+            );
         steps
     }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "test_network"
+version = "0.1.0"
+authors = ["i1i1"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tempfile = "3"
+unique_port = { version = "0.1.0", git = "https://github.com/soramitsu/iroha2-unique_port" }
+iroha = { path = "../../iroha" }
+iroha_data_model = { path = "../../iroha_data_model" }
+iroha_logger = { path = "../../iroha_logger" }
+async-std = { version = "=1.6.2", features = ["attributes","unstable"] }
+rand = "0.7.3"

@@ -1,27 +1,40 @@
 #[cfg(test)]
 mod tests {
-    use async_std::task;
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
     use iroha_data_model::prelude::*;
-    use std::thread;
-    use tempfile::TempDir;
+    use std::{thread, time::Duration};
+    use test_network::Peer as TestPeer;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
+    const GENESIS_PATH: &str = "tests/genesis.json";
 
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn client_can_transfer_asset_to_another_account() {
+        let mut configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+        let peer = TestPeer::new().expect("Failed to create peer");
+        configuration.sumeragi_configuration.trusted_peers =
+            std::iter::once(peer.id.clone()).collect();
+
+        let pipeline_time =
+            Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+
         // Given
-        thread::spawn(create_and_start_iroha);
-        thread::sleep(std::time::Duration::from_millis(100));
-        let configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+        peer.start_with_config(configuration);
+        thread::sleep(pipeline_time);
+
+        let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
-        let mut iroha_client = Client::new(&configuration);
+        client_config.torii_api_url = peer.api_address;
+        let mut iroha_client = Client::new(&client_config);
+
         let domain_name = "domain";
         let create_domain =
             RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
@@ -79,7 +92,7 @@ mod tests {
         iroha_client
             .submit(transfer_asset.into())
             .expect("Failed to submit instruction.");
-        thread::sleep(std::time::Duration::from_millis(200 * 2));
+        thread::sleep(pipeline_time * 2);
         //Then
         let request = client::asset::by_account_id(account2_id.clone());
         let query_result = iroha_client
@@ -103,19 +116,5 @@ mod tests {
         } else {
             panic!("Wrong Query Result Type.");
         }
-    }
-
-    fn create_and_start_iroha() {
-        let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-        let mut configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration
-            .kura_configuration
-            .kura_block_store_path(temp_dir.path());
-        let iroha = Iroha::new(configuration, AllowAll.into());
-        task::block_on(iroha.start()).expect("Failed to start Iroha.");
-        //Prevents temp_dir from clean up untill the end of the tests.
-        #[allow(clippy::empty_loop)]
-        loop {}
     }
 }

@@ -76,9 +76,9 @@ jobs:
       - name: Setup docker test environment
         run: ./scripts/setup_docker_test_env.sh
       - name: Docker compose genesis test
-        run: ./scripts/test_genesis_docker_compose.sh
+        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
       - name: Docker compose test
-        run: ./scripts/test_docker_compose.sh
+        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
       - name: Cleanup docker test environment
         run: ./scripts/cleanup_docker_test_env.sh
   test-api:
