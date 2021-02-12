@@ -20,7 +20,7 @@ jobs:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
       - name: Run long tests
-        run: cargo test --workspace --verbose -- --ignored --test-threads=1
+        run: cargo test --workspace --verbose -- --ignored --test-threads=1 long
   test-docker:
     runs-on: ubuntu-latest
     steps:

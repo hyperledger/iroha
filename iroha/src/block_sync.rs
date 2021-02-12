@@ -30,6 +30,7 @@ pub struct BlockSynchronizer {
     state: State,
     gossip_period: Duration,
     batch_size: u64,
+    n_topology_shifts_before_reshuffle: u32,
 }
 
 impl BlockSynchronizer {
@@ -39,6 +40,7 @@ impl BlockSynchronizer {
         kura: Arc<RwLock<Kura>>,
         sumeragi: Arc<RwLock<Sumeragi>>,
         peer_id: PeerId,
+        n_topology_shifts_before_reshuffle: u32,
     ) -> BlockSynchronizer {
         Self {
             kura,
@@ -47,6 +49,7 @@ impl BlockSynchronizer {
             state: State::Idle,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             batch_size: config.batch_size,
+            n_topology_shifts_before_reshuffle,
         }
     }
 
@@ -69,7 +72,7 @@ impl BlockSynchronizer {
                         .read()
                         .await
                         .network_topology
-                        .sorted_peers
+                        .sorted_peers()
                         .iter()
                         .map(|peer| message.clone().send_to(peer)),
                 )
@@ -91,7 +94,14 @@ impl BlockSynchronizer {
                     .read()
                     .await
                     .network_topology_current_or_genesis(block);
-                network_topology.shift_peers_by_n(block.header.number_of_view_changes);
+                if block.header.number_of_view_changes < self.n_topology_shifts_before_reshuffle {
+                    network_topology.shift_peers_by_n(block.header.number_of_view_changes);
+                } else {
+                    network_topology.sort_peers_by_hash_and_counter(
+                        Some(block.hash()),
+                        block.header.number_of_view_changes,
+                    )
+                }
                 if self.kura.read().await.latest_block_hash() == block.header.previous_block_hash
                     && network_topology
                         .filter_signatures_by_roles(
