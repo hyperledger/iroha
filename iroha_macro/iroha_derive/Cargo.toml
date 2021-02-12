@@ -17,3 +17,4 @@ proc-macro2 = "1.0"
 
 [dev-dependencies]
 iroha_logger = { version = "=0.1.0", path = "../../iroha_logger"}
+trybuild = "1.0"
