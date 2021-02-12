@@ -56,6 +56,7 @@ pub struct Sumeragi {
     number_of_view_changes: u32,
     invalidated_blocks_hashes: Vec<Hash>,
     permissions_validator: PermissionsValidatorBox,
+    n_topology_shifts_before_reshuffle: u32,
 }
 
 impl Sumeragi {
@@ -94,6 +95,7 @@ impl Sumeragi {
             number_of_view_changes: 0,
             invalidated_blocks_hashes: Vec::new(),
             permissions_validator,
+            n_topology_shifts_before_reshuffle: configuration.n_topology_shifts_before_reshuffle,
         })
     }
 
@@ -101,7 +103,8 @@ impl Sumeragi {
     pub fn init(&mut self, latest_block_hash: Hash, block_height: u64) {
         self.block_height = block_height;
         self.latest_block_hash = latest_block_hash;
-        self.network_topology.sort_peers(Some(latest_block_hash));
+        self.network_topology
+            .sort_peers_by_hash(Some(latest_block_hash));
     }
 
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
@@ -393,7 +396,7 @@ impl Sumeragi {
         self.blocks_sender.write().await.send(block).await;
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
-            .sort_peers(Some(self.latest_block_hash));
+            .sort_peers_by_hash(Some(self.latest_block_hash));
         log::info!(
             "{:?} - Commiting block with hash {}. New role: {:?}. New height: {}",
             previous_role,
@@ -412,7 +415,14 @@ impl Sumeragi {
             .clear();
         self.transactions_awaiting_receipts.write().await.clear();
         let previous_role = self.network_topology.role(&self.peer_id);
-        self.network_topology.shift_peers_by_one();
+        if self.number_of_view_changes < self.n_topology_shifts_before_reshuffle {
+            self.network_topology.shift_peers_by_one();
+        } else {
+            self.network_topology.sort_peers_by_hash_and_counter(
+                Some(self.latest_block_hash),
+                self.number_of_view_changes,
+            )
+        }
         *self.voting_block.write().await = None;
         self.number_of_view_changes += 1;
         log::info!(
@@ -490,7 +500,7 @@ impl NetworkTopology {
                 sorted_peers: self.peers.into_iter().collect(),
                 max_faults: self.max_faults,
             };
-            topology.sort_peers(self.block_hash);
+            topology.sort_peers_by_hash(self.block_hash);
             Ok(topology)
         } else {
             Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * self.max_faults + 1, self.peers.len()))
@@ -502,9 +512,9 @@ impl NetworkTopology {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct InitializedNetworkTopology {
     /// Current order of peers. The roles of peers are defined based on this order.
-    pub sorted_peers: Vec<PeerId>,
+    sorted_peers: Vec<PeerId>,
     /// Maximum faulty peers in a network.
-    pub max_faults: u32,
+    max_faults: u32,
 }
 
 impl InitializedNetworkTopology {
@@ -548,7 +558,7 @@ impl InitializedNetworkTopology {
         let peers: BTreeSet<_> = peers.into_iter().collect();
         if peers != current_peers {
             self.sorted_peers = peers.iter().cloned().collect();
-            self.sort_peers(Some(latest_block_hash));
+            self.sort_peers_by_hash(Some(latest_block_hash));
         }
     }
 
@@ -600,15 +610,22 @@ impl InitializedNetworkTopology {
         }
     }
 
-    /// Sortes peers based on the `block_hash`.
-    pub fn sort_peers(&mut self, block_hash: Option<Hash>) {
+    /// Sorts peers based on the `hash`.
+    pub fn sort_peers_by_hash(&mut self, hash: Option<Hash>) {
+        self.sort_peers_by_hash_and_counter(hash, 0)
+    }
+
+    /// Sorts peers based on the `hash` and `counter` combined as a seed.
+    pub fn sort_peers_by_hash_and_counter(&mut self, hash: Option<Hash>, counter: u32) {
         self.sorted_peers
             .sort_by(|p1, p2| p1.address.cmp(&p2.address));
-        if let Some(block_hash) = block_hash {
-            let Hash(bytes) = block_hash;
-            let mut rng = StdRng::from_seed(bytes);
-            self.sorted_peers.shuffle(&mut rng);
+        let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
+        if let Some(Hash(hash)) = hash {
+            bytes.append(hash.to_vec().as_mut());
         }
+        let Hash(bytes) = Hash::new(&bytes);
+        let mut rng = StdRng::from_seed(bytes);
+        self.sorted_peers.shuffle(&mut rng);
     }
 
     /// Shifts `sorted_peers` by one to the right.
@@ -676,6 +693,16 @@ impl InitializedNetworkTopology {
             .filter(|signature| public_keys.contains(&signature.public_key))
             .cloned()
             .collect()
+    }
+
+    /// Get sorted peers.
+    pub fn sorted_peers(&self) -> &[PeerId] {
+        self.sorted_peers.as_slice()
+    }
+
+    /// Get max faulty peers limit.
+    pub fn max_faults(&self) -> u32 {
+        self.max_faults
     }
 }
 
@@ -1450,7 +1477,7 @@ pub mod message {
             if sumeragi
                 .network_topology
                 .filter_signatures_by_roles(
-                    &[Role::Leader, Role::ValidatingPeer],
+                    &[Role::Leader, Role::ValidatingPeer, Role::ProxyTail],
                     &self.verified_signatures(),
                 )
                 .len()
@@ -1474,7 +1501,7 @@ pub mod message {
                 sumeragi.change_view().await;
             } else {
                 let role = sumeragi.network_topology.role(&sumeragi.peer_id);
-                if role == Role::ValidatingPeer || role == Role::Leader {
+                if role == Role::ValidatingPeer || role == Role::Leader || role == Role::ProxyTail {
                     let voting_block = sumeragi.voting_block.read().await.clone();
                     if let Some(voting_block) = voting_block {
                         let current_time = SystemTime::now()
@@ -1531,6 +1558,7 @@ pub mod config {
     const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
+    const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u32 = 1;
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
@@ -1558,6 +1586,9 @@ pub mod config {
         /// Amount of time Peer waits for TxReceipt from the leader.
         #[serde(default = "default_tx_receipt_time_ms")]
         pub tx_receipt_time_ms: u64,
+        /// After N view changes topology will change tactic from shifting by one, to reshuffle.
+        #[serde(default = "default_n_topology_shifts_before_reshuffle")]
+        pub n_topology_shifts_before_reshuffle: u32,
     }
 
     impl SumeragiConfiguration {
@@ -1629,6 +1660,10 @@ pub mod config {
     fn default_tx_receipt_time_ms() -> u64 {
         DEFAULT_TX_RECEIPT_TIME_MS
     }
+
+    fn default_n_topology_shifts_before_reshuffle() -> u32 {
+        DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE
+    }
 }
 
 #[cfg(test)]
@@ -1670,9 +1705,8 @@ mod tests {
             .expect("Failed to create topology.");
     }
 
-    #[test]
-    fn different_order() {
-        let peers: BTreeSet<PeerId> = vec![
+    fn topology_test_peers() -> BTreeSet<PeerId> {
+        vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
                 public_key: KeyPair::generate()
@@ -1699,7 +1733,12 @@ mod tests {
             },
         ]
         .into_iter()
-        .collect();
+        .collect()
+    }
+
+    #[test]
+    fn different_order() {
+        let peers = topology_test_peers();
         let network_topology1 = NetworkTopology::new(&peers, Some(Hash([1u8; 32])), 1)
             .init()
             .expect("Failed to construct topology");
@@ -1714,34 +1753,7 @@ mod tests {
 
     #[test]
     fn same_order() {
-        let peers: BTreeSet<PeerId> = vec![
-            PeerId {
-                address: "127.0.0.1:7878".to_string(),
-                public_key: KeyPair::generate()
-                    .expect("Failed to generate KeyPair.")
-                    .public_key,
-            },
-            PeerId {
-                address: "127.0.0.1:7879".to_string(),
-                public_key: KeyPair::generate()
-                    .expect("Failed to generate KeyPair.")
-                    .public_key,
-            },
-            PeerId {
-                address: "127.0.0.1:7880".to_string(),
-                public_key: KeyPair::generate()
-                    .expect("Failed to generate KeyPair.")
-                    .public_key,
-            },
-            PeerId {
-                address: "127.0.0.1:7881".to_string(),
-                public_key: KeyPair::generate()
-                    .expect("Failed to generate KeyPair.")
-                    .public_key,
-            },
-        ]
-        .into_iter()
-        .collect();
+        let peers = topology_test_peers();
         let network_topology1 = NetworkTopology::new(&peers, Some(Hash([1u8; 32])), 1)
             .init()
             .expect("Failed to initialize topology");
@@ -1749,6 +1761,40 @@ mod tests {
             .init()
             .expect("Failed to initialize topology");
         assert_eq!(
+            network_topology1.sorted_peers,
+            network_topology2.sorted_peers
+        );
+    }
+
+    #[test]
+    fn same_order_by_hash_and_counter() {
+        let peers = topology_test_peers();
+        let mut network_topology1 = NetworkTopology::new(&peers, Some(Hash([1u8; 32])), 1)
+            .init()
+            .expect("Failed to initialize topology");
+        let mut network_topology2 = NetworkTopology::new(&peers, Some(Hash([1u8; 32])), 1)
+            .init()
+            .expect("Failed to initialize topology");
+        network_topology1.sort_peers_by_hash_and_counter(Some(Hash([2u8; 32])), 1);
+        network_topology2.sort_peers_by_hash_and_counter(Some(Hash([2u8; 32])), 1);
+        assert_eq!(
+            network_topology1.sorted_peers,
+            network_topology2.sorted_peers
+        );
+    }
+
+    #[test]
+    fn different_order_by_hash_and_counter() {
+        let peers = topology_test_peers();
+        let mut network_topology1 = NetworkTopology::new(&peers, Some(Hash([1u8; 32])), 1)
+            .init()
+            .expect("Failed to initialize topology");
+        let mut network_topology2 = NetworkTopology::new(&peers, Some(Hash([1u8; 32])), 1)
+            .init()
+            .expect("Failed to initialize topology");
+        network_topology1.sort_peers_by_hash_and_counter(Some(Hash([2u8; 32])), 1);
+        network_topology2.sort_peers_by_hash_and_counter(Some(Hash([2u8; 32])), 2);
+        assert_ne!(
             network_topology1.sorted_peers,
             network_topology2.sorted_peers
         );
