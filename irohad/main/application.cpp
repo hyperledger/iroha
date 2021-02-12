@@ -706,10 +706,16 @@ Irohad::RunResult Irohad::initConsensusGate() {
   auto &block =
       boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
 
+  auto initial_ledger_state = storage->getLedgerState();
+  if (not initial_ledger_state) {
+    return expected::makeError("Failed to fetch ledger state!");
+  }
+
   consensus_gate = yac_init->initConsensusGate(
       {block->height(), ordering::kFirstRejectRound},
       storage,
       opt_alternative_peers_,
+      *initial_ledger_state,
       simulator,
       block_loader,
       keypair,
@@ -1004,8 +1010,10 @@ Irohad::RunResult Irohad::run() {
       return expected::makeError("Failed to fetch ledger peers!");
     }
 
-    auto initial_ledger_state = std::make_shared<LedgerState>(
-        std::move(peers.value()), block->height(), block->hash());
+    auto initial_ledger_state = storage->getLedgerState();
+    if (not initial_ledger_state) {
+      return expected::makeError("Failed to fetch ledger state!");
+    }
 
     pcs->onSynchronization().subscribe(
         ordering_init.sync_event_notifier.get_subscriber());
@@ -1018,7 +1026,7 @@ Irohad::RunResult Irohad::run() {
         synchronizer::SynchronizationEvent{
             SynchronizationOutcomeType::kCommit,
             {block_height, ordering::kFirstRejectRound},
-            initial_ledger_state});
+            *initial_ledger_state});
     return {};
   };
 }

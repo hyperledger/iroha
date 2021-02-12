@@ -105,19 +105,20 @@ class YacGateTest : public ::testing::Test {
     ON_CALL(*block_creator, onBlock())
         .WillByDefault(Return(block_notifier.get_observable()));
 
-    gate = std::make_shared<YacGateImpl>(std::move(hash_gate_ptr),
-                                         std::move(peer_orderer_ptr),
-                                         alternative_order,
-                                         hash_provider,
-                                         block_creator,
-                                         block_cache,
-                                         getTestLogger("YacGateImpl"));
-
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<iroha::LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         block->height() - 1,
         block->prevHash());
+
+    gate = std::make_shared<YacGateImpl>(std::move(hash_gate_ptr),
+                                         std::move(peer_orderer_ptr),
+                                         alternative_order,
+                                         ledger_state,
+                                         hash_provider,
+                                         block_creator,
+                                         block_cache,
+                                         getTestLogger("YacGateImpl"));
   }
 
   iroha::consensus::Round round{2, 1};

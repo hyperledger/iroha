@@ -39,6 +39,7 @@ namespace iroha {
           std::shared_ptr<HashGate> hash_gate,
           std::shared_ptr<YacPeerOrderer> orderer,
           boost::optional<ClusterOrdering> alternative_order,
+          std::shared_ptr<const LedgerState> ledger_state,
           std::shared_ptr<YacHashProvider> hash_provider,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<consensus::ConsensusResultCache>
@@ -49,6 +50,7 @@ namespace iroha {
           : log_(std::move(log)),
             current_hash_(),
             alternative_order_(std::move(alternative_order)),
+            current_ledger_state_(std::move(ledger_state)),
             published_events_([&] {
               rxcpp::observable<Answer> outcomes = hash_gate->onOutcome();
               rxcpp::observable<Answer> delayed_outcomes = outcomes.concat_map(
@@ -254,6 +256,16 @@ namespace iroha {
               "Current block round {} is not lower than future block round {}, "
               "skipped",
               current_hash_.vote_round.block_round,
+              hash.vote_round.block_round);
+          return rxcpp::observable<>::empty<GateObject>();
+        }
+
+        if (current_ledger_state_->top_block_info.height + 1
+            >= hash.vote_round.block_round) {
+          log_->info(
+              "Difference between top height {} and future block round {} is "
+              "less than 2, skipped",
+              current_ledger_state_->top_block_info.height,
               hash.vote_round.block_round);
           return rxcpp::observable<>::empty<GateObject>();
         }

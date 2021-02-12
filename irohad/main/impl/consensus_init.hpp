@@ -39,6 +39,7 @@ namespace iroha {
             std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
             boost::optional<shared_model::interface::types::PeerList>
                 alternative_peers,
+            std::shared_ptr<const LedgerState> ledger_state,
             std::shared_ptr<simulator::BlockCreator> block_creator,
             std::shared_ptr<network::BlockLoader> block_loader,
             const shared_model::crypto::Keypair &keypair,

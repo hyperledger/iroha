@@ -89,6 +89,7 @@ namespace iroha {
               peer_query_factory,
           boost::optional<shared_model::interface::types::PeerList>
               alternative_peers,
+          std::shared_ptr<const LedgerState> ledger_state,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<network::BlockLoader> block_loader,
           const shared_model::crypto::Keypair &keypair,
@@ -133,6 +134,7 @@ namespace iroha {
             std::move(peer_orderer),
             alternative_peers |
                 [](auto &peers) { return ClusterOrdering::create(peers); },
+            std::move(ledger_state),
             hash_provider,
             block_creator,
             std::move(consensus_result_cache),
