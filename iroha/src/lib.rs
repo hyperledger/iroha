@@ -217,24 +217,24 @@ impl Iroha {
         });
         let queue = Arc::clone(&self.queue);
         let world_state_view = Arc::clone(&self.world_state_view);
-        let voting_handle =
-            task::spawn(async move {
-                loop {
-                    if !sumeragi.write().await.voting_in_progress().await {
-                        let is_leader = sumeragi.read().await.is_leader();
-                        sumeragi
-                            .write()
-                            .await
-                            .round(queue.write().await.get_pending_transactions(
-                                is_leader,
-                                &*world_state_view.read().await,
-                            ))
-                            .await
-                            .expect("Round failed.");
-                    }
-                    task::sleep(TX_RETRIEVAL_INTERVAL).await;
+        let voting_handle = task::spawn(async move {
+            loop {
+                if !sumeragi.write().await.voting_in_progress().await {
+                    let is_leader = sumeragi.read().await.is_leader();
+                    let transactions = queue
+                        .write()
+                        .await
+                        .get_pending_transactions(is_leader, &*world_state_view.read().await);
+                    sumeragi
+                        .write()
+                        .await
+                        .round(transactions)
+                        .await
+                        .expect("Round failed.");
                 }
-            });
+                task::sleep(TX_RETRIEVAL_INTERVAL).await;
+            }
+        });
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
         let sumeragi = Arc::clone(&self.sumeragi);

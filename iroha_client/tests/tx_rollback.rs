@@ -1,29 +1,38 @@
 #[cfg(test)]
 mod tests {
-    use async_std::task;
-    use iroha::{config::Configuration, prelude::*};
+    use iroha::config::Configuration;
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
     use iroha_data_model::prelude::*;
     use std::{thread, time::Duration};
-    use tempfile::TempDir;
+    use test_network::Peer as TestPeer;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
+    const GENESIS_PATH: &str = "tests/genesis.json";
 
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
-        // Given
-        thread::spawn(create_and_start_iroha);
-        thread::sleep(std::time::Duration::from_millis(300));
-        let configuration =
+        let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+        let peer = TestPeer::new().expect("Failed to create peer");
+        configuration.sumeragi_configuration.trusted_peers =
+            std::iter::once(peer.id.clone()).collect();
+
+        let pipeline_time =
+            Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+
+        // Given
+        peer.start_with_config(configuration.clone());
+        thread::sleep(pipeline_time);
+
         //When
-        let domain_name = "global";
-        let account_name = "root";
+        let domain_name = "wonderland";
+        let account_name = "alice";
         let account_id = AccountId::new(account_name, domain_name);
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let wrong_asset_definition_id = AssetDefinitionId::new("ksor", domain_name);
@@ -38,10 +47,10 @@ mod tests {
                 account_id.clone(),
             )),
         );
-        let mut iroha_client = Client::new(
-            &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-                .expect("Failed to load configuration."),
-        );
+        let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration.");
+        client_config.torii_api_url = peer.api_address;
+        let mut iroha_client = Client::new(&client_config);
         iroha_client
             .submit_all(vec![create_asset.into(), mint_asset.into()])
             .expect("Failed to prepare state.");
@@ -93,19 +102,5 @@ mod tests {
         } else {
             panic!("Wrong Query Result Type.");
         }
-    }
-
-    fn create_and_start_iroha() {
-        let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-        let mut configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration
-            .kura_configuration
-            .kura_block_store_path(temp_dir.path());
-        let iroha = Iroha::new(configuration, AllowAll.into());
-        task::block_on(iroha.start()).expect("Failed to start Iroha.");
-        //Prevents temp_dir from clean up untill the end of the tests.
-        #[allow(clippy::empty_loop)]
-        loop {}
     }
 }

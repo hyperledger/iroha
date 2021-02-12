@@ -77,7 +77,7 @@ pub fn init(configuration: &config::LoggerConfiguration) -> Result<(), SetLogger
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use log::LevelFilter;
+    pub use log::LevelFilter;
     use serde::Deserialize;
     use std::env;
 

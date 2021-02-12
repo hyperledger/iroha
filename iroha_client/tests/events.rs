@@ -1,5 +1,4 @@
-use async_std::task;
-use iroha::{config::Configuration, prelude::*};
+use iroha::config::Configuration;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_data_model::prelude::*;
 use std::{
@@ -7,27 +6,36 @@ use std::{
     thread,
     time::Duration,
 };
-use tempfile::TempDir;
+use test_network::Peer as TestPeer;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
+const GENESIS_PATH: &str = "tests/genesis.json";
 
 #[test]
 fn transaction_event_should_be_sent_after_it_is_committed() {
-    // Given
-    thread::spawn(create_and_start_iroha);
-    thread::sleep(std::time::Duration::from_millis(300));
-    let configuration =
+    let peer = TestPeer::new().expect("Failed to create peer");
+
+    let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    let domain_name = "global";
+    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    let pipeline_time =
+        Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+
+    // Given
+    peer.start_with_config(configuration);
+    thread::sleep(pipeline_time);
+
+    let domain_name = "wonderland";
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new(asset_definition_id).into(),
     ));
-    let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-            .expect("Failed to load configuration."),
-    );
+    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+        .expect("Failed to load configuration.");
+    client_config.torii_api_url = peer.api_address;
+    let mut iroha_client = Client::new(&client_config);
     let committed_event_received = Arc::new(RwLock::new(false));
     let committed_event_received_clone = committed_event_received.clone();
     let mut client_clone = iroha_client.clone();
@@ -50,30 +58,14 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
             }
         }
     });
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(pipeline_time * 2);
     //When
     iroha_client
         .submit(create_asset.into())
         .expect("Failed to prepare state.");
-    thread::sleep(Duration::from_millis(
-        &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-    ));
+    thread::sleep(pipeline_time * 2);
     //Then
     assert!(*committed_event_received
         .read()
         .expect("Failed to acquire lock."));
-}
-
-fn create_and_start_iroha() {
-    let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration
-        .kura_configuration
-        .kura_block_store_path(temp_dir.path());
-    let iroha = Iroha::new(configuration, AllowAll.into());
-    task::block_on(iroha.start()).expect("Failed to start Iroha.");
-    //Prevents temp_dir from clean up untill the end of the tests.
-    #[allow(clippy::empty_loop)]
-    loop {}
 }
