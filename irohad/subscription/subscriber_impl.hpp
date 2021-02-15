@@ -28,11 +28,11 @@ namespace iroha::subscription {
    * event notification.
    */
   template <typename EventKey,
-      typename Dispatcher,
-      typename Receiver,
-      typename... Arguments>
+            typename Dispatcher,
+            typename Receiver,
+            typename... Arguments>
   class SubscriberImpl final
-      :  public Subscriber<EventKey, Dispatcher, Arguments...> {
+      : public Subscriber<EventKey, Dispatcher, Arguments...> {
    public:
     using ReceiverType = Receiver;
     using Hash = size_t;
@@ -44,17 +44,18 @@ namespace iroha::subscription {
         Subscriber<typename Parent::EventType, Dispatcher, Arguments...>>;
     using SubscriptionEnginePtr = std::shared_ptr<SubscriptionEngineType>;
 
-    using CallbackFnType = std::function<void(SubscriptionSetId,
-                                              ReceiverType &,
-                                              const typename Parent::EventType &,
-                                              const Arguments &...)>;
+    using CallbackFnType =
+        std::function<void(SubscriptionSetId,
+                           ReceiverType &,
+                           const typename Parent::EventType &,
+                           const Arguments &...)>;
 
    private:
     using SubscriptionsContainer =
-    std::unordered_map<typename Parent::EventType,
-        typename SubscriptionEngineType::IteratorType>;
+        std::unordered_map<typename Parent::EventType,
+                           typename SubscriptionEngineType::IteratorType>;
     using SubscriptionsSets =
-    std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
+        std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
 
     std::atomic<SubscriptionSetId> next_id_;
     SubscriptionEnginePtr engine_;
@@ -67,7 +68,8 @@ namespace iroha::subscription {
 
    public:
     template <typename... SubscriberConstructorArgs>
-    SubscriberImpl(SubscriptionEnginePtr &ptr, SubscriberConstructorArgs &&... args)
+    SubscriberImpl(SubscriptionEnginePtr &ptr,
+                   SubscriberConstructorArgs &&... args)
         : next_id_(0ull),
           engine_(ptr),
           object_(std::forward<SubscriberConstructorArgs>(args)...) {}
@@ -87,7 +89,8 @@ namespace iroha::subscription {
     }
 
     template <typename Dispatcher::Tid kTid>
-    void subscribe(SubscriptionSetId id, const typename Parent::EventType &key) {
+    void subscribe(SubscriptionSetId id,
+                   const typename Parent::EventType &key) {
       std::lock_guard lock(subscriptions_cs_);
       auto &&[it, inserted] = subscriptions_sets_[id].emplace(
           key, typename SubscriptionEngineType::IteratorType{});
@@ -95,8 +98,8 @@ namespace iroha::subscription {
       /// Here we check first local subscriptions because of strong connection
       /// with SubscriptionEngine.
       if (inserted)
-        it->second =
-            engine_->template subscribe<kTid>(id, key, Parent::weak_from_this());
+        it->second = engine_->template subscribe<kTid>(
+            id, key, Parent::weak_from_this());
     }
 
     /**
@@ -104,7 +107,8 @@ namespace iroha::subscription {
      * @param key -- event key to unsubscribe from
      * @return true if was subscribed to \arg key, false otherwise
      */
-    bool unsubscribe(SubscriptionSetId id, const typename Parent::EventType &key) {
+    bool unsubscribe(SubscriptionSetId id,
+                     const typename Parent::EventType &key) {
       std::lock_guard<std::mutex> lock(subscriptions_cs_);
       if (auto set_it = subscriptions_sets_.find(id);
           set_it != subscriptions_sets_.end()) {

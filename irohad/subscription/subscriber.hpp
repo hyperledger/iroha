@@ -17,11 +17,9 @@ namespace iroha::subscription {
 
   using SubscriptionSetId = uint32_t;
 
-  template <typename EventKey,
-      typename Dispatcher,
-      typename... Arguments>
+  template <typename EventKey, typename Dispatcher, typename... Arguments>
   class Subscriber : public std::enable_shared_from_this<
-      Subscriber<EventKey, Dispatcher, Arguments...>>,
+                         Subscriber<EventKey, Dispatcher, Arguments...>>,
                      utils::NoMove,
                      utils::NoCopy {
    protected:

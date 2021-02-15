@@ -10,11 +10,11 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "common/compile-time_murmur2.hpp"
 #include "subscription/common.hpp"
 #include "subscription/dispatcher.hpp"
 #include "subscription/subscriber.hpp"
 #include "subscription/subscription_engine.hpp"
-#include "common/compile-time_murmur2.hpp"
 
 namespace iroha::subscription {
 
@@ -46,13 +46,12 @@ namespace iroha::subscription {
    public:
     SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
 
-    template <typename EventKey,
-              typename... Args>
+    template <typename EventKey, typename... Args>
     auto getEngine() {
-      using EngineType = SubscriptionEngine<
-          EventKey,
-          Dispatcher,
-          Subscriber<EventKey, Dispatcher, Args...>>;
+      using EngineType =
+          SubscriptionEngine<EventKey,
+                             Dispatcher,
+                             Subscriber<EventKey, Dispatcher, Args...>>;
       constexpr auto engineId = getSubscriptionType<Args...>();
       std::lock_guard lock(engines_cs_);
       if (auto it = engines_.find(engineId); it != engines_.end()) {
@@ -63,12 +62,12 @@ namespace iroha::subscription {
       return obj;
     }
 
-    template <typename EventKey,typename... Args>
-    void notify(const EventKey &key, Args&&... args) {
-      using EngineType = SubscriptionEngine<
-          EventKey,
-          Dispatcher,
-          Subscriber<EventKey, Dispatcher, Args...>>;
+    template <typename EventKey, typename... Args>
+    void notify(const EventKey &key, Args &&... args) {
+      using EngineType =
+          SubscriptionEngine<EventKey,
+                             Dispatcher,
+                             Subscriber<EventKey, Dispatcher, Args...>>;
       constexpr auto engineId = getSubscriptionType<Args...>();
       std::shared_ptr<EngineType> engine;
       {
@@ -78,10 +77,10 @@ namespace iroha::subscription {
         else
           return;
       }
-      if(engine)
+      if (engine)
         engine->notify(key, std::forward<Args>(args)...);
     }
-    };
+  };
 }  // namespace iroha::subscription
 
 #endif  // IROHA_SUBSCRIPTION_SUBSCRIPTION_MANAGER_HPP
