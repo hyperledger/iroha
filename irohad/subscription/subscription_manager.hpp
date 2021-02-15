@@ -18,6 +18,11 @@
 
 namespace iroha::subscription {
 
+  /**
+   * Class-aggregator that keeps all event engines inside. On notification it
+   * selects the appropriate engine and calls notification in it.
+   * @tparam kHandlersCount number of supported thread handlers
+   */
   template <uint32_t kHandlersCount>
   class SubscriptionManager final : public std::enable_shared_from_this<
                                         SubscriptionManager<kHandlersCount>>,

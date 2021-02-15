@@ -20,10 +20,9 @@ namespace iroha::subscription {
   /**
    * @tparam EventKey - the type of a specific event from event set (e. g. a key
    * from a storage or a particular kind of event from an enumeration)
+   * @tparam Dispatcher - thread handler
    * @tparam Receiver - the type of an object that is a part of a Subscriber
    * internal state and can be accessed on every event
-   * @tparam EventParams - set of types of values passed on each event
-   * notification
    */
   template <typename EventKey, typename Dispatcher, typename Receiver>
   class SubscriptionEngine final

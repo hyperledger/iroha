@@ -22,7 +22,8 @@ namespace iroha::subscription {
    * SubscriptionEngine
    * @tparam EventKey is a type of a particular subscription event (might be a
    * key from an observed storage or a specific event type from an enumeration).
-   * @tparam ReceiverType is a type of an object which is a part of Subscriber's
+   * @tparam Dispatcher thread dispatcher
+   * @tparam Receiver is a type of an object which is a part of Subscriber's
    * internal state and can be accessed on every event notification.
    * @tparam Arguments is a set of types of objects that are passed on every
    * event notification.
