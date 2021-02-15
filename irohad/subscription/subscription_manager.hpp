@@ -47,7 +47,6 @@ namespace iroha::subscription {
     SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
 
     template <typename EventKey,
-              typename Dispatcher,
               typename Receiver,
               typename... Args>
     auto getEngine() {
@@ -64,7 +63,12 @@ namespace iroha::subscription {
       engines_[engineId] = std::reinterpret_pointer_cast<void>(obj);
       return obj;
     }
-  };
+
+    /*template <typename... EventParams>
+    void notify(const EventKeyType &key, EventParams... args) {
+
+    }*/
+    };
 }  // namespace iroha::subscription
 
 #endif  // IROHA_SUBSCRIPTION_SUBSCRIPTION_MANAGER_HPP
