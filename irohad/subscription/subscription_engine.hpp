@@ -13,15 +13,9 @@
 
 #include "subscription/common.hpp"
 #include "subscription/dispatcher.hpp"
+#include "subscription/subscriber.hpp"
 
 namespace iroha::subscription {
-
-  template <typename Event,
-            typename Dispatcher,
-            typename... Arguments>
-  class Subscriber;
-
-  using SubscriptionSetId = uint32_t;
 
   /**
    * @tparam EventKey - the type of a specific event from event set (e. g. a key
