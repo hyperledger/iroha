@@ -5,23 +5,23 @@
 
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 
-#include <ciso646>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
-
 #include <boost/filesystem.hpp>
 #include <boost/iostreams/device/file_descriptor.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/algorithm/find_if.hpp>
+#include <ciso646>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
 
 #ifdef _WIN32
-#include <windows.h>
 #include <fileapi.h>
+#include <windows.h>
 #endif
 
 using namespace iroha::ametsuchi;
@@ -139,6 +139,7 @@ std::string FlatFile::directory() const {
 }
 
 Identifier FlatFile::last_id() const {
+  reload();
   return (available_blocks_.empty()) ? 0 : *available_blocks_.rbegin();
 }
 
@@ -160,3 +161,16 @@ FlatFile::FlatFile(std::string path,
     : dump_dir_(std::move(path)),
       available_blocks_(std::move(existing_files)),
       log_{std::move(log)} {}
+
+void FlatFile::reload() const {
+  available_blocks_.clear();
+  for (auto it = boost::filesystem::directory_iterator{dump_dir_};
+       it != boost::filesystem::directory_iterator{};
+       ++it) {
+    if (auto id = FlatFile::name_to_id(it->path().filename().string())) {
+      available_blocks_.insert(*id);
+    } else {
+      boost::filesystem::remove(it->path());
+    }
+  }
+}

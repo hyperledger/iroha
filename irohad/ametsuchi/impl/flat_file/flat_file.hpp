@@ -6,11 +6,10 @@
 #ifndef IROHA_FLAT_FILE_HPP
 #define IROHA_FLAT_FILE_HPP
 
-#include "ametsuchi/key_value_storage.hpp"
-
 #include <memory>
 #include <set>
 
+#include "ametsuchi/key_value_storage.hpp"
 #include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -104,11 +103,19 @@ namespace iroha {
 
      private:
       /**
+       * Reloads files from disk in case there were modified externally
+       */
+      void reload() const;
+
+      /**
        * Folder of storage
        */
       const std::string dump_dir_;
 
-      BlockIdCollectionType available_blocks_;
+      /**
+       * Blocks in storage, can be modified externally
+       */
+      mutable BlockIdCollectionType available_blocks_;
 
       logger::LoggerPtr log_;
 

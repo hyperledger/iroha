@@ -58,7 +58,7 @@ FlatFileBlockStorage::fetch(
 }
 
 size_t FlatFileBlockStorage::size() const {
-  return flat_file_storage_->blockIdentifiers().size();
+  return flat_file_storage_->last_id();
 }
 
 void FlatFileBlockStorage::clear() {

@@ -10,13 +10,14 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
-
 #include <rxcpp/rx-observable-fwd.hpp>
+
 #include "consensus/gate_object.hpp"
 #include "cryptography/keypair.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/iroha_conf_loader.hpp"
 #include "main/startup_params.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
@@ -511,6 +512,7 @@ namespace integration_framework {
     std::unique_ptr<PortGuard> port_guard_;
     size_t torii_port_;
     size_t internal_port_;
+    IrohadConfig config_;
     std::shared_ptr<IrohaInstance> iroha_instance_;
     std::unique_ptr<torii::CommandSyncClient> command_client_;
     std::unique_ptr<torii_utils::QuerySyncClient> query_client_;

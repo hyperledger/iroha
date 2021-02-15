@@ -5,15 +5,15 @@
 
 #include "framework/integration_framework/integration_test_framework.hpp"
 
-#include <limits>
-#include <memory>
-
 #include <boost/assert.hpp>
 #include <boost/thread/barrier.hpp>
+#include <limits>
+#include <memory>
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-take.hpp>
 #include <rxcpp/operators/rx-zip.hpp>
+
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
@@ -167,16 +167,6 @@ namespace integration_framework {
         port_guard_(std::make_unique<PortGuard>()),
         torii_port_(port_guard_->getPort(kDefaultToriiPort)),
         internal_port_(port_guard_->getPort(kDefaultInternalPort)),
-        iroha_instance_(
-            std::make_shared<IrohaInstance>(mst_support,
-                                            block_store_path,
-                                            kLocalHost,
-                                            torii_port_,
-                                            internal_port_,
-                                            log_manager_->getChild("Irohad"),
-                                            log_,
-                                            startup_wsv_data_policy,
-                                            dbname)),
         command_client_(std::make_unique<torii::CommandSyncClient>(
             iroha::network::createInsecureClient<
                 torii::CommandSyncClient::Service>(
@@ -233,7 +223,30 @@ namespace integration_framework {
             makeTransportClientFactory<iroha::consensus::yac::NetworkImpl>(
                 client_factory_),
             log_manager_->getChild("ConsensusTransport")->getLogger())),
-        cleanup_on_exit_(cleanup_on_exit) {}
+        cleanup_on_exit_(cleanup_on_exit) {
+    // 1 h proposal_timeout results in non-deterministic behavior due to thread
+    // scheduling and network
+    config_.proposal_delay = 3600000;
+    // 100 ms is small delay to avoid unnecessary messages due to eternal voting
+    // and to allow scheduler to switch threads
+    config_.vote_delay = 100;
+    // amount of minutes in a day
+    config_.mst_expiration_time = 24 * 60;
+    config_.max_round_delay_ms = 0;
+    config_.stale_stream_max_rounds = 2;
+    config_.max_proposal_size = 10;
+    config_.mst_support = mst_support;
+    config_.block_store_path = block_store_path;
+    config_.torii_port = torii_port_;
+    config_.internal_port = internal_port_;
+    iroha_instance_ =
+        std::make_shared<IrohaInstance>(config_,
+                                        kLocalHost,
+                                        log_manager_->getChild("Irohad"),
+                                        log_,
+                                        startup_wsv_data_policy,
+                                        dbname);
+  }
 
   IntegrationTestFramework::~IntegrationTestFramework() {
     if (cleanup_on_exit_) {

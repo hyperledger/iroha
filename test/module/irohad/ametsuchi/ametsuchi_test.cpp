@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
-
 #include <gtest/gtest.h>
 
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
@@ -21,6 +19,7 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
@@ -495,12 +494,13 @@ TEST_F(AmetsuchiTest, TestRestoreWsvFromBlockStorage) {
   auto proto_validator = std::make_unique<MockBlockPValidator>();
   WsvRestorerImpl wsvRestorer(std::move(interface_validator),
                               std::move(proto_validator),
-                              chain_validator);
-  wsvRestorer.restoreWsv(*storage).match([](const auto &) {},
-                                         [&](const auto &error) {
-                                           FAIL() << "Failed to recover WSV: "
-                                                  << error.error;
-                                         });
+                              chain_validator,
+                              getTestLogger("WsvRestorer"));
+  wsvRestorer.restoreWsv(*storage, false)
+      .match([](const auto &) {},
+             [&](const auto &error) {
+               FAIL() << "Failed to recover WSV: " << error.error;
+             });
 
   res = sql_query->getDomain(kDomain);
   EXPECT_TRUE(res);
@@ -543,12 +543,13 @@ class RestoreWsvTest : public AmetsuchiTest {
     auto proto_validator = std::make_unique<MockBlockPValidator>();
     WsvRestorerImpl wsvRestorer(std::move(interface_validator),
                                 std::move(proto_validator),
-                                chain_validator);
-    wsvRestorer.restoreWsv(*storage).match([](const auto &) {},
-                                           [&](const auto &error) {
-                                             FAIL() << "Failed to recover WSV: "
-                                                    << error.error;
-                                           });
+                                chain_validator,
+                                getTestLogger("WsvRestorer"));
+    wsvRestorer.restoreWsv(*storage, false)
+        .match([](const auto &) {},
+               [&](const auto &error) {
+                 FAIL() << "Failed to recover WSV: " << error.error;
+               });
   }
 
   void checkRestoreWsvError(const std::string error_substr) {
@@ -557,12 +558,16 @@ class RestoreWsvTest : public AmetsuchiTest {
     auto proto_validator = std::make_unique<MockBlockPValidator>();
     WsvRestorerImpl wsvRestorer(std::move(interface_validator),
                                 std::move(proto_validator),
-                                chain_validator);
-    wsvRestorer.restoreWsv(*storage).match(
-        [](const auto &) { FAIL() << "Should have failed to recover WSV."; },
-        [&](const auto &error) {
-          EXPECT_THAT(error.error, ::testing::HasSubstr(error_substr));
-        });
+                                chain_validator,
+                                getTestLogger("WsvRestorer"));
+    wsvRestorer.restoreWsv(*storage, false)
+        .match(
+            [](const auto &) {
+              FAIL() << "Should have failed to recover WSV.";
+            },
+            [&](const auto &error) {
+              EXPECT_THAT(error.error, ::testing::HasSubstr(error_substr));
+            });
   }
 };
 
