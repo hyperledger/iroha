@@ -77,7 +77,7 @@
 #include "validators/protobuf/proto_transaction_validator.hpp"
 #include "subscription/thread_handler.hpp"
 #include "subscription/dispatcher.hpp"
-#include "subscription/subscriber.hpp"
+#include "subscription/subscriber_impl.hpp"
 #include "subscription/subscription_manager.hpp"
 
 #if defined(USE_BURROW)
@@ -1007,23 +1007,27 @@ Irohad::RunResult Irohad::run() {
     subscription::SubscriptionManager<10ull>;
     using Dispatcher = typename Manager::Dispatcher;
     using Subscriber = subscription::
-    Subscriber<EventType, Dispatcher, EventListener, EventData>;
+    SubscriberImpl<EventType, Dispatcher, EventListener, EventData>;
 
     auto manager = std::make_shared<Manager>();
-    auto engine = manager->getEngine<EventType, Dispatcher, EventListener, EventData>();
+    auto engine = manager->getEngine<EventType, EventData>();
 
     auto subscriber = std::make_shared<Subscriber>(engine);
     subscriber->setCallback(
         [](auto set_id, auto &obj, auto key, auto const &ev_data) {
-          std::cout << std::this_thread::get_id() << "   " << ev_data.q
-                    << std::endl;
+          std::stringstream ss;
+          ss  << std::this_thread::get_id() << "   " << ev_data.q
+              << std::endl;
+          std::cout << ss.str();
         });
 
     auto subscriber2 = std::make_shared<Subscriber>(engine);
     subscriber2->setCallback(
         [](auto set_id, auto &obj, auto key, auto const &ev_data) {
-          std::cout << std::this_thread::get_id() << "   SUB2 " << ev_data.q
+          std::stringstream ss;
+          ss << std::this_thread::get_id() << "   SUB2 " << ev_data.q
                     << std::endl;
+          std::cout << ss.str();
         });
 
     subscriber2->subscribe<0>(0, EventType::kDo);
@@ -1032,8 +1036,8 @@ Irohad::RunResult Irohad::run() {
     subscriber->subscribe<1>(1, EventType::kDo);
     subscriber->subscribe<2>(2, EventType::kDo);
     subscriber->subscribe<1>(3, EventType::kDo);
-    engine->notify(EventType::kDo, EventData{.q{"test data"}});
 
+    manager->notify(EventType::kDo, EventData{.q{"test data"}});
     std::this_thread::sleep_for(std::chrono::seconds(3));
 
     int p = 0; ++p;
