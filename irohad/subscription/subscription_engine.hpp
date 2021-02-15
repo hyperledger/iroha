@@ -117,11 +117,12 @@ namespace iroha::subscription {
                            [wsub(std::move(wsub)),
                             id(id),
                             key(key),
-                            args = std::make_tuple(args...)]() {
+                            args = std::make_tuple(args...)]() mutable {
                              if (auto sub = wsub.lock())
                                std::apply(
                                    [&](auto &&... args) {
-                                     sub->on_notify(id, key, args...);
+                                     sub->on_notify(
+                                         id, key, std::move(args)...);
                                    },
                                    std::move(args));
                            });

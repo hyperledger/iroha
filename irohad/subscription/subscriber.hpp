@@ -44,7 +44,7 @@ namespace iroha::subscription {
      */
     virtual void on_notify(SubscriptionSetId set_id,
                            const EventType &key,
-                           const Arguments &... args) = 0;
+                           Arguments &&... args) = 0;
   };
 
 }  // namespace iroha::subscription

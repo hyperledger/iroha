@@ -151,9 +151,9 @@ namespace iroha::subscription {
 
     void on_notify(SubscriptionSetId set_id,
                    const typename Parent::EventType &key,
-                   const Arguments &... args) override {
+                   Arguments &&... args) override {
       if (nullptr != on_notify_callback_)
-        on_notify_callback_(set_id, object_, key, args...);
+        on_notify_callback_(set_id, object_, key, std::move(args)...);
     }
 
     ReceiverType &get() {
