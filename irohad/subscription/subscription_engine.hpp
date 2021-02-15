@@ -54,8 +54,12 @@ namespace iroha::subscription {
     ~SubscriptionEngine() = default;
 
    private:
+    struct SubscriptionContext final {
+      std::mutex subscribers_list_cs;
+      SubscribersContainer subscribers_list;
+    };
     using KeyValueContainer =
-        std::unordered_map<EventKeyType, SubscribersContainer>;
+        std::unordered_map<EventKeyType, SubscriptionContext>;
 
     mutable std::shared_mutex subscribers_map_cs_;
     KeyValueContainer subscribers_map_;
@@ -68,9 +72,11 @@ namespace iroha::subscription {
                            SubscriberWeakPtr ptr) {
       Dispatcher::template checkTid<kTid>();
       std::unique_lock lock(subscribers_map_cs_);
-      auto &subscribers_list = subscribers_map_[key];
-      return subscribers_list.emplace(
-          subscribers_list.end(),
+      auto &subscribers_context = subscribers_map_[key];
+
+      std::lock_guard l(subscribers_context.subscribers_list_cs);
+      return subscribers_context.subscribers_list.emplace(
+          subscribers_context.subscribers_list.end(),
           std::make_tuple(kTid, set_id, std::move(ptr)));
     }
 
@@ -78,24 +84,32 @@ namespace iroha::subscription {
       std::unique_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
       if (subscribers_map_.end() != it) {
-        it->second.erase(it_remove);
-        if (it->second.empty())
+        auto &subscribers_context = it->second;
+        std::lock_guard l(subscribers_context.subscribers_list_cs);
+        subscribers_context.subscribers_list.erase(it_remove);
+        if (subscribers_context.subscribers_list.empty())
           subscribers_map_.erase(it);
       }
     }
 
     size_t size(const EventKeyType &key) const {
       std::shared_lock lock(subscribers_map_cs_);
-      if (auto it = subscribers_map_.find(key); it != subscribers_map_.end())
-        return it->second.size();
-
+      if (auto it = subscribers_map_.find(key); it != subscribers_map_.end()) {
+        auto &subscribers_context = it->second;
+        std::lock_guard l(subscribers_context.subscribers_list_cs);
+        return subscribers_context.subscribers_list.size();
+      }
       return 0ull;
     }
 
     size_t size() const {
       std::shared_lock lock(subscribers_map_cs_);
       size_t count = 0ull;
-      for (auto &it : subscribers_map_) count += it.second.size();
+      for (auto &it : subscribers_map_) {
+        auto &subscribers_context = it->second;
+        std::lock_guard l(subscribers_context.subscribers_list_cs);
+        count += subscribers_context.subscribers_list.size();
+      }
       return count;
     }
 
@@ -107,8 +121,9 @@ namespace iroha::subscription {
         return;
 
       auto &subscribers_container = it->second;
-      for (auto it_sub = subscribers_container.begin();
-           it_sub != subscribers_container.end();) {
+      std::lock_guard l(subscribers_container.subscribers_list_cs);
+      for (auto it_sub = subscribers_container.subscribers_list.begin();
+           it_sub != subscribers_container.subscribers_list.end();) {
         auto wsub = std::get<2>(*it_sub);
         auto id = std::get<1>(*it_sub);
 
@@ -128,7 +143,7 @@ namespace iroha::subscription {
                            });
           ++it_sub;
         } else {
-          it_sub = subscribers_container.erase(it_sub);
+          it_sub = subscribers_container.subscribers_list.erase(it_sub);
         }
       }
     }
