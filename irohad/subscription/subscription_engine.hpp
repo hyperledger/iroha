@@ -18,7 +18,6 @@ namespace iroha::subscription {
 
   template <typename Event,
             typename Dispatcher,
-            typename Receiver,
             typename... Arguments>
   class Subscriber;
 
@@ -62,11 +61,6 @@ namespace iroha::subscription {
     ~SubscriptionEngine() = default;
 
    private:
-    template <typename KeyType,
-              typename DispatcherType,
-              typename ValueType,
-              typename... Args>
-    friend class Subscriber;
     using KeyValueContainer =
         std::unordered_map<EventKeyType, SubscribersContainer>;
 
@@ -74,6 +68,7 @@ namespace iroha::subscription {
     KeyValueContainer subscribers_map_;
     DispatcherPtr dispatcher_;
 
+   public:
     template <typename Dispatcher::Tid kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
@@ -96,7 +91,6 @@ namespace iroha::subscription {
       }
     }
 
-   public:
     size_t size(const EventKeyType &key) const {
       std::shared_lock lock(subscribers_map_cs_);
       if (auto it = subscribers_map_.find(key); it != subscribers_map_.end())

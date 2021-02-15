@@ -47,13 +47,12 @@ namespace iroha::subscription {
     SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
 
     template <typename EventKey,
-              typename Receiver,
               typename... Args>
     auto getEngine() {
       using EngineType = SubscriptionEngine<
           EventKey,
           Dispatcher,
-          Subscriber<EventKey, Dispatcher, Receiver, Args...>>;
+          Subscriber<EventKey, Dispatcher, Args...>>;
       constexpr auto engineId = getSubscriptionType<Args...>();
       std::lock_guard lock(engines_cs_);
       if (auto it = engines_.find(engineId); it != engines_.end()) {
@@ -64,10 +63,24 @@ namespace iroha::subscription {
       return obj;
     }
 
-    /*template <typename... EventParams>
-    void notify(const EventKeyType &key, EventParams... args) {
-
-    }*/
+    template <typename EventKey,typename... Args>
+    void notify(const EventKey &key, Args&&... args) {
+      using EngineType = SubscriptionEngine<
+          EventKey,
+          Dispatcher,
+          Subscriber<EventKey, Dispatcher, Args...>>;
+      constexpr auto engineId = getSubscriptionType<Args...>();
+      std::shared_ptr<EngineType> engine;
+      {
+        std::lock_guard lock(engines_cs_);
+        if (auto it = engines_.find(engineId); it != engines_.end())
+          engine = std::reinterpret_pointer_cast<EngineType>(it->second);
+        else
+          return;
+      }
+      if(engine)
+        engine->notify(key, std::forward<Args>(args)...);
+    }
     };
 }  // namespace iroha::subscription
 
