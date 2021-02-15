@@ -75,6 +75,10 @@
 #include "validators/protobuf/proto_proposal_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
+#include "subscription/thread_handler.hpp"
+#include "subscription/dispatcher.hpp"
+#include "subscription/subscriber.hpp"
+#include "subscription/subscription_manager.hpp"
 
 #if defined(USE_BURROW)
 #include "ametsuchi/impl/burrow_vm_caller.hpp"
@@ -929,9 +933,114 @@ Irohad::RunResult Irohad::initWsvRestorer() {
 /**
  * Run iroha daemon
  */
+
+struct EventData {
+  std::string q;
+};
+
+struct EventListener {
+
+};
+
+enum EventType {
+  kDo = 0
+};
+
 Irohad::RunResult Irohad::run() {
   using iroha::expected::operator|;
   using iroha::operator|;
+
+/*  { //Dispatcher test
+    subscription::Dispatcher<10ull> dispatcher;
+    dispatcher.addDelayed<2>(1000, [&dispatcher] {
+      std::cout << "222" << std::endl;
+      dispatcher.addDelayed<1>(5, [] { std::cout << "222-" << std::endl; });
+    });
+    dispatcher.add<8>([&dispatcher] {
+      std::cout << "111" << std::endl;
+      dispatcher.addDelayed<1>(5, [] { std::cout << "111-" << std::endl; });
+    });
+
+    for (uint ix = 0; ix < 5; ++ix)
+      dispatcher.add<3>([ix, &dispatcher] {
+        std::cout << "DONE " << ix << std::endl;
+        dispatcher.add<3>([ix] { std::cout << "DONE- " << ix << std::endl; });
+      });
+    std::this_thread::sleep_for(std::chrono::microseconds(1150));
+  }*/
+
+  /*{
+    using Dispatcher = subscription::Dispatcher<10ull>;
+    using Subscriber = subscription::
+        Subscriber<EventType, Dispatcher, EventListener, EventData>;
+    using Engine =
+        subscription::SubscriptionEngine<EventType, Dispatcher, Subscriber>;
+
+    auto dispatcher = std::make_shared<Dispatcher>();
+    auto engine = std::make_shared<Engine>(dispatcher);
+    auto subscriber = std::make_shared<Subscriber>(engine);
+    subscriber->setCallback(
+        [](auto set_id, auto &obj, auto key, auto const &ev_data) {
+          std::cout << std::this_thread::get_id() << "   " << ev_data.q
+                    << std::endl;
+        });
+
+    auto subscriber2 = std::make_shared<Subscriber>(engine);
+    subscriber2->setCallback(
+        [](auto set_id, auto &obj, auto key, auto const &ev_data) {
+          std::cout << std::this_thread::get_id() << "   SUB2 " << ev_data.q
+                    << std::endl;
+        });
+
+    subscriber2->subscribe<0>(0, EventType::kDo);
+    subscriber2->subscribe<9>(1, EventType::kDo);
+    subscriber->subscribe<0>(0, EventType::kDo);
+    subscriber->subscribe<1>(1, EventType::kDo);
+    subscriber->subscribe<2>(2, EventType::kDo);
+    subscriber->subscribe<1>(3, EventType::kDo);
+    engine->notify(EventType::kDo, EventData{.q{"test data"}});
+
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+  }*/
+  {
+    using Manager =
+    subscription::SubscriptionManager<10ull>;
+    using Dispatcher = typename Manager::Dispatcher;
+    using Subscriber = subscription::
+    Subscriber<EventType, Dispatcher, EventListener, EventData>;
+
+    auto manager = std::make_shared<Manager>();
+    auto engine = manager->getEngine<EventType, Dispatcher, EventListener, EventData>();
+
+    auto subscriber = std::make_shared<Subscriber>(engine);
+    subscriber->setCallback(
+        [](auto set_id, auto &obj, auto key, auto const &ev_data) {
+          std::cout << std::this_thread::get_id() << "   " << ev_data.q
+                    << std::endl;
+        });
+
+    auto subscriber2 = std::make_shared<Subscriber>(engine);
+    subscriber2->setCallback(
+        [](auto set_id, auto &obj, auto key, auto const &ev_data) {
+          std::cout << std::this_thread::get_id() << "   SUB2 " << ev_data.q
+                    << std::endl;
+        });
+
+    subscriber2->subscribe<0>(0, EventType::kDo);
+    subscriber2->subscribe<9>(1, EventType::kDo);
+    subscriber->subscribe<0>(0, EventType::kDo);
+    subscriber->subscribe<1>(1, EventType::kDo);
+    subscriber->subscribe<2>(2, EventType::kDo);
+    subscriber->subscribe<1>(3, EventType::kDo);
+    engine->notify(EventType::kDo, EventData{.q{"test data"}});
+
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+
+    int p = 0; ++p;
+  }
+
+  std::cout << "333" << std::endl;
+  int p = 0; ++p;
 
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(

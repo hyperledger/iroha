@@ -24,11 +24,12 @@ namespace iroha::subscription {
                                     utils::NoMove,
                                     utils::NoCopy {
    public:
+    using Dispatcher = subscription::Dispatcher<kHandlersCount>;
+
    private:
     using EngineHash = uint64_t;
-    using Dispatcher = subscription::Dispatcher<kHandlersCount>;
     using DispatcherPtr = std::shared_ptr<Dispatcher>;
-    using EnginesList = std::unordered_map<EngineHash, std::shared_ptr<void *>>;
+    using EnginesList = std::unordered_map<EngineHash, std::shared_ptr<void>>;
 
    private:
     DispatcherPtr dispatcher_;
@@ -42,52 +43,27 @@ namespace iroha::subscription {
       return value;
     }
 
-    template <typename EventKey,
-              typename Dispatcher,
-              typename Receiver,
-              typename... Args>
-    auto getOrCreate() {
-      constexpr auto engineId = getSubscriptionType<Args...>();
-      std::lock_guard lock(engines_cs_);
-      if (auto it = engines_.find(engineId); it != engines_.end()) {
-        return std::reinterpret_pointer_cast<
-            SubscriptionEngine<EventKey, Dispatcher, Receiver>>(it->second);
-      }
-      auto obj =
-          std::make_shared<SubscriptionEngine<EventKey, Dispatcher, Receiver>>(
-              dispatcher_);
-      engines_[engineId] = obj;
-      return obj;
-    }
-
-    template <typename EventKey,
-              typename Dispatcher,
-              typename Receiver,
-              typename... Args>
-    auto get() {
-      constexpr auto engineId = getSubscriptionType<Args...>();
-      std::lock_guard lock(engines_cs_);
-      if (auto it = engines_.find(engineId); it != engines_.end()) {
-        return std::reinterpret_pointer_cast<
-            SubscriptionEngine<EventKey, Dispatcher, Receiver>>(it->second);
-      }
-      return std::shared_ptr<
-          SubscriptionEngine<EventKey, Dispatcher, Receiver>>();
-    }
-
    public:
     SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
 
-    template <typename Dispatcher::Tid kTid,
-              typename EventKey,
+    template <typename EventKey,
               typename Dispatcher,
               typename Receiver,
-              typename... Arguments>
-    auto subscribe(
-        SubscriptionSetId set_id,
-        const EventKey &key,
-        std::weak_ptr<Subscriber<EventKey, Dispatcher, Receiver, Arguments...>>
-            ptr) {}
+              typename... Args>
+    auto getEngine() {
+      using EngineType = SubscriptionEngine<
+          EventKey,
+          Dispatcher,
+          Subscriber<EventKey, Dispatcher, Receiver, Args...>>;
+      constexpr auto engineId = getSubscriptionType<Args...>();
+      std::lock_guard lock(engines_cs_);
+      if (auto it = engines_.find(engineId); it != engines_.end()) {
+        return std::reinterpret_pointer_cast<EngineType>(it->second);
+      }
+      auto obj = std::make_shared<EngineType>(dispatcher_);
+      engines_[engineId] = std::reinterpret_pointer_cast<void>(obj);
+      return obj;
+    }
   };
 }  // namespace iroha::subscription
 
