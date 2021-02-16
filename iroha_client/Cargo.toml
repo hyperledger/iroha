@@ -41,6 +41,7 @@ port_check = "0.1.5"
 tempfile = "3"
 iroha_permissions_validators = { version = "=0.1.0", path = "../iroha_permissions_validators" }
 rand = "0.7.3"
+unique_port = { git = "https://github.com/soramitsu/iroha2-unique_port" }
 
 [[test]]
 name = "cucumber"

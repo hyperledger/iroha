@@ -158,6 +158,7 @@ impl Sumeragi {
         if transactions.is_empty() {
             return Ok(());
         }
+        self.gossip_transactions(&transactions).await?;
         if let Role::Leader = self.network_topology.role(&self.peer_id) {
             let block = PendingBlock::new(transactions).chain(
                 self.block_height,
@@ -167,8 +168,7 @@ impl Sumeragi {
             );
             self.validate_and_publish_created_block(block).await
         } else {
-            self.forward_transactions_to_leader(&transactions).await?;
-            self.gossip_transactions(&transactions).await
+            self.forward_transactions_to_leader(&transactions).await
         }
     }
 
@@ -311,7 +311,8 @@ impl Sumeragi {
             self.commit_block(block).await;
             Ok(())
         } else {
-            *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
+            let voting_block = VotingBlock::new(block.clone());
+            *self.voting_block.write().await = Some(voting_block.clone());
             let message = Message::BlockCreated(block.clone().sign(&self.key_pair)?.into());
             let recipient_peers = network_topology.sorted_peers.clone();
             let this_peer = self.peer_id.clone();
@@ -332,6 +333,12 @@ impl Sumeragi {
                         error_result
                     )
                 });
+            self.start_commit_countdown(
+                voting_block.clone(),
+                self.latest_block_hash,
+                self.number_of_view_changes,
+            )
+            .await;
             Ok(())
         }
     }
@@ -406,6 +413,7 @@ impl Sumeragi {
         );
         *self.voting_block.write().await = None;
         self.number_of_view_changes = 0;
+        self.votes_for_blocks.clear();
     }
 
     async fn change_view(&mut self) {
@@ -847,6 +855,10 @@ pub mod message {
     impl BlockCreated {
         /// Handles this message as part of `Sumeragi` consensus.
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+            // There should be only one block in discussion during a round.
+            if sumeragi.voting_block.write().await.is_some() {
+                return Ok(());
+            }
             for event in Vec::<Event>::from(&self.block.clone()) {
                 sumeragi.events_sender.send(event).await;
             }
@@ -912,10 +924,15 @@ pub mod message {
                         .await;
                 }
                 Role::ProxyTail => {
-                    if sumeragi.voting_block.write().await.is_none() {
-                        *sumeragi.voting_block.write().await =
-                            Some(VotingBlock::new(self.block.clone()))
-                    }
+                    let voting_block = VotingBlock::new(self.block.clone());
+                    *sumeragi.voting_block.write().await = Some(voting_block.clone());
+                    sumeragi
+                        .start_commit_countdown(
+                            voting_block.clone(),
+                            sumeragi.latest_block_hash,
+                            sumeragi.number_of_view_changes,
+                        )
+                        .await;
                 }
                 Role::ObservingPeer => {
                     *sumeragi.voting_block.write().await =
@@ -1501,7 +1518,7 @@ pub mod message {
                 sumeragi.change_view().await;
             } else {
                 let role = sumeragi.network_topology.role(&sumeragi.peer_id);
-                if role == Role::ValidatingPeer || role == Role::Leader || role == Role::ProxyTail {
+                if role != Role::ObservingPeer {
                     let voting_block = sumeragi.voting_block.read().await.clone();
                     if let Some(voting_block) = voting_block {
                         let current_time = SystemTime::now()
