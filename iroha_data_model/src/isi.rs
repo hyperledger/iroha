@@ -59,19 +59,15 @@ pub struct SetBox {
 /// Sized structure for all possible Registers.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct RegisterBox {
-    /// Object to register on `destination_id`.
+    /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<IdentifiableBox>,
-    /// Identification of destination object.
-    pub destination_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible Unregisters.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct UnregisterBox {
-    /// Object to unregister from `destination_id`.
-    pub object: EvaluatesTo<IdentifiableBox>,
-    /// Identification of destination object.
-    pub destination_id: EvaluatesTo<IdBox>,
+    /// The id of the object that should be unregistered.
+    pub object_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible Mints.
@@ -149,27 +145,22 @@ where
 
 /// Generic instruction for a registration of an object to the identifiable destination.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Register<D, O>
+pub struct Register<O>
 where
     O: Identifiable,
-    D: Identifiable,
 {
-    /// Object which should be registered.
+    /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: O,
-    /// Destination object `Id`.
-    pub destination_id: D::Id,
 }
 
 /// Generic instruction for an unregistration of an object from the identifiable destination.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Unregister<D, O>
+pub struct Unregister<O>
 where
-    D: Identifiable,
+    O: Identifiable,
 {
-    /// Object which should be unregistered.
-    pub object: O,
-    /// Destination object `Id`.
-    pub destination_id: D::Id,
+    /// Id of the object which should be unregistered.
+    pub object_id: O::Id,
 }
 
 /// Generic instruction for a mint of an object to the identifiable destination.
@@ -222,31 +213,23 @@ where
     }
 }
 
-impl<D, O> Register<D, O>
+impl<O> Register<O>
 where
-    D: Identifiable,
     O: Identifiable,
 {
     /// Default `Register` constructor.
-    pub fn new(object: O, destination_id: D::Id) -> Self {
-        Register {
-            object,
-            destination_id,
-        }
+    pub fn new(object: O) -> Self {
+        Register { object }
     }
 }
 
-impl<D, O> Unregister<D, O>
+impl<O> Unregister<O>
 where
-    D: Identifiable,
     O: Identifiable,
 {
     /// Default `Register` constructor.
-    pub fn new(object: O, destination_id: D::Id) -> Self {
-        Unregister {
-            object,
-            destination_id,
-        }
+    pub fn new(object_id: O::Id) -> Self {
+        Unregister { object_id }
     }
 }
 
@@ -298,17 +281,13 @@ where
 impl RegisterBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
-        self.destination_id.len() + self.object.len() + 1
+        self.object.len() + 1
     }
 
     /// Default `Register` constructor.
-    pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>, D: Into<EvaluatesTo<IdBox>>>(
-        object: O,
-        destination_id: D,
-    ) -> Self {
+    pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>>(object: O) -> Self {
         Self {
             object: object.into(),
-            destination_id: destination_id.into(),
         }
     }
 }
@@ -317,17 +296,13 @@ impl RegisterBox {
 impl UnregisterBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
-        self.destination_id.len() + self.object.len() + 1
+        self.object_id.len() + 1
     }
 
     /// Default `Unregister` constructor.
-    pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>, D: Into<EvaluatesTo<IdBox>>>(
-        object: O,
-        destination_id: D,
-    ) -> Self {
+    pub fn new<O: Into<EvaluatesTo<IdBox>>>(object_id: O) -> Self {
         Self {
-            object: object.into(),
-            destination_id: destination_id.into(),
+            object_id: object_id.into(),
         }
     }
 }

@@ -23,12 +23,9 @@ mod tests {
         let account_name = "root";
         let account_id = AccountId::new(account_name, domain_name);
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-        let create_asset = RegisterBox::new(
-            IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(asset_definition_id.clone()).into(),
-            ),
-            IdBox::DomainName(domain_name.to_string()),
-        );
+        let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+            AssetDefinition::new(asset_definition_id.clone()).into(),
+        ));
         let key_pair = KeyPair::generate()?;
         let add_signatory = MintBox::new(
             key_pair.public_key.clone(),

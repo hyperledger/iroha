@@ -46,8 +46,6 @@ pub enum QueryBox {
     FindDomainByName(Box<FindDomainByName>),
     /// `FindAllPeers` variant.
     FindAllPeers(Box<FindAllPeers>),
-    /// `FindPeerById` variant.
-    FindPeerById(Box<FindPeerById>),
     /// `FindAllParameters` variant.
     FindAllParameters(Box<FindAllParameters>),
 }
@@ -380,7 +378,6 @@ pub mod domain {
 pub mod peer {
     //! Queries related to `Domain`.
 
-    use crate::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -390,14 +387,6 @@ pub mod peer {
         Copy, Clone, Debug, Default, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq,
     )]
     pub struct FindAllPeers {}
-
-    /// `FindPeerById` Iroha Query will find a trusted `Peer` by it's identification in
-    /// current Iroha `Peer`.
-    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
-    pub struct FindPeerById {
-        /// `Id` of the Peer to find.
-        pub id: PeerId,
-    }
 
     /// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
     #[derive(
@@ -412,13 +401,6 @@ pub mod peer {
         }
     }
 
-    impl FindPeerById {
-        ///Default `FindPeerById` constructor.
-        pub fn new(id: PeerId) -> Self {
-            FindPeerById { id }
-        }
-    }
-
     impl FindAllParameters {
         /// Default `FindAllParameters` constructor.
         pub fn new() -> Self {
@@ -427,7 +409,7 @@ pub mod peer {
     }
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllParameters, FindAllPeers, FindPeerById};
+        pub use super::{FindAllParameters, FindAllPeers};
     }
 }
 
