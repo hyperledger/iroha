@@ -8,16 +8,16 @@ use iroha_data_model::prelude::*;
 pub mod isi {
     use super::*;
 
-    impl Execute for Register<Domain, Account> {
+    impl Execute for Register<Account> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            let account = self.object.clone();
+            let account = self.object;
             let domain = world_state_view
-                .domain(&self.destination_id)
+                .domain(&account.id.domain_name)
                 .ok_or("Failed to find domain.")?;
             if domain.accounts.contains_key(&account.id) {
                 Err(format!(
@@ -31,38 +31,38 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Domain, Account> {
+    impl Execute for Unregister<Account> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            let account = self.object.clone();
+            let account_id = self.object_id;
             let domain = world_state_view
-                .domain(&self.destination_id)
+                .domain(&account_id.domain_name)
                 .ok_or("Failed to find domain.")?;
-            let _ = domain.accounts.remove(&account.id);
+            let _ = domain.accounts.remove(&account_id);
             Ok(world_state_view)
         }
     }
 
-    impl Execute for Register<Domain, AssetDefinition> {
+    impl Execute for Register<AssetDefinition> {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            let asset = self.object.clone();
+            let asset_definition = self.object;
             let _ = world_state_view
-                .domain(&self.destination_id)
+                .domain(&asset_definition.id.domain_name)
                 .ok_or("Failed to find domain.")?
                 .asset_definitions
                 .insert(
-                    asset.id.clone(),
+                    asset_definition.id.clone(),
                     AssetDefinitionEntry {
-                        definition: asset,
+                        definition: asset_definition,
                         registered_by: authority,
                     },
                 );
@@ -70,19 +70,19 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Domain, AssetDefinition> {
+    impl Execute for Unregister<AssetDefinition> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            let asset_definition = self.object.clone();
+            let asset_definition_id = self.object_id;
             let _ = world_state_view
-                .domain(&self.destination_id)
+                .domain(&asset_definition_id.domain_name)
                 .ok_or("Failed to find domain.")?
                 .asset_definitions
-                .remove(&asset_definition.id);
+                .remove(&asset_definition_id);
             Ok(world_state_view)
         }
     }

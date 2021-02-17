@@ -24,31 +24,23 @@ mod tests {
         let peers = create_and_start_iroha_peers(N_PEERS);
         thread::sleep(std::time::Duration::from_millis(1000));
         let domain_name = "domain";
-        let create_domain = RegisterBox::new(
-            IdentifiableBox::Domain(Domain::new(domain_name).into()),
-            IdBox::WorldId,
-        );
+        let create_domain =
+            RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
         let account_name = "account";
         let account_id = AccountId::new(account_name, domain_name);
-        let create_account = RegisterBox::new(
-            IdentifiableBox::Account(
-                Account::with_signatory(
-                    account_id.clone(),
-                    KeyPair::generate()
-                        .expect("Failed to generate KeyPair.")
-                        .public_key,
-                )
-                .into(),
-            ),
-            IdBox::DomainName(domain_name.to_string()),
-        );
+        let create_account = RegisterBox::new(IdentifiableBox::Account(
+            Account::with_signatory(
+                account_id.clone(),
+                KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
+            )
+            .into(),
+        ));
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-        let create_asset = RegisterBox::new(
-            IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(asset_definition_id.clone()).into(),
-            ),
-            IdBox::DomainName(domain_name.to_string()),
-        );
+        let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+            AssetDefinition::new(asset_definition_id.clone()).into(),
+        ));
         let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         client_configuration.torii_api_url =

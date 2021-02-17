@@ -104,56 +104,32 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let mut iroha_client = Client::new(&configuration);
     iroha_client
         .submit_all(vec![
-            RegisterBox::new(
-                IdentifiableBox::Domain(Domain::new("exchange").into()),
-                IdBox::WorldId,
-            )
+            RegisterBox::new(IdentifiableBox::Domain(Domain::new("exchange").into())).into(),
+            RegisterBox::new(IdentifiableBox::Domain(Domain::new("company").into())).into(),
+            RegisterBox::new(IdentifiableBox::Domain(Domain::new("crypto").into())).into(),
+            RegisterBox::new(IdentifiableBox::Account(
+                Account::new(AccountId::new("seller", "company")).into(),
+            ))
             .into(),
-            RegisterBox::new(
-                IdentifiableBox::Domain(Domain::new("company").into()),
-                IdBox::WorldId,
-            )
+            RegisterBox::new(IdentifiableBox::Account(
+                Account::new(AccountId::new("buyer", "company")).into(),
+            ))
             .into(),
-            RegisterBox::new(
-                IdentifiableBox::Domain(Domain::new("crypto").into()),
-                IdBox::WorldId,
-            )
+            RegisterBox::new(IdentifiableBox::Account(
+                Account::new(AccountId::new("dex", "exchange")).into(),
+            ))
             .into(),
-            RegisterBox::new(
-                IdentifiableBox::Account(Account::new(AccountId::new("seller", "company")).into()),
-                IdBox::DomainName(Name::from("company")),
-            )
+            RegisterBox::new(IdentifiableBox::AssetDefinition(
+                AssetDefinition::new(AssetDefinitionId::new("btc", "crypto")).into(),
+            ))
             .into(),
-            RegisterBox::new(
-                IdentifiableBox::Account(Account::new(AccountId::new("buyer", "company")).into()),
-                IdBox::DomainName(Name::from("company")),
-            )
+            RegisterBox::new(IdentifiableBox::AssetDefinition(
+                AssetDefinition::new(AssetDefinitionId::new("eth", "crypto")).into(),
+            ))
             .into(),
-            RegisterBox::new(
-                IdentifiableBox::Account(Account::new(AccountId::new("dex", "exchange")).into()),
-                IdBox::DomainName(Name::from("exchange")),
-            )
-            .into(),
-            RegisterBox::new(
-                IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(AssetDefinitionId::new("btc", "crypto")).into(),
-                ),
-                IdBox::DomainName(Name::from("crypto")),
-            )
-            .into(),
-            RegisterBox::new(
-                IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(AssetDefinitionId::new("eth", "crypto")).into(),
-                ),
-                IdBox::DomainName(Name::from("crypto")),
-            )
-            .into(),
-            RegisterBox::new(
-                IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(AssetDefinitionId::new("btc2eth_rate", "exchange")).into(),
-                ),
-                IdBox::DomainName(Name::from("exchange")),
-            )
+            RegisterBox::new(IdentifiableBox::AssetDefinition(
+                AssetDefinition::new(AssetDefinitionId::new("btc2eth_rate", "exchange")).into(),
+            ))
             .into(),
             MintBox::new(
                 Value::U32(200),

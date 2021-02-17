@@ -24,10 +24,9 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let account_name = "root";
     let account_id = AccountId::new(account_name, domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = RegisterBox::new(
-        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
-        IdBox::DomainName(domain_name.to_string()),
-    );
+    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+        AssetDefinition::new(asset_definition_id.clone()).into(),
+    ));
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration."),

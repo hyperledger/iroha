@@ -27,10 +27,9 @@ mod tests {
         let account_id = AccountId::new(account_name, domain_name);
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let wrong_asset_definition_id = AssetDefinitionId::new("ksor", domain_name);
-        let create_asset = RegisterBox::new(
-            IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id).into()),
-            IdBox::DomainName(domain_name.to_string()),
-        );
+        let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+            AssetDefinition::new(asset_definition_id).into(),
+        ));
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
             Value::U32(quantity),

@@ -43,27 +43,20 @@ impl Execute for RegisterBox {
         world_state_view: &WorldStateView,
     ) -> Result<WorldStateView, String> {
         let context = Context::new();
-        match self.destination_id.evaluate(world_state_view, &context)? {
-            IdBox::DomainName(domain_name) => {
-                match self.object.evaluate(world_state_view, &context)? {
-                    IdentifiableBox::Account(account) => {
-                        Register::<Domain, Account>::new(*account, domain_name)
-                            .execute(authority, world_state_view)
-                    }
-                    IdentifiableBox::AssetDefinition(asset_definition) => {
-                        Register::<Domain, AssetDefinition>::new(*asset_definition, domain_name)
-                            .execute(authority, world_state_view)
-                    }
-                    _ => Err("Unsupported instruction.".to_string()),
-                }
+        match self.object.evaluate(world_state_view, &context)? {
+            IdentifiableBox::Account(account) => {
+                Register::<Account>::new(*account).execute(authority, world_state_view)
             }
-            IdBox::WorldId => match self.object.evaluate(world_state_view, &context)? {
-                IdentifiableBox::Domain(domain) => Register::<World, Domain>::new(*domain, WorldId)
-                    .execute(authority, world_state_view),
-                IdentifiableBox::Peer(peer) => Register::<World, Peer>::new(*peer, WorldId)
-                    .execute(authority, world_state_view),
-                _ => Err("Unsupported instruction.".to_string()),
-            },
+            IdentifiableBox::AssetDefinition(asset_definition) => {
+                Register::<AssetDefinition>::new(*asset_definition)
+                    .execute(authority, world_state_view)
+            }
+            IdentifiableBox::Domain(domain) => {
+                Register::<Domain>::new(*domain).execute(authority, world_state_view)
+            }
+            IdentifiableBox::Peer(peer) => {
+                Register::<Peer>::new(*peer).execute(authority, world_state_view)
+            }
             _ => Err("Unsupported instruction.".to_string()),
         }
     }
@@ -77,27 +70,17 @@ impl Execute for UnregisterBox {
         world_state_view: &WorldStateView,
     ) -> Result<WorldStateView, String> {
         let context = Context::new();
-        match self.destination_id.evaluate(world_state_view, &context)? {
-            IdBox::DomainName(domain_name) => {
-                match self.object.evaluate(world_state_view, &context)? {
-                    IdentifiableBox::Account(account) => {
-                        Unregister::<Domain, Account>::new(*account, domain_name)
-                            .execute(authority, world_state_view)
-                    }
-                    IdentifiableBox::AssetDefinition(asset_definition) => {
-                        Unregister::<Domain, AssetDefinition>::new(*asset_definition, domain_name)
-                            .execute(authority, world_state_view)
-                    }
-                    _ => Err("Unsupported instruction.".to_string()),
-                }
+        match self.object_id.evaluate(world_state_view, &context)? {
+            IdBox::AccountId(account_id) => {
+                Unregister::<Account>::new(account_id).execute(authority, world_state_view)
             }
-            IdBox::WorldId => match self.object.evaluate(world_state_view, &context)? {
-                IdentifiableBox::Domain(domain) => {
-                    Unregister::<World, Domain>::new(*domain, WorldId)
-                        .execute(authority, world_state_view)
-                }
-                _ => Err("Unsupported instruction.".to_string()),
-            },
+            IdBox::AssetDefinitionId(asset_definition_id) => {
+                Unregister::<AssetDefinition>::new(asset_definition_id)
+                    .execute(authority, world_state_view)
+            }
+            IdBox::DomainName(domain_name) => {
+                Unregister::<Domain>::new(domain_name).execute(authority, world_state_view)
+            }
             _ => Err("Unsupported instruction.".to_string()),
         }
     }
