@@ -161,10 +161,7 @@ mod domain {
     }
 
     fn create_domain(domain_name: &str, configuration: &Configuration) {
-        let create_domain = RegisterBox::new(
-            IdentifiableBox::from(Domain::new(domain_name)),
-            IdBox::from(WorldId),
-        );
+        let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(domain_name)));
         submit(create_domain.into(), configuration);
     }
 }
@@ -273,13 +270,10 @@ mod account {
         configuration: &Configuration,
     ) {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let create_account = RegisterBox::new(
-            IdentifiableBox::from(Account::with_signatory(
-                AccountId::new(account_name, domain_name),
-                key_pair.public_key,
-            )),
-            IdBox::from(Name::from(domain_name)),
-        );
+        let create_account = RegisterBox::new(IdentifiableBox::from(Account::with_signatory(
+            AccountId::new(account_name, domain_name),
+            key_pair.public_key,
+        )));
         submit(create_account.into(), configuration);
     }
 
@@ -440,12 +434,9 @@ mod asset {
         configuration: &Configuration,
     ) {
         submit(
-            RegisterBox::new(
-                IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)).into(),
-                ),
-                IdBox::DomainName(domain_name.to_string()),
-            )
+            RegisterBox::new(IdentifiableBox::AssetDefinition(
+                AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)).into(),
+            ))
             .into(),
             configuration,
         );

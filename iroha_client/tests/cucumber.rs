@@ -108,7 +108,6 @@ mod asset_steps {
                                         &asset_definition_name,
                                         &asset_definition_domain,
                                         )).into()),
-                                        IdBox::DomainName(asset_definition_domain.to_string()),
                                         )
                             .into(),
                             )
@@ -223,7 +222,6 @@ mod account_steps {
                         );
                     let register_account = RegisterBox::new(
                          IdentifiableBox::Account(Account::new(AccountId::new(&account_name, &domain_name)).into()),
-                         IdBox::DomainName(domain_name.to_string()),
                     );
                         world.client.submit(register_account.into())
                     .expect("Failed to register an account.");
@@ -298,10 +296,8 @@ mod domain_steps {
                 |mut world, matches, _step| {
                     let domain_name = matches[1].trim();
                     println!("Going to add domain with name: {}", domain_name);
-                    let add_domain = RegisterBox::new(
-                        IdentifiableBox::Domain(Domain::new(domain_name).into()),
-                        IdBox::WorldId,
-                    );
+                    let add_domain =
+                        RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
                     world
                         .client
                         .submit(add_domain.into())
@@ -565,7 +561,6 @@ mod peer_steps {
                                     PeerId::new(
                                         trusted_peer_url,
                                         &public_key)).into()),
-                                        IdBox::WorldId
                                         )
                             .into(),
                             )

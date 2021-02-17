@@ -7,28 +7,21 @@ const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
 fn build_test_transaction() -> Transaction {
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(
-        IdentifiableBox::Domain(Domain::new(domain_name).into()),
-        IdBox::WorldId,
-    );
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
     let account_name = "account";
-    let create_account = RegisterBox::new(
-        IdentifiableBox::Account(
-            Account::with_signatory(
-                AccountId::new(account_name, domain_name),
-                KeyPair::generate()
-                    .expect("Failed to generate KeyPair.")
-                    .public_key,
-            )
-            .into(),
-        ),
-        IdBox::DomainName(domain_name.to_string()),
-    );
+    let create_account = RegisterBox::new(IdentifiableBox::Account(
+        Account::with_signatory(
+            AccountId::new(account_name, domain_name),
+            KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key,
+        )
+        .into(),
+    ));
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = RegisterBox::new(
-        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id).into()),
-        IdBox::DomainName(domain_name.to_string()),
-    );
+    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+        AssetDefinition::new(asset_definition_id).into(),
+    ));
     Transaction::new(
         vec![
             create_domain.into(),
