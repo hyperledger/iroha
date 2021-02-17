@@ -87,11 +87,11 @@ pub mod public_blockchain {
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             if let Instruction::Unregister(instruction) = instruction {
-                if let IdentifiableBox::AssetDefinition(asset_definition) =
-                    instruction.object.evaluate(wsv, &Context::new())?
+                if let IdBox::AssetDefinitionId(asset_definition_id) =
+                    instruction.object_id.evaluate(wsv, &Context::new())?
                 {
                     if let Some(asset_definiton_entry) =
-                        wsv.read_asset_definition_entry(&asset_definition.id)
+                        wsv.read_asset_definition_entry(&asset_definition_id)
                     {
                         if asset_definiton_entry.registered_by == authority {
                             Ok(())
@@ -264,26 +264,24 @@ pub mod public_blockchain {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
-            let xor_definition = AssetDefinition { id: xor_id.clone() };
+            let xor_definition = AssetDefinition::new(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
                     accounts: btreemap! {},
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
-                        xor_id =>
+                        xor_id.clone() =>
                         AssetDefinitionEntry {
-                            definition: xor_definition.clone(),
+                            definition: xor_definition,
                             registered_by: alice_id.clone()
                         }
                     },
                 }},
                 btreeset! {},
             ));
-            let unregister = Instruction::Unregister(UnregisterBox {
-                object: IdentifiableBox::AssetDefinition(Box::new(xor_definition)).into(),
-                destination_id: IdBox::DomainName("test".to_string()).into(),
-            });
+            let unregister =
+                Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
             assert!(UnregisterOnlyAssetsCreatedByThisAccount
                 .check_instruction(alice_id, unregister.clone(), &wsv)
                 .is_ok());

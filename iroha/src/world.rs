@@ -8,7 +8,7 @@ pub mod isi {
     use super::*;
     use iroha_data_model::prelude::*;
 
-    impl Execute for Register<World, Peer> {
+    impl Execute for Register<Peer> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -27,7 +27,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Register<World, Domain> {
+    impl Execute for Register<Domain> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -42,14 +42,14 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<World, Domain> {
+    impl Execute for Unregister<Domain> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView, String> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view.world().domains.remove(&self.object.name);
+            let _ = world_state_view.world().domains.remove(&self.object_id);
             Ok(world_state_view)
         }
     }
@@ -82,21 +82,6 @@ pub mod query {
                 .trusted_peers_ids
                 .into_iter()
                 .collect())
-        }
-    }
-
-    impl Query for FindPeerById {
-        #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
-            Ok(world_state_view
-                .read_world()
-                .clone()
-                .trusted_peers_ids
-                .iter()
-                .find(|peer_id| *peer_id == &self.id)
-                .ok_or("Failed to find Peer.")?
-                .clone()
-                .into())
         }
     }
 

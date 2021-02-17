@@ -23,14 +23,12 @@ fn permissions_disallow_asset_transfer() {
     let root_id = AccountId::new("root", domain_name);
     let alice_id = AccountId::new("alice", domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = RegisterBox::new(
-        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
-        IdBox::DomainName(domain_name.to_string()),
-    );
-    let register_alice = RegisterBox::new(
-        IdentifiableBox::Account(Account::new(alice_id.clone()).into()),
-        IdBox::DomainName(domain_name.to_string()),
-    );
+    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+        AssetDefinition::new(asset_definition_id.clone()).into(),
+    ));
+    let register_alice = RegisterBox::new(IdentifiableBox::Account(
+        Account::new(alice_id.clone()).into(),
+    ));
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration."),
@@ -88,14 +86,12 @@ fn permissions_disallow_asset_burn() {
     let root_id = AccountId::new("root", domain_name);
     let alice_id = AccountId::new("alice", domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = RegisterBox::new(
-        IdentifiableBox::AssetDefinition(AssetDefinition::new(asset_definition_id.clone()).into()),
-        IdBox::DomainName(domain_name.to_string()),
-    );
-    let register_alice = RegisterBox::new(
-        IdentifiableBox::Account(Account::new(alice_id.clone()).into()),
-        IdBox::DomainName(domain_name.to_string()),
-    );
+    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+        AssetDefinition::new(asset_definition_id.clone()).into(),
+    ));
+    let register_alice = RegisterBox::new(IdentifiableBox::Account(
+        Account::new(alice_id.clone()).into(),
+    ));
     let mut iroha_client = Client::new(
         &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration."),
