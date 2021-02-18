@@ -14,11 +14,6 @@
                   }
                 }
               }
-            },
-            "destination_id": {
-              "Raw": {
-                "Id": "WorldId"
-              }
             }
           }
         },
@@ -40,13 +35,6 @@
                   }
                 }
               }
-            },
-            "destination_id": {
-              "Raw": {
-                "Id": {
-                  "DomainName": "wonderland"
-                }
-              }
             }
           }
         },
@@ -61,13 +49,6 @@
                       "domain_name": "wonderland"
                     }
                   }
-                }
-              }
-            },
-            "destination_id": {
-              "Raw": {
-                "Id": {
-                  "DomainName": "wonderland"
                 }
               }
             }
