@@ -23,7 +23,7 @@ mod tests {
 
     #[test]
     fn unstable_network_7_peers_1_fault() {
-        unstable_network(7, 2, 1, 20, 5);
+        unstable_network(7, 2, 1, 20, 10);
     }
 
     #[test]
