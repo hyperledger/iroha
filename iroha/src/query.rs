@@ -11,7 +11,8 @@ use std::convert::TryFrom;
 #[derive(Debug, Io, Encode, Decode)]
 pub struct VerifiedQueryRequest {
     /// Timestamp of the query creation.
-    pub timestamp: String,
+    #[codec(compact)]
+    pub timestamp_ms: u128,
     /// Signature of the client who sends this query.
     pub signature: Signature,
     /// Query definition.
@@ -31,7 +32,7 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 
     fn try_from(sr: SignedQueryRequest) -> Result<Self, Self::Error> {
         sr.signature.verify(sr.hash().as_ref()).map(|_| Self {
-            timestamp: sr.timestamp,
+            timestamp_ms: sr.timestamp_ms,
             signature: sr.signature,
             query: sr.query,
         })
