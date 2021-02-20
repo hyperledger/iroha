@@ -17,6 +17,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+chrono = "0.4"
 iroha_crypto = { path = "../iroha_crypto" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 ursa = "0.3.2"
