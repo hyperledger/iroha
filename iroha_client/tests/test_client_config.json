@@ -4,7 +4,7 @@
     "name": "alice",
     "domain_name": "wonderland"
   },
-  "PUBLIC_KEY": "ed20e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3",
+  "PUBLIC_KEY": "ed0120e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3",
   "PRIVATE_KEY": {
     "digest_function": "ed25519",
     "payload": "de757bcb79f4c63e8fa0795edc26f86dfdba189b846e903d0b732bb644607720e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3"
