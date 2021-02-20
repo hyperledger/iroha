@@ -53,9 +53,9 @@ pub enum QueryBox {
 /// I/O ready structure to send queries.
 #[derive(Debug, Io, Encode, Decode, Clone)]
 pub struct QueryRequest {
-    //TODO: why use `String` for timestamp? maybe replace it with milliseconds in `u64`
     /// Timestamp of the query creation.
-    pub timestamp: String,
+    #[codec(compact)]
+    pub timestamp_ms: u128,
     /// Query definition.
     pub query: QueryBox,
 }
@@ -64,7 +64,8 @@ pub struct QueryRequest {
 #[derive(Debug, Io, Encode, Decode)]
 pub struct SignedQueryRequest {
     /// Timestamp of the query creation.
-    pub timestamp: String,
+    #[codec(compact)]
+    pub timestamp_ms: u128,
     /// Signature of the client who sends this query.
     pub signature: Signature,
     /// Query definition.
@@ -78,12 +79,12 @@ pub struct QueryResult(pub Value);
 impl QueryRequest {
     /// Constructs a new request with the `query`.
     pub fn new(query: QueryBox) -> Self {
+        let timestamp_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Failed to get System Time.")
+            .as_millis();
         QueryRequest {
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.")
-                .as_millis()
-                .to_string(),
+            timestamp_ms,
             query,
         }
     }
@@ -91,14 +92,14 @@ impl QueryRequest {
     /// `Hash` of this request.
     pub fn hash(&self) -> Hash {
         let mut payload: Vec<u8> = self.query.clone().into();
-        payload.extend_from_slice(self.timestamp.as_bytes());
+        payload.extend_from_slice(&self.timestamp_ms.to_le_bytes());
         Hash::new(&payload)
     }
 
     /// Consumes self and returns a signed `QueryReuest`.
     pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest, String> {
         Ok(SignedQueryRequest {
-            timestamp: self.timestamp.clone(),
+            timestamp_ms: self.timestamp_ms,
             signature: Signature::new(key_pair.clone(), self.hash().as_ref())?,
             query: self.query,
         })
@@ -109,7 +110,7 @@ impl SignedQueryRequest {
     /// `Hash` of this request.
     pub fn hash(&self) -> Hash {
         let mut payload: Vec<u8> = self.query.clone().into();
-        payload.extend_from_slice(self.timestamp.as_bytes());
+        payload.extend_from_slice(&self.timestamp_ms.to_le_bytes());
         Hash::new(&payload)
     }
 }
