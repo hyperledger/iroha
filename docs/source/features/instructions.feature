@@ -25,7 +25,7 @@ Feature: Iroha Special Instructions feature
     And Iroha Peer is down
   Scenario: Root registers new Trusted Peer
     Given Iroha Peer is up
-    When root Account from global domain registers new Trusted Peer with URL trust and Public Key ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0
+    When root Account from global domain registers new Trusted Peer with URL trust and Public Key ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0
     And root Account from global domain requests List of Trusted Peers
-    Then QueryResult contains Trusted Peer with URL trust and Public Key ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0
+    Then QueryResult contains Trusted Peer with URL trust and Public Key ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0
     And Iroha Peer is down
