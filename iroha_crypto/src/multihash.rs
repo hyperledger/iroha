@@ -1,3 +1,4 @@
+use super::varint::VarUint;
 use std::{
     convert::{TryFrom, TryInto},
     fmt::Display,
@@ -12,7 +13,7 @@ pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 
 /// Type of digest function.
 /// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
-#[repr(u8)]
+#[repr(u64)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum DigestFunction {
     Ed25519Pub = 0xed,
@@ -46,23 +47,27 @@ impl FromStr for DigestFunction {
     }
 }
 
-impl From<&DigestFunction> for u8 {
+impl From<&DigestFunction> for u64 {
     fn from(digest_function: &DigestFunction) -> Self {
-        *digest_function as u8
+        *digest_function as u64
     }
 }
 
-impl TryFrom<u8> for DigestFunction {
+impl TryFrom<u64> for DigestFunction {
     type Error = String;
 
-    fn try_from(byte: u8) -> Result<Self, Self::Error> {
-        match byte {
-            byte if byte == DigestFunction::Ed25519Pub as u8 => Ok(DigestFunction::Ed25519Pub),
-            byte if byte == DigestFunction::Secp256k1Pub as u8 => Ok(DigestFunction::Secp256k1Pub),
-            byte if byte == DigestFunction::Bls12381G1Pub as u8 => {
+    fn try_from(variant: u64) -> Result<Self, Self::Error> {
+        match variant {
+            variant if variant == DigestFunction::Ed25519Pub as u64 => {
+                Ok(DigestFunction::Ed25519Pub)
+            }
+            variant if variant == DigestFunction::Secp256k1Pub as u64 => {
+                Ok(DigestFunction::Secp256k1Pub)
+            }
+            variant if variant == DigestFunction::Bls12381G1Pub as u64 => {
                 Ok(DigestFunction::Bls12381G1Pub)
             }
-            byte if byte == DigestFunction::Bls12381G2Pub as u8 => {
+            variant if variant == DigestFunction::Bls12381G2Pub as u64 => {
                 Ok(DigestFunction::Bls12381G2Pub)
             }
             _ => Err("The specified digest function is not supported.".to_string()),
@@ -79,11 +84,18 @@ pub struct Multihash {
 impl TryFrom<Vec<u8>> for Multihash {
     type Error = String;
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let mut bytes = bytes.into_iter();
-        let digest_function: DigestFunction = bytes
-            .next()
-            .ok_or_else(|| "Failed to parse digest function.".to_string())?
-            .try_into()?;
+        let idx = bytes
+            .iter()
+            .enumerate()
+            .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
+            .ok_or_else(|| "Last byte should be less than 128".to_owned())?
+            .0;
+        let (digest_function, bytes) = bytes.split_at(idx + 1);
+        let mut bytes = bytes.iter().copied();
+
+        let digest_function: u64 = VarUint::new(digest_function)?.try_into()?;
+        let digest_function = digest_function.try_into()?;
+
         let digest_size = bytes
             .next()
             .ok_or_else(|| "Failed to parse digest size.".to_string())?;
@@ -104,7 +116,10 @@ impl TryFrom<&Multihash> for Vec<u8> {
 
     fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
         let mut bytes = Vec::new();
-        bytes.push((&multihash.digest_function).into());
+        let digest_function: u64 = (&multihash.digest_function).into();
+        let digest_function: VarUint = digest_function.into();
+        let mut digest_function: Vec<_> = digest_function.into();
+        bytes.append(&mut digest_function);
         bytes.push(
             multihash
                 .payload
@@ -132,7 +147,7 @@ mod tests {
         };
         let bytes: Vec<u8> = multihash.try_into().expect("Failed to serialize multihash");
         assert_eq!(
-            hex::decode("ed201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
+            hex::decode("ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
                 .expect("Failed to decode"),
             bytes
         )
@@ -148,7 +163,7 @@ mod tests {
             .expect("Failed to decode hex."),
         };
         let bytes =
-            hex::decode("ed201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
+            hex::decode("ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
                 .expect("Failed to decode");
         let multihash_decoded: Multihash = bytes.try_into().expect("Failed to decode.");
         assert_eq!(multihash, multihash_decoded)

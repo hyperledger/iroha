@@ -21,7 +21,7 @@ Before deployment each Peer should generate own pair of crypthographic keys. In 
 As a result you will see something like that:
 
 ```bash
-Public key (multihash): ed20bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c
+Public key (multihash): ed0120bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c
 Private key: 0311152fad9308482f51ca2832fdfab18e1c74f36c6adb198e3ef0213fe42fd8bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c
 Digest function: ed25519
 ```
@@ -38,7 +38,7 @@ services:
     image: iroha:debug
     environment:
       TORII_URL: iroha:1337
-      IROHA_PUBLIC_KEY: 'ed20bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c'
+      IROHA_PUBLIC_KEY: 'ed0120bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c'
       IROHA_PRIVATE_KEY: '{"digest_function": "ed25519", "payload": "0311152fad9308482f51ca2832fdfab18e1c74f36c6adb198e3ef0213fe42fd8bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c"}'
 ...
 ```
