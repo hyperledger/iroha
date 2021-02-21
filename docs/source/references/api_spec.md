@@ -28,7 +28,11 @@
 
 **Method**: `GET`
 
-**Expects**: Body: `SignedQueryRequest`
+**Expects**:
+- Body: `SignedQueryRequest`
+- Query parameters:
+ + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
+ + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
 - 200 OK - Query Executed Successfuly. Body: `QueryResult`

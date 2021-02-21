@@ -239,13 +239,16 @@ pub mod query {
     impl Query for FindAssetsByAccountId {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
-            Ok(world_state_view
-                .read_account(&self.account_id)
+            let vec = world_state_view
+                .read_account_assets(&self.account_id)
                 .ok_or(format!("No account with id: {} found.", &self.account_id))?
-                .assets
-                .values()
+                .into_iter()
                 .cloned()
-                .collect())
+                .map(Box::new)
+                .map(IdentifiableBox::Asset)
+                .map(Value::Identifiable)
+                .collect();
+            Ok(Value::Vec(vec))
         }
     }
 
@@ -276,14 +279,17 @@ pub mod query {
     impl Query for FindAssetsByAccountIdAndAssetDefinitionId {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
-            Ok(world_state_view
-                .read_account(&self.account_id)
+            let vec = world_state_view
+                .read_account_assets(&self.account_id)
                 .ok_or(format!("No account with id: {} found.", &self.account_id))?
-                .assets
-                .values()
-                .cloned()
+                .into_iter()
                 .filter(|asset| asset.id.definition_id == self.asset_definition_id)
-                .collect())
+                .cloned()
+                .map(Box::new)
+                .map(IdentifiableBox::Asset)
+                .map(Value::Identifiable)
+                .collect();
+            Ok(Value::Vec(vec))
         }
     }
 

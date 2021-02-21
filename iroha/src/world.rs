@@ -76,12 +76,15 @@ pub mod query {
     impl Query for FindAllPeers {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
-            Ok(world_state_view
-                .read_world()
-                .clone()
-                .trusted_peers_ids
-                .into_iter()
-                .collect())
+            Ok(Value::Vec(
+                world_state_view
+                    .read_all_peers()
+                    .into_iter()
+                    .map(Box::new)
+                    .map(IdentifiableBox::Peer)
+                    .map(Value::Identifiable)
+                    .collect::<Vec<_>>(),
+            ))
         }
     }
 

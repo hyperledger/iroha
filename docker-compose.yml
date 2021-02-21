@@ -35,6 +35,7 @@ services:
       - iroha
     image: iroha:debug
     environment:
+      TORII_P2P_URL: iroha3:1339
       TORII_API_URL: iroha:8082
       IROHA_PUBLIC_KEY: "ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"
       IROHA_PRIVATE_KEY: '{"digest_function": "ed25519", "payload": "1261a436d36779223d7d6cf20e8b644510e488e6a50bafd77a7485264d27197dfaca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"}'
