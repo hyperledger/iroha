@@ -1,5 +1,6 @@
 use attohttpc::Response as AttohttpcResponse;
 pub use http::{Response, StatusCode};
+use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use tungstenite::{client::AutoStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
@@ -18,13 +19,18 @@ where
     ClientResponse(response).try_into()
 }
 
-pub fn get<U>(url: U, body: Bytes) -> Result<Response<Bytes>, String>
+pub fn get<U, P, K, V>(url: U, body: Bytes, query_params: P) -> Result<Response<Bytes>, String>
 where
     U: AsRef<str>,
+    P: IntoIterator,
+    P::Item: Borrow<(K, V)>,
+    K: AsRef<str>,
+    V: ToString,
 {
     let url = url.as_ref();
     let response = attohttpc::get(url)
         .bytes(body)
+        .params(query_params)
         .send()
         .map_err(|e| format!("Error: {}, failed to send http get request to {}", e, url))?;
     ClientResponse(response).try_into()
