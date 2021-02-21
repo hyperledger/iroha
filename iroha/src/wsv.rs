@@ -72,16 +72,21 @@ impl WorldStateView {
 
     /// Get all `Domain`s without an ability to modify them.
     pub fn read_all_domains(&self) -> Vec<&Domain> {
-        self.world.domains.values().collect()
+        let mut vec = self.world.domains.values().collect::<Vec<&Domain>>();
+        vec.sort();
+        vec
     }
 
     /// Get all `Account`s without an ability to modify them.
     pub fn read_all_accounts(&self) -> Vec<&Account> {
-        self.world
+        let mut vec = self
+            .world
             .domains
             .values()
             .flat_map(|domain| domain.accounts.values())
-            .collect()
+            .collect::<Vec<&Account>>();
+        vec.sort();
+        vec
     }
 
     /// Get `Account` without an ability to modify it.
@@ -89,28 +94,58 @@ impl WorldStateView {
         self.read_domain(&id.domain_name)?.accounts.get(id)
     }
 
+    /// Get `Account`'s `Asset`s without an ability to modify it.
+    pub fn read_account_assets(&self, id: &<Account as Identifiable>::Id) -> Option<Vec<&Asset>> {
+        let mut vec = self
+            .read_account(id)?
+            .assets
+            .values()
+            .collect::<Vec<&Asset>>();
+        vec.sort();
+        Some(vec)
+    }
+
     /// Get `Account` with an ability to modify it.
     pub fn account(&mut self, id: &<Account as Identifiable>::Id) -> Option<&mut Account> {
         self.domain(&id.domain_name)?.accounts.get_mut(id)
     }
 
+    /// Get all `PeerId`s without an ability to modify them.
+    pub fn read_all_peers(&self) -> Vec<Peer> {
+        let mut vec = self
+            .read_world()
+            .trusted_peers_ids
+            .iter()
+            .cloned()
+            .map(Peer::new)
+            .collect::<Vec<Peer>>();
+        vec.sort();
+        vec
+    }
+
     /// Get all `Asset`s without an ability to modify them.
     pub fn read_all_assets(&self) -> Vec<&Asset> {
-        self.world
+        let mut vec = self
+            .world
             .domains
             .values()
             .flat_map(|domain| domain.accounts.values())
             .flat_map(|account| account.assets.values())
-            .collect()
+            .collect::<Vec<&Asset>>();
+        vec.sort();
+        vec
     }
 
     /// Get all `Asset Definition Entry`s without an ability to modify them.
     pub fn read_all_assets_definitions_entries(&self) -> Vec<&AssetDefinitionEntry> {
-        self.world
+        let mut vec = self
+            .world
             .domains
             .values()
             .flat_map(|domain| domain.asset_definitions.values())
-            .collect()
+            .collect::<Vec<&AssetDefinitionEntry>>();
+        vec.sort();
+        vec
     }
 
     /// Get `Asset` without an ability to modify it.

@@ -135,12 +135,18 @@ impl Client {
             )
     }
 
-    /// Query API entry point. Requests queries from `Iroha` peers.
+    /// Query API entry point. Requests queries from `Iroha` peers with pagination.
     #[log]
-    pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
+    pub fn request_with_pagination(
+        &mut self,
+        request: &QueryRequest,
+        pagination: Pagination,
+    ) -> Result<QueryResult, String> {
+        let pagination: Vec<_> = pagination.into();
         let response = http_client::get(
             &format!("http://{}{}", self.torii_url, uri::QUERY_URI),
             request.clone().sign(&self.key_pair)?.into(),
+            pagination,
         )?;
         if response.status() == StatusCode::OK {
             response.body().clone().try_into()
@@ -150,6 +156,12 @@ impl Client {
                 response.status()
             ))
         }
+    }
+
+    /// Query API entry point. Requests queries from `Iroha` peers.
+    #[log]
+    pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
+        self.request_with_pagination(request, Default::default())
     }
 
     /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
@@ -165,12 +177,15 @@ impl Client {
 
     /// Tries to find the original transaction in the pending tx queue on the leader peer.
     /// Should be used for an MST case.
-    pub fn get_original_transaction(
+    /// Takes pagination as parameter.
+    pub fn get_original_transaction_with_pagination(
         &mut self,
         transaction: &Transaction,
         retry_count: u32,
         retry_in: Duration,
+        pagination: Pagination,
     ) -> Result<Option<Transaction>, String> {
+        let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = http_client::get(
                 &format!(
@@ -179,6 +194,7 @@ impl Client {
                     uri::PENDING_TRANSACTIONS_ON_LEADER_URI
                 ),
                 Vec::new(),
+                pagination.clone(),
             )?;
             if response.status() == StatusCode::OK {
                 let pending_transactions: PendingTransactions =
@@ -203,6 +219,22 @@ impl Client {
             }
         }
         Ok(None)
+    }
+
+    /// Tries to find the original transaction in the pending tx queue on the leader peer.
+    /// Should be used for an MST case.
+    pub fn get_original_transaction(
+        &mut self,
+        transaction: &Transaction,
+        retry_count: u32,
+        retry_in: Duration,
+    ) -> Result<Option<Transaction>, String> {
+        self.get_original_transaction_with_pagination(
+            transaction,
+            retry_count,
+            retry_in,
+            Default::default(),
+        )
     }
 }
 
