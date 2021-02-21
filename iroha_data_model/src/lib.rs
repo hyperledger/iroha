@@ -615,9 +615,11 @@ pub mod asset {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
     use std::{
+        cmp::Ordering,
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
         iter::FromIterator,
+        str::FromStr,
     };
 
     /// `AssetsMap` provides an API to work with collection of key (`Id`) - value
@@ -630,14 +632,24 @@ pub mod asset {
     pub type Store = BTreeMap<Name, Bytes>;
 
     /// An entry in `AssetDefinitionsMap`.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
-    )]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct AssetDefinitionEntry {
         /// Asset definition.
         pub definition: AssetDefinition,
         /// The account that registered this asset.
         pub registered_by: AccountId,
+    }
+
+    impl PartialOrd for AssetDefinitionEntry {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.definition.cmp(&other.definition))
+        }
+    }
+
+    impl Ord for AssetDefinitionEntry {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.definition.cmp(&other.definition)
+        }
     }
 
     /// Asset definition defines type of that asset.
@@ -651,9 +663,7 @@ pub mod asset {
 
     /// Asset represents some sort of commodity or value.
     /// All possible variants of `Asset` entity's components.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
-    )]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Asset {
         /// Component Identification.
         pub id: Id,
@@ -663,6 +673,18 @@ pub mod asset {
         pub big_quantity: u128,
         /// Asset's key-value structured data.
         pub store: Store,
+    }
+
+    impl PartialOrd for Asset {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.id.cmp(&other.id))
+        }
+    }
+
+    impl Ord for Asset {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.id.cmp(&other.id)
+        }
     }
 
     /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
@@ -814,7 +836,7 @@ pub mod asset {
     }
 
     /// Asset Identification is represented by `name#domain_name` string.
-    impl std::str::FromStr for DefinitionId {
+    impl FromStr for DefinitionId {
         type Err = String;
 
         fn from_str(string: &str) -> Result<Self, Self::Err> {
@@ -859,7 +881,7 @@ pub mod domain {
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    use std::{collections::BTreeMap, iter, iter::FromIterator};
+    use std::{cmp::Ordering, collections::BTreeMap, iter, iter::FromIterator};
 
     /// Genesis domain name. Genesis domain should contain only genesis account.
     pub const GENESIS_DOMAIN_NAME: &str = "genesis";
@@ -898,9 +920,7 @@ pub mod domain {
     }
 
     /// Named group of `Account` and `Asset` entities.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
-    )]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Domain {
         /// Domain name, for example company name.
         pub name: Name,
@@ -908,6 +928,18 @@ pub mod domain {
         pub accounts: AccountsMap,
         /// Assets of the domain.
         pub asset_definitions: AssetDefinitionsMap,
+    }
+
+    impl PartialOrd for Domain {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.name.cmp(&other.name))
+        }
+    }
+
+    impl Ord for Domain {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.name.cmp(&other.name)
+        }
     }
 
     impl Domain {
@@ -959,7 +991,9 @@ pub mod peer {
     pub type PeersIds = BTreeSet<Id>;
 
     /// Peer represents Iroha instance.
-    #[derive(Clone, Debug, Serialize, Deserialize, Io, Encode, Decode, PartialEq, Eq)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+    )]
     pub struct Peer {
         /// Peer Identification.
         pub id: Id,
@@ -1026,7 +1060,14 @@ pub mod transaction {
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
-    use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
+    use std::{
+        collections::BTreeMap,
+        convert::TryFrom,
+        iter::FromIterator,
+        ops::{Index, IndexMut},
+        time::SystemTime,
+        vec::IntoIter as VecIter,
+    };
 
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
@@ -1121,9 +1162,98 @@ pub mod transaction {
         }
     }
 
+    /// Structure for pagination requests
+    #[derive(Clone, Eq, PartialEq, Debug, Default, Copy)]
+    pub struct Pagination {
+        /// start of indexing
+        pub start: Option<usize>,
+        /// limit of indexing
+        pub limit: Option<usize>,
+    }
+
+    const PAGINATION_START: &str = "start";
+    const PAGINATION_LIMIT: &str = "limit";
+
+    impl Pagination {
+        /// Returns true if index is outside of array range
+        pub fn is_outside_array(&self, len: usize) -> bool {
+            match (self.start, self.limit) {
+                (Some(start), Some(limit)) => start + limit >= len,
+                (Some(start), None) => start >= len,
+                (None, Some(limit)) => limit >= len,
+                (None, None) => false,
+            }
+        }
+    }
+
+    impl<T> Index<Pagination> for Vec<T> {
+        type Output = [T];
+        fn index(&self, pagination: Pagination) -> &Self::Output {
+            match (pagination.start, pagination.limit) {
+                (Some(start), Some(limit)) => &self[start..start + limit],
+                (Some(start), None) => &self[start..],
+                (None, Some(limit)) => &self[..limit],
+                (None, None) => &self[..],
+            }
+        }
+    }
+
+    impl<T> IndexMut<Pagination> for Vec<T> {
+        fn index_mut(&mut self, pagination: Pagination) -> &mut Self::Output {
+            match (pagination.start, pagination.limit) {
+                (Some(start), Some(limit)) => &mut self[start..start + limit],
+                (Some(start), None) => &mut self[start..],
+                (None, Some(limit)) => &mut self[..limit],
+                (None, None) => &mut self[..],
+            }
+        }
+    }
+
+    impl TryFrom<&BTreeMap<String, String>> for Pagination {
+        type Error = String;
+        fn try_from(query_params: &BTreeMap<String, String>) -> Result<Self, Self::Error> {
+            let get_num = |key| {
+                query_params
+                    .get(key)
+                    .map(|value| value.parse::<usize>())
+                    .transpose()
+                    .map_err(|e| e.to_string())
+            };
+            let start = get_num(PAGINATION_START)?;
+            let limit = get_num(PAGINATION_LIMIT)?;
+            Ok(Self { start, limit })
+        }
+    }
+
+    impl Into<BTreeMap<String, String>> for Pagination {
+        fn into(self) -> BTreeMap<String, String> {
+            let mut query_params = BTreeMap::new();
+            if let Some(start) = self.start {
+                let _ = query_params.insert(PAGINATION_START.to_owned(), start.to_string());
+            }
+            if let Some(limit) = self.limit {
+                let _ = query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string());
+            }
+            query_params
+        }
+    }
+
+    impl Into<Vec<(&'static str, usize)>> for Pagination {
+        fn into(self) -> Vec<(&'static str, usize)> {
+            match (self.start, self.limit) {
+                (Some(start), Some(limit)) => {
+                    vec![(PAGINATION_START, start), (PAGINATION_LIMIT, limit)]
+                }
+                (Some(start), None) => vec![(PAGINATION_START, start)],
+                (None, Some(limit)) => vec![(PAGINATION_LIMIT, limit)],
+                (None, None) => Vec::new(),
+            }
+        }
+    }
+
     /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
     #[derive(Debug, Clone, Encode, Decode, Io)]
-    pub struct PendingTransactions(Vec<Transaction>);
+    pub struct PendingTransactions(pub Vec<Transaction>);
 
     impl FromIterator<Transaction> for PendingTransactions {
         fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
@@ -1144,7 +1274,7 @@ pub mod transaction {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Payload, PendingTransactions, Transaction};
+        pub use super::{Pagination, Payload, PendingTransactions, Transaction};
     }
 }
 

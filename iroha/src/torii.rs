@@ -178,38 +178,61 @@ async fn handle_instructions(
 async fn handle_queries(
     state: State<ToriiState>,
     _path_params: PathParams,
-    _query_params: QueryParams,
+    query_params: QueryParams,
     request: HttpRequest,
 ) -> Result<HttpResponse, String> {
     //TODO: Remove when `Result::flatten` https://github.com/rust-lang/rust/issues/70142 will be stabilized
-    match SignedQueryRequest::try_from(request.body) {
+    let range = match Pagination::try_from(&query_params) {
+        Ok(range) => range,
+        Err(e) => {
+            log::error!("Failed to decode pagination: {}", e);
+            return Ok(HttpResponse::internal_server_error());
+        }
+    };
+
+    let request = match SignedQueryRequest::try_from(request.body) {
         //TODO: check query permissions based on signature?
-        Ok(request) => match VerifiedQueryRequest::try_from(request) {
-            Ok(request) => {
-                match request
-                    .query
-                    .execute(&*state.read().await.world_state_view.read().await)
-                {
-                    Ok(value) => {
-                        let result = &QueryResult(value);
-                        Ok(HttpResponse::ok(Headers::new(), result.into()))
-                    }
-                    Err(e) => {
-                        log::error!("Failed to execute query: {}", e);
-                        Ok(HttpResponse::internal_server_error())
-                    }
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to verify Query Request: {}", e);
-                Ok(HttpResponse::internal_server_error())
-            }
-        },
+        Ok(request) => request,
         Err(e) => {
             log::error!("Failed to decode transaction: {}", e);
-            Ok(HttpResponse::internal_server_error())
+            return Ok(HttpResponse::internal_server_error());
         }
-    }
+    };
+    let request = match VerifiedQueryRequest::try_from(request) {
+        Ok(request) => request,
+        Err(e) => {
+            log::error!("Failed to verify Query Request: {}", e);
+            return Ok(HttpResponse::internal_server_error());
+        }
+    };
+
+    let result = match request
+        .query
+        .execute(&*state.read().await.world_state_view.read().await)
+    {
+        Ok(value) => value,
+        Err(e) => {
+            log::error!("Failed to execute query: {}", e);
+            return Ok(HttpResponse::internal_server_error());
+        }
+    };
+
+    let result = &QueryResult(if let Value::Vec(value) = result {
+        // if invalid number is inside range then we exit
+        if range.is_outside_array(value.len()) {
+            log::error!(
+                "Invalid number in pagination range (length={}): {:?}",
+                value.len(),
+                range
+            );
+            return Ok(HttpResponse::internal_server_error());
+        }
+        Value::Vec(value[range].to_vec())
+    } else {
+        result
+    });
+
+    Ok(HttpResponse::ok(Headers::new(), result.into()))
 }
 
 async fn handle_health(
@@ -224,12 +247,19 @@ async fn handle_health(
 async fn handle_pending_transactions_on_leader(
     state: State<ToriiState>,
     _path_params: PathParams,
-    _query_params: QueryParams,
+    query_params: QueryParams,
     _request: HttpRequest,
 ) -> Result<HttpResponse, String> {
-    if state.read().await.sumeragi.read().await.is_leader() {
-        Ok(HttpResponse::ok(
-            Headers::new(),
+    let range = match Pagination::try_from(&query_params) {
+        Ok(range) => range,
+        Err(e) => {
+            log::error!("Failed to decode pagination: {}", e);
+            return Ok(HttpResponse::internal_server_error());
+        }
+    };
+
+    let PendingTransactions(pending_transactions) =
+        if state.read().await.sumeragi.read().await.is_leader() {
             state
                 .read()
                 .await
@@ -237,30 +267,29 @@ async fn handle_pending_transactions_on_leader(
                 .read()
                 .await
                 .pending_transactions()
-                .into(),
-        ))
-    } else {
-        let pending_transactions: PendingTransactions = Network::send_request_to(
-            state
-                .read()
-                .await
-                .sumeragi
-                .read()
-                .await
-                .network_topology
-                .leader()
-                .address
-                .as_ref(),
-            Request::new(uri::PENDING_TRANSACTIONS_URI.to_string(), Vec::new()),
-        )
-        .await?
-        .into_result()?
-        .try_into()?;
-        Ok(HttpResponse::ok(
-            Headers::new(),
-            pending_transactions.into(),
-        ))
-    }
+        } else {
+            Network::send_request_to(
+                state
+                    .read()
+                    .await
+                    .sumeragi
+                    .read()
+                    .await
+                    .network_topology
+                    .leader()
+                    .address
+                    .as_ref(),
+                Request::new(uri::PENDING_TRANSACTIONS_URI.to_string(), Vec::new()),
+            )
+            .await?
+            .into_result()?
+            .try_into()?
+        };
+
+    Ok(HttpResponse::ok(
+        Headers::new(),
+        PendingTransactions(pending_transactions[range].to_vec()).into(),
+    ))
 }
 
 async fn handle_metrics(
@@ -487,6 +516,7 @@ mod tests {
     use super::*;
     use crate::config::Configuration;
     use async_std::{future, sync};
+    use futures::future::FutureExt;
     use iroha_data_model::account::Id;
     use std::time::Duration;
 
@@ -504,7 +534,13 @@ mod tests {
         let (block_sender, _) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
         let queue = Queue::from_configuration(&config.queue_configuration);
-        let wsv = Arc::new(RwLock::new(WorldStateView::new(World::new())));
+        let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
+            ('a'..'z')
+                .map(|name| name.to_string())
+                .map(|name| (name.clone(), Domain::new(&name)))
+                .collect(),
+            Default::default(),
+        ))));
         let sumeragi = Sumeragi::from_configuration(
             &config.sumeragi_configuration,
             Arc::new(RwLock::new(block_sender)),
@@ -556,7 +592,7 @@ mod tests {
 
         let mut instruction_number = 32;
 
-        loop {
+        let request = loop {
             let transaction = Transaction::new(
                 vec![instruction.clone(); instruction_number],
                 id.clone(),
@@ -575,12 +611,54 @@ mod tests {
                 instruction_number *= 2;
                 continue;
             }
+            break request;
+        };
 
-            let result =
-                handle_instructions(state, Default::default(), Default::default(), request).await;
-            assert!(result.is_err());
-            assert_eq!(result.unwrap_err(), "Transaction is too big");
-            return;
-        }
+        let result =
+            handle_instructions(state, Default::default(), Default::default(), request).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Transaction is too big");
+    }
+
+    #[async_std::test]
+    async fn torii_pagination() {
+        let torii = create_torii().await;
+        let state = Arc::new(RwLock::new(torii.create_state()));
+
+        let keys = KeyPair::generate().expect("Failed to generate keys");
+
+        let get_domains = |start, limit| {
+            let query = QueryRequest::new(QueryBox::FindAllDomains(Box::new(Default::default())))
+                .sign(&keys)
+                .expect("Failed to sign query with keys");
+            let body: Vec<u8> = query.into();
+            let request = HttpRequest {
+                method: "POST".to_owned(),
+                path: uri::QUERY_URI.to_owned(),
+                version: HttpVersion::Http1_1,
+                headers: Default::default(),
+                body,
+            };
+
+            let pagination = Pagination { start, limit }.into();
+            handle_queries(state.clone(), Default::default(), pagination, request).map(|result| {
+                let QueryResult(query) = result
+                    .expect("Failed request with query")
+                    .body
+                    .try_into()
+                    .expect("Failed to convert");
+                if let Value::Vec(domain) = query {
+                    domain
+                } else {
+                    unreachable!()
+                }
+            })
+        };
+
+        assert_eq!(get_domains(None, None).await.len(), 25);
+        assert_eq!(get_domains(Some(0), None).await.len(), 25);
+        assert_eq!(get_domains(Some(15), Some(5)).await.len(), 5);
+        assert_eq!(get_domains(None, Some(10)).await.len(), 10);
+        assert_eq!(get_domains(Some(1), Some(15)).await.len(), 15);
     }
 }
