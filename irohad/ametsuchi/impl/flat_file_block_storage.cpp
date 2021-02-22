@@ -61,6 +61,10 @@ size_t FlatFileBlockStorage::size() const {
   return flat_file_storage_->last_id();
 }
 
+void FlatFileBlockStorage::reload() {
+  flat_file_storage_->reload();
+}
+
 void FlatFileBlockStorage::clear() {
   flat_file_storage_->dropAll();
 }

@@ -61,6 +61,8 @@ namespace {
       return 0;
     }
 
+    void reload() override {}
+
     void clear() override {}
 
     /**
@@ -254,9 +256,23 @@ namespace iroha::ametsuchi {
                                wsv_ledger_height + 1,
                                last_block_in_storage);
         };
+        if (hasError(res)) {
+          break;
+        }
+
         while (wait_for_new_blocks) {
           std::this_thread::sleep_for(kWaitForBlockTime);
-          const auto new_last_block = block_query->getTopBlockHeight();
+          block_query->reloadBlockstore();
+          auto new_last_block = block_query->getTopBlockHeight();
+
+          // try to load block to ensure it is written completely
+          auto block_result = block_query->getBlock(new_last_block);
+          while (hasError(block_result)
+                 && (new_last_block > last_block_in_storage)) {
+            --new_last_block;
+            auto block_result = block_query->getBlock(new_last_block);
+          };
+
           if (new_last_block > last_block_in_storage) {
             last_block_in_storage = new_last_block;
             log_->info("Blockstore has new blocks from {} to {}, restore them.",

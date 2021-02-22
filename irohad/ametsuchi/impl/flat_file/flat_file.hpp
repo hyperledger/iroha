@@ -7,6 +7,7 @@
 #define IROHA_FLAT_FILE_HPP
 
 #include <memory>
+#include <regex>
 #include <set>
 
 #include "ametsuchi/key_value_storage.hpp"
@@ -32,6 +33,10 @@ namespace iroha {
       using BlockIdCollectionType = std::set<Identifier>;
 
       static const uint32_t DIGIT_CAPACITY = 16;
+
+      static const std::string kTempFileExtension;
+
+      static const std::regex kBlockFilenameRegex;
 
       /**
        * Convert id to a string representation. The string representation is
@@ -71,6 +76,8 @@ namespace iroha {
 
       Identifier last_id() const override;
 
+      void reload() override;
+
       void dropAll() override;
 
       /**
@@ -93,20 +100,13 @@ namespace iroha {
       /**
        * Create storage in path
        * @param path - folder of storage
-       * @param existing_files - collection of existing files names
        * @param log to print progress
        */
       FlatFile(std::string path,
-               BlockIdCollectionType existing_files,
                FlatFile::private_tag,
                logger::LoggerPtr log);
 
      private:
-      /**
-       * Reloads files from disk in case there were modified externally
-       */
-      void reload() const;
-
       /**
        * Folder of storage
        */
@@ -115,7 +115,7 @@ namespace iroha {
       /**
        * Blocks in storage, can be modified externally
        */
-      mutable BlockIdCollectionType available_blocks_;
+      BlockIdCollectionType available_blocks_;
 
       logger::LoggerPtr log_;
 
