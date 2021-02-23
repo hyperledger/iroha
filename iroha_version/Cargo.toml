@@ -1,0 +1,19 @@
+[package]
+name = "iroha_version"
+version = "0.1.0"
+authors = ["Egor Ivkov <e.o.ivkov@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["scale", "json", "derive"]
+scale = ["parity-scale-codec"]
+json = ["serde_json"]
+derive = ["iroha_version_derive"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+parity-scale-codec = { version = "1.3", features = ["derive"], optional = true }
+serde_json = {version = "1.0", optional = true }
+iroha_version_derive = { path = "./iroha_version_derive", optional = true }

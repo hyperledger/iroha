@@ -1,0 +1,15 @@
+error: The end version should be higher then the start version.
+ --> $DIR/fail_invalid_range_less.rs:5:1
+  |
+5 | declare_versioned!(VersionedMessage 2..1);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `VersionedMessage` in this scope
+ --> $DIR/fail_invalid_range_less.rs:7:1
+  |
+7 | #[version(n = 1, versioned = "VersionedMessage")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+  |
+  = note: this error originates in an attribute macro (in Nightly builds, run with -Z macro-backtrace for more info)
