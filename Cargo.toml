@@ -15,4 +15,6 @@ members = [
   "iroha_http_server",
   "iroha_permissions_validators",
   "iroha/test_network",
+  "iroha_version",
+  "iroha_version/iroha_version_derive",
 ]
