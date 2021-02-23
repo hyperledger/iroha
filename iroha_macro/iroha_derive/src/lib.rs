@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 use crate::proc_macro::TokenStream;
 use log::Level;
+use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::quote;
 use std::str::FromStr;
 use syn::{
@@ -9,15 +10,16 @@ use syn::{
     PatIdent, PatReference, PatStruct, PatTuple, PatTupleStruct, PatType, Signature,
 };
 
+#[proc_macro_error]
 #[proc_macro_attribute]
 pub fn log(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input: ItemFn = syn::parse_macro_input!(item as ItemFn);
     let args = syn::parse_macro_input!(attr as AttributeArgs);
     if args.len() > 1 {
-        panic!(
+        abort_call_site!(format!(
             "Unexpected number of arguments: 1 or 0 arguments expected, got {}",
             args.len()
-        )
+        ))
     }
     let log_level = args
         .first()
@@ -25,7 +27,7 @@ pub fn log(attr: TokenStream, item: TokenStream) -> TokenStream {
             if let NestedMeta::Lit(Lit::Str(lit_str)) = nested_meta {
                 Level::from_str(&lit_str.value()).expect("Failed to parse log level.")
             } else {
-                panic!("Invalid argument. String expected.")
+                abort!(nested_meta, "Invalid argument. String expected.")
             }
         })
         .unwrap_or(Level::Debug);
