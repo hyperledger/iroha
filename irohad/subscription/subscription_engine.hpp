@@ -27,7 +27,7 @@ namespace iroha::subscription {
   template <typename EventKey, typename Dispatcher, typename Receiver>
   class SubscriptionEngine final
       : public std::enable_shared_from_this<
-            SubscriptionEngine<EventKey, Dispatcher, Receiver>>,
+          SubscriptionEngine<EventKey, Dispatcher, Receiver>>,
         utils::NoMove,
         utils::NoCopy {
    public:
@@ -42,8 +42,8 @@ namespace iroha::subscription {
     /// alive after removal from the middle of the container
     /// using custom allocator
     using SubscribersContainer = std::list<std::tuple<typename Dispatcher::Tid,
-                                                      SubscriptionSetId,
-                                                      SubscriberWeakPtr>>;
+        SubscriptionSetId,
+        SubscriberWeakPtr>>;
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
@@ -59,7 +59,7 @@ namespace iroha::subscription {
       SubscribersContainer subscribers_list;
     };
     using KeyValueContainer =
-        std::unordered_map<EventKeyType, SubscriptionContext>;
+    std::unordered_map<EventKeyType, SubscriptionContext>;
 
     mutable std::shared_mutex subscribers_map_cs_;
     KeyValueContainer subscribers_map_;
@@ -114,7 +114,16 @@ namespace iroha::subscription {
     }
 
     template <typename... EventParams>
-    void notify(const EventKeyType &key, EventParams... args) {
+    void notify(const EventKeyType &key, EventParams const &... args) {
+      notifyDelayed(std::chrono::microseconds(0ull),
+                    key,
+                    args...);
+    }
+
+    template <typename... EventParams>
+    void notifyDelayed(std::chrono::microseconds timeout,
+                       const EventKeyType &key,
+                       EventParams const &... args) {
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
       if (subscribers_map_.end() == it)
@@ -128,19 +137,20 @@ namespace iroha::subscription {
         auto id = std::get<1>(*it_sub);
 
         if (auto sub = wsub.lock()) {
-          dispatcher_->add(std::get<0>(*it_sub),
-                           [wsub(std::move(wsub)),
-                            id(id),
-                            key(key),
-                            args = std::make_tuple(args...)]() mutable {
-                             if (auto sub = wsub.lock())
-                               std::apply(
-                                   [&](auto &&... args) {
-                                     sub->on_notify(
-                                         id, key, std::move(args)...);
-                                   },
-                                   std::move(args));
-                           });
+          dispatcher_->addDelayed(std::get<0>(*it_sub),
+                                  timeout,
+                                  [wsub(std::move(wsub)),
+                                      id(id),
+                                      key(key),
+                                      args = std::make_tuple(args...)]() mutable {
+                                    if (auto sub = wsub.lock())
+                                      std::apply(
+                                          [&](auto &&... args) {
+                                            sub->on_notify(
+                                                id, key, std::move(args)...);
+                                          },
+                                          std::move(args));
+                                  });
           ++it_sub;
         } else {
           it_sub = subscribers_container.subscribers_list.erase(it_sub);

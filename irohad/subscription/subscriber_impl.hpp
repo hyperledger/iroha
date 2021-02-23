@@ -29,9 +29,9 @@ namespace iroha::subscription {
    * event notification.
    */
   template <typename EventKey,
-            typename Dispatcher,
-            typename Receiver,
-            typename... Arguments>
+      typename Dispatcher,
+      typename Receiver,
+      typename... Arguments>
   class SubscriberImpl final
       : public Subscriber<EventKey, Dispatcher, Arguments...> {
    public:
@@ -46,17 +46,17 @@ namespace iroha::subscription {
     using SubscriptionEnginePtr = std::shared_ptr<SubscriptionEngineType>;
 
     using CallbackFnType =
-        std::function<void(SubscriptionSetId,
-                           ReceiverType &,
-                           const typename Parent::EventType &,
-                           const Arguments &...)>;
+    std::function<void(SubscriptionSetId,
+                       ReceiverType &,
+                       const typename Parent::EventType &,
+                       const Arguments &...)>;
 
    private:
     using SubscriptionsContainer =
-        std::unordered_map<typename Parent::EventType,
-                           typename SubscriptionEngineType::IteratorType>;
+    std::unordered_map<typename Parent::EventType,
+        typename SubscriptionEngineType::IteratorType>;
     using SubscriptionsSets =
-        std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
+    std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
 
     std::atomic<SubscriptionSetId> next_id_;
     SubscriptionEnginePtr engine_;
@@ -69,7 +69,7 @@ namespace iroha::subscription {
 
    public:
     template <typename... SubscriberConstructorArgs>
-    SubscriberImpl(SubscriptionEnginePtr &ptr,
+    SubscriberImpl(SubscriptionEnginePtr const &ptr,
                    SubscriberConstructorArgs &&... args)
         : next_id_(0ull),
           engine_(ptr),

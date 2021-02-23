@@ -25,7 +25,7 @@ namespace iroha::subscription {
    */
   template <uint32_t kHandlersCount>
   class SubscriptionManager final : public std::enable_shared_from_this<
-                                        SubscriptionManager<kHandlersCount>>,
+      SubscriptionManager<kHandlersCount>>,
                                     utils::NoMove,
                                     utils::NoCopy {
    public:
@@ -54,9 +54,9 @@ namespace iroha::subscription {
     template <typename EventKey, typename... Args>
     auto getEngine() {
       using EngineType =
-          SubscriptionEngine<EventKey,
-                             Dispatcher,
-                             Subscriber<EventKey, Dispatcher, Args...>>;
+      SubscriptionEngine<EventKey,
+      Dispatcher,
+      Subscriber<EventKey, Dispatcher, Args...>>;
       constexpr auto engineId = getSubscriptionType<Args...>();
       std::lock_guard lock(engines_cs_);
       if (auto it = engines_.find(engineId); it != engines_.end()) {
@@ -68,11 +68,16 @@ namespace iroha::subscription {
     }
 
     template <typename EventKey, typename... Args>
-    void notify(const EventKey &key, Args &&... args) {
+    void notify(const EventKey &key, Args const &... args) {
+      notifyDelayed(std::chrono::microseconds(0ull), key, args...);
+    }
+
+    template <typename EventKey, typename... Args>
+    void notifyDelayed(std::chrono::microseconds timeout, const EventKey &key, Args const &... args) {
       using EngineType =
-          SubscriptionEngine<EventKey,
-                             Dispatcher,
-                             Subscriber<EventKey, Dispatcher, Args...>>;
+      SubscriptionEngine<EventKey,
+          Dispatcher,
+          Subscriber<EventKey, Dispatcher, Args...>>;
       constexpr auto engineId = getSubscriptionType<Args...>();
       std::shared_ptr<EngineType> engine;
       {
@@ -83,7 +88,11 @@ namespace iroha::subscription {
           return;
       }
       if (engine)
-        engine->notify(key, std::forward<Args>(args)...);
+        engine->notifyDelayed(timeout, key, args...);
+    }
+
+    DispatcherPtr dispatcher() const {
+      return dispatcher_;
     }
   };
 }  // namespace iroha::subscription

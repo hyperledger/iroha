@@ -7,6 +7,7 @@
 #define IROHA_SUBSCRIPTION_DISPATCHER_HPP
 
 #include "subscription/common.hpp"
+#include "subscription/thread_handler.hpp"
 
 namespace iroha::subscription {
 
@@ -35,9 +36,9 @@ namespace iroha::subscription {
     }
 
     template <typename F>
-    void addDelayed(Tid tid, size_t timeoutUs, F &&f) {
+    void addDelayed(Tid tid, std::chrono::microseconds timeout, F &&f) {
       assert(tid < kHandlersCount);
-      handlers_[tid].addDelayed(timeoutUs, std::forward<F>(f));
+      handlers_[tid].addDelayed(timeout, std::forward<F>(f));
     }
   };
 

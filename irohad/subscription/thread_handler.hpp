@@ -7,6 +7,7 @@
 #define IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
 
 #include <chrono>
+#include <assert.h>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -88,7 +89,7 @@ namespace iroha::subscription {
         auto const &first = tasks_.front();
         if (tpFromTimedTask(first) > before) {
           return std::chrono::duration_cast<std::chrono::microseconds>(
-                     tpFromTimedTask(first) - before)
+              tpFromTimedTask(first) - before)
               .count();
         }
         return 0ull;
@@ -127,15 +128,12 @@ namespace iroha::subscription {
 
     template <typename F>
     void add(F &&f) {
-      auto const tp = now();
-      std::lock_guard lock(tasks_cs_);
-      insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
-      event_.set();
+      addDelayed(std::chrono::microseconds(0ull), std::forward<F>(f));
     }
 
     template <typename F>
-    void addDelayed(size_t timeoutUs, F &&f) {
-      auto const tp = now() + std::chrono::microseconds(timeoutUs);
+    void addDelayed(std::chrono::microseconds timeout, F &&f) {
+      auto const tp = now() + timeout;
       std::lock_guard lock(tasks_cs_);
       insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
       event_.set();
