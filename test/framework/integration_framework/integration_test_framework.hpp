@@ -511,7 +511,6 @@ namespace integration_framework {
 
     std::unique_ptr<PortGuard> port_guard_;
     size_t torii_port_;
-    size_t internal_port_;
     IrohadConfig config_;
     std::shared_ptr<IrohaInstance> iroha_instance_;
     std::unique_ptr<torii::CommandSyncClient> command_client_;

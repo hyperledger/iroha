@@ -217,7 +217,7 @@ class Irohad {
   // constructor dependencies
   IrohadConfig config_;
   const std::string listen_ip_;
-  const boost::optional<shared_model::crypto::Keypair> &keypair_;
+  boost::optional<shared_model::crypto::Keypair> keypair_;
   iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy_;
   std::shared_ptr<const iroha::network::GrpcChannelParams> grpc_channel_params_;
   boost::optional<iroha::GossipPropagationStrategyParams>

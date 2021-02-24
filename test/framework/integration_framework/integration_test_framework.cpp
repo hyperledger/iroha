@@ -166,7 +166,6 @@ namespace integration_framework {
         block_queue_(std::make_unique<CheckerQueue<BlockType>>(block_waiting)),
         port_guard_(std::make_unique<PortGuard>()),
         torii_port_(port_guard_->getPort(kDefaultToriiPort)),
-        internal_port_(port_guard_->getPort(kDefaultInternalPort)),
         command_client_(std::make_unique<torii::CommandSyncClient>(
             iroha::network::createInsecureClient<
                 torii::CommandSyncClient::Service>(
@@ -238,7 +237,7 @@ namespace integration_framework {
     config_.mst_support = mst_support;
     config_.block_store_path = block_store_path;
     config_.torii_port = torii_port_;
-    config_.internal_port = internal_port_;
+    config_.internal_port = port_guard_->getPort(kDefaultInternalPort);
     iroha_instance_ =
         std::make_shared<IrohaInstance>(config_,
                                         kLocalHost,
@@ -481,7 +480,7 @@ namespace integration_framework {
   }
 
   std::string IntegrationTestFramework::getAddress() const {
-    return format_address(kLocalHost, internal_port_);
+    return format_address(kLocalHost, config_.internal_port);
   }
 
   rxcpp::observable<std::shared_ptr<iroha::MstState>>
@@ -713,10 +712,9 @@ namespace integration_framework {
             async_call_,
             proposal_factory_,
             [] { return std::chrono::system_clock::now(); },
-            std::chrono::milliseconds(0),  // the proposal waiting timeout is
-                                           // only used when waiting a response
-                                           // for a proposal request, which our
-                                           // client does not do
+            // the proposal waiting timeout is only used when waiting a response
+            // for a proposal request, which our client does not do
+            std::chrono::milliseconds(0),
             log_manager_->getChild("OrderingClientTransport")->getLogger(),
             makeTransportClientFactory<
                 iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
@@ -835,7 +833,7 @@ namespace integration_framework {
   }
 
   size_t IntegrationTestFramework::internalPort() const {
-    return internal_port_;
+    return config_.internal_port;
   }
 
   void IntegrationTestFramework::done() {

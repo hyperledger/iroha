@@ -115,19 +115,19 @@ Irohad::Irohad(
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
     : config_(config),
-      pg_opt_(std::move(pg_opt)),
       listen_ip_(listen_ip),
       keypair_(keypair),
-      log_manager_(std::move(logger_manager)),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
       grpc_channel_params_(std::move(grpc_channel_params)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
+      pg_opt_(std::move(pg_opt)),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
+      log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
@@ -162,35 +162,34 @@ Irohad::~Irohad() {
 Irohad::RunResult Irohad::init() {
   // clang-format off
   return initSettings()
-  | [this]{ return initValidatorsConfigs();}
-  | [this]{ return initBatchParser();}
-  | [this]{ return initValidators();}
-  | [this]{ return initWsvRestorer(); // Recover WSV from the existing ledger
-                                      // to be sure it is consistent
-  }
-  | [this]{ return restoreWsv();}
-  | [this]{ return validateKeypair();}
-  | [this]{ return initTlsCredentials();}
-  | [this]{ return initPeerCertProvider();}
-  | [this]{ return initClientFactory();}
-  | [this]{ return initCryptoProvider();}
-  | [this]{ return initNetworkClient();}
-  | [this]{ return initFactories();}
-  | [this]{ return initPersistentCache();}
-  | [this]{ return initOrderingGate();}
-  | [this]{ return initSimulator();}
-  | [this]{ return initConsensusCache();}
-  | [this]{ return initBlockLoader();}
-  | [this]{ return initConsensusGate();}
-  | [this]{ return initSynchronizer();}
-  | [this]{ return initPeerCommunicationService();}
-  | [this]{ return initStatusBus();}
-  | [this]{ return initMstProcessor();}
-  | [this]{ return initPendingTxsStorageWithCache();}
+         | [this]{ return initValidatorsConfigs();}
+         | [this]{ return initBatchParser();}
+         | [this]{ return initValidators();}
+         // Recover WSV from the existing ledger to be sure it is consistent
+         | [this]{ return initWsvRestorer(); }
+         | [this]{ return restoreWsv();}
+         | [this]{ return validateKeypair();}
+         | [this]{ return initTlsCredentials();}
+         | [this]{ return initPeerCertProvider();}
+         | [this]{ return initClientFactory();}
+         | [this]{ return initCryptoProvider();}
+         | [this]{ return initNetworkClient();}
+         | [this]{ return initFactories();}
+         | [this]{ return initPersistentCache();}
+         | [this]{ return initOrderingGate();}
+         | [this]{ return initSimulator();}
+         | [this]{ return initConsensusCache();}
+         | [this]{ return initBlockLoader();}
+         | [this]{ return initConsensusGate();}
+         | [this]{ return initSynchronizer();}
+         | [this]{ return initPeerCommunicationService();}
+         | [this]{ return initStatusBus();}
+         | [this]{ return initMstProcessor();}
+         | [this]{ return initPendingTxsStorageWithCache();}
 
-  // Torii
-  | [this]{ return initTransactionCommandService();}
-  | [this]{ return initQueryService();};
+         // Torii
+         | [this]{ return initTransactionCommandService();}
+         | [this]{ return initQueryService();};
   // clang-format on
 }
 
