@@ -1,4 +1,3 @@
-use async_std::task;
 use criterion::*;
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
@@ -6,17 +5,24 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use log::LevelFilter;
 use std::thread;
-use tempfile::TempDir;
+use test_network::Peer as TestPeer;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
+const GENESIS_PATH: &str = "tests/genesis.json";
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
 fn query_requests(criterion: &mut Criterion) {
-    thread::spawn(create_and_start_iroha);
+    let mut configuration =
+        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+    let peer = TestPeer::new().expect("Failed to create peer");
+    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+
+    peer.start_with_config(configuration);
     thread::sleep(std::time::Duration::from_millis(50));
+
     let mut group = criterion.benchmark_group("query-reqeuests");
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
@@ -40,10 +46,10 @@ fn query_requests(criterion: &mut Criterion) {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
-    let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-            .expect("Failed to load configuration."),
-    );
+    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+        .expect("Failed to load configuration.");
+    client_config.torii_api_url = peer.api_address;
+    let mut iroha_client = Client::new(&client_config);
     iroha_client
         .submit_all(vec![
             create_domain.into(),
@@ -87,9 +93,16 @@ fn query_requests(criterion: &mut Criterion) {
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
-    thread::spawn(create_and_start_iroha);
+    let mut configuration =
+        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+    let peer = TestPeer::new().expect("Failed to create peer");
+    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+
+    peer.start_with_config(configuration);
     thread::sleep(std::time::Duration::from_millis(50));
-    let mut group = criterion.benchmark_group("instruction-reqeuests");
+
+    let mut group = criterion.benchmark_group("instruction-requests");
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
     let account_name = "account";
@@ -104,10 +117,10 @@ fn instruction_submits(criterion: &mut Criterion) {
         .into(),
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let mut iroha_client = Client::new(
-        &ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-            .expect("Failed to load configuration."),
-    );
+    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+        .expect("Failed to load configuration.");
+    client_config.torii_api_url = peer.api_address;
+    let mut iroha_client = Client::new(&client_config);
     iroha_client
         .submit_all(vec![create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
@@ -144,21 +157,6 @@ fn instruction_submits(criterion: &mut Criterion) {
                 > MINIMUM_SUCCESS_REQUEST_RATIO
         );
     }
-}
-
-fn create_and_start_iroha() {
-    let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration
-        .kura_configuration
-        .kura_block_store_path(temp_dir.path());
-    configuration.logger_configuration.max_log_level = LevelFilter::Off;
-    let iroha = Iroha::new(configuration, AllowAll.into());
-    task::block_on(iroha.start()).expect("Failed to start Iroha.");
-    //Prevents temp_dir from clean up untill the end of the tests.
-    #[allow(clippy::empty_loop)]
-    loop {}
 }
 
 criterion_group!(instructions, instruction_submits);

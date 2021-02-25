@@ -119,6 +119,9 @@ impl Peer {
             logger_configuration: LoggerConfiguration {
                 terminal_color_enabled: true,
                 date_time_format: format!("{} %Y-%m-%d %H:%M:%S:%f", self.p2p_address),
+                #[cfg(profile = "bench")]
+                max_log_level: LevelFilter::Off,
+                #[cfg(not(profile = "bench"))]
                 max_log_level: LevelFilter::Info,
             },
             public_key: self.key_pair.public_key.clone(),
