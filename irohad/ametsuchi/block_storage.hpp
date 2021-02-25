@@ -6,11 +6,11 @@
 #ifndef IROHA_BLOCK_STORAGE_HPP
 #define IROHA_BLOCK_STORAGE_HPP
 
+#include <boost/optional/optional_fwd.hpp>
 #include <cstdint>
 #include <functional>
 #include <memory>
 
-#include <boost/optional/optional_fwd.hpp>
 #include "common/result_fwd.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 
@@ -40,6 +40,11 @@ namespace iroha {
        * Returns the size of the storage
        */
       virtual size_t size() const = 0;
+
+      /**
+       * Reloads blocks in case their were modified externally
+       */
+      virtual void reload() = 0;
 
       /**
        * Clears the contents of storage
