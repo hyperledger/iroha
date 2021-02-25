@@ -146,6 +146,10 @@ size_t PostgresBlockStorage::size() const {
       .value_or(0);
 }
 
+void PostgresBlockStorage::reload() {
+  // no need to reload
+}
+
 void PostgresBlockStorage::clear() {
   soci::session sql(*pool_wrapper_->connection_pool_);
   soci::statement st = (sql.prepare << "TRUNCATE " << table_name_);

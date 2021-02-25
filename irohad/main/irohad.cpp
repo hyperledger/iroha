@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <gflags/gflags.h>
+#include <grpc++/grpc++.h>
+
 #include <chrono>
 #include <csignal>
 #include <fstream>
 #include <thread>
 
-#include <gflags/gflags.h>
-#include <grpc++/grpc++.h>
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/bind.hpp"
@@ -39,9 +40,6 @@
 
 static const std::string kListenIp = "0.0.0.0";
 static const std::string kLogSettingsFromConfigFile = "config_file";
-static const uint32_t kMstExpirationTimeDefault = 1440;
-static const uint32_t kMaxRoundsDelayDefault = 3000;
-static const uint32_t kStaleStreamMaxRoundsDefault = 2;
 static const std::string kDefaultWorkingDatabaseName{"iroha_default"};
 static const std::chrono::milliseconds kExitCheckPeriod{1000};
 
@@ -65,7 +63,27 @@ DEFINE_string(keypair_name, "", "Specify name of .pub and .priv files");
  */
 DEFINE_bool(overwrite_ledger, false, "Overwrite ledger data if existing");
 
-DEFINE_bool(reuse_state, false, "Try to reuse existing state data at startup.");
+/**
+ * Startup option to reuse existing WSV. Ignored since state is reused by
+ * default.
+ */
+DEFINE_bool(reuse_state,
+            true,
+            "Try to reuse existing state data at startup (Deprecated, startup "
+            "reuses state by default. Use drop_state to drop the WSV).");
+
+/**
+ * Startup option to drop existing WSV. Cannot be used with 'reuse_state'.
+ */
+DEFINE_bool(drop_state, false, "Drops existing state data at startup.");
+
+/**
+ * Startup option for WSV synchronization mode.
+ */
+DEFINE_bool(wait_for_new_blocks,
+            false,
+            "Startup synchronization policy - waits for new blocks in "
+            "blockstore, does not run network");
 
 static bool validateVerbosity(const char *flagname, const std::string &val) {
   if (val == kLogSettingsFromConfigFile) {
@@ -223,29 +241,29 @@ int main(int argc, char *argv[]) {
       log->critical(
           "Got an empty initial peers list in configuration file. You have to "
           "either specify some peers or avoid overriding the peers from "
-          "genesis "
-          "block!");
+          "genesis block!");
       return EXIT_FAILURE;
     }
 
     if (config.utility_service) {
-      initUtilityService(config.utility_service.value(),
-                         [] {
-                           exit_requested.set_value();
-                           std::lock_guard<std::mutex>{shutdown_wait_mutex};
-                         },
-                         log_manager);
+      initUtilityService(
+          config.utility_service.value(),
+          [] {
+            exit_requested.set_value();
+            std::lock_guard<std::mutex>{shutdown_wait_mutex};
+          },
+          log_manager);
     }
 
     daemon_status_notifier->notify(
         ::iroha::utility_service::Status::kInitialization);
 
-    BOOST_ASSERT_MSG(not FLAGS_keypair_name.empty() or config.crypto,
-                     "keypair must be specified somewhere");
-
-    auto keypair = FLAGS_keypair_name.empty()
-        ? getKeypairFromConfig(config.crypto.value())
-        : getKeypairFromFile(FLAGS_keypair_name, log_manager);
+    boost::optional<shared_model::crypto::Keypair> keypair = boost::none;
+    if (!FLAGS_keypair_name.empty()) {
+      keypair = getKeypairFromFile(FLAGS_keypair_name, log_manager);
+    } else if (config.crypto.has_value()) {
+      keypair = getKeypairFromConfig(config.crypto.value());
+    }
 
     std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt;
     if (config.database_config) {
@@ -269,29 +287,20 @@ int main(int argc, char *argv[]) {
 
     // Configuring iroha daemon
     auto irohad = std::make_unique<Irohad>(
-        config.block_store_path,
+        config,
         std::move(pg_opt),
         kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
                     // config file and/or command-line arguments?
-        config.torii_port,
-        config.internal_port,
-        config.max_proposal_size,
-        std::chrono::milliseconds(config.proposal_delay),
-        std::chrono::milliseconds(config.vote_delay),
-        std::chrono::minutes(
-            config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
         std::move(keypair),
-        std::chrono::milliseconds(
-            config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
-        config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
-        std::move(config.initial_peers),
         log_manager->getChild("Irohad"),
-        FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
-                          : iroha::StartupWsvDataPolicy::kDrop,
+        FLAGS_drop_state ? iroha::StartupWsvDataPolicy::kDrop
+                         : iroha::StartupWsvDataPolicy::kReuse,
+        FLAGS_wait_for_new_blocks
+            ? iroha::StartupWsvSynchronizationPolicy::kWaitForNewBlocks
+            : iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
         ::iroha::network::getDefaultChannelParams(),
         boost::make_optional(config.mst_support,
                              iroha::GossipPropagationStrategyParams{}),
-        config.torii_tls_params,
         boost::none);
 
     // Check if iroha daemon storage was successfully initialized

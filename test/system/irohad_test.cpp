@@ -3,11 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <fstream>
-#include <sstream>
-
-#include "util/proto_status_tools.hpp"
-
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 #include <rapidjson/istreamwrapper.h>
@@ -15,10 +10,13 @@
 #include <rapidjson/stringbuffer.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <soci/soci.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
 #include <boost/process.hpp>
 #include <boost/variant.hpp>
+#include <fstream>
+#include <sstream>
 
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
@@ -42,6 +40,7 @@
 #include "network/impl/channel_factory.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
+#include "util/proto_status_tools.hpp"
 #include "util/utility_client.hpp"
 
 // workaround for Windows includes which redefine GetObject
@@ -110,7 +109,7 @@ class IrohadTest : public AcceptanceFixture {
     db_name_ = integration_framework::getRandomDbName();
     pgopts_ = "dbname=" + db_name_ + " "
         + integration_framework::getPostgresCredsFromEnv().value_or(
-              doc[config_members::PgOpt].GetString());
+            doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
@@ -231,8 +230,10 @@ class IrohadTest : public AcceptanceFixture {
   }
 
   std::string setDefaultParams() {
-    return params(
-        config_copy_, path_genesis_.string(), path_keypair_node_.string(), {});
+    return params(config_copy_,
+                  path_genesis_.string(),
+                  path_keypair_node_.string(),
+                  std::string{"--drop_state"});
   }
 
   static const iroha::network::GrpcChannelParams &getChannelParams() {
@@ -254,10 +255,10 @@ class IrohadTest : public AcceptanceFixture {
 
     auto client = enable_tls
         ? iroha::network::createSecureClient<torii::CommandSyncClient::Service>(
-              kAddress, port, root_ca_, boost::none, getChannelParams())
+            kAddress, port, root_ca_, boost::none, getChannelParams())
         : iroha::network::createInsecureClient<
-              torii::CommandSyncClient::Service>(
-              kAddress, port, getChannelParams());
+            torii::CommandSyncClient::Service>(
+            kAddress, port, getChannelParams());
 
     return torii::CommandSyncClient(
         std::move(client),
@@ -604,7 +605,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
   launchIroha(config_copy_,
               path_genesis_.string(),
               path_keypair_node_.string(),
-              std::string("--overwrite-ledger"));
+              std::string("--overwrite-ledger --drop_state"));
 
   ASSERT_EQ(getBlockCount(), 1);
 
@@ -687,7 +688,7 @@ TEST_F(IrohadTest, StartWithoutConfigAndKeyFile) {
   launchIroha(params(boost::none,
                      path_genesis_.string(),
                      boost::none,
-                     std::string{"--verbosity=trace"}),
+                     std::string{"--verbosity=trace  --drop_state"}),
               env);
 
   auto key_pair = keys_manager_admin_.loadKeys(boost::none);
@@ -733,7 +734,7 @@ TEST_F(IrohadTest, StartWithConfigAndEnvironmentParams) {
   launchIroha(params(config_copy_,
                      path_genesis_.string(),
                      path_keypair_node_.string(),
-                     std::string{"--verbosity=trace"}),
+                     std::string{"--verbosity=trace --drop_state"}),
               env);
 
   auto key_pair = keys_manager_admin_.loadKeys(boost::none);

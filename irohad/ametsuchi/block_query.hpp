@@ -51,6 +51,11 @@ namespace iroha {
       getTopBlockHeight() = 0;
 
       /**
+       * Reloads blockstore
+       */
+      virtual void reloadBlockstore() = 0;
+
+      /**
        * Synchronously checks whether transaction with given hash is present in
        * any block
        * @param hash - transaction's hash
