@@ -6,8 +6,8 @@
 #ifndef IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
 #define IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
 
-#include <chrono>
 #include <assert.h>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -89,7 +89,7 @@ namespace iroha::subscription {
         auto const &first = tasks_.front();
         if (tpFromTimedTask(first) > before) {
           return std::chrono::duration_cast<std::chrono::microseconds>(
-              tpFromTimedTask(first) - before)
+                     tpFromTimedTask(first) - before)
               .count();
         }
         return 0ull;
