@@ -183,12 +183,24 @@ namespace iroha {
 
       // ------|Private interface|------
 
-      void Yac::votingStep(VoteMessage vote) {
+      void Yac::votingStep(VoteMessage vote, uint32_t attempt) {
+        log_->info("votingStep got vote: {}, attempt {}", vote, attempt);
         std::unique_lock<std::mutex> lock(mutex_);
 
         auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
         if (committed) {
           return;
+        }
+
+        /**
+         * 3 attempts to build and commit block before we think that round is
+         * freezed
+         */
+        if (attempt == 3) {
+          vote.hash.vote_hashes.proposal_hash.clear();
+          vote.hash.vote_hashes.block_hash.clear();
+          vote.hash.block_signature.reset();
+          vote = crypto_->getVote(vote.hash);
         }
 
         auto &cluster_order = getCurrentOrder();
@@ -200,7 +212,9 @@ namespace iroha {
         propagateStateDirectly(current_leader, {vote});
         cluster_order.switchToNext();
         lock.unlock();
-        timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
+
+        timer_->invokeAfterDelay(
+            [this, vote, attempt] { this->votingStep(vote, attempt + 1); });
       }
 
       void Yac::closeRound() {

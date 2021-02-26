@@ -77,7 +77,7 @@ namespace iroha {
          * Voting step is strategy of propagating vote
          * until commit/reject message received
          */
-        void votingStep(VoteMessage vote);
+        void votingStep(VoteMessage vote, uint32_t attempt = 0);
 
         /**
          * Erase temporary data of current round
