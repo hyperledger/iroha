@@ -28,11 +28,30 @@ namespace iroha {
       : MstStorage(log),
         completer_(completer),
         own_state_(MstState::empty(mst_state_logger, completer_)),
-        mst_state_logger_(std::move(mst_state_logger)) {}
+        finalized_txs_subscription_(std::make_shared<FinalizedTxsSubscription>(
+            getSubscription()
+                ->getEngine<EventTypes,
+                            shared_model::interface::types::HashType>())),
+        mst_state_logger_(std::move(mst_state_logger)) {
+    finalized_txs_subscription_->setCallback(
+        [this](auto,
+               auto &,
+               auto key,
+               shared_model::interface::types::HashType const &hash) {
+          assert(EventTypes::kOnFinalizedTxs == key);
+          for (auto &p : peer_states_) {
+            p.second.eraseByTransactionHash(hash);
+          }
+          own_state_.eraseByTransactionHash(hash);
+        });
+    finalized_txs_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+        0, EventTypes::kOnFinalizedTxs);
+  }
 
   std::shared_ptr<MstStorageStateImpl> MstStorageStateImpl::create(
       CompleterType const &completer,
-      rxcpp::observable<shared_model::interface::types::HashType> finalized_txs,
+      // rxcpp::observable<shared_model::interface::types::HashType>
+      // finalized_txs,
       logger::LoggerPtr mst_state_logger,
       logger::LoggerPtr log) {
     auto storage = std::make_shared<MstStorageStateImpl>(
@@ -42,20 +61,19 @@ namespace iroha {
         std::move(log));
     std::weak_ptr<MstStorageStateImpl> storage_(storage);
 
-    auto subscription = rxcpp::composite_subscription();
-    finalized_txs.subscribe(
-        subscription,
-        [storage_,
-         subscription](shared_model::interface::types::HashType const &hash) {
-          if (auto storage = storage_.lock()) {
-            for (auto &p : storage->peer_states_) {
-              p.second.eraseByTransactionHash(hash);
-            }
-            storage->own_state_.eraseByTransactionHash(hash);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
+    /*    auto subscription = rxcpp::composite_subscription();
+        finalized_txs.subscribe(
+            subscription,
+            [storage_,
+             subscription](shared_model::interface::types::HashType const &hash)
+       { if (auto storage = storage_.lock()) { for (auto &p :
+       storage->peer_states_) { p.second.eraseByTransactionHash(hash);
+                }
+                storage->own_state_.eraseByTransactionHash(hash);
+              } else {
+                subscription.unsubscribe();
+              }
+            });*/
 
     return storage;
   }

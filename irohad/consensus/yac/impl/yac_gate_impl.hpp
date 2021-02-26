@@ -16,6 +16,7 @@
 #include "consensus/yac/impl/consensus_outcome_delay.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
 
@@ -33,7 +34,8 @@ namespace iroha {
       struct CommitMessage;
       class YacPeerOrderer;
 
-      class YacGateImpl : public YacGate {
+      class YacGateImpl : public YacGate,
+                          public std::enable_shared_from_this<YacGateImpl> {
        public:
         YacGateImpl(
             std::shared_ptr<HashGate> hash_gate,
@@ -50,7 +52,8 @@ namespace iroha {
                     ConsensusOutcomeDelay(std::chrono::milliseconds(0)));
         void vote(const simulator::BlockCreatorEvent &event) override;
 
-        rxcpp::observable<GateObject> onOutcome() override;
+        // rxcpp::observable<GateObject> onOutcome() override;
+        // rxcpp::observable<consensus::FreezedRound> onFreezedRound() override;
 
         void stop() override;
 
@@ -61,9 +64,13 @@ namespace iroha {
          */
         void copySignatures(const CommitMessage &commit);
 
-        rxcpp::observable<GateObject> handleCommit(const CommitMessage &msg);
-        rxcpp::observable<GateObject> handleReject(const RejectMessage &msg);
-        rxcpp::observable<GateObject> handleFuture(const FutureMessage &msg);
+        void handleCommit(const CommitMessage &msg);
+        void handleReject(const RejectMessage &msg);
+        void handleFuture(const FutureMessage &msg);
+
+        // rxcpp::observable<GateObject> handleCommit(const CommitMessage &msg);
+        // rxcpp::observable<GateObject> handleReject(const RejectMessage &msg);
+        // rxcpp::observable<GateObject> handleFuture(const FutureMessage &msg);
 
         logger::LoggerPtr log_;
 
@@ -73,13 +80,35 @@ namespace iroha {
         boost::optional<ClusterOrdering> alternative_order_;
         std::shared_ptr<const LedgerState> current_ledger_state_;
 
-        rxcpp::observable<GateObject> published_events_;
+        // rxcpp::observable<GateObject> published_events_;
         std::shared_ptr<YacPeerOrderer> orderer_;
         std::shared_ptr<YacHashProvider> hash_provider_;
         std::shared_ptr<simulator::BlockCreator> block_creator_;
         std::shared_ptr<consensus::ConsensusResultCache>
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;
+
+        // rxcpp::composite_subscription freezed_round_notifier_lifetime_;
+        // rxcpp::subjects::subject<consensus::FreezedRound>
+        // freezed_round_notifier_;
+
+        using FreezedRoundSubscription =
+            subscription::SubscriberImpl<EventTypes,
+                                         SubscriptionDispatcher,
+                                         bool,
+                                         consensus::yac::FreezedRound>;
+        using OutcomeSubscription = subscription::
+            SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, Answer>;
+        using BlockCreatorSubscription =
+            subscription::SubscriberImpl<EventTypes,
+                                         SubscriptionDispatcher,
+                                         bool,
+                                         simulator::BlockCreatorEvent>;
+
+        std::shared_ptr<OutcomeSubscription> outcome_subscription_;
+        std::shared_ptr<FreezedRoundSubscription> freezed_round_subscription_;
+        std::shared_ptr<OutcomeSubscription> delayed_outcome_subscription_;
+        std::shared_ptr<BlockCreatorSubscription> block_creator_subscription_;
       };
 
     }  // namespace yac

@@ -15,6 +15,7 @@
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "network/peer_communication_service.hpp"
 #include "torii/status_bus.hpp"
@@ -37,8 +38,8 @@ namespace iroha {
           std::shared_ptr<iroha::torii::StatusBus> status_bus,
           std::shared_ptr<shared_model::interface::TxStatusFactory>
               status_factory,
-          rxcpp::observable<
-              std::shared_ptr<const shared_model::interface::Block>> commits,
+          /*rxcpp::observable<
+              std::shared_ptr<const shared_model::interface::Block>> commits,*/
           logger::LoggerPtr log);
 
       void batchHandle(
@@ -55,9 +56,9 @@ namespace iroha {
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
       // internal
-      rxcpp::subjects::subject<
+      /*rxcpp::subjects::subject<
           std::shared_ptr<shared_model::interface::TransactionResponse>>
-          notifier_;
+          notifier_;*/
 
       // keeps hashes of transaction, which were committed during this round
       std::vector<shared_model::interface::types::HashType> current_txs_hashes_;
@@ -66,6 +67,33 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::TxStatusFactory> status_factory_;
 
       logger::LoggerPtr log_;
+
+      using VerifiedProposalSubscription =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       simulator::VerifiedProposalCreatorEvent>;
+      using BlockSubscription = subscription::SubscriberImpl<
+          EventTypes,
+          SubscriptionDispatcher,
+          bool,
+          std::shared_ptr<const shared_model::interface::Block>>;
+      using MSTStateUpdateSubscription =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       std::shared_ptr<MstState>>;
+      using MSTBatchesSubscription = subscription::
+          SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, DataType>;
+
+      std::shared_ptr<VerifiedProposalSubscription>
+          verified_proposal_subscription_;
+      std::shared_ptr<BlockSubscription> blocks_subscription_;
+      std::shared_ptr<MSTStateUpdateSubscription>
+          mst_state_update_subscription_;
+      std::shared_ptr<MSTBatchesSubscription>
+          mst_prepared_batches_subscription_;
+      std::shared_ptr<MSTBatchesSubscription> mst_expired_batches_subscription_;
 
       // TODO: [IR-1665] Akvinikym 29.08.18: Refactor method publishStatus(..)
       /**

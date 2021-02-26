@@ -29,6 +29,7 @@ namespace iroha {
         TimerImpl &operator=(const TimerImpl &) = delete;
 
         void invokeAfterDelay(std::function<void()> handler) override;
+        std::chrono::milliseconds getDelay() const override;
         void deny() override;
 
         ~TimerImpl() override;

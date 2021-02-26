@@ -36,8 +36,8 @@ namespace iroha {
       /**
        * Emit proposals which were verified by stateful validator
        */
-      virtual rxcpp::observable<VerifiedProposalCreatorEvent>
-      onVerifiedProposal() = 0;
+      /*virtual rxcpp::observable<VerifiedProposalCreatorEvent>
+      onVerifiedProposal() = 0;*/
 
       virtual ~VerifiedProposalCreator() = default;
     };

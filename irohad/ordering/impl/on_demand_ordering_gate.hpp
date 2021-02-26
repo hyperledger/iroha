@@ -16,6 +16,8 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
+#include "network/ordering_gate.hpp"
 #include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/ordering_service_proposal_creation_strategy.hpp"
@@ -46,10 +48,10 @@ namespace iroha {
       OnDemandOrderingGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
           std::unique_ptr<transport::OdOsNotification> network_client,
-          rxcpp::observable<
+          /*rxcpp::observable<
               std::shared_ptr<const cache::OrderingGateCache::HashesSetType>>
               processed_tx_hashes,
-          rxcpp::observable<RoundSwitch> round_switch_events,
+          rxcpp::observable<RoundSwitch> round_switch_events,*/
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
@@ -63,7 +65,9 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           override;
 
-      rxcpp::observable<network::OrderingEvent> onProposal() override;
+      // rxcpp::observable<network::OrderingEvent> onProposal() override;
+
+      // void requestProposal(network::RequestProposal request) override;
 
       void stop() override;
 
@@ -93,17 +97,36 @@ namespace iroha {
       size_t transaction_limit_;
       std::shared_ptr<OnDemandOrderingService> ordering_service_;
       std::unique_ptr<transport::OdOsNotification> network_client_;
-      rxcpp::composite_subscription processed_tx_hashes_subscription_;
-      rxcpp::composite_subscription round_switch_subscription_;
+      // rxcpp::composite_subscription processed_tx_hashes_subscription_;
+      // rxcpp::composite_subscription round_switch_subscription_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
 
+      using RoundSwitchSubscriberType = subscription::
+          SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, RoundSwitch>;
+      using RoundFreezedSubscriberType =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       consensus::FreezedRound>;
+      using ProcessedHashesSubscriberType = subscription::SubscriberImpl<
+          EventTypes,
+          SubscriptionDispatcher,
+          bool,
+          std::shared_ptr<cache::OrderingGateCache::HashesSetType>>;
+
+      std::shared_ptr<ProcessedHashesSubscriberType>
+          processed_hashes_subscription_;
+      std::shared_ptr<RoundSwitchSubscriberType> round_switch_subscription_;
+      std::shared_ptr<RoundFreezedSubscriberType> round_freezed_subscription_;
+
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};
 
-      rxcpp::composite_subscription proposal_notifier_lifetime_;
-      rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;
+      // rxcpp::composite_subscription proposal_notifier_lifetime_;
+      // rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;
+      // rxcpp::composite_subscription freezed_round_subscription_;
     };
 
   }  // namespace ordering

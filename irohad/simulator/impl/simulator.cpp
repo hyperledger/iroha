@@ -25,60 +25,132 @@ namespace iroha {
             block_factory,
         logger::LoggerPtr log)
         : command_executor_(std::move(command_executor)),
-          notifier_(notifier_lifetime_),
-          block_notifier_(block_notifier_lifetime_),
+          // notifier_(notifier_lifetime_),
+          // block_notifier_(block_notifier_lifetime_),
           validator_(std::move(statefulValidator)),
           ametsuchi_factory_(std::move(factory)),
           crypto_signer_(std::move(crypto_signer)),
           block_factory_(std::move(block_factory)),
-          log_(std::move(log)) {
-      ordering_gate->onProposal().subscribe(
-          proposal_subscription_, [this](const network::OrderingEvent &event) {
+          log_(std::move(log)),
+          on_proposal_subscription_(std::make_shared<OnProposalSubscriber>(
+              getSubscription()
+                  ->getEngine<EventTypes, network::OrderingEvent>())),
+          on_verified_proposal_subscription_(
+              std::make_shared<OnVerifiedProposalSubscriber>(
+                  getSubscription()
+                      ->getEngine<EventTypes,
+                                  VerifiedProposalCreatorEvent>())) {
+      on_proposal_subscription_->setCallback(
+          [this](auto, auto &, auto const key, network::OrderingEvent event) {
+            assert(EventTypes::kOnProposal == key);
             if (event.proposal) {
               auto validated_proposal_and_errors =
                   this->processProposal(*getProposalUnsafe(event));
 
-              notifier_.get_subscriber().on_next(
+              getSubscription()->notify(
+                  EventTypes::kOnVerifiedProposal,
                   VerifiedProposalCreatorEvent{validated_proposal_and_errors,
                                                event.round,
                                                event.ledger_state});
+              /*notifier_.get_subscriber().on_next(
+                  VerifiedProposalCreatorEvent{validated_proposal_and_errors,
+                                               event.round,
+                                               event.ledger_state});*/
             } else {
-              notifier_.get_subscriber().on_next(VerifiedProposalCreatorEvent{
-                  boost::none, event.round, event.ledger_state});
+              getSubscription()->notify(
+                  EventTypes::kOnVerifiedProposal,
+                  VerifiedProposalCreatorEvent{
+                      boost::none, event.round, event.ledger_state});
+              /*notifier_.get_subscriber().on_next(VerifiedProposalCreatorEvent{
+                  boost::none, event.round, event.ledger_state});*/
             }
           });
 
-      notifier_.get_observable().subscribe(
-          verified_proposal_subscription_,
-          [this](const VerifiedProposalCreatorEvent &event) {
+      on_verified_proposal_subscription_->setCallback(
+          [this](auto,
+                 auto &,
+                 auto const key,
+                 VerifiedProposalCreatorEvent event) {
+            assert(EventTypes::kOnVerifiedProposal == key);
             if (event.verified_proposal_result) {
               auto proposal_and_errors = getVerifiedProposalUnsafe(event);
               auto block = this->processVerifiedProposal(
                   proposal_and_errors, event.ledger_state->top_block_info);
               if (block) {
-                block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
+                getSubscription()->notify(
+                    EventTypes::kOnBlockCreatorEvent,
+                    BlockCreatorEvent{
+                        RoundData{proposal_and_errors->verified_proposal,
+                                  *block},
+                        event.round,
+                        event.ledger_state});
+
+                /*block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
                     RoundData{proposal_and_errors->verified_proposal, *block},
                     event.round,
-                    event.ledger_state});
+                    event.ledger_state});*/
               }
             } else {
-              block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
-                  boost::none, event.round, event.ledger_state});
+              getSubscription()->notify(
+                  EventTypes::kOnBlockCreatorEvent,
+                  BlockCreatorEvent{
+                      boost::none, event.round, event.ledger_state});
+
+              /*block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
+                  boost::none, event.round, event.ledger_state});*/
             }
           });
+
+      on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+          0, EventTypes::kOnProposal);
+      on_verified_proposal_subscription_
+          ->subscribe<SubscriptionEngineHandlers::kYac>(
+              0, EventTypes::kOnVerifiedProposal);
+      /*      ordering_gate->onProposal().subscribe(
+                proposal_subscription_, [this](const network::OrderingEvent
+         &event) { if (event.proposal) { auto validated_proposal_and_errors =
+                        this->processProposal(*getProposalUnsafe(event));
+
+                    notifier_.get_subscriber().on_next(
+                        VerifiedProposalCreatorEvent{validated_proposal_and_errors,
+                                                     event.round,
+                                                     event.ledger_state});
+                  } else {
+                    notifier_.get_subscriber().on_next(VerifiedProposalCreatorEvent{
+                        boost::none, event.round, event.ledger_state});
+                  }
+                });*/
+
+      /*      notifier_.get_observable().subscribe(
+                verified_proposal_subscription_,
+                [this](const VerifiedProposalCreatorEvent &event) {
+                  if (event.verified_proposal_result) {
+                    auto proposal_and_errors = getVerifiedProposalUnsafe(event);
+                    auto block = this->processVerifiedProposal(
+                        proposal_and_errors,
+         event.ledger_state->top_block_info); if (block) {
+                      block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
+                          RoundData{proposal_and_errors->verified_proposal,
+         *block}, event.round, event.ledger_state});
+                    }
+                  } else {
+                    block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
+                        boost::none, event.round, event.ledger_state});
+                  }
+                });*/
     }
 
-    Simulator::~Simulator() {
+    /*Simulator::~Simulator() {
       notifier_lifetime_.unsubscribe();
       block_notifier_lifetime_.unsubscribe();
       proposal_subscription_.unsubscribe();
       verified_proposal_subscription_.unsubscribe();
-    }
+    }*/
 
-    rxcpp::observable<VerifiedProposalCreatorEvent>
+    /*rxcpp::observable<VerifiedProposalCreatorEvent>
     Simulator::onVerifiedProposal() {
       return notifier_.get_observable();
-    }
+    }*/
 
     std::shared_ptr<validation::VerifiedProposalAndErrors>
     Simulator::processProposal(
@@ -121,9 +193,9 @@ namespace iroha {
       return block;
     }
 
-    rxcpp::observable<BlockCreatorEvent> Simulator::onBlock() {
+    /*rxcpp::observable<BlockCreatorEvent> Simulator::onBlock() {
       return block_notifier_.get_observable();
-    }
+    }*/
 
   }  // namespace simulator
 }  // namespace iroha

@@ -36,12 +36,17 @@ namespace iroha {
           mutable_factory_(std::move(mutable_factory)),
           block_query_factory_(std::move(block_query_factory)),
           block_loader_(std::move(block_loader)),
-          notifier_(notifier_lifetime_),
+          notifier_(std::make_shared<OnOutcomeSubscriber>(
+              getSubscription()
+                  ->getEngine<EventTypes, consensus::GateObject>())),
           log_(std::move(log)) {
-      consensus_gate->onOutcome().subscribe(
-          subscription_, [this](consensus::GateObject object) {
+      notifier_->setCallback(
+          [&](auto, auto &, auto key, consensus::GateObject object) {
+            assert(EventTypes::kOnOutcome == key);
             this->processOutcome(object);
           });
+      notifier_->subscribe<SubscriptionEngineHandlers::kYac>(
+          0, EventTypes::kOnOutcome);
     }
 
     void SynchronizerImpl::processOutcome(consensus::GateObject object) {
@@ -50,8 +55,11 @@ namespace iroha {
       auto process_reject = [this](auto outcome_type, const auto &msg) {
         assert(msg.ledger_state->top_block_info.height + 1
                == msg.round.block_round);
-        notifier_.get_subscriber().on_next(
+        getSubscription()->notify(
+            EventTypes::kOnSynchronization,
             SynchronizationEvent{outcome_type, msg.round, msg.ledger_state});
+        /* notifier_.get_subscriber().on_next(
+             SynchronizationEvent{outcome_type, msg.round, msg.ledger_state});*/
       };
 
       visit_in_place(object,
@@ -160,10 +168,16 @@ namespace iroha {
       const auto notify =
           [this,
            &msg](std::shared_ptr<const iroha::LedgerState> &&ledger_state) {
-            this->notifier_.get_subscriber().on_next(
+            getSubscription()->notify(
+                EventTypes::kOnSynchronization,
                 SynchronizationEvent{SynchronizationOutcomeType::kCommit,
                                      msg.round,
                                      std::move(ledger_state)});
+
+            /*this->notifier_.get_subscriber().on_next(
+                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                     msg.round,
+                                     std::move(ledger_state)});*/
           };
       const bool committed_prepared = mutable_factory_->preparedCommitEnabled()
           and mutable_factory_->commitPrepared(msg.block).match(
@@ -211,26 +225,35 @@ namespace iroha {
             auto &ledger_state = value.value;
             assert(ledger_state);
             const auto new_height = ledger_state->top_block_info.height;
-            notifier_.get_subscriber().on_next(
+
+            getSubscription()->notify(
+                EventTypes::kOnSynchronization,
                 SynchronizationEvent{SynchronizationOutcomeType::kCommit,
                                      new_height != msg.round.block_round
                                          ? consensus::Round{new_height, 0}
                                          : msg.round,
                                      std::move(ledger_state)});
+
+            /*notifier_.get_subscriber().on_next(
+                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                     new_height != msg.round.block_round
+                                         ? consensus::Round{new_height, 0}
+                                         : msg.round,
+                                     std::move(ledger_state)});*/
           },
           [this](const auto &error) {
             log_->error("Synchronization failed: {}", error.error);
           });
     }
 
-    rxcpp::observable<SynchronizationEvent>
-    SynchronizerImpl::on_commit_chain() {
-      return notifier_.get_observable();
-    }
+    /*    rxcpp::observable<SynchronizationEvent>
+        SynchronizerImpl::on_commit_chain() {
+          return notifier_.get_observable();
+        }*/
 
     SynchronizerImpl::~SynchronizerImpl() {
-      notifier_lifetime_.unsubscribe();
-      subscription_.unsubscribe();
+      /*notifier_lifetime_.unsubscribe();
+      subscription_.unsubscribe();*/
     }
 
   }  // namespace synchronizer

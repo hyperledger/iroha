@@ -38,7 +38,12 @@ namespace iroha {
        * Return observable of all proposals in the consensus
        * @return observable with notifications
        */
-      virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
+      // virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
+
+      /**
+       * Command to initiate request proposal
+       */
+      // virtual void requestProposal(RequestProposal request) = 0;
 
       virtual ~OrderingGate() = default;
 

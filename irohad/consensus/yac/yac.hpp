@@ -28,7 +28,9 @@ namespace iroha {
       class YacCryptoProvider;
       class Timer;
 
-      class Yac : public HashGate, public YacNetworkNotifications {
+      class Yac : public HashGate,
+                  public YacNetworkNotifications,
+                  public std::enable_shared_from_this<Yac> {
        public:
         /**
          * Method for creating Yac consensus object
@@ -62,13 +64,15 @@ namespace iroha {
                   boost::optional<ClusterOrdering> alternative_order =
                       boost::none) override;
 
-        rxcpp::observable<Answer> onOutcome() override;
+        // rxcpp::observable<Answer> onOutcome() override;
 
         // ------|Network notifications|------
 
         void onState(std::vector<VoteMessage> state) override;
 
         void stop() override;
+
+        // rxcpp::observable<FreezedRound> onFreezedRound() override;
 
        private:
         // ------|Private interface|------
@@ -124,13 +128,20 @@ namespace iroha {
         Round round_;
 
         // ------|Fields|------
-        rxcpp::observe_on_one_worker worker_;
-        rxcpp::composite_subscription notifier_lifetime_;
-        rxcpp::subjects::synchronize<Answer, decltype(worker_)> notifier_;
+        // rxcpp::observe_on_one_worker worker_;
+        // rxcpp::composite_subscription notifier_lifetime_;
+        // rxcpp::subjects::synchronize<Answer, decltype(worker_)> notifier_;
         YacVoteStorage vote_storage_;
         std::shared_ptr<YacNetwork> network_;
         std::shared_ptr<YacCryptoProvider> crypto_;
         std::shared_ptr<Timer> timer_;
+
+        // rxcpp::composite_subscription freezed_round_notifier_lifetime_;
+        // rxcpp::subjects::subject<FreezedRound> freezed_round_notifier_;
+
+        // std::unique_ptr<rxcpp::subjects::synchronize<FreezedRound,
+        // rxcpp::identity_one_worker>>
+        //    subject_;
       };
     }  // namespace yac
   }    // namespace consensus

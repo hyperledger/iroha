@@ -13,6 +13,7 @@
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/subscription.hpp"
 
 namespace google {
   namespace protobuf {
@@ -115,15 +116,15 @@ namespace iroha {
           std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
-      rxcpp::composite_subscription sync_event_notifier_lifetime_;
-      rxcpp::composite_subscription commit_notifier_lifetime_;
+      // rxcpp::composite_subscription sync_event_notifier_lifetime_;
+      // rxcpp::composite_subscription commit_notifier_lifetime_;
 
      public:
       /// Constructor.
       /// @param log - the logger to use for internal messages.
       OnDemandOrderingInit(logger::LoggerPtr log);
 
-      ~OnDemandOrderingInit();
+      ~OnDemandOrderingInit() = default;
 
       /**
        * Initializes on-demand ordering gate and ordering sevice components
@@ -173,11 +174,28 @@ namespace iroha {
       std::shared_ptr<grpc::Service> service;
 
       /// commit notifier from peer communication service
-      rxcpp::subjects::subject<synchronizer::SynchronizationEvent>
-          sync_event_notifier;
-      rxcpp::subjects::subject<
+      /*rxcpp::subjects::subject<synchronizer::SynchronizationEvent>
+          sync_event_notifier;*/
+      /*rxcpp::subjects::subject<
           std::shared_ptr<shared_model::interface::Block const>>
-          commit_notifier;
+          commit_notifier;*/
+
+      using HashesCache = std::tuple<shared_model::crypto::Hash,
+                                     shared_model::crypto::Hash,
+                                     shared_model::crypto::Hash>;
+      using OnBlockSubscription = subscription::SubscriberImpl<
+          EventTypes,
+          SubscriptionDispatcher,
+          HashesCache,
+          std::shared_ptr<shared_model::interface::Block const>>;
+      using OnSyncronizationSubscription =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       synchronizer::SynchronizationEvent>;
+
+      std::shared_ptr<OnBlockSubscription> on_block_subscription_;
+      std::shared_ptr<OnSyncronizationSubscription> on_syncro_subscription_;
 
      private:
       logger::LoggerPtr log_;

@@ -6,6 +6,7 @@
 #ifndef IROHA_YAC_TIMER_HPP
 #define IROHA_YAC_TIMER_HPP
 
+#include <chrono>
 #include <functional>
 
 namespace iroha {
@@ -22,6 +23,12 @@ namespace iroha {
          * @param handler - function, that will be invoked
          */
         virtual void invokeAfterDelay(std::function<void()> handler) = 0;
+
+        /**
+         * Getter of the delay value
+         * @return delay in ms
+         */
+        virtual std::chrono::milliseconds getDelay() const = 0;
 
         /**
          * Stop timer

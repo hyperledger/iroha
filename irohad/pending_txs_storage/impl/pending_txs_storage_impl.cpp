@@ -10,31 +10,71 @@
 #include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
-
   PendingTransactionStorageImpl::PendingTransactionStorageImpl(
-      PendingTransactionStorageImpl::private_tag) {}
+      PendingTransactionStorageImpl::private_tag)
+      : mst_state_update_subscription_(
+            std::make_shared<MSTStateUpdateSubscription>(
+                getSubscription()
+                    ->getEngine<EventTypes, std::shared_ptr<MstState>>())),
+        mst_prepared_batches_subscription_(
+            std::make_shared<MSTPreparedBatchesSubscription>(
+                getSubscription()->getEngine<EventTypes, DataType>())),
+        mst_expired_batches_subscription_(
+            std::make_shared<MSTExpiredBatchesSubscription>(
+                getSubscription()->getEngine<EventTypes, DataType>())),
+        finalized_txs_subscription_(std::make_shared<FinalizedTxsSubscription>(
+            getSubscription()
+                ->getEngine<EventTypes,
+                            shared_model::interface::types::HashType>())) {
+    mst_state_update_subscription_->setCallback(
+        [this](auto, auto &, auto key, auto &batches) {
+          assert(EventTypes::kOnStateUpdate == key);
+          updatedBatchesHandler(batches);
+        });
+    mst_prepared_batches_subscription_->setCallback(
+        [this](auto, auto &, auto key, auto &preparedBatch) {
+          assert(EventTypes::kOnPreparedBatches == key);
+          removeBatch(preparedBatch);
+        });
+    mst_expired_batches_subscription_->setCallback(
+        [this](auto, auto &, auto key, auto &expiredBatch) {
+          assert(EventTypes::kOnExpiredBatches == key);
+          removeBatch(expiredBatch);
+        });
+    finalized_txs_subscription_->setCallback(
+        [this](auto, auto &, auto key, shared_model::interface::types::HashType const &hash) {
+          assert(EventTypes::kOnFinalizedTxs == key);
+          removeTransaction(hash);
+        });
+
+    mst_state_update_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+        0, EventTypes::kOnStateUpdate);
+    mst_prepared_batches_subscription_
+        ->subscribe<SubscriptionEngineHandlers::kYac>(
+            0, EventTypes::kOnPreparedBatches);
+    mst_expired_batches_subscription_
+        ->subscribe<SubscriptionEngineHandlers::kYac>(
+            0, EventTypes::kOnExpiredBatches);
+    finalized_txs_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+        0, EventTypes::kOnFinalizedTxs);
+  }
 
   std::shared_ptr<PendingTransactionStorageImpl>
-  PendingTransactionStorageImpl::create(
-      StateObservable updated_batches,
-      BatchObservable prepared_batch,
-      BatchObservable expired_batch,
-      PreparedTransactionsObservable prepared_txs,
-      FinalizedTransactionsObservable finalized_txs) {
+  PendingTransactionStorageImpl::create() {
     auto storage = std::make_shared<PendingTransactionStorageImpl>(
         PendingTransactionStorageImpl::private_tag{});
     std::weak_ptr<PendingTransactionStorageImpl> storage_(storage);
 
-    auto subscription = rxcpp::composite_subscription();
-    updated_batches.subscribe(
-        subscription, [storage_, subscription](SharedState const &batches) {
-          if (auto storage = storage_.lock()) {
-            storage->updatedBatchesHandler(batches);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-    subscription = rxcpp::composite_subscription();
+    /*    auto subscription = rxcpp::composite_subscription();
+        updated_batches.subscribe(
+            subscription, [storage_, subscription](SharedState const &batches) {
+              if (auto storage = storage_.lock()) {
+                storage->updatedBatchesHandler(batches);
+              } else {
+                subscription.unsubscribe();
+              }
+            });*/
+    /*subscription = rxcpp::composite_subscription();
     prepared_batch.subscribe(
         subscription,
         [storage_, subscription](SharedBatch const &preparedBatch) {
@@ -43,8 +83,8 @@ namespace iroha {
           } else {
             subscription.unsubscribe();
           }
-        });
-    subscription = rxcpp::composite_subscription();
+        });*/
+    /*subscription = rxcpp::composite_subscription();
     expired_batch.subscribe(
         subscription,
         [storage_, subscription](SharedBatch const &expiredBatch) {
@@ -53,8 +93,8 @@ namespace iroha {
           } else {
             subscription.unsubscribe();
           }
-        });
-    subscription = rxcpp::composite_subscription();
+        });*/
+    /*subscription = rxcpp::composite_subscription();
     prepared_txs.subscribe(
         subscription,
         [storage_, subscription](
@@ -64,8 +104,8 @@ namespace iroha {
           } else {
             subscription.unsubscribe();
           }
-        });
-    subscription = rxcpp::composite_subscription();
+        });*/
+    /*subscription = rxcpp::composite_subscription();
     finalized_txs.subscribe(
         subscription,
         [storage_,
@@ -75,7 +115,7 @@ namespace iroha {
           } else {
             subscription.unsubscribe();
           }
-        });
+        });*/
 
     return storage;
   }

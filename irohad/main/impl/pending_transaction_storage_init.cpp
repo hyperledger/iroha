@@ -15,21 +15,22 @@
 using namespace iroha;
 
 PendingTransactionStorageInit::PendingTransactionStorageInit()
-    : updated_batches(pending_storage_lifetime),
-      prepared_batch(pending_storage_lifetime),
-      expired_batch(pending_storage_lifetime),
-      prepared_txs(pending_storage_lifetime) {}
+/*: updated_batches(pending_storage_lifetime),
+  prepared_batch(pending_storage_lifetime),
+  expired_batch(pending_storage_lifetime),
+  prepared_txs(pending_storage_lifetime)*/
+{}
 
 std::shared_ptr<PendingTransactionStorage>
 PendingTransactionStorageInit::createPendingTransactionsStorage() {
-  return PendingTransactionStorageImpl::create(updated_batches.get_observable(),
+  return PendingTransactionStorageImpl::create(/*updated_batches.get_observable(),
                                                prepared_batch.get_observable(),
                                                expired_batch.get_observable(),
                                                prepared_txs.get_observable(),
-                                               finalized_txs.get_observable());
+                                               finalized_txs.get_observable()*/);
 }
 
-void PendingTransactionStorageInit::setMstSubscriptions(
+/*void PendingTransactionStorageInit::setMstSubscriptions(
     const MstProcessor &mst_processor) {
   mst_processor.onStateUpdate().subscribe(pending_storage_lifetime,
                                           updated_batches.get_subscriber());
@@ -37,14 +38,14 @@ void PendingTransactionStorageInit::setMstSubscriptions(
                                               prepared_batch.get_subscriber());
   mst_processor.onExpiredBatches().subscribe(pending_storage_lifetime,
                                              expired_batch.get_subscriber());
-}
+}*/
 
-void PendingTransactionStorageInit::setFinalizedTxsSubscription(
+/*void PendingTransactionStorageInit::setFinalizedTxsSubscription(
     rxcpp::observable<shared_model::interface::types::HashType> finalized_txs) {
   finalized_txs.subscribe(pending_storage_lifetime,
                           this->finalized_txs.get_subscriber());
-}
+}*/
 
 PendingTransactionStorageInit::~PendingTransactionStorageInit() {
-  pending_storage_lifetime.unsubscribe();
+  // pending_storage_lifetime.unsubscribe();
 }

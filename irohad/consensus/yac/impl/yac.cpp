@@ -17,6 +17,7 @@
 #include "consensus/yac/yac_crypto_provider.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 
 // TODO: 2019-03-04 @muratovv refactor std::vector<VoteMessage> with a
 // separate class IR-374
@@ -58,19 +59,31 @@ namespace iroha {
           : log_(std::move(log)),
             cluster_order_(order),
             round_(round),
-            worker_(worker),
-            notifier_(worker_, notifier_lifetime_),
+            // worker_(worker),
+            // notifier_(worker_, notifier_lifetime_),
             vote_storage_(std::move(vote_storage)),
             network_(std::move(network)),
             crypto_(std::move(crypto)),
-            timer_(std::move(timer)) {}
+            timer_(std::move(timer))  //,
+      // freezed_round_notifier_(freezed_round_notifier_lifetime_),
+      // subject_(worker_, freezed_round_notifier_lifetime_)
+      {}
 
       Yac::~Yac() {
-        notifier_lifetime_.unsubscribe();
+        // notifier_lifetime_.unsubscribe();
       }
+
+      /*rxcpp::observable<FreezedRound> Yac::onFreezedRound() {
+        //return freezed_round_notifier_.get_observable();
+        if (!subject_)
+          subject_ = std::make_unique<rxcpp::subjects::synchronize<FreezedRound,
+      rxcpp::identity_one_worker>>(rxcpp::identity_current_thread(),
+      freezed_round_notifier_lifetime_); return subject_->get_observable();
+      }*/
 
       void Yac::stop() {
         network_->stop();
+        // freezed_round_notifier_lifetime_.unsubscribe();
       }
 
       // ------|Hash gate|------
@@ -96,9 +109,9 @@ namespace iroha {
         votingStep(vote);
       }
 
-      rxcpp::observable<Answer> Yac::onOutcome() {
+      /*rxcpp::observable<Answer> Yac::onOutcome() {
         return notifier_.get_observable();
-      }
+      }*/
 
       // ------|Network notifications|------
 
@@ -147,7 +160,10 @@ namespace iroha {
             guard.unlock();
             log_->info("Pass state from future for {} to pipeline",
                        proposal_round);
-            notifier_.get_subscriber().on_next(FutureMessage{std::move(state)});
+
+            getSubscription()->notify(EventTypes::kOnOutcomeFromYac,
+                                      Answer(FutureMessage{std::move(state)}));
+            // notifier_.get_subscriber().on_next(FutureMessage{std::move(state)});
             return;
           }
 
@@ -183,11 +199,30 @@ namespace iroha {
 
       // ------|Private interface|------
 
-      void Yac::votingStep(VoteMessage vote) {
+      void Yac::votingStep(VoteMessage vote, uint32_t attempt) {
+        log_->info("votingStep got vote: {}, attempt {}", vote, attempt);
         std::unique_lock<std::mutex> lock(mutex_);
 
         auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
         if (committed) {
+          return;
+        }
+        if (round_ > vote.hash.vote_round && attempt >= 1)
+          return;
+
+        /**
+         * 3 attempts to build and commit block before we think that round is
+         * freezed
+         */
+        if (attempt >= 2) {
+          /*freezed_round_notifier_.get_subscriber().on_next(
+              FreezedRound{vote.hash.vote_round});
+              */
+
+          /*subject_->get_subscriber().on_next(
+              FreezedRound{vote.hash.vote_round});*/
+          getSubscription()->notify(EventTypes::kOnRoundFreeze2,
+                                    FreezedRound{vote.hash.vote_round});
           return;
         }
 
@@ -200,7 +235,20 @@ namespace iroha {
         propagateStateDirectly(current_leader, {vote});
         cluster_order.switchToNext();
         lock.unlock();
-        timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
+
+        // identity_current_thread
+
+        getSubscription()->dispatcher()->addDelayed(
+            SubscriptionEngineHandlers::kYac,
+            timer_->getDelay(),
+            [wptr(weak_from_this()), vote, attempt] {
+              if (auto ptr = wptr.lock())
+                ptr->votingStep(vote, attempt + 1);
+            });
+
+        /*        timer_->invokeAfterDelay(
+                    [this, vote, attempt] { this->votingStep(vote, attempt + 1);
+           });*/
       }
 
       void Yac::closeRound() {
@@ -235,7 +283,7 @@ namespace iroha {
 
         iroha::match_in_place(
             answer,
-            [&](const auto &answer) {
+            [&](const Answer &answer) {
               auto &proposal_round = getRound(state);
               auto current_round = round_;
 
@@ -282,7 +330,9 @@ namespace iroha {
                   if (proposal_round >= current_round) {
                     this->closeRound();
                   }
-                  notifier_.get_subscriber().on_next(answer);
+                  getSubscription()->notify(EventTypes::kOnOutcomeFromYac,
+                                            answer);
+                  // notifier_.get_subscriber().on_next(answer);
                   break;
                 case ProposalState::kSentProcessed:
                   if (current_round > proposal_round)

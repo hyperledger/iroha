@@ -33,7 +33,7 @@ namespace iroha {
       /**
        * Emit blocks made from proposals
        */
-      virtual rxcpp::observable<BlockCreatorEvent> onBlock() = 0;
+      // virtual rxcpp::observable<BlockCreatorEvent> onBlock() = 0;
 
       virtual ~BlockCreator() = default;
     };

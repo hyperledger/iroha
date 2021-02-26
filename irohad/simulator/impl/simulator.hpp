@@ -15,6 +15,7 @@
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "interfaces/iroha_internal/unsafe_block_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "network/ordering_gate.hpp"
 #include "validation/stateful_validator.hpp"
 
@@ -42,13 +43,13 @@ namespace iroha {
               block_factory,
           logger::LoggerPtr log);
 
-      ~Simulator() override;
+      ~Simulator() = default;
 
       std::shared_ptr<validation::VerifiedProposalAndErrors> processProposal(
           const shared_model::interface::Proposal &proposal) override;
 
-      rxcpp::observable<VerifiedProposalCreatorEvent> onVerifiedProposal()
-          override;
+      /*rxcpp::observable<VerifiedProposalCreatorEvent> onVerifiedProposal()
+          override;*/
 
       boost::optional<std::shared_ptr<shared_model::interface::Block>>
       processVerifiedProposal(
@@ -56,19 +57,19 @@ namespace iroha {
               &verified_proposal_and_errors,
           const TopBlockInfo &top_block_info) override;
 
-      rxcpp::observable<BlockCreatorEvent> onBlock() override;
+      // rxcpp::observable<BlockCreatorEvent> onBlock() override;
 
      private:
       // internal
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor_;
 
-      rxcpp::composite_subscription notifier_lifetime_;
+      /*rxcpp::composite_subscription notifier_lifetime_;
       rxcpp::subjects::subject<VerifiedProposalCreatorEvent> notifier_;
       rxcpp::composite_subscription block_notifier_lifetime_;
-      rxcpp::subjects::subject<BlockCreatorEvent> block_notifier_;
+      rxcpp::subjects::subject<BlockCreatorEvent> block_notifier_;*/
 
-      rxcpp::composite_subscription proposal_subscription_;
-      rxcpp::composite_subscription verified_proposal_subscription_;
+      // rxcpp::composite_subscription proposal_subscription_;
+      // rxcpp::composite_subscription verified_proposal_subscription_;
 
       std::shared_ptr<validation::StatefulValidator> validator_;
       std::shared_ptr<ametsuchi::TemporaryFactory> ametsuchi_factory_;
@@ -77,6 +78,21 @@ namespace iroha {
           block_factory_;
 
       logger::LoggerPtr log_;
+
+      using OnProposalSubscriber =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       network::OrderingEvent>;
+      using OnVerifiedProposalSubscriber =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       VerifiedProposalCreatorEvent>;
+
+      std::shared_ptr<OnProposalSubscriber> on_proposal_subscription_;
+      std::shared_ptr<OnVerifiedProposalSubscriber>
+          on_verified_proposal_subscription_;
     };
   }  // namespace simulator
 }  // namespace iroha

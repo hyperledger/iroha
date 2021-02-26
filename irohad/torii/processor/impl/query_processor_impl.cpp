@@ -29,14 +29,32 @@ namespace iroha {
           qry_exec_{std::move(qry_exec)},
           pending_transactions_{std::move(pending_transactions)},
           response_factory_{std::move(response_factory)},
+          block_subscription_(std::make_shared<BlockSubscription>(
+              getSubscription()
+                  ->getEngine<EventTypes,
+                              std::shared_ptr<
+                                  const shared_model::interface::Block>>())),
           log_{std::move(log)} {
-      storage_->on_commit().subscribe(
-          [this](std::shared_ptr<const shared_model::interface::Block> block) {
+      block_subscription_->setCallback(
+          [this](auto,
+                 auto,
+                 auto key,
+                 std::shared_ptr<const shared_model::interface::Block> block) {
+            assert(EventTypes::kOnBlock == key);
             auto block_response =
                 response_factory_->createBlockQueryResponse(block);
             blocks_query_subject_.get_subscriber().on_next(
                 std::move(block_response));
           });
+      block_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+          0, EventTypes::kOnBlock);
+      /*      storage_->on_commit().subscribe(
+                [this](std::shared_ptr<const shared_model::interface::Block>
+         block) { auto block_response =
+                      response_factory_->createBlockQueryResponse(block);
+                  blocks_query_subject_.get_subscriber().on_next(
+                      std::move(block_response));
+                });*/
     }
 
     iroha::expected::Result<

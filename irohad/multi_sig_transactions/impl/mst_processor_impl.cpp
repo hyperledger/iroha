@@ -12,6 +12,7 @@
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/operators/rx-take.hpp>
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
@@ -113,20 +114,20 @@ namespace iroha {
         storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));
   }
 
-  auto FairMstProcessor::onStateUpdateImpl() const
+  /*auto FairMstProcessor::onStateUpdateImpl() const
       -> decltype(onStateUpdate()) {
     return state_subject_.get_observable();
-  }
+  }*/
 
-  auto FairMstProcessor::onPreparedBatchesImpl() const
+  /*auto FairMstProcessor::onPreparedBatchesImpl() const
       -> decltype(onPreparedBatches()) {
     return batches_subject_.get_observable();
-  }
+  }*/
 
-  auto FairMstProcessor::onExpiredBatchesImpl() const
+  /*auto FairMstProcessor::onExpiredBatchesImpl() const
       -> decltype(onExpiredBatches()) {
     return expired_subject_.get_observable();
-  }
+  }*/
 
   bool FairMstProcessor::batchInStorageImpl(const DataType &batch) const {
     return storage_->batchInStorage(batch);
@@ -161,23 +162,26 @@ namespace iroha {
   // TODO [IR-1687] Akvinikym 10.09.18: three methods below should be one
   void FairMstProcessor::completedBatchesNotify(ConstRefState state) const {
     if (not state.isEmpty()) {
-      state.iterateBatches([this](const auto &batch) {
-        batches_subject_.get_subscriber().on_next(batch);
+      state.iterateBatches([](const DataType &batch) {
+        getSubscription()->notify(EventTypes::kOnPreparedBatches, batch);
+        //batches_subject_.get_subscriber().on_next(batch);
       });
     }
   }
 
   void FairMstProcessor::updatedBatchesNotify(ConstRefState state) const {
     if (not state.isEmpty()) {
-      state_subject_.get_subscriber().on_next(
-          std::make_shared<MstState>(state));
+      getSubscription()->notify(EventTypes::kOnStateUpdate, std::make_shared<MstState>(state));
+      /*state_subject_.get_subscriber().on_next(
+          std::make_shared<MstState>(state));*/
     }
   }
 
   void FairMstProcessor::expiredBatchesNotify(ConstRefState state) const {
     if (not state.isEmpty()) {
-      state.iterateBatches([this](const auto &batch) {
-        expired_subject_.get_subscriber().on_next(batch);
+      state.iterateBatches([](const DataType &batch) {
+        getSubscription()->notify(EventTypes::kOnExpiredBatches, batch);
+        //expired_subject_.get_subscriber().on_next(batch);
       });
     }
   }

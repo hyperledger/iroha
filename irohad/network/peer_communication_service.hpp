@@ -39,14 +39,14 @@ namespace iroha {
        * @return observable with Proposals.
        * (List of Proposals)
        */
-      virtual rxcpp::observable<OrderingEvent> onProposal() const = 0;
+      // virtual rxcpp::observable<OrderingEvent> onProposal() const = 0;
 
       /**
        * Event is triggered when verified proposal arrives
        * @return verified proposal and list of stateful validation errors
        */
-      virtual rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
-      onVerifiedProposal() const = 0;
+      /*virtual rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
+      onVerifiedProposal() const = 0;*/
 
       /**
        * Event is triggered when commit block arrives.
@@ -56,8 +56,8 @@ namespace iroha {
        * on peer startup - peer will get all actual blocks.
        * Also, it can provide no blocks at all, if commit was empty
        */
-      virtual rxcpp::observable<synchronizer::SynchronizationEvent>
-      onSynchronization() const = 0;
+      /*virtual rxcpp::observable<synchronizer::SynchronizationEvent>
+      onSynchronization() const = 0;*/
 
       virtual ~PeerCommunicationService() = default;
     };

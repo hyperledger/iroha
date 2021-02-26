@@ -34,16 +34,16 @@ namespace iroha {
     std::shared_ptr<PendingTransactionStorage>
     createPendingTransactionsStorage();
 
-    void setMstSubscriptions(const MstProcessor &mst_processor);
+    // void setMstSubscriptions(const MstProcessor &mst_processor);
 
-    void setFinalizedTxsSubscription(
-        rxcpp::observable<shared_model::interface::types::HashType>
-            finalized_txs);
+    /*    void setFinalizedTxsSubscription(
+            rxcpp::observable<shared_model::interface::types::HashType>
+                finalized_txs);*/
 
     ~PendingTransactionStorageInit();
 
    protected:
-    rxcpp::composite_subscription pending_storage_lifetime;
+    /*rxcpp::composite_subscription pending_storage_lifetime;
     rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>> updated_batches;
     rxcpp::subjects::subject<
         std::shared_ptr<shared_model::interface::TransactionBatch>>
@@ -56,7 +56,7 @@ namespace iroha {
                   shared_model::interface::types::HashType>>
         prepared_txs;
     rxcpp::subjects::subject<shared_model::interface::types::HashType>
-        finalized_txs;
+        finalized_txs;*/
   };
 }  // namespace iroha
 

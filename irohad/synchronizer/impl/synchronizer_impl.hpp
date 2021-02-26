@@ -14,6 +14,7 @@
 #include "ametsuchi/peer_query_factory.hpp"
 #include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "network/block_loader.hpp"
 #include "network/consensus_gate.hpp"
 #include "validation/chain_validator.hpp"
@@ -41,7 +42,7 @@ namespace iroha {
       ~SynchronizerImpl() override;
 
       void processOutcome(consensus::GateObject object) override;
-      rxcpp::observable<SynchronizationEvent> on_commit_chain() override;
+      // rxcpp::observable<SynchronizationEvent> on_commit_chain() override;
 
      private:
       /**
@@ -81,9 +82,17 @@ namespace iroha {
       std::shared_ptr<network::BlockLoader> block_loader_;
 
       // internal
-      rxcpp::composite_subscription notifier_lifetime_;
-      rxcpp::subjects::subject<SynchronizationEvent> notifier_;
-      rxcpp::composite_subscription subscription_;
+      // rxcpp::composite_subscription notifier_lifetime_;
+      // rxcpp::subjects::subject<SynchronizationEvent> notifier_;
+      // rxcpp::composite_subscription subscription_;
+
+      using OnOutcomeSubscriber =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       consensus::GateObject>;
+
+      std::shared_ptr<OnOutcomeSubscriber> notifier_;
 
       logger::LoggerPtr log_;
     };

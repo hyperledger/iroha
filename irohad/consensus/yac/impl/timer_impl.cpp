@@ -27,6 +27,10 @@ namespace iroha {
         }
       }
 
+      std::chrono::milliseconds TimerImpl::getDelay() const {
+        return delay_milliseconds_;
+      }
+
       void TimerImpl::deny() {
         rxcpp::composite_subscription timer_lifetime;
         {

@@ -37,6 +37,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
@@ -146,12 +147,36 @@ Irohad::Irohad(
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
-      log_(log_manager_->getLogger()) {
+      log_(log_manager_->getLogger()),
+      on_block_subscription_(std::make_shared<OnBlockSubscription>(
+          getSubscription()
+              ->getEngine<
+                  EventTypes,
+                  std::shared_ptr<const shared_model::interface::Block>>())) {
   log_->info("created");
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
+
+  on_block_subscription_->setCallback(
+      [](auto,
+         auto,
+         auto key,
+         std::shared_ptr<const shared_model::interface::Block> block) {
+        assert(EventTypes::kOnBlock == key);
+        for (auto const &completed_tx : block->transactions()) {
+          getSubscription()->notify(EventTypes::kOnFinalizedTxs,
+                                    completed_tx.hash());
+        }
+        for (shared_model::interface::types::HashType const &rejected_tx_hash :
+             block->rejected_transactions_hashes()) {
+          getSubscription()->notify(EventTypes::kOnFinalizedTxs,
+                                    rejected_tx_hash);
+        }
+      });
+  on_block_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnBlock);
 
   if (auto e = expected::resultToOptionalError(initPendingTxsStorage() | [&] {
 #if defined(USE_BURROW)
@@ -287,22 +312,22 @@ Irohad::RunResult Irohad::initStorage(
       using shared_model::crypto::Hash;
       using shared_model::interface::Block;
 
-      finalized_txs_ =
-          storage->on_commit()
-              .template lift<Hash>([](rxcpp::subscriber<Hash> dest) {
-                return rxcpp::make_subscriber<std::shared_ptr<Block const>>(
-                    dest, [=](std::shared_ptr<Block const> const &block) {
-                      for (auto const &completed_tx : block->transactions()) {
-                        dest.on_next(completed_tx.hash());
-                      }
-                      for (auto const &rejected_tx_hash :
-                           block->rejected_transactions_hashes()) {
-                        dest.on_next(rejected_tx_hash);
-                      }
-                    });
-              })
-              .publish()
-              .ref_count();
+      /*      finalized_txs_ =
+                storage->on_commit()
+                    .template lift<Hash>([](rxcpp::subscriber<Hash> dest) {
+                      return rxcpp::make_subscriber<std::shared_ptr<Block
+         const>>( dest, [=](std::shared_ptr<Block const> const &block) { for
+         (auto const &completed_tx : block->transactions()) {
+                              dest.on_next(completed_tx.hash());
+                            }
+                            for (auto const &rejected_tx_hash :
+                                 block->rejected_transactions_hashes()) {
+                              dest.on_next(rejected_tx_hash);
+                            }
+                          });
+                    })
+                    .publish()
+                    .ref_count();*/
 
       log_->info("[Init] => storage");
       return {};
@@ -726,9 +751,28 @@ Irohad::RunResult Irohad::initConsensusGate() {
       log_manager_->getChild("Consensus"),
       max_rounds_delay_,
       inter_peer_client_factory_);
-  consensus_gate->onOutcome().subscribe(
+
+  on_outcome_subscription_ = std::make_shared<OnOutcomeSubscription>(
+      getSubscription()
+          ->getEngine<iroha::EventTypes, iroha::consensus::GateObject>());
+  on_outcome_subscription_->setCallback(
+      [this](auto, auto, auto key, iroha::consensus::GateObject object) {
+        assert(EventTypes::kOnOutcome == key);
+        consensus_gate_objects.get_subscriber().on_next(std::move(object));
+      });
+  on_outcome_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnOutcome);
+
+  /*consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
-      consensus_gate_objects.get_subscriber());
+      consensus_gate_objects.get_subscriber());*/
+  // freezed_round_subscription = consensus_freezed_round
+  /*consensus_gate->onFreezedRound().subscribe(freezed_round_subscription,
+                                             consensus_freezed_round.get_subscriber());*/
+  /*                                                  [this](auto event) {
+      ordering_gate->requestProposal(network::RequestProposal{event.round,
+    event.ledger_state});
+    });*/
   log_->info("[Init] => consensus gate");
   return {};
 }
@@ -763,11 +807,28 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
       simulator,
       log_manager_->getChild("PeerCommunicationService")->getLogger());
 
-  pcs->onProposal().subscribe([this](const auto &) {
-    log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-  });
+  on_proposal_subscription_ = std::make_shared<OnProposalSubscription>(
+      getSubscription()
+          ->getEngine<iroha::EventTypes, iroha::network::OrderingEvent>());
+  on_proposal_subscription_->setCallback(
+      [this](auto, auto, auto key, auto const &) {
+        assert(EventTypes::kOnProposal == key);
+        log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
+      });
+  on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnProposal);
+  /*  pcs->onProposal().subscribe([this](const auto &) {
+      log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
+    });*/
 
-  pcs->onSynchronization().subscribe([this](const auto &event) {
+  syncSubscription =
+      std::make_shared<subscription::SubscriberImpl<EventTypes,
+                                                    SubscriptionDispatcher,
+                                                    bool,
+                                                    SynchronizationEvent>>(
+          getSubscription()->getEngine<EventTypes, SynchronizationEvent>());
+  syncSubscription->setCallback([&](auto, auto &, auto key, auto const &event) {
+    assert(EventTypes::kOnSynchronization == key);
     using iroha::synchronizer::SynchronizationOutcomeType;
     switch (event.sync_outcome) {
       case SynchronizationOutcomeType::kCommit:
@@ -783,6 +844,25 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
         break;
     }
   });
+  syncSubscription->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnSynchronization);
+
+  /*  pcs->onSynchronization().subscribe([this](const auto &event) {
+      using iroha::synchronizer::SynchronizationOutcomeType;
+      switch (event.sync_outcome) {
+        case SynchronizationOutcomeType::kCommit:
+          log_->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
+          break;
+        case SynchronizationOutcomeType::kReject:
+          log_->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");
+          break;
+        case SynchronizationOutcomeType::kNothing:
+          log_->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
+          break;
+        default:
+          break;
+      }
+    });*/
 
   log_->info("[Init] => pcs");
   return {};
@@ -801,10 +881,10 @@ Irohad::RunResult Irohad::initMstProcessor() {
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
   auto mst_storage = MstStorageStateImpl::create(
       mst_completer,
-      finalized_txs_,
+      // finalized_txs_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
-  pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
+  // pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (is_mst_supported_) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
@@ -837,7 +917,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
 
-  pending_txs_storage_init->setMstSubscriptions(*mst_processor);
+  // pending_txs_storage_init->setMstSubscriptions(*mst_processor);
 
   log_->info("[Init] => MST processor");
   return {};
@@ -863,7 +943,7 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       mst_processor,
       status_bus_,
       status_factory,
-      storage->on_commit(),
+      // storage->on_commit(),
       command_service_log_manager->getChild("Processor")->getLogger());
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
@@ -1015,18 +1095,28 @@ Irohad::RunResult Irohad::run() {
       return expected::makeError("Failed to fetch ledger state!");
     }
 
-    pcs->onSynchronization().subscribe(
-        ordering_init.sync_event_notifier.get_subscriber());
-    storage->on_commit().subscribe(
-        ordering_init.commit_notifier.get_subscriber());
+    /*pcs->onSynchronization().subscribe(
+        ordering_init.sync_event_notifier.get_subscriber());*/
+    /*storage->on_commit().subscribe(
+        ordering_init.commit_notifier.get_subscriber());*/
 
-    ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
+    // ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
+    getSubscription()->notify(
+        EventTypes::kOnBlock,
+        std::shared_ptr<const shared_model::interface::Block>(
+            std::move(block)));
 
-    ordering_init.sync_event_notifier.get_subscriber().on_next(
+    getSubscription()->notify(EventTypes::kOnSynchronization,
+                              synchronizer::SynchronizationEvent{
+                                  SynchronizationOutcomeType::kCommit,
+                                  {block_height, ordering::kFirstRejectRound},
+                                  *initial_ledger_state});
+
+    /*ordering_init.sync_event_notifier.get_subscriber().on_next(
         synchronizer::SynchronizationEvent{
             SynchronizationOutcomeType::kCommit,
             {block_height, ordering::kFirstRejectRound},
-            *initial_ledger_state});
+            *initial_ledger_state});*/
     return {};
   };
 }

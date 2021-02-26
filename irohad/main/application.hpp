@@ -21,7 +21,9 @@
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
+#include "network/ordering_gate_common.hpp"
 #include "torii/tls_params.hpp"
 
 namespace iroha {
@@ -287,7 +289,7 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:
-  rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
+  // rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
 
   // initialization objects
   iroha::ordering::OnDemandOrderingInit ordering_init;
@@ -399,6 +401,11 @@ class Irohad {
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
   rxcpp::composite_subscription consensus_gate_events_subscription;
 
+  rxcpp::composite_subscription consensus_freezed_round_lifetime;
+  rxcpp::subjects::subject<iroha::consensus::FreezedRound>
+      consensus_freezed_round;
+  rxcpp::composite_subscription freezed_round_subscription;
+
   std::unique_ptr<iroha::network::ServerRunner> torii_server;
   boost::optional<std::unique_ptr<iroha::network::ServerRunner>>
       torii_tls_server = boost::none;
@@ -407,6 +414,33 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
+
+  std::shared_ptr<iroha::subscription::SubscriberImpl<
+      iroha::EventTypes,
+      iroha::SubscriptionDispatcher,
+      bool,
+      iroha::synchronizer::SynchronizationEvent>>
+      syncSubscription;
+
+  using OnProposalSubscription =
+      iroha::subscription::SubscriberImpl<iroha::EventTypes,
+                                          iroha::SubscriptionDispatcher,
+                                          bool,
+                                          iroha::network::OrderingEvent>;
+  using OnOutcomeSubscription =
+      iroha::subscription::SubscriberImpl<iroha::EventTypes,
+                                          iroha::SubscriptionDispatcher,
+                                          bool,
+                                          iroha::consensus::GateObject>;
+  using OnBlockSubscription = iroha::subscription::SubscriberImpl<
+      iroha::EventTypes,
+      iroha::SubscriptionDispatcher,
+      bool,
+      std::shared_ptr<const shared_model::interface::Block>>;
+
+  std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
+  std::shared_ptr<OnOutcomeSubscription> on_outcome_subscription_;
+  std::shared_ptr<OnBlockSubscription> on_block_subscription_;
 };
 
 #endif  // IROHA_APPLICATION_HPP

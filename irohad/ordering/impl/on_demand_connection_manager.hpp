@@ -13,6 +13,7 @@
 
 #include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ordering {
@@ -53,12 +54,12 @@ namespace iroha {
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          rxcpp::observable<CurrentPeers> peers,
+          // rxcpp::observable<CurrentPeers> peers,
           logger::LoggerPtr log);
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          rxcpp::observable<CurrentPeers> peers,
+          // rxcpp::observable<CurrentPeers> peers,
           CurrentPeers initial_peers,
           logger::LoggerPtr log);
 
@@ -88,7 +89,14 @@ namespace iroha {
 
       logger::LoggerPtr log_;
       std::shared_ptr<transport::OdOsNotificationFactory> factory_;
-      rxcpp::composite_subscription subscription_;
+      // rxcpp::composite_subscription subscription_;
+      using SubscriberType =
+          subscription::SubscriberImpl<EventTypes,
+                                       SubscriptionDispatcher,
+                                       bool,
+                                       CurrentPeers>;
+
+      std::shared_ptr<SubscriberType> subscription_;
 
       CurrentConnections connections_;
 

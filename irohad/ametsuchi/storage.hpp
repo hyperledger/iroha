@@ -84,9 +84,9 @@ namespace iroha {
        * method called when block is written to the storage
        * @return observable with the Block committed
        */
-      virtual rxcpp::observable<
+      /*virtual rxcpp::observable<
           std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() = 0;
+      on_commit() = 0;*/
 
       /**
        * Removes all peers from WSV

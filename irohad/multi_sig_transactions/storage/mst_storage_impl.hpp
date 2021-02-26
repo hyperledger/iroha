@@ -11,6 +11,7 @@
 
 #include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
 
@@ -42,8 +43,8 @@ namespace iroha {
 
     static std::shared_ptr<MstStorageStateImpl> create(
         CompleterType const &completer,
-        rxcpp::observable<shared_model::interface::types::HashType>
-            finalized_txs,
+        /*rxcpp::observable<shared_model::interface::types::HashType>
+            finalized_txs,*/
         logger::LoggerPtr mst_state_logger,
         logger::LoggerPtr log);
 
@@ -98,6 +99,13 @@ namespace iroha {
     std::unordered_map<StringViewOrString, MstState, StringViewOrString::Hash>
         peer_states_;
     MstState own_state_;
+
+    using FinalizedTxsSubscription =
+        subscription::SubscriberImpl<EventTypes,
+                                     SubscriptionDispatcher,
+                                     bool,
+                                     shared_model::interface::types::HashType>;
+    std::shared_ptr<FinalizedTxsSubscription> finalized_txs_subscription_;
 
     logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                           ///< objects.

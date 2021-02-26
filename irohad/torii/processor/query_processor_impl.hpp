@@ -12,6 +12,7 @@
 #include "ametsuchi/storage.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace torii {
@@ -49,6 +50,14 @@ namespace iroha {
       std::shared_ptr<iroha::PendingTransactionStorage> pending_transactions_;
       std::shared_ptr<shared_model::interface::QueryResponseFactory>
           response_factory_;
+
+      using BlockSubscription = subscription::SubscriberImpl<
+          EventTypes,
+          SubscriptionDispatcher,
+          bool,
+          std::shared_ptr<const shared_model::interface::Block>>;
+
+      std::shared_ptr<BlockSubscription> block_subscription_;
 
       logger::LoggerPtr log_;
     };

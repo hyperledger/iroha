@@ -17,30 +17,40 @@ using namespace iroha::ordering;
 
 OnDemandConnectionManager::OnDemandConnectionManager(
     std::shared_ptr<transport::OdOsNotificationFactory> factory,
-    rxcpp::observable<CurrentPeers> peers,
+    // rxcpp::observable<CurrentPeers> peers,
     logger::LoggerPtr log)
     : log_(std::move(log)),
       factory_(std::move(factory)),
-      subscription_(peers.subscribe([this](const auto &peers) {
-        // `this' is captured raw and needs protection during destruction of
-        // OnDemandConnectionManager. We assert that
-        // OnDemandConnectionManager::initializeConnections locks the mutex and
-        // does not use `this' if stop_requested_ reads `true'.
-        this->initializeConnections(peers);
-      })) {}
+      subscription_(std::make_shared<SubscriberType>(
+          getSubscription()->getEngine<EventTypes, CurrentPeers>()))
+/*subscription_(peers.subscribe([this](const auto &peers) {
+  // `this' is captured raw and needs protection during destruction of
+  // OnDemandConnectionManager. We assert that
+  // OnDemandConnectionManager::initializeConnections locks the mutex and
+  // does not use `this' if stop_requested_ reads `true'.
+  this->initializeConnections(peers);
+}))*/
+{
+  subscription_->setCallback([this](auto, auto &, auto key, auto const &peers) {
+    assert(EventTypes::kOnCurrentRoundPeers == key);
+    this->initializeConnections(peers);
+  });
+  subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnCurrentRoundPeers);
+}
 
 OnDemandConnectionManager::OnDemandConnectionManager(
     std::shared_ptr<transport::OdOsNotificationFactory> factory,
-    rxcpp::observable<CurrentPeers> peers,
+    // rxcpp::observable<CurrentPeers> peers,
     CurrentPeers initial_peers,
     logger::LoggerPtr log)
-    : OnDemandConnectionManager(std::move(factory), peers, std::move(log)) {
+    : OnDemandConnectionManager(std::move(factory), /*peers,*/ std::move(log)) {
   // using start_with(initial_peers) results in deadlock
   initializeConnections(initial_peers);
 }
 
 OnDemandConnectionManager::~OnDemandConnectionManager() {
-  subscription_.unsubscribe();
+  //  subscription_.unsubscribe();
   stop_requested_.store(true);
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
 }

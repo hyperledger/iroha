@@ -36,6 +36,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -61,7 +62,7 @@ namespace iroha {
         : block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_->connection_pool_),
-          notifier_(notifier_lifetime_),
+          // notifier_(notifier_lifetime_),
           perm_converter_(std::move(perm_converter)),
           pending_txs_storage_(std::move(pending_txs_storage)),
           query_response_factory_(std::move(query_response_factory)),
@@ -307,7 +308,11 @@ namespace iroha {
           if (not maybe_block) {
             return fmt::format("Failed to fetch block {}", height);
           }
-          notifier_.get_subscriber().on_next(*std::move(maybe_block));
+          getSubscription()->notify(
+              EventTypes::kOnBlock,
+              std::shared_ptr<const shared_model::interface::Block>(
+                  *std::move(maybe_block)));
+          // notifier_.get_subscriber().on_next(*std::move(maybe_block));
         }
         return expected::makeValue(std::move(commit_result.ledger_state));
       };
@@ -356,7 +361,10 @@ namespace iroha {
           throw std::runtime_error(e.value());
         }
 
-        notifier_.get_subscriber().on_next(block);
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(block));
+        // notifier_.get_subscriber().on_next(block);
 
         decltype(std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
         {
@@ -418,10 +426,10 @@ namespace iroha {
       return boost::make_optional(std::move(setting_query_ptr));
     }
 
-    rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
+    /*rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
     StorageImpl::on_commit() {
       return notifier_.get_observable();
-    }
+    }*/
 
     void StorageImpl::prepareBlock(std::unique_ptr<TemporaryWsv> wsv) {
       auto &wsv_impl = static_cast<TemporaryWsvImpl &>(*wsv);
@@ -447,14 +455,17 @@ namespace iroha {
     }
 
     StorageImpl::~StorageImpl() {
-      notifier_lifetime_.unsubscribe();
+      // notifier_lifetime_.unsubscribe();
       freeConnections();
     }
 
     StorageImpl::StoreBlockResult StorageImpl::storeBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       if (block_store_->insert(block)) {
-        notifier_.get_subscriber().on_next(block);
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(block));
+        // notifier_.get_subscriber().on_next(block);
         return {};
       }
       return expected::makeError("Block insertion to storage failed");
