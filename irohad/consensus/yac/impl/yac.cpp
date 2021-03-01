@@ -192,7 +192,7 @@ namespace iroha {
           return;
         }
 
-        enum { kRotatePeriod = 3 };
+        enum { kRotatePeriod = 10 };
 
         if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
           vote_storage_.remove(vote.hash.vote_round);
