@@ -192,11 +192,17 @@ namespace iroha {
           return;
         }
 
+        enum { kRotatePeriod = 3 };
+
+        if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
+          vote_storage_.remove(vote.hash.vote_round);
+        }
+
         /**
          * 3 attempts to build and commit block before we think that round is
          * freezed
          */
-        if (attempt == 3) {
+        if (attempt == kRotatePeriod) {
           vote.hash.vote_hashes.proposal_hash.clear();
           vote.hash.vote_hashes.block_hash.clear();
           vote.hash.block_signature.reset();
