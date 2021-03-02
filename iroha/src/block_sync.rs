@@ -144,9 +144,13 @@ pub mod message {
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_network::prelude::*;
+    use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
 
+    declare_versioned_with_scale!(VersionedMessage 1..2);
+
     /// Message's variants that are used by peers to communicate in the process of consensus.
+    #[version_with_scale(n = 1, versioned = "VersionedMessage")]
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub enum Message {
         /// Gossip about latest block.
@@ -206,9 +210,10 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         #[log("TRACE")]
         pub async fn send_to(self, peer: &PeerId) -> Result<(), String> {
+            let message: VersionedMessage = self.into();
             match Network::send_request_to(
                 &peer.address,
-                Request::new(uri::BLOCK_SYNC_URI.to_string(), self.into()),
+                Request::new(uri::BLOCK_SYNC_URI.to_string(), message.encode_versioned()?),
             )
             .await?
             {

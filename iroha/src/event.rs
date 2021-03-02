@@ -7,8 +7,9 @@ use async_std::{
     sync::{Receiver, Sender},
 };
 use futures::{SinkExt, StreamExt};
-use iroha_data_model::events::{prelude::*, EventReceived, SubscriptionRequest};
+use iroha_data_model::events::{prelude::*, SubscriptionRequest};
 use iroha_http_server::web_socket::{WebSocketMessage, WebSocketStream};
+use iroha_version::prelude::*;
 use std::{fmt::Debug, time::Duration};
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
@@ -32,11 +33,15 @@ impl Consumer {
         if let WebSocketMessage::Text(message) = future::timeout(TIMEOUT, stream.next())
             .await
             .map_err(|e| format!("Read message timeout: {}", e))?
-            .ok_or_else(|| "Failed to read message: no message".to_string())?
+            .ok_or("Failed to read message: no message")?
             .map_err(|e| format!("Web Socket failure: {}", e))?
         {
             let request: SubscriptionRequest =
-                serde_json::from_str(&message).map_err(|err| err.to_string())?;
+                VersionedSubscriptionRequest::from_versioned_json_str(&message)?
+                    .as_v1()
+                    .ok_or("Expected subscription request version 1.")?
+                    .clone()
+                    .into();
             let SubscriptionRequest(filter) = request;
             Ok(Consumer { stream, filter })
         } else {
@@ -47,7 +52,8 @@ impl Consumer {
     /// Forwards the `event` over the `stream` if it matches the `filter`.
     pub async fn consume(mut self, event: &Event) -> Result<Self, String> {
         if self.filter.apply(event) {
-            let event = serde_json::to_string(event)
+            let event = VersionedEvent::from(event.clone())
+                .to_versioned_json_str()
                 .map_err(|err| format!("Failed to serialize event: {}", err))?;
             future::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Text(event)))
                 .await
@@ -56,12 +62,13 @@ impl Consumer {
             if let WebSocketMessage::Text(receipt) = future::timeout(TIMEOUT, self.stream.next())
                 .await
                 .map_err(|e| format!("Failed to read receipt: {}", e))?
-                .ok_or_else(|| "Failed to read receipt: no receipt".to_string())?
+                .ok_or("Failed to read receipt: no receipt")?
                 .map_err(|e| format!("Web Socket failure: {}", e))?
             {
-                let _receipt: EventReceived = serde_json::from_str(&receipt).map_err(|_| {
-                    format!("Unexpected message, waited for receipt got: {}", receipt)
-                })?;
+                let _receipt =
+                    VersionedEventReceived::from_versioned_json_str(&receipt).map_err(|_| {
+                        format!("Unexpected message, waited for receipt got: {}", receipt)
+                    })?;
             } else {
                 return Err("Unexepcted message type".to_string());
             }
