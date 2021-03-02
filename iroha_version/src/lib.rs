@@ -91,6 +91,15 @@ pub mod json {
     }
 }
 
+/// The prelude re-exports most commonly used traits, structs and macros from this crate.
+pub mod prelude {
+    #[cfg(feature = "json")]
+    pub use super::json::*;
+    #[cfg(feature = "scale")]
+    pub use super::scale::*;
+    pub use super::*;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
