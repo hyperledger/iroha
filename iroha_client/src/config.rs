@@ -53,8 +53,8 @@ impl Configuration {
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration, String> {
         let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
         let reader = BufReader::new(file);
-        Ok(serde_json::from_reader(reader)
-            .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?)
+        serde_json::from_reader(reader)
+            .map_err(|e| format!("Failed to deserialize json from reader: {}", e))
     }
 
     /// Load environment variables and replace predefined parameters with these variables

@@ -772,12 +772,15 @@ pub mod message {
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_network::prelude::*;
+    use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use std::time::{Duration, SystemTime};
 
-    // TODO: implement `From` for each of the inner structures in this message.
+    declare_versioned_with_scale!(VersionedMessage 1..2);
+
     /// Message's variants that are used by peers to communicate in the process of consensus.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[version_with_scale(n = 1, versioned = "VersionedMessage")]
+    #[derive(Io, Decode, Encode, Debug, Clone, FromVariant)]
     pub enum Message {
         /// Is sent by leader to all validating peers, when a new block is created.
         BlockCreated(BlockCreated),
@@ -801,9 +804,10 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         #[log]
         pub async fn send_to(self, peer: &PeerId) -> Result<(), String> {
+            let message: VersionedMessage = self.into();
             match Network::send_request_to(
                 &peer.address,
-                Request::new(uri::CONSENSUS_URI.to_string(), self.into()),
+                Request::new(uri::CONSENSUS_URI.to_string(), message.encode_versioned()?),
             )
             .await
             .map_err(|err| {
@@ -1320,12 +1324,6 @@ pub mod message {
                 .send(self.transaction.clone())
                 .await;
             Ok(())
-        }
-    }
-
-    impl From<TransactionForwarded> for Message {
-        fn from(message: TransactionForwarded) -> Self {
-            Message::TransactionForwarded(message)
         }
     }
 

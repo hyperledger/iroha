@@ -1,19 +1,30 @@
 //! Events for streaming API.
+#![allow(unused_results)]
 
 use iroha_derive::FromVariant;
+use iroha_version::prelude::*;
 use serde::{Deserialize, Serialize};
+
+declare_versioned_with_json!(VersionedSubscriptionRequest 1..2);
 
 //TODO: Sign request?
 /// Subscription Request to listen to events
+#[version_with_json(n = 1, versioned = "VersionedSubscriptionRequest")]
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct SubscriptionRequest(pub EventFilter);
 
+declare_versioned_with_json!(VersionedEventReceived 1..2);
+
 // TODO: Sign receipt?
 /// Event receipt.
+#[version_with_json(n = 1, versioned = "VersionedEventReceived")]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct EventReceived;
 
+declare_versioned_with_json!(VersionedEvent 1..2);
+
 /// Event.
+#[version_with_json(n = 1, versioned = "VersionedEvent")]
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, FromVariant)]
 pub enum Event {
     /// Pipeline event.
@@ -469,6 +480,6 @@ pub mod pipeline {
 pub mod prelude {
     pub use super::{
         data::prelude::*, pipeline::prelude::*, Event, EventFilter, EventReceived,
-        SubscriptionRequest,
+        SubscriptionRequest, VersionedEvent, VersionedEventReceived, VersionedSubscriptionRequest,
     };
 }
