@@ -21,6 +21,7 @@ iroha_dsl = { version = "=0.1.0", path = "../iroha_dsl" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
+iroha_version = { version = "=0.1.0", path = "../iroha_version" }
 async-std = { version = "=1.6.2", features = ["attributes"] }
 ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }

@@ -1059,6 +1059,7 @@ pub mod transaction {
     use crate::{account::Account, isi::Instruction, Identifiable};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
+    use iroha_version::{declare_versioned_with_scale, version_with_scale};
     use parity_scale_codec::{Decode, Encode};
     use std::{
         collections::BTreeMap,
@@ -1072,11 +1073,14 @@ pub mod transaction {
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
 
+    declare_versioned_with_scale!(VersionedTransaction 1..2);
+
     /// This structure represents transaction in non-trusted form.
     ///
     /// `Iroha` and its' clients use `Transaction` to send transactions via network.
     /// Direct usage in business logic is strongly prohibited. Before any interactions
     /// `accept`.
+    #[version_with_scale(n = 1, versioned = "VersionedTransaction")]
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub struct Transaction {
         /// `Transaction` payload.
@@ -1251,7 +1255,10 @@ pub mod transaction {
         }
     }
 
+    declare_versioned_with_scale!(VersionedPendingTransactions 1..2);
+
     /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
+    #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
     #[derive(Debug, Clone, Encode, Decode, Io)]
     pub struct PendingTransactions(pub Vec<Transaction>);
 
@@ -1274,7 +1281,10 @@ pub mod transaction {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Pagination, Payload, PendingTransactions, Transaction};
+        pub use super::{
+            Pagination, Payload, PendingTransactions, Transaction, VersionedPendingTransactions,
+            VersionedTransaction,
+        };
     }
 }
 

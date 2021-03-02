@@ -6,6 +6,7 @@ use http_client::WebSocketStream;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_derive::log;
 use iroha_dsl::prelude::*;
+use iroha_version::prelude::*;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
@@ -44,12 +45,12 @@ impl Client {
 
     /// Builds transaction out of supplied instructions.
     pub fn build_transaction(&self, instructions: Vec<Instruction>) -> Result<Transaction, String> {
-        Ok(Transaction::new(
+        Transaction::new(
             instructions,
             self.account_id.clone(),
             self.proposed_transaction_ttl_ms,
         )
-        .sign(&self.key_pair)?)
+        .sign(&self.key_pair)
     }
 
     pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction, String> {
@@ -74,7 +75,8 @@ impl Client {
     pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash, String> {
         transaction.check_instruction_len(self.max_instruction_number)?;
         let hash = transaction.hash();
-        let transaction: Vec<u8> = transaction.into();
+        let transaction: VersionedTransaction = transaction.into();
+        let transaction: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post(
             &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
             transaction.clone(),
@@ -143,9 +145,10 @@ impl Client {
         pagination: Pagination,
     ) -> Result<QueryResult, String> {
         let pagination: Vec<_> = pagination.into();
+        let request: VersionedSignedQueryRequest = request.clone().sign(&self.key_pair)?.into();
         let response = http_client::get(
             &format!("http://{}{}", self.torii_url, uri::QUERY_URI),
-            request.clone().sign(&self.key_pair)?.into(),
+            request.encode_versioned()?,
             pagination,
         )?;
         if response.status() == StatusCode::OK {
@@ -198,7 +201,13 @@ impl Client {
             )?;
             if response.status() == StatusCode::OK {
                 let pending_transactions: PendingTransactions =
-                    response.body().clone().try_into()?;
+                    VersionedPendingTransactions::decode_versioned(&response.body())?
+                        .as_v1()
+                        .ok_or_else(|| {
+                            "Expected pending transaction message version 1.".to_string()
+                        })?
+                        .clone()
+                        .into();
                 let transaction = pending_transactions
                     .into_iter()
                     .find(|pending_transaction| {
@@ -249,8 +258,8 @@ impl EventIterator {
         let mut stream = http_client::web_socket_connect(url)?;
         stream
             .write_message(WebSocketMessage::Text(
-                serde_json::to_string(&SubscriptionRequest(event_filter))
-                    .map_err(|err| err.to_string())?,
+                VersionedSubscriptionRequest::from(SubscriptionRequest(event_filter))
+                    .to_versioned_json_str()?,
             ))
             .map_err(|err| err.to_string())?;
         Ok(EventIterator { stream })
@@ -264,17 +273,23 @@ impl Iterator for EventIterator {
         loop {
             match self.stream.read_message() {
                 Ok(WebSocketMessage::Text(message)) => {
-                    match serde_json::from_str::<Event>(&message) {
+                    match VersionedEvent::from_versioned_json_str(&message) {
                         Ok(event) => {
+                            let event: Event = event
+                                .as_v1()
+                                .expect("Expected event version 1.")
+                                .clone()
+                                .into();
                             return match self.stream.write_message(WebSocketMessage::Text(
-                                serde_json::to_string(&EventReceived)
+                                VersionedEventReceived::from(EventReceived)
+                                    .to_versioned_json_str()
                                     .expect("Failed to serialize receipt."),
                             )) {
                                 Ok(_) => Some(Ok(event)),
                                 Err(err) => Some(Err(format!("Failed to send receipt: {}", err))),
-                            }
+                            };
                         }
-                        Err(err) => return Some(Err(err.to_string())),
+                        Err(err) => return Some(Err(err)),
                     }
                 }
                 Ok(_) => continue,

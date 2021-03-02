@@ -5,6 +5,7 @@ use crate::Value;
 use self::{account::*, asset::*, domain::*, peer::*};
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
+use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
@@ -60,8 +61,11 @@ pub struct QueryRequest {
     pub query: QueryBox,
 }
 
+declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2);
+
 /// I/O ready structure to send queries.
-#[derive(Debug, Io, Encode, Decode)]
+#[version_with_scale(n = 1, versioned = "VersionedSignedQueryRequest")]
+#[derive(Debug, Clone, Io, Encode, Decode)]
 pub struct SignedQueryRequest {
     /// Timestamp of the query creation.
     #[codec(compact)]
@@ -72,7 +76,10 @@ pub struct SignedQueryRequest {
     pub query: QueryBox,
 }
 
+declare_versioned_with_scale!(VersionedQueryResult 1..2);
+
 /// Sized container for all possible Query results.
+#[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode)]
 pub struct QueryResult(pub Value);
 
@@ -418,6 +425,7 @@ pub mod peer {
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*, QueryBox,
-        QueryRequest, QueryResult, SignedQueryRequest,
+        QueryRequest, QueryResult, SignedQueryRequest, VersionedQueryResult,
+        VersionedSignedQueryRequest,
     };
 }
