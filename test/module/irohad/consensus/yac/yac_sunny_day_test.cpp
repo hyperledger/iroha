@@ -19,7 +19,7 @@ using namespace iroha::consensus::yac;
 using namespace framework::test_subscriber;
 using namespace std;
 
-static constexpr size_t kRandomFixedNumber = 42;
+static constexpr size_t kRandomFixedNumber = 9;
 
 /**
  * @given yac & 4 peers

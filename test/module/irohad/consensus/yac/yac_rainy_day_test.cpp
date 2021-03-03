@@ -17,7 +17,7 @@ using ::testing::Return;
 using namespace iroha::consensus::yac;
 using namespace framework::test_subscriber;
 
-static constexpr size_t kFixedRandomNumber = 24;
+static constexpr size_t kFixedRandomNumber = 9;
 
 /**
  * @given yac consensus with 4 peers

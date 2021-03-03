@@ -84,11 +84,6 @@ namespace iroha {
         findProposalStorage(const VoteMessage &msg,
                             PeersNumberType peers_in_round);
 
-        /**
-         * Remove proposal storage by round
-         */
-        void remove(const Round &round);
-
        public:
         // --------| public api |--------
 
@@ -118,6 +113,11 @@ namespace iroha {
          * @return true, if round closed
          */
         bool isCommitted(const Round &round);
+
+        /**
+         * Remove proposal storage by round
+         */
+        void remove(const Round &round);
 
         /**
          * Method provide state of processing for concrete proposal/block
