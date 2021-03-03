@@ -12,11 +12,6 @@
 #include <string>
 #include <thread>
 
-#include <boost/optional/optional_fwd.hpp>
-#include "common/result_fwd.hpp"
-#include "logger/logger_fwd.hpp"
-#include "logger/logger_manager_fwd.hpp"
-
 namespace iroha {
 
   struct Watchdog final {
