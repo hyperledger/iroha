@@ -5,10 +5,10 @@
 
 #include "main/application.hpp"
 
-#include <optional>
-
 #include <boost/filesystem.hpp>
+#include <optional>
 #include <rxcpp/operators/rx-map.hpp>
+
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
@@ -89,58 +89,40 @@ using namespace iroha::synchronizer;
 using namespace iroha::torii;
 using namespace iroha::consensus::yac;
 
-using namespace std::chrono_literals;
-
 using shared_model::interface::types::PublicKeyHexStringView;
 
 /// Consensus consistency model type.
 static constexpr iroha::consensus::yac::ConsistencyModel
     kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kCft;
 
+static constexpr uint32_t kStaleStreamMaxRoundsDefault = 2;
+static constexpr uint32_t kMstExpirationTimeDefault = 1440;
+static constexpr uint32_t kMaxRoundsDelayDefault = 3000;
+
 /**
  * Configuring iroha daemon
  */
 Irohad::Irohad(
-    const boost::optional<std::string> &block_store_dir,
+    const IrohadConfig &config,
     std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
     const std::string &listen_ip,
-    size_t torii_port,
-    size_t internal_port,
-    size_t max_proposal_size,
-    std::chrono::milliseconds proposal_delay,
-    std::chrono::milliseconds vote_delay,
-    std::chrono::minutes mst_expiration_time,
-    const shared_model::crypto::Keypair &keypair,
-    std::chrono::milliseconds max_rounds_delay,
-    size_t stale_stream_max_rounds,
-    boost::optional<shared_model::interface::types::PeerList>
-        opt_alternative_peers,
+    const boost::optional<shared_model::crypto::Keypair> &keypair,
     logger::LoggerManagerTreePtr logger_manager,
     StartupWsvDataPolicy startup_wsv_data_policy,
+    StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
     std::shared_ptr<const GrpcChannelParams> grpc_channel_params,
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
-    const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
-    : block_store_dir_(block_store_dir),
+    : config_(config),
       listen_ip_(listen_ip),
-      torii_port_(torii_port),
-      torii_tls_params_(torii_tls_params),
-      internal_port_(internal_port),
-      max_proposal_size_(max_proposal_size),
-      proposal_delay_(proposal_delay),
-      vote_delay_(vote_delay),
-      is_mst_supported_(opt_mst_gossip_params),
-      mst_expiration_time_(mst_expiration_time),
-      max_rounds_delay_(max_rounds_delay),
-      stale_stream_max_rounds_(stale_stream_max_rounds),
-      opt_alternative_peers_(std::move(opt_alternative_peers)),
+      keypair_(keypair),
+      startup_wsv_sync_policy_(startup_wsv_sync_policy),
       grpc_channel_params_(std::move(grpc_channel_params)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
-      keypair(keypair),
       pg_opt_(std::move(pg_opt)),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
@@ -180,35 +162,34 @@ Irohad::~Irohad() {
 Irohad::RunResult Irohad::init() {
   // clang-format off
   return initSettings()
-  | [this]{ return initValidatorsConfigs();}
-  | [this]{ return initBatchParser();}
-  | [this]{ return initValidators();}
-  | [this]{ return initWsvRestorer(); // Recover WSV from the existing ledger
-                                      // to be sure it is consistent
-  }
-  | [this]{ return restoreWsv();}
-  | [this]{ return validateKeypair();}
-  | [this]{ return initTlsCredentials();}
-  | [this]{ return initPeerCertProvider();}
-  | [this]{ return initClientFactory();}
-  | [this]{ return initCryptoProvider();}
-  | [this]{ return initNetworkClient();}
-  | [this]{ return initFactories();}
-  | [this]{ return initPersistentCache();}
-  | [this]{ return initOrderingGate();}
-  | [this]{ return initSimulator();}
-  | [this]{ return initConsensusCache();}
-  | [this]{ return initBlockLoader();}
-  | [this]{ return initConsensusGate();}
-  | [this]{ return initSynchronizer();}
-  | [this]{ return initPeerCommunicationService();}
-  | [this]{ return initStatusBus();}
-  | [this]{ return initMstProcessor();}
-  | [this]{ return initPendingTxsStorageWithCache();}
+         | [this]{ return initValidatorsConfigs();}
+         | [this]{ return initBatchParser();}
+         | [this]{ return initValidators();}
+         // Recover WSV from the existing ledger to be sure it is consistent
+         | [this]{ return initWsvRestorer(); }
+         | [this]{ return restoreWsv();}
+         | [this]{ return validateKeypair();}
+         | [this]{ return initTlsCredentials();}
+         | [this]{ return initPeerCertProvider();}
+         | [this]{ return initClientFactory();}
+         | [this]{ return initCryptoProvider();}
+         | [this]{ return initNetworkClient();}
+         | [this]{ return initFactories();}
+         | [this]{ return initPersistentCache();}
+         | [this]{ return initOrderingGate();}
+         | [this]{ return initSimulator();}
+         | [this]{ return initConsensusCache();}
+         | [this]{ return initBlockLoader();}
+         | [this]{ return initConsensusGate();}
+         | [this]{ return initSynchronizer();}
+         | [this]{ return initPeerCommunicationService();}
+         | [this]{ return initStatusBus();}
+         | [this]{ return initMstProcessor();}
+         | [this]{ return initPendingTxsStorageWithCache();}
 
-  // Torii
-  | [this]{ return initTransactionCommandService();}
-  | [this]{ return initQueryService();};
+         // Torii
+         | [this]{ return initTransactionCommandService();}
+         | [this]{ return initQueryService();};
   // clang-format on
 }
 
@@ -246,13 +227,13 @@ Irohad::RunResult Irohad::initSettings() {
 Irohad::RunResult Irohad::initValidatorsConfigs() {
   validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_);
+          config_.max_proposal_size);
   block_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_, true);
+          config_.max_proposal_size, true);
   proposal_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_, false, true);
+          config_.max_proposal_size, false, true);
   log_->info("[Init] => validators configs");
   return {};
 }
@@ -278,7 +259,7 @@ Irohad::RunResult Irohad::initStorage(
                                 pool_wrapper_,
                                 pending_txs_storage_,
                                 query_response_factory_,
-                                block_store_dir_,
+                                config_.block_store_path,
                                 vm_caller_ref,
                                 log_manager_->getChild("Storage"))
                | [&](auto &&v) -> RunResult {
@@ -311,8 +292,11 @@ Irohad::RunResult Irohad::initStorage(
 }
 
 Irohad::RunResult Irohad::restoreWsv() {
-  return wsv_restorer_->restoreWsv(*storage) |
-             [](const auto &ledger_state) -> RunResult {
+  return wsv_restorer_->restoreWsv(
+             *storage,
+             startup_wsv_sync_policy_
+                 == StartupWsvSynchronizationPolicy::kWaitForNewBlocks)
+             | [](const auto &ledger_state) -> RunResult {
     assert(ledger_state);
     if (ledger_state->ledger_peers.empty()) {
       return iroha::expected::makeError<std::string>(
@@ -323,9 +307,11 @@ Irohad::RunResult Irohad::restoreWsv() {
 }
 
 Irohad::RunResult Irohad::validateKeypair() {
+  BOOST_ASSERT_MSG(keypair_.has_value(), "keypair must be specified somewhere");
+
   auto peers = storage->createPeerQuery() | [this](auto &&peer_query) {
     return peer_query->getLedgerPeerByPublicKey(
-        PublicKeyHexStringView{keypair.publicKey()});
+        PublicKeyHexStringView{keypair_->publicKey()});
   };
   if (not peers) {
     log_->warn("There is no peer in the ledger with my public key!");
@@ -340,9 +326,10 @@ Irohad::RunResult Irohad::validateKeypair() {
 Irohad::RunResult Irohad::initTlsCredentials() {
   const auto &p2p_path = inter_peer_tls_config_ |
       [](const auto &p2p_config) { return p2p_config.my_tls_creds_path; };
-  const auto &torii_path = torii_tls_params_ | [](const auto &torii_config) {
-    return boost::make_optional(torii_config.key_path);
-  };
+  const auto &torii_path =
+      config_.torii_tls_params | [](const auto &torii_config) {
+        return boost::make_optional(torii_config.key_path);
+      };
 
   auto load_tls_creds = [this](const auto &opt_path,
                                const auto &description,
@@ -434,7 +421,7 @@ Irohad::RunResult Irohad::initClientFactory() {
  */
 Irohad::RunResult Irohad::initCryptoProvider() {
   crypto_signer_ =
-      std::make_shared<shared_model::crypto::CryptoModelSigner<>>(keypair);
+      std::make_shared<shared_model::crypto::CryptoModelSigner<>>(*keypair_);
 
   log_->info("[Init] => crypto provider");
   return {};
@@ -609,20 +596,20 @@ Irohad::RunResult Irohad::initOrderingGate() {
   std::shared_ptr<iroha::ordering::ProposalCreationStrategy> proposal_strategy =
       std::make_shared<ordering::UniqueCreationProposalStrategy>();
 
-  ordering_gate =
-      ordering_init.initOrderingGate(max_proposal_size_,
-                                     proposal_delay_,
-                                     std::move(hashes),
-                                     transaction_factory,
-                                     batch_parser,
-                                     transaction_batch_factory_,
-                                     async_call_,
-                                     std::move(factory),
-                                     proposal_factory,
-                                     persistent_cache,
-                                     proposal_strategy,
-                                     log_manager_->getChild("Ordering"),
-                                     inter_peer_client_factory_);
+  ordering_gate = ordering_init.initOrderingGate(
+      config_.max_proposal_size,
+      std::chrono::milliseconds(config_.proposal_delay),
+      std::move(hashes),
+      transaction_factory,
+      batch_parser,
+      transaction_batch_factory_,
+      async_call_,
+      std::move(factory),
+      proposal_factory,
+      persistent_cache,
+      proposal_strategy,
+      log_manager_->getChild("Ordering"),
+      inter_peer_client_factory_);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
   return {};
@@ -714,17 +701,18 @@ Irohad::RunResult Irohad::initConsensusGate() {
   consensus_gate = yac_init->initConsensusGate(
       {block->height(), ordering::kFirstRejectRound},
       storage,
-      opt_alternative_peers_,
+      config_.initial_peers,
       *initial_ledger_state,
       simulator,
       block_loader,
-      keypair,
+      *keypair_,
       consensus_result_cache_,
-      vote_delay_,
+      std::chrono::milliseconds(config_.vote_delay),
       async_call_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
-      max_rounds_delay_,
+      std::chrono::milliseconds(
+          config_.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       inter_peer_client_factory_);
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
@@ -798,7 +786,8 @@ Irohad::RunResult Irohad::initMstProcessor() {
   auto mst_logger_manager =
       log_manager_->getChild("MultiSignatureTransactions");
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
-  auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
+  auto mst_completer = std::make_shared<DefaultCompleter>(std::chrono::minutes(
+      config_.mst_expiration_time.value_or(kMstExpirationTimeDefault)));
   auto mst_storage = MstStorageStateImpl::create(
       mst_completer,
       finalized_txs_,
@@ -806,7 +795,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
       mst_logger_manager->getChild("Storage")->getLogger());
   pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
-  if (is_mst_supported_) {
+  if (config_.mst_support) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
         async_call_,
         transaction_factory,
@@ -814,7 +803,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
         transaction_batch_factory_,
         persistent_cache,
         mst_completer,
-        PublicKeyHexStringView{keypair.publicKey()},
+        PublicKeyHexStringView{keypair_->publicKey()},
         std::move(mst_state_logger),
         mst_logger_manager->getChild("Transport")->getLogger(),
         std::make_unique<iroha::network::ClientFactoryImpl<
@@ -884,7 +873,8 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
           consensus_gate_objects.get_observable().map([](const auto &) {
             return ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{};
           }),
-          stale_stream_max_rounds_,
+          config_.stale_stream_max_rounds.value_or(
+              kStaleStreamMaxRoundsDefault),
           command_service_log_manager->getChild("Transport")->getLogger());
 
   log_->info("[Init] => command service");
@@ -922,7 +912,8 @@ Irohad::RunResult Irohad::initWsvRestorer() {
   wsv_restorer_ = std::make_shared<iroha::ametsuchi::WsvRestorerImpl>(
       std::move(interface_validator),
       std::move(proto_validator),
-      chain_validator);
+      chain_validator,
+      log_manager_->getChild("WsvRestorer")->getLogger());
   return {};
 }
 
@@ -935,13 +926,13 @@ Irohad::RunResult Irohad::run() {
 
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(
-      listen_ip_ + ":" + std::to_string(torii_port_),
+      listen_ip_ + ":" + std::to_string(config_.torii_port),
       log_manager_->getChild("ToriiServerRunner")->getLogger(),
       false);
 
   // Initializing internal server
   internal_server = std::make_unique<ServerRunner>(
-      listen_ip_ + ":" + std::to_string(internal_port_),
+      listen_ip_ + ":" + std::to_string(config_.internal_port),
       log_manager_->getChild("InternalServerRunner")->getLogger(),
       false);
 
@@ -962,7 +953,7 @@ Irohad::RunResult Irohad::run() {
   torii_tls_creds_ | [&, this](const auto &tls_creds) {
     run_result |= [&, this] {
       torii_tls_server = std::make_unique<ServerRunner>(
-          listen_ip_ + ":" + std::to_string(torii_tls_params_->port),
+          listen_ip_ + ":" + std::to_string(config_.torii_tls_params->port),
           log_manager_->getChild("ToriiTlsServerRunner")->getLogger(),
           false,
           tls_creds);
@@ -976,7 +967,7 @@ Irohad::RunResult Irohad::run() {
 
   // Run internal server
   run_result |= [&, this] {
-    if (is_mst_supported_) {
+    if (config_.mst_support) {
       internal_server->append(
           std::static_pointer_cast<MstTransportGrpc>(mst_transport));
     }

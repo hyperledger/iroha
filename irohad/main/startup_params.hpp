@@ -7,10 +7,21 @@
 #define IROHA_STARTUP_PARAMS_HPP
 
 namespace iroha {
-  /// Policy regarging possible existing WSV data at startup
+  /**
+   * Policy regarging possible existing WSV data at startup
+   */
   enum class StartupWsvDataPolicy {
-    kReuse,  //!< try to reuse existing data in the
+    kReuse,  //!< try to reuse existing data in the WSV
     kDrop,   //!< drop any existing state data
+  };
+
+  /**
+   * Startup synchronization policy
+   */
+  enum class StartupWsvSynchronizationPolicy {
+    kSyncUpAndGo,       //!< sync up and continue execution
+    kWaitForNewBlocks,  //!< enter endless loop to wait for new blocks added
+                        //!< externally
   };
 }  // namespace iroha
 

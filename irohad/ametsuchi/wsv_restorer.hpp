@@ -22,10 +22,13 @@ namespace iroha {
       /**
        * Recover WSV (World State View).
        * @param storage storage of blocks in ledger
+       * @param wait_for_new_blocks - flag for wait for new blocks mode.
+       * Method waits for new blocks in block storage.
        * @return ledger state after restoration on success, otherwise error
        * string
        */
-      virtual CommitResult restoreWsv(Storage &storage) = 0;
+      virtual CommitResult restoreWsv(Storage &storage,
+                                      bool wait_for_new_blocks) = 0;
     };
 
   }  // namespace ametsuchi
