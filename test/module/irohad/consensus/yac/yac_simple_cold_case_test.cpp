@@ -29,7 +29,7 @@ using namespace framework::test_subscriber;
 using namespace std;
 using namespace shared_model::interface::types;
 
-static constexpr size_t kRandomFixedNumber = 27;
+static constexpr size_t kRandomFixedNumber = 9;
 
 /**
  * @given Yac and ordering over some peers
