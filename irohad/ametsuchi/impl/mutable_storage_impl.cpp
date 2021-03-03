@@ -22,6 +22,7 @@
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/watchdog.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -60,6 +61,7 @@ namespace iroha {
         return ok;
       };
 
+      getWatchdog()->reset();
       log_->info("Applying block: height {}, hash {}",
                  block->height(),
                  block->hash().hex());

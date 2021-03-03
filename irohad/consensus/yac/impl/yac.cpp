@@ -17,6 +17,7 @@
 #include "consensus/yac/yac_crypto_provider.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
+#include "main/watchdog.hpp"
 
 // TODO: 2019-03-04 @muratovv refactor std::vector<VoteMessage> with a
 // separate class IR-374
@@ -184,6 +185,7 @@ namespace iroha {
       // ------|Private interface|------
 
       void Yac::votingStep(VoteMessage vote, uint32_t attempt) {
+        getWatchdog()->reset();
         log_->info("votingStep got vote: {}, attempt {}", vote, attempt);
         std::unique_lock<std::mutex> lock(mutex_);
 

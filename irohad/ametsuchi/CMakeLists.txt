@@ -172,6 +172,7 @@ target_link_libraries(ametsuchi
     SOCI::postgresql
     SOCI::core
     postgres_query_executor
+        watchdog
     )
 
 target_compile_definitions(ametsuchi

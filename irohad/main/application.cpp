@@ -75,6 +75,7 @@
 #include "validators/protobuf/proto_proposal_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
+#include "main/watchdog.hpp"
 
 #if defined(USE_BURROW)
 #include "ametsuchi/impl/burrow_vm_caller.hpp"

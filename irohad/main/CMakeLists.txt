@@ -16,6 +16,12 @@ target_link_libraries(server_runner
     shared_model_cryptography_model
     )
 
+add_library(watchdog
+        watchdog.cpp
+        )
+target_link_libraries(watchdog
+        )
+
 add_library(raw_block_loader impl/raw_block_loader.cpp)
 target_link_libraries(raw_block_loader
     shared_model_interfaces
