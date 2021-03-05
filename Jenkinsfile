@@ -170,7 +170,7 @@ node ('master') {
   use_burrow = false
   forceDockerDevelopBuild = false
 
-  if (scmVars.GIT_LOCAL_BRANCH in ["master"] || env.TAG_NAME )
+  if (scmVars.GIT_LOCAL_BRANCH in ["main"] || env.TAG_NAME )
     specialBranch =  true
   else
     specialBranch = false
@@ -184,8 +184,8 @@ node ('master') {
     use_burrow = true
   }
 
-  if (scmVars.GIT_LOCAL_BRANCH == "master")
-    pushDockerTag = 'master'
+  if (scmVars.GIT_LOCAL_BRANCH == "main")
+    pushDockerTag = 'main'
   else if (env.TAG_NAME)
     pushDockerTag = env.TAG_NAME
   else
@@ -346,7 +346,7 @@ node ('master') {
                            x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${compiler}", x64LinuxWorker, tasks)
       }
     }
-    // If "master" also run Release build
+    // If "main" branch also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
                          current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage*/false,
@@ -354,7 +354,7 @@ node ('master') {
                          /*fuzzing*/false, /*benchmarking*/false, /*coredumps*/false, /*use_btf*/false, use_libursa, use_burrow, /*force_docker_develop_build*/false,
                          /*manifest_push*/false, environmentList)}],
                          x64LinuxPostSteps, "x86_64 Linux Release ${first_compiler}", x64LinuxWorker, tasks)
-      // will not be executed in usual case, because x64linux_compiler_list = ['gcc9'] for master branch or tags
+      // will not be executed in usual case, because x64linux_compiler_list = ['gcc9'] for main branch or tags
       if (x64linux_compiler_list.size() > 1){
         x64linux_compiler_list[1..-1].each { compiler ->
           registerBuildSteps([{x64LinuxBuildScript.buildSteps(
