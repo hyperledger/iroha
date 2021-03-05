@@ -29,7 +29,7 @@ namespace iroha {
             while (_this->work_.test_and_set(std::memory_order_relaxed)) {
               if (_this->bitten_.test_and_set())
                 __builtin_trap();
-              std::this_thread::sleep_for(std::chrono::minutes(1ull));
+              std::this_thread::sleep_for(std::chrono::minutes(10ull));
             }
           },
           this);
