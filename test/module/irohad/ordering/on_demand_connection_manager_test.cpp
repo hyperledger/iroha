@@ -47,7 +47,6 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
 
     manager = std::make_shared<OnDemandConnectionManager>(
         factory,
-        peers.get_observable(),
         cpeers,
         getTestLogger("OsConnectionManager"));
   }
@@ -56,7 +55,6 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
   OnDemandConnectionManager::PeerCollectionType<MockOdOsNotification *>
       connections;
 
-  rxcpp::subjects::subject<OnDemandConnectionManager::CurrentPeers> peers;
   std::shared_ptr<MockOdOsNotificationFactory> factory;
   std::shared_ptr<OnDemandConnectionManager> manager;
 };

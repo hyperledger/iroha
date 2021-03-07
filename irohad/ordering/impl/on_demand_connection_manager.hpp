@@ -54,12 +54,10 @@ namespace iroha {
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          // rxcpp::observable<CurrentPeers> peers,
           logger::LoggerPtr log);
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          // rxcpp::observable<CurrentPeers> peers,
           CurrentPeers initial_peers,
           logger::LoggerPtr log);
 
