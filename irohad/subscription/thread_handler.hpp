@@ -69,7 +69,7 @@ namespace iroha::subscription {
       tasks_.insert(after, std::forward<F>(f));
     }
 
-    bool extract(Task &task, Timepoint const &before) {
+    bool extractExpired(Task &task, Timepoint const &before) {
       std::lock_guard lock(tasks_cs_);
       if (!tasks_.empty()) {
         auto &first_task = tasks_.front();
@@ -100,7 +100,7 @@ namespace iroha::subscription {
     uint32_t proc() {
       Task task;
       do {
-        while (extract(task, now())) {
+        while (extractExpired(task, now())) {
           try {
             if (task)
               task();
