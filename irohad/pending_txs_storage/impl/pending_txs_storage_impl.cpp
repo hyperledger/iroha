@@ -61,63 +61,8 @@ namespace iroha {
 
   std::shared_ptr<PendingTransactionStorageImpl>
   PendingTransactionStorageImpl::create() {
-    auto storage = std::make_shared<PendingTransactionStorageImpl>(
+    return std::make_shared<PendingTransactionStorageImpl>(
         PendingTransactionStorageImpl::private_tag{});
-    std::weak_ptr<PendingTransactionStorageImpl> storage_(storage);
-
-    /*    auto subscription = rxcpp::composite_subscription();
-        updated_batches.subscribe(
-            subscription, [storage_, subscription](SharedState const &batches) {
-              if (auto storage = storage_.lock()) {
-                storage->updatedBatchesHandler(batches);
-              } else {
-                subscription.unsubscribe();
-              }
-            });*/
-    /*subscription = rxcpp::composite_subscription();
-    prepared_batch.subscribe(
-        subscription,
-        [storage_, subscription](SharedBatch const &preparedBatch) {
-          if (auto storage = storage_.lock()) {
-            storage->removeBatch(preparedBatch);
-          } else {
-            subscription.unsubscribe();
-          }
-        });*/
-    /*subscription = rxcpp::composite_subscription();
-    expired_batch.subscribe(
-        subscription,
-        [storage_, subscription](SharedBatch const &expiredBatch) {
-          if (auto storage = storage_.lock()) {
-            storage->removeBatch(expiredBatch);
-          } else {
-            subscription.unsubscribe();
-          }
-        });*/
-    /*subscription = rxcpp::composite_subscription();
-    prepared_txs.subscribe(
-        subscription,
-        [storage_, subscription](
-            PreparedTransactionDescriptor const &prepared_transaction) {
-          if (auto storage = storage_.lock()) {
-            storage->removeBatch(prepared_transaction);
-          } else {
-            subscription.unsubscribe();
-          }
-        });*/
-    /*subscription = rxcpp::composite_subscription();
-    finalized_txs.subscribe(
-        subscription,
-        [storage_,
-         subscription](shared_model::interface::types::HashType const &hash) {
-          if (auto storage = storage_.lock()) {
-            storage->removeTransaction(hash);
-          } else {
-            subscription.unsubscribe();
-          }
-        });*/
-
-    return storage;
   }
 
   PendingTransactionStorageImpl::SharedTxsCollectionType

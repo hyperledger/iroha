@@ -48,13 +48,6 @@ namespace iroha {
           });
       block_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
           0, EventTypes::kOnBlock);
-      /*      storage_->on_commit().subscribe(
-                [this](std::shared_ptr<const shared_model::interface::Block>
-         block) { auto block_response =
-                      response_factory_->createBlockQueryResponse(block);
-                  blocks_query_subject_.get_subscriber().on_next(
-                      std::move(block_response));
-                });*/
     }
 
     iroha::expected::Result<

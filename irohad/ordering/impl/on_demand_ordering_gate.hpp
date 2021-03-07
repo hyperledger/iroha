@@ -105,11 +105,6 @@ namespace iroha {
 
       using RoundSwitchSubscriberType = subscription::
           SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, RoundSwitch>;
-      using RoundFreezedSubscriberType =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       consensus::FreezedRound>;
       using ProcessedHashesSubscriberType = subscription::SubscriberImpl<
           EventTypes,
           SubscriptionDispatcher,
@@ -119,7 +114,6 @@ namespace iroha {
       std::shared_ptr<ProcessedHashesSubscriberType>
           processed_hashes_subscription_;
       std::shared_ptr<RoundSwitchSubscriberType> round_switch_subscription_;
-      std::shared_ptr<RoundFreezedSubscriberType> round_freezed_subscription_;
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};

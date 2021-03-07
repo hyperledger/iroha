@@ -88,15 +88,6 @@ namespace iroha {
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;
 
-        // rxcpp::composite_subscription freezed_round_notifier_lifetime_;
-        // rxcpp::subjects::subject<consensus::FreezedRound>
-        // freezed_round_notifier_;
-
-        using FreezedRoundSubscription =
-            subscription::SubscriberImpl<EventTypes,
-                                         SubscriptionDispatcher,
-                                         bool,
-                                         consensus::yac::FreezedRound>;
         using OutcomeSubscription = subscription::
             SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, Answer>;
         using BlockCreatorSubscription =
@@ -106,7 +97,6 @@ namespace iroha {
                                          simulator::BlockCreatorEvent>;
 
         std::shared_ptr<OutcomeSubscription> outcome_subscription_;
-        std::shared_ptr<FreezedRoundSubscription> freezed_round_subscription_;
         std::shared_ptr<OutcomeSubscription> delayed_outcome_subscription_;
         std::shared_ptr<BlockCreatorSubscription> block_creator_subscription_;
       };

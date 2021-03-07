@@ -24,8 +24,6 @@ namespace iroha {
     kOnSynchronization,
     kOnCurrentRoundPeers,
     kOnRoundSwitch,
-    kOnRoundFreeze,
-    kOnRoundFreeze2,
     kOnProposal,
     kOnVerifiedProposal,
     kOnProcessedHashes,

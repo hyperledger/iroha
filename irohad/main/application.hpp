@@ -401,11 +401,6 @@ class Irohad {
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
   rxcpp::composite_subscription consensus_gate_events_subscription;
 
-  rxcpp::composite_subscription consensus_freezed_round_lifetime;
-  rxcpp::subjects::subject<iroha::consensus::FreezedRound>
-      consensus_freezed_round;
-  rxcpp::composite_subscription freezed_round_subscription;
-
   std::unique_ptr<iroha::network::ServerRunner> torii_server;
   boost::optional<std::unique_ptr<iroha::network::ServerRunner>>
       torii_tls_server = boost::none;

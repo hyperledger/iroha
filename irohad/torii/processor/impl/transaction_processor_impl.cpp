@@ -50,8 +50,6 @@ namespace iroha {
         std::shared_ptr<iroha::torii::StatusBus> status_bus,
         std::shared_ptr<shared_model::interface::TxStatusFactory>
             status_factory,
-        /*rxcpp::observable<std::shared_ptr<const
-           shared_model::interface::Block>> commits,*/
         logger::LoggerPtr log)
         : pcs_(std::move(pcs)),
           mst_processor_(std::move(mst_processor)),
@@ -110,32 +108,6 @@ namespace iroha {
       verified_proposal_subscription_
           ->subscribe<SubscriptionEngineHandlers::kYac>(
               0, EventTypes::kOnVerifiedProposal);
-      /*      pcs_->onVerifiedProposal().subscribe(
-                [this](const simulator::VerifiedProposalCreatorEvent &event) {
-                  if (not event.verified_proposal_result) {
-                    return;
-                  }
-
-                  const auto &proposal_and_errors =
-         getVerifiedProposalUnsafe(event);
-
-                  // notify about failed txs
-                  const auto &errors =
-         proposal_and_errors->rejected_transactions; for (const auto &tx_error :
-         errors) { log_->info("{}", composeErrorMessage(tx_error));
-                    this->publishStatus(TxStatusType::kStatefulFailed,
-                                        tx_error.tx_hash,
-                                        tx_error.error);
-                  }
-                  // notify about success txs
-                  for (const auto &successful_tx :
-                       proposal_and_errors->verified_proposal->transactions()) {
-                    log_->info("VerifiedProposalCreatorEvent StatefulValid: {}",
-                               successful_tx.hash().hex());
-                    this->publishStatus(TxStatusType::kStatefulValid,
-                                        successful_tx.hash());
-                  }
-                });*/
 
       blocks_subscription_->setCallback(
           [this](auto, auto &, auto const key, auto block) {
@@ -153,22 +125,6 @@ namespace iroha {
       blocks_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
           0, EventTypes::kOnBlock);
       // commit transactions
-      /*      commits.subscribe(
-                // on next
-                [this](auto block) {
-                  for (const auto &tx : block->transactions()) {
-                    const auto &hash = tx.hash();
-                    log_->debug("Committed transaction: {}", hash.hex());
-                    this->publishStatus(TxStatusType::kCommitted, hash);
-                  }
-                  for (const auto &rejected_tx_hash :
-                       block->rejected_transactions_hashes()) {
-                    log_->debug("Rejected transaction: {}",
-         rejected_tx_hash.hex()); this->publishStatus(TxStatusType::kRejected,
-         rejected_tx_hash);
-                  }
-                });*/
-
       mst_state_update_subscription_->setCallback(
           [this](auto, auto, auto const key, std::shared_ptr<MstState> state) {
             assert(EventTypes::kOnStateUpdate == key);
@@ -181,13 +137,6 @@ namespace iroha {
           ->subscribe<SubscriptionEngineHandlers::kYac>(
               0, EventTypes::kOnStateUpdate);
 
-      /*      mst_processor_->onStateUpdate().subscribe([this](auto &&state) {
-              log_->info("MST state updated");
-              state->iterateTransactions([this](const auto &tx) {
-                this->publishStatus(TxStatusType::kMstPending, tx->hash());
-              });
-            });*/
-
       mst_prepared_batches_subscription_->setCallback(
           [this](auto, auto, auto const key, DataType batch) {
             assert(EventTypes::kOnPreparedBatches == key);
@@ -198,11 +147,6 @@ namespace iroha {
       mst_prepared_batches_subscription_
           ->subscribe<SubscriptionEngineHandlers::kYac>(
               0, EventTypes::kOnPreparedBatches);
-      /*mst_processor_->onPreparedBatches().subscribe([this](auto &&batch) {
-        log_->info("MST batch prepared");
-        this->publishEnoughSignaturesStatus(batch->transactions());
-        this->pcs_->propagate_batch(batch);
-      });*/
 
       mst_expired_batches_subscription_->setCallback(
           [this](auto, auto, auto const key, DataType batch) {
@@ -215,12 +159,6 @@ namespace iroha {
       mst_expired_batches_subscription_
           ->subscribe<SubscriptionEngineHandlers::kYac>(
               0, EventTypes::kOnExpiredBatches);
-      /*mst_processor_->onExpiredBatches().subscribe([this](auto &&batch) {
-        log_->info("MST batch {} is expired", batch->reducedHash());
-        for (auto &&tx : batch->transactions()) {
-          this->publishStatus(TxStatusType::kMstExpired, tx->hash());
-        }
-      });*/
     }
 
     void TransactionProcessorImpl::batchHandle(

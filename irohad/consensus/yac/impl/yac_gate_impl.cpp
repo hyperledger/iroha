@@ -51,52 +51,6 @@ namespace iroha {
             current_hash_(),
             alternative_order_(std::move(alternative_order)),
             current_ledger_state_(std::move(ledger_state)),
-            /*published_events_([&] {
-              rxcpp::observable<Answer> outcomes = hash_gate->onOutcome();
-              rxcpp::observable<Answer> delayed_outcomes = outcomes.concat_map(
-                  [delay_func = std::move(delay_func)](auto message) {
-                    auto delay = delay_func(visit_in_place(
-                        message,
-                        [](const CommitMessage &msg) {
-                          auto const hash = getHash(msg.votes).value();
-                          if (hash.vote_hashes.proposal_hash.empty()) {
-                            return ConsensusOutcomeType::kNothing;
-                          }
-                          return ConsensusOutcomeType::kCommit;
-                        },
-                        [](const RejectMessage &msg) {
-                          return ConsensusOutcomeType::kReject;
-                        },
-                        [](const FutureMessage &msg) {
-                          return ConsensusOutcomeType::kFuture;
-                        }));
-                    rxcpp::observable<Answer> just_message =
-                        rxcpp::observable<>::just(std::move(message));
-                    rxcpp::observable<Answer> delayed_message =
-                        just_message.delay(delay,
-                                           rxcpp::identity_current_thread());
-                    return delayed_message;
-                  },
-                  rxcpp::identity_current_thread());
-              rxcpp::observable<GateObject> events =
-                  delayed_outcomes.flat_map([this](auto message) {
-                    return visit_in_place(message,
-                                          [this](const CommitMessage &msg) {
-                                            return this->handleCommit(msg);
-                                          },
-                                          [this](const RejectMessage &msg) {
-                                            return this->handleReject(msg);
-                                          },
-                                          [this](const FutureMessage &msg) {
-                                            return this->handleFuture(msg);
-                                          });
-                  });
-              rxcpp::connectable_observable<GateObject> published_events =
-                  events.publish();
-              rxcpp::observable<GateObject> published_ref_counted_events =
-                  published_events.ref_count();
-              return published_ref_counted_events;
-            }()),*/
             orderer_(std::move(orderer)),
             hash_provider_(std::move(hash_provider)),
             block_creator_(std::move(block_creator)),
@@ -104,11 +58,6 @@ namespace iroha {
             hash_gate_(std::move(hash_gate)),
             outcome_subscription_(std::make_shared<OutcomeSubscription>(
                 getSubscription()->getEngine<EventTypes, Answer>())),
-            freezed_round_subscription_(
-                std::make_shared<FreezedRoundSubscription>(
-                    getSubscription()
-                        ->getEngine<EventTypes,
-                                    consensus::yac::FreezedRound>())),
             delayed_outcome_subscription_(std::make_shared<OutcomeSubscription>(
                 getSubscription()->getEngine<EventTypes, Answer>())),
             block_creator_subscription_(
@@ -116,11 +65,7 @@ namespace iroha {
                     getSubscription()
                         ->getEngine<EventTypes,
                                     simulator::BlockCreatorEvent>()))
-      //      freezed_round_notifier_(freezed_round_notifier_lifetime_)
       {
-        /*block_creator_->onBlock().subscribe(
-            [this](const auto &event) { this->vote(event); });*/
-
         block_creator_subscription_->setCallback(
             [this](auto,
                    auto &,
@@ -129,12 +74,6 @@ namespace iroha {
               assert(EventTypes::kOnBlockCreatorEvent == key);
               this->vote(event);
             });
-
-        /*        hash_gate_->onFreezedRound().subscribe([this](const auto
-           &event) { freezed_round_notifier_.get_subscriber().on_next(
-                      consensus::FreezedRound{event.round,
-           current_ledger_state_});
-                });*/
 
         outcome_subscription_->setCallback(
             [delay_func = std::move(delay_func), this](
@@ -173,20 +112,6 @@ namespace iroha {
                   });
             });
 
-        freezed_round_subscription_->setCallback(
-            [&](auto,
-                auto &,
-                auto key,
-                consensus::yac::FreezedRound const &event) {
-              assert(EventTypes::kOnRoundFreeze2 == key);
-              getSubscription()->notify(
-                  EventTypes::kOnRoundFreeze,
-                  consensus::FreezedRound{event.round, current_ledger_state_});
-            });
-
-        freezed_round_subscription_
-            ->subscribe<SubscriptionEngineHandlers::kYac>(
-                0, EventTypes::kOnRoundFreeze2);
         outcome_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
             0, EventTypes::kOnOutcomeFromYac);
         delayed_outcome_subscription_
@@ -240,15 +165,9 @@ namespace iroha {
         alternative_order_.reset();
       }
 
-      /*rxcpp::observable<YacGateImpl::GateObject> YacGateImpl::onOutcome() {
-        return published_events_;
-      }*/
-
       void YacGateImpl::stop() {
         hash_gate_->stop();
-        // freezed_round_notifier_lifetime_.unsubscribe();
         outcome_subscription_->unsubscribe();
-        freezed_round_subscription_->unsubscribe();
         delayed_outcome_subscription_->unsubscribe();
       }
 
@@ -262,10 +181,6 @@ namespace iroha {
                   sig->publicKey()});
         }
       }
-
-      /*rxcpp::observable<consensus::FreezedRound> YacGateImpl::onFreezedRound()
-      { return freezed_round_notifier_.get_observable();
-      }*/
 
       void YacGateImpl::handleCommit(const CommitMessage &msg) {
         const auto hash = getHash(msg.votes).value();
@@ -293,10 +208,6 @@ namespace iroha {
               EventTypes::kOnOutcome,
               GateObject(PairValid(
                   current_hash_.vote_round, current_ledger_state_, block)));
-
-          /*          return rxcpp::observable<>::just<GateObject>(PairValid(
-                        current_hash_.vote_round, current_ledger_state_,
-             block));*/
         }
 
         auto public_keys = getPublicKeys(msg.votes);
@@ -311,9 +222,6 @@ namespace iroha {
               GateObject(AgreementOnNone(hash.vote_round,
                               current_ledger_state_,
                               std::move(public_keys))));
-          /*return rxcpp::observable<>::just<GateObject>(AgreementOnNone(
-              hash.vote_round, current_ledger_state_,
-             std::move(public_keys)));*/
         }
 
         log_->info("Voted for another block, waiting for sync");
@@ -325,12 +233,6 @@ namespace iroha {
                                                    current_ledger_state_,
                                                    std::move(public_keys),
                                                    std::move(model_hash))));
-
-        /*return rxcpp::observable<>::just<GateObject>(
-            VoteOther(hash.vote_round,
-                      current_ledger_state_,
-                      std::move(public_keys),
-                      std::move(model_hash)));*/
       }
 
       void YacGateImpl::handleReject(const RejectMessage &msg) {
@@ -362,20 +264,12 @@ namespace iroha {
               GateObject(ProposalReject(hash.vote_round,
                              current_ledger_state_,
                              std::move(public_keys))));
-
-          /*          return
-             rxcpp::observable<>::just<GateObject>(ProposalReject(
-                        hash.vote_round, current_ledger_state_,
-             std::move(public_keys)));*/
         }
         log_->info("Block reject since proposal hashes match");
         return getSubscription()->notify(EventTypes::kOnOutcome,
                                          GateObject(BlockReject(hash.vote_round,
                                                      current_ledger_state_,
                                                      std::move(public_keys))));
-
-        /*return rxcpp::observable<>::just<GateObject>(BlockReject(
-            hash.vote_round, current_ledger_state_, std::move(public_keys)));*/
       }
 
       void YacGateImpl::handleFuture(const FutureMessage &msg) {
@@ -388,7 +282,7 @@ namespace iroha {
               "skipped",
               current_hash_.vote_round.block_round,
               hash.vote_round.block_round);
-          return;  // rxcpp::observable<>::empty<GateObject>();
+          return;
         }
 
         if (current_ledger_state_->top_block_info.height + 1
@@ -398,7 +292,7 @@ namespace iroha {
               "less than 2, skipped",
               current_ledger_state_->top_block_info.height,
               hash.vote_round.block_round);
-          return;  // rxcpp::observable<>::empty<GateObject>();
+          return;
         }
 
         assert(hash.vote_round.block_round
@@ -410,10 +304,6 @@ namespace iroha {
                                          GateObject(Future(hash.vote_round,
                                                 current_ledger_state_,
                                                 std::move(public_keys))));
-
-        /*        return rxcpp::observable<>::just<GateObject>(Future(
-                    hash.vote_round, current_ledger_state_,
-           std::move(public_keys)));*/
       }
     }  // namespace yac
   }    // namespace consensus

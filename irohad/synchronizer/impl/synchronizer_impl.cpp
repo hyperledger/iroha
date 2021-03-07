@@ -58,8 +58,6 @@ namespace iroha {
         getSubscription()->notify(
             EventTypes::kOnSynchronization,
             SynchronizationEvent{outcome_type, msg.round, msg.ledger_state});
-        /* notifier_.get_subscriber().on_next(
-             SynchronizationEvent{outcome_type, msg.round, msg.ledger_state});*/
       };
 
       visit_in_place(object,
@@ -173,11 +171,6 @@ namespace iroha {
                 SynchronizationEvent{SynchronizationOutcomeType::kCommit,
                                      msg.round,
                                      std::move(ledger_state)});
-
-            /*this->notifier_.get_subscriber().on_next(
-                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                     msg.round,
-                                     std::move(ledger_state)});*/
           };
       const bool committed_prepared = mutable_factory_->preparedCommitEnabled()
           and mutable_factory_->commitPrepared(msg.block).match(
@@ -233,27 +226,13 @@ namespace iroha {
                                          ? consensus::Round{new_height, 0}
                                          : msg.round,
                                      std::move(ledger_state)});
-
-            /*notifier_.get_subscriber().on_next(
-                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                     new_height != msg.round.block_round
-                                         ? consensus::Round{new_height, 0}
-                                         : msg.round,
-                                     std::move(ledger_state)});*/
           },
           [this](const auto &error) {
             log_->error("Synchronization failed: {}", error.error);
           });
     }
 
-    /*    rxcpp::observable<SynchronizationEvent>
-        SynchronizerImpl::on_commit_chain() {
-          return notifier_.get_observable();
-        }*/
-
     SynchronizerImpl::~SynchronizerImpl() {
-      /*notifier_lifetime_.unsubscribe();
-      subscription_.unsubscribe();*/
     }
 
   }  // namespace synchronizer

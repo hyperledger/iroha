@@ -221,8 +221,6 @@ namespace iroha {
 
           /*subject_->get_subscriber().on_next(
               FreezedRound{vote.hash.vote_round});*/
-          getSubscription()->notify(EventTypes::kOnRoundFreeze2,
-                                    FreezedRound{vote.hash.vote_round});
           return;
         }
 

@@ -763,16 +763,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
   on_outcome_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
       0, EventTypes::kOnOutcome);
 
-  /*consensus_gate->onOutcome().subscribe(
-      consensus_gate_events_subscription,
-      consensus_gate_objects.get_subscriber());*/
-  // freezed_round_subscription = consensus_freezed_round
-  /*consensus_gate->onFreezedRound().subscribe(freezed_round_subscription,
-                                             consensus_freezed_round.get_subscriber());*/
-  /*                                                  [this](auto event) {
-      ordering_gate->requestProposal(network::RequestProposal{event.round,
-    event.ledger_state});
-    });*/
   log_->info("[Init] => consensus gate");
   return {};
 }
@@ -817,9 +807,6 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
       });
   on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
       0, EventTypes::kOnProposal);
-  /*  pcs->onProposal().subscribe([this](const auto &) {
-      log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-    });*/
 
   syncSubscription =
       std::make_shared<subscription::SubscriberImpl<EventTypes,
@@ -846,23 +833,6 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
   });
   syncSubscription->subscribe<SubscriptionEngineHandlers::kYac>(
       0, EventTypes::kOnSynchronization);
-
-  /*  pcs->onSynchronization().subscribe([this](const auto &event) {
-      using iroha::synchronizer::SynchronizationOutcomeType;
-      switch (event.sync_outcome) {
-        case SynchronizationOutcomeType::kCommit:
-          log_->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
-          break;
-        case SynchronizationOutcomeType::kReject:
-          log_->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");
-          break;
-        case SynchronizationOutcomeType::kNothing:
-          log_->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
-          break;
-        default:
-          break;
-      }
-    });*/
 
   log_->info("[Init] => pcs");
   return {};
