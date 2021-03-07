@@ -18,6 +18,7 @@
 #include "consensus/yac/outcome_messages.hpp"  // because messages passed by value
 #include "consensus/yac/storage/yac_vote_storage.hpp"  // for VoteStorage
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 
 #include <rxcpp/operators/rx-observe_on.hpp>
 
@@ -64,15 +65,11 @@ namespace iroha {
                   boost::optional<ClusterOrdering> alternative_order =
                       boost::none) override;
 
-        // rxcpp::observable<Answer> onOutcome() override;
-
         // ------|Network notifications|------
 
         void onState(std::vector<VoteMessage> state) override;
 
         void stop() override;
-
-        // rxcpp::observable<FreezedRound> onFreezedRound() override;
 
        private:
         // ------|Private interface|------
@@ -125,23 +122,21 @@ namespace iroha {
         // ------|One round|------
         ClusterOrdering cluster_order_;
         boost::optional<ClusterOrdering> alternative_order_;
-        Round round_;
+        utils::RWObjectHolder<Round> round_;
 
         // ------|Fields|------
-        // rxcpp::observe_on_one_worker worker_;
-        // rxcpp::composite_subscription notifier_lifetime_;
-        // rxcpp::subjects::synchronize<Answer, decltype(worker_)> notifier_;
         YacVoteStorage vote_storage_;
         std::shared_ptr<YacNetwork> network_;
         std::shared_ptr<YacCryptoProvider> crypto_;
         std::shared_ptr<Timer> timer_;
 
-        // rxcpp::composite_subscription freezed_round_notifier_lifetime_;
-        // rxcpp::subjects::subject<FreezedRound> freezed_round_notifier_;
+        using ApplyStateSubscription = subscription::SubscriberImpl<
+            EventTypes,
+            SubscriptionDispatcher,
+            utils::RWObjectHolder<Round>,
+            Round>;
 
-        // std::unique_ptr<rxcpp::subjects::synchronize<FreezedRound,
-        // rxcpp::identity_one_worker>>
-        //    subject_;
+        std::shared_ptr<ApplyStateSubscription> apply_state_subscription_;
       };
     }  // namespace yac
   }    // namespace consensus

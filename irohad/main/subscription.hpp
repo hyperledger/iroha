@@ -32,6 +32,7 @@ namespace iroha {
     kOnBlock,
     kOnBlockCreatorEvent,
     kOnFinalizedTxs,
+    kOnApplyState,
 
     // MST
     kOnStateUpdate,

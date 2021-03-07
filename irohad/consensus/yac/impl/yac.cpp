@@ -62,8 +62,21 @@ namespace iroha {
             vote_storage_(std::move(vote_storage)),
             network_(std::move(network)),
             crypto_(std::move(crypto)),
-            timer_(std::move(timer))  //,
-      {}
+            timer_(std::move(timer)),
+            apply_state_subscription_(std::make_shared<ApplyStateSubscription>(getSubscription()->getEngine<EventTypes, Round>())) {
+        apply_state_subscription_->setCallback([](auto,
+                                                  auto &cached_closed_round,
+                                                  auto const key,
+                                                  Round const &closed_round) {
+          assert(key == EventTypes::kOnApplyState);
+          cached_closed_round.exclusive([&](auto &obj) {
+            assert(closed_round >= obj);
+            obj = closed_round;
+          });
+        });
+        apply_state_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+            0, EventTypes::kOnApplyState);
+      }
 
       Yac::~Yac() {
       }
@@ -87,7 +100,7 @@ namespace iroha {
         std::unique_lock<std::mutex> lock(mutex_);
         cluster_order_ = order;
         alternative_order_ = std::move(alternative_order);
-        round_ = hash.vote_round;
+        round_.exclusive([&](auto &obj){obj = hash.vote_round;});
         lock.unlock();
         auto vote = crypto_->getVote(hash);
         // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
@@ -138,7 +151,7 @@ namespace iroha {
         if (crypto_->verify(state)) {
           auto &proposal_round = getRound(state);
 
-          if (proposal_round.block_round > round_.block_round) {
+          if (round_.shared([&](auto const&obj){return (proposal_round.block_round > obj.block_round);})) {
             guard.unlock();
             log_->info("Pass state from future for {} to pipeline",
                        proposal_round);
@@ -148,7 +161,7 @@ namespace iroha {
             return;
           }
 
-          if (proposal_round.block_round < round_.block_round) {
+          if (round_.shared([&](auto const&obj){return (proposal_round.block_round < obj.block_round);})) {
             log_->info("Received state from past for {}, try to propagate back",
                        proposal_round);
             tryPropagateBack(state);
@@ -186,6 +199,14 @@ namespace iroha {
 
         auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
         if (committed) {
+          return;
+        }
+
+        if (round_.shared([&](auto const &current_round) {
+          return apply_state_subscription_->get().shared([&](auto const &closed_round){
+            return (closed_round >= current_round);
+              });
+        })) {
           return;
         }
 
@@ -259,7 +280,7 @@ namespace iroha {
             answer,
             [&](const Answer &answer) {
               auto &proposal_round = getRound(state);
-              auto current_round = round_;
+              auto current_round = round_.shared([](auto const &obj){return obj;});
 
               /*
                * It is possible that a new peer with an outdated peers list may
@@ -302,6 +323,7 @@ namespace iroha {
                   log_->info("Pass outcome for {} to pipeline", proposal_round);
                   lock.unlock();
                   if (proposal_round >= current_round) {
+                    getSubscription()->notify(EventTypes::kOnApplyState, proposal_round);
                     this->closeRound();
                   }
                   getSubscription()->notify(EventTypes::kOnOutcomeFromYac,

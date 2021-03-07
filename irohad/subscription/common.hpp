@@ -30,15 +30,15 @@ namespace iroha::utils {
     RWObjectHolder(Args &&... args) : t_(std::forward<Args>(args)...) {}
 
     template <typename F>
-    inline void exclusive(F &&f) {
+    inline auto exclusive(F &&f) {
       std::unique_lock lock(cs_);
-      std::forward<F>(f)(t_);
+      return std::forward<F>(f)(t_);
     }
 
     template <typename F>
-    inline void shared(F &&f) const {
+    inline auto shared(F &&f) const {
       std::shared_lock lock(cs_);
-      std::forward<F>(f)(t_);
+      return std::forward<F>(f)(t_);
     }
 
    private:
