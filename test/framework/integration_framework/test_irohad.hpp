@@ -17,45 +17,24 @@ namespace integration_framework {
    */
   class TestIrohad : public Irohad {
    public:
-    TestIrohad(const boost::optional<std::string> &block_store_dir,
+    TestIrohad(const IrohadConfig &config,
                std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
-               size_t torii_port,
-               size_t internal_port,
-               size_t max_proposal_size,
-               std::chrono::milliseconds proposal_delay,
-               std::chrono::milliseconds vote_delay,
-               std::chrono::minutes mst_expiration_time,
                const shared_model::crypto::Keypair &keypair,
-               std::chrono::milliseconds max_rounds_delay,
-               size_t stale_stream_max_rounds,
-               boost::optional<shared_model::interface::types::PeerList>
-                   opt_alternative_peers,
                logger::LoggerManagerTreePtr irohad_log_manager,
                logger::LoggerPtr log,
                iroha::StartupWsvDataPolicy startup_wsv_data_policy,
                const boost::optional<iroha::GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params = boost::none,
-               const boost::optional<iroha::torii::TlsParams>
-                   &torii_tls_params = boost::none)
-        : Irohad(block_store_dir,
+                   &opt_mst_gossip_params = boost::none)
+        : Irohad(config,
                  std::move(pg_opt),
                  listen_ip,
-                 torii_port,
-                 internal_port,
-                 max_proposal_size,
-                 proposal_delay,
-                 vote_delay,
-                 mst_expiration_time,
                  keypair,
-                 max_rounds_delay,
-                 stale_stream_max_rounds,
-                 std::move(opt_alternative_peers),
                  std::move(irohad_log_manager),
                  startup_wsv_data_policy,
+                 iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
                  iroha::network::getDefaultTestChannelParams(),
                  opt_mst_gossip_params,
-                 torii_tls_params,
                  boost::none),
           log_(std::move(log)) {}
 

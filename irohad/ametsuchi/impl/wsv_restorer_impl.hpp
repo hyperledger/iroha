@@ -6,10 +6,10 @@
 #ifndef IROHA_WSVRESTORERIMPL_HPP
 #define IROHA_WSVRESTORERIMPL_HPP
 
-#include "ametsuchi/wsv_restorer.hpp"
-
 #include "ametsuchi/ledger_state.hpp"
+#include "ametsuchi/wsv_restorer.hpp"
 #include "common/result.hpp"
+#include "logger/logger_fwd.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -41,17 +41,21 @@ namespace iroha {
               shared_model::interface::Block>> interface_validator,
           std::unique_ptr<shared_model::validation::AbstractValidator<
               iroha::protocol::Block_v1>> proto_validator,
-          std::shared_ptr<validation::ChainValidator> validator);
+          std::shared_ptr<validation::ChainValidator> validator,
+          logger::LoggerPtr log);
 
       virtual ~WsvRestorerImpl() = default;
       /**
        * Recover WSV (World State View).
        * Drop storage and apply blocks one by one.
        * @param storage of blocks in ledger
+       * @param wait_for_new_blocks - flag for wait for new blocks mode.
+       * Method waits for new blocks in block storage.
        * @return ledger state after restoration on success, otherwise error
        * string
        */
-      CommitResult restoreWsv(Storage &storage) override;
+      CommitResult restoreWsv(Storage &storagem,
+                              bool wait_for_new_blocks) override;
 
      private:
       std::unique_ptr<shared_model::validation::AbstractValidator<
@@ -61,6 +65,7 @@ namespace iroha {
           iroha::protocol::Block_v1>>
           proto_validator_;
       std::shared_ptr<validation::ChainValidator> validator_;
+      logger::LoggerPtr log_;
     };
 
   }  // namespace ametsuchi

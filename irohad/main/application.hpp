@@ -100,56 +100,30 @@ class Irohad {
 
   /**
    * Constructor that initializes common iroha pipeline
-   * @param block_store_dir - folder where blocks will be stored
    * @param pg_opt - connection options for PostgresSQL
    * @param listen_ip - ip address for opening ports (internal & torii)
-   * @param torii_port - port for torii binding
-   * @param internal_port - port for internal communication - ordering service,
-   * consensus, and block loader
-   * @param max_proposal_size - maximum transactions that possible appears in
-   * one proposal
-   * @param proposal_delay - maximum waiting time util emitting new proposal
-   * @param vote_delay - waiting time before sending vote to next peer
-   * @param mst_expiration_time - maximum time until until MST transaction is
    * not considered as expired (in minutes)
    * @param keypair - public and private keys for crypto signer
-   * @param max_rounds_delay - maximum delay between consecutive rounds without
-   * transactions
-   * @param stale_stream_max_rounds - maximum number of rounds between
-   * consecutive status emissions
-   * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
    * @param startup_wsv_data_policy - @see StartupWsvDataPolicy
    * @param grpc_channel_params - parameters for all grpc clients
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
-   * @param torii_tls_params - optional TLS params for torii.
    * @see iroha::torii::TlsParams
    * @param inter_peer_tls_config - set up TLS in peer-to-peer communication
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
-  Irohad(const boost::optional<std::string> &block_store_dir,
+  Irohad(const IrohadConfig &config,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
          const std::string &listen_ip,
-         size_t torii_port,
-         size_t internal_port,
-         size_t max_proposal_size,
-         std::chrono::milliseconds proposal_delay,
-         std::chrono::milliseconds vote_delay,
-         std::chrono::minutes mst_expiration_time,
-         const shared_model::crypto::Keypair &keypair,
-         std::chrono::milliseconds max_rounds_delay,
-         size_t stale_stream_max_rounds,
-         boost::optional<shared_model::interface::types::PeerList>
-             opt_alternative_peers,
+         const boost::optional<shared_model::crypto::Keypair> &keypair,
          logger::LoggerManagerTreePtr logger_manager,
          iroha::StartupWsvDataPolicy startup_wsv_data_policy,
+         iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
          std::shared_ptr<const iroha::network::GrpcChannelParams>
              grpc_channel_params,
          const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params = boost::none,
-         const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
-             boost::none,
+             &opt_mst_gossip_params,
          boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
              boost::none);
 
@@ -243,20 +217,10 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  const boost::optional<std::string> block_store_dir_;
+  IrohadConfig config_;
   const std::string listen_ip_;
-  size_t torii_port_;
-  boost::optional<iroha::torii::TlsParams> torii_tls_params_;
-  size_t internal_port_;
-  size_t max_proposal_size_;
-  std::chrono::milliseconds proposal_delay_;
-  std::chrono::milliseconds vote_delay_;
-  bool is_mst_supported_;
-  std::chrono::minutes mst_expiration_time_;
-  std::chrono::milliseconds max_rounds_delay_;
-  size_t stale_stream_max_rounds_;
-  const boost::optional<shared_model::interface::types::PeerList>
-      opt_alternative_peers_;
+  boost::optional<shared_model::crypto::Keypair> keypair_;
+  iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy_;
   std::shared_ptr<const iroha::network::GrpcChannelParams> grpc_channel_params_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
@@ -284,7 +248,6 @@ class Irohad {
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
 
  public:
-  shared_model::crypto::Keypair keypair;
   std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 

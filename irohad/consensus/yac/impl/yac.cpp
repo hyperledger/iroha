@@ -224,6 +224,23 @@ namespace iroha {
           return;
         }
 
+        enum { kRotatePeriod = 10 };
+
+        if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
+          vote_storage_.remove(vote.hash.vote_round);
+        }
+
+        /**
+         * 3 attempts to build and commit block before we think that round is
+         * freezed
+         */
+        if (attempt == kRotatePeriod) {
+          vote.hash.vote_hashes.proposal_hash.clear();
+          vote.hash.vote_hashes.block_hash.clear();
+          vote.hash.block_signature.reset();
+          vote = crypto_->getVote(vote.hash);
+        }
+
         auto &cluster_order = getCurrentOrder();
 
         const auto &current_leader = cluster_order.currentLeader();
@@ -234,8 +251,6 @@ namespace iroha {
         cluster_order.switchToNext();
         lock.unlock();
 
-        // identity_current_thread
-
         getSubscription()->dispatcher()->addDelayed(
             SubscriptionEngineHandlers::kYac,
             timer_->getDelay(),
@@ -243,10 +258,6 @@ namespace iroha {
               if (auto ptr = wptr.lock())
                 ptr->votingStep(vote, attempt + 1);
             });
-
-        /*        timer_->invokeAfterDelay(
-                    [this, vote, attempt] { this->votingStep(vote, attempt + 1);
-           });*/
       }
 
       void Yac::closeRound() {

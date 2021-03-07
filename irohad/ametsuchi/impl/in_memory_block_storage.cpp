@@ -27,6 +27,9 @@ InMemoryBlockStorage::fetch(
 size_t InMemoryBlockStorage::size() const {
   return block_store_.size();
 }
+void InMemoryBlockStorage::reload() {
+  // no need to reload
+}
 
 void InMemoryBlockStorage::clear() {
   block_store_.clear();
