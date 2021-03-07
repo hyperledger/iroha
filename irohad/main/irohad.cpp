@@ -32,6 +32,7 @@
 #include "util/status_notifier.hpp"
 #include "util/utility_service.hpp"
 #include "validators/field_validator.hpp"
+#include "maintenance/metrics.hpp"
 
 #if defined(USE_LIBURSA)
 #include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
@@ -105,6 +106,10 @@ static bool validateVerbosity(const char *flagname, const std::string &val) {
 /// Verbosity flag for spdlog configuration
 DEFINE_string(verbosity, kLogSettingsFromConfigFile, "Log verbosity");
 DEFINE_validator(verbosity, &validateVerbosity);
+
+/// Metrics. ToDo validator
+DEFINE_string(metrics_addr, "127.0.0.1", "Prometeus HTTP server listen address");
+DEFINE_string(metrics_port, "", "Prometeus HTTP server listens port, disabled by default");
 
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
@@ -253,6 +258,12 @@ int main(int argc, char *argv[]) {
             std::lock_guard<std::mutex>{shutdown_wait_mutex};
           },
           log_manager);
+    }
+
+    if(FLAGS_metrics_port.size()) {
+      maintenance_metrics_init(FLAGS_metrics_addr + ":" + FLAGS_metrics_port);
+    }else if(config.metrics.addr_port.size()){
+      maintenance_metrics_init(config.metrics.addr_port);
     }
 
     daemon_status_notifier->notify(

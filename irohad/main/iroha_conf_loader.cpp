@@ -693,7 +693,8 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
       and getDictChild(LogSection).loadInto(dest.logger_manager)
       and getDictChild(InitialPeers).loadInto(dest.initial_peers)
       and getDictChild(UtilityService).loadInto(dest.utility_service)
-      and getDictChild(kCrypto).loadInto(dest.crypto);
+      and getDictChild(kCrypto).loadInto(dest.crypto)
+      and (getDictChild("metrics").loadInto(dest.metrics.addr_port) or true);
 }
 
 // ------------ end of loadInto(path, dst, src) specializations ------------
@@ -768,7 +769,7 @@ iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
       return std::make_optional(std::move(doc));
     }};
 
-    JsonDeserializerImpl parser(common_objects_factory, doc, std::move(log));
+    JsonDeserializerImpl parser(common_objects_factory, doc, std::move(log));   //why move log?
     return parser.deserialize<IrohadConfig>();
   } catch (ConfigParsingException const &e) {
     return e.what();

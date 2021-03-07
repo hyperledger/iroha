@@ -192,8 +192,8 @@ namespace iroha::ametsuchi {
             [this,
              &storage,
              &block_query,
-             &last_block_in_storage,
-             wait_for_new_blocks](auto &&mutable_storage) -> CommitResult {
+             &last_block_in_storage]
+             (auto &&mutable_storage) -> CommitResult {
           if (not block_query) {
             return expected::makeError("Cannot create BlockQuery");
           }
