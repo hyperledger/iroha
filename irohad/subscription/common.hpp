@@ -24,6 +24,28 @@ namespace iroha::utils {
     NoMove() = default;
   };
 
+  template <typename T>
+  struct RWObjectHolder {
+    template <typename... Args>
+    RWObjectHolder(Args &&... args) : t_(std::forward<Args>(args)...) {}
+
+    template <typename F>
+    inline void exclusive(F &&f) {
+      std::unique_lock lock(cs_);
+      std::forward<F>(f)(t_);
+    }
+
+    template <typename F>
+    inline void shared(F &&f) const {
+      std::shared_lock lock(cs_);
+      std::forward<F>(f)(t_);
+    }
+
+   private:
+    T t_;
+    mutable std::shared_mutex cs_;
+  };
+
   class waitForSingleObject : NoMove, NoCopy {
     std::condition_variable wait_cv_;
     std::mutex wait_m_;
