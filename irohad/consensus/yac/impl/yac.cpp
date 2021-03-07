@@ -59,31 +59,17 @@ namespace iroha {
           : log_(std::move(log)),
             cluster_order_(order),
             round_(round),
-            // worker_(worker),
-            // notifier_(worker_, notifier_lifetime_),
             vote_storage_(std::move(vote_storage)),
             network_(std::move(network)),
             crypto_(std::move(crypto)),
             timer_(std::move(timer))  //,
-      // freezed_round_notifier_(freezed_round_notifier_lifetime_),
-      // subject_(worker_, freezed_round_notifier_lifetime_)
       {}
 
       Yac::~Yac() {
-        // notifier_lifetime_.unsubscribe();
       }
-
-      /*rxcpp::observable<FreezedRound> Yac::onFreezedRound() {
-        //return freezed_round_notifier_.get_observable();
-        if (!subject_)
-          subject_ = std::make_unique<rxcpp::subjects::synchronize<FreezedRound,
-      rxcpp::identity_one_worker>>(rxcpp::identity_current_thread(),
-      freezed_round_notifier_lifetime_); return subject_->get_observable();
-      }*/
 
       void Yac::stop() {
         network_->stop();
-        // freezed_round_notifier_lifetime_.unsubscribe();
       }
 
       // ------|Hash gate|------
@@ -108,10 +94,6 @@ namespace iroha {
         // separate entity
         votingStep(vote);
       }
-
-      /*rxcpp::observable<Answer> Yac::onOutcome() {
-        return notifier_.get_observable();
-      }*/
 
       // ------|Network notifications|------
 
@@ -163,7 +145,6 @@ namespace iroha {
 
             getSubscription()->notify(EventTypes::kOnOutcomeFromYac,
                                       Answer(FutureMessage{std::move(state)}));
-            // notifier_.get_subscriber().on_next(FutureMessage{std::move(state)});
             return;
           }
 
@@ -205,22 +186,6 @@ namespace iroha {
 
         auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
         if (committed) {
-          return;
-        }
-        if (round_ > vote.hash.vote_round && attempt >= 1)
-          return;
-
-        /**
-         * 3 attempts to build and commit block before we think that round is
-         * freezed
-         */
-        if (attempt >= 2) {
-          /*freezed_round_notifier_.get_subscriber().on_next(
-              FreezedRound{vote.hash.vote_round});
-              */
-
-          /*subject_->get_subscriber().on_next(
-              FreezedRound{vote.hash.vote_round});*/
           return;
         }
 
@@ -341,7 +306,6 @@ namespace iroha {
                   }
                   getSubscription()->notify(EventTypes::kOnOutcomeFromYac,
                                             answer);
-                  // notifier_.get_subscriber().on_next(answer);
                   break;
                 case ProposalState::kSentProcessed:
                   if (current_round > proposal_round)
