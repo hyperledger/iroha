@@ -48,6 +48,8 @@ BlockLoaderImpl::retrieveBlocks(
               [height, shared_client, block_factory = block_factory_](
                   auto subscriber) {
                 grpc::ClientContext context;
+                context.set_deadline(std::chrono::system_clock::now() + std::chrono::minutes(1ull));
+
                 proto::BlockRequest request;
                 request.set_height(height
                                    + 1);  // request next block to our top
