@@ -293,23 +293,6 @@ Irohad::RunResult Irohad::initStorage(
       using shared_model::crypto::Hash;
       using shared_model::interface::Block;
 
-      /*      finalized_txs_ =
-                storage->on_commit()
-                    .template lift<Hash>([](rxcpp::subscriber<Hash> dest) {
-                      return rxcpp::make_subscriber<std::shared_ptr<Block
-         const>>( dest, [=](std::shared_ptr<Block const> const &block) { for
-         (auto const &completed_tx : block->transactions()) {
-                              dest.on_next(completed_tx.hash());
-                            }
-                            for (auto const &rejected_tx_hash :
-                                 block->rejected_transactions_hashes()) {
-                              dest.on_next(rejected_tx_hash);
-                            }
-                          });
-                    })
-                    .publish()
-                    .ref_count();*/
-
       log_->info("[Init] => storage");
       return {};
     };
@@ -1056,12 +1039,6 @@ Irohad::RunResult Irohad::run() {
       return expected::makeError("Failed to fetch ledger state!");
     }
 
-    /*pcs->onSynchronization().subscribe(
-        ordering_init.sync_event_notifier.get_subscriber());*/
-    /*storage->on_commit().subscribe(
-        ordering_init.commit_notifier.get_subscriber());*/
-
-    // ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
     getSubscription()->notify(
         EventTypes::kOnBlock,
         std::shared_ptr<const shared_model::interface::Block>(
@@ -1072,12 +1049,6 @@ Irohad::RunResult Irohad::run() {
                                   SynchronizationOutcomeType::kCommit,
                                   {block_height, ordering::kFirstRejectRound},
                                   *initial_ledger_state});
-
-    /*ordering_init.sync_event_notifier.get_subscriber().on_next(
-        synchronizer::SynchronizationEvent{
-            SynchronizationOutcomeType::kCommit,
-            {block_height, ordering::kFirstRejectRound},
-            *initial_ledger_state});*/
     return {};
   };
 }
