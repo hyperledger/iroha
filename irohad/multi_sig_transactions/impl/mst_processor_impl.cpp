@@ -164,14 +164,15 @@ namespace iroha {
     if (not state.isEmpty()) {
       state.iterateBatches([](const DataType &batch) {
         getSubscription()->notify(EventTypes::kOnPreparedBatches, batch);
-        //batches_subject_.get_subscriber().on_next(batch);
+        // batches_subject_.get_subscriber().on_next(batch);
       });
     }
   }
 
   void FairMstProcessor::updatedBatchesNotify(ConstRefState state) const {
     if (not state.isEmpty()) {
-      getSubscription()->notify(EventTypes::kOnStateUpdate, std::make_shared<MstState>(state));
+      getSubscription()->notify(EventTypes::kOnStateUpdate,
+                                std::make_shared<MstState>(state));
       /*state_subject_.get_subscriber().on_next(
           std::make_shared<MstState>(state));*/
     }
@@ -181,7 +182,7 @@ namespace iroha {
     if (not state.isEmpty()) {
       state.iterateBatches([](const DataType &batch) {
         getSubscription()->notify(EventTypes::kOnExpiredBatches, batch);
-        //expired_subject_.get_subscriber().on_next(batch);
+        // expired_subject_.get_subscriber().on_next(batch);
       });
     }
   }

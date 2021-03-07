@@ -232,8 +232,7 @@ namespace iroha {
           });
     }
 
-    SynchronizerImpl::~SynchronizerImpl() {
-    }
+    SynchronizerImpl::~SynchronizerImpl() {}
 
   }  // namespace synchronizer
 }  // namespace iroha

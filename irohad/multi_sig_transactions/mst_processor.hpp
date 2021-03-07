@@ -40,18 +40,18 @@ namespace iroha {
     /**
      * Prove updating of state for handling status of signing
      */
-    //rxcpp::observable<std::shared_ptr<MstState>> onStateUpdate() const;
+    // rxcpp::observable<std::shared_ptr<MstState>> onStateUpdate() const;
 
     /**
      * Observable emit batches which are prepared for further processing in
      * system
      */
-    //rxcpp::observable<DataType> onPreparedBatches() const;
+    // rxcpp::observable<DataType> onPreparedBatches() const;
 
     /**
      * Observable emit expired by time transactions
      */
-    //rxcpp::observable<DataType> onExpiredBatches() const;
+    // rxcpp::observable<DataType> onExpiredBatches() const;
 
     virtual ~MstProcessor() = default;
 
@@ -72,7 +72,7 @@ namespace iroha {
     /**
      * @see onStateUpdate method
      */
-    //virtual auto onStateUpdateImpl() const -> decltype(onStateUpdate()) = 0;
+    // virtual auto onStateUpdateImpl() const -> decltype(onStateUpdate()) = 0;
 
     /**
      * @see onPreparedTransactions method

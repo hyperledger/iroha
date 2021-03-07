@@ -45,12 +45,13 @@ namespace iroha {
     auto propagateBatchImpl(const DataType &batch)
         -> decltype(propagateBatch(batch)) override;
 
-    //auto onStateUpdateImpl() const -> decltype(onStateUpdate()) override;
+    // auto onStateUpdateImpl() const -> decltype(onStateUpdate()) override;
 
     /*auto onPreparedBatchesImpl() const
         -> decltype(onPreparedBatches()) override;*/
 
-    //auto onExpiredBatchesImpl() const -> decltype(onExpiredBatches()) override;
+    // auto onExpiredBatchesImpl() const -> decltype(onExpiredBatches())
+    // override;
 
     bool batchInStorageImpl(const DataType &batch) const override;
 
@@ -95,13 +96,13 @@ namespace iroha {
     // rx subjects
 
     /// use for share new states from other peers
-    //rxcpp::subjects::subject<std::shared_ptr<MstState>> state_subject_;
+    // rxcpp::subjects::subject<std::shared_ptr<MstState>> state_subject_;
 
     /// use for share completed batches
-    //rxcpp::subjects::subject<DataType> batches_subject_;
+    // rxcpp::subjects::subject<DataType> batches_subject_;
 
     /// use for share expired batches
-    //rxcpp::subjects::subject<DataType> expired_subject_;
+    // rxcpp::subjects::subject<DataType> expired_subject_;
 
     /// use for tracking the propagation subscription
 

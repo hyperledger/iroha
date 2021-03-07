@@ -40,11 +40,10 @@ OnDemandOrderingGate::OnDemandOrderingGate(
           std::make_shared<ProcessedHashesSubscriberType>(
               getSubscription()
                   ->getEngine<EventTypes,
-                              std::shared_ptr<cache::OrderingGateCache::
-                                                  HashesSetType>>())),
+                              std::shared_ptr<
+                                  cache::OrderingGateCache::HashesSetType>>())),
       round_switch_subscription_(std::make_shared<RoundSwitchSubscriberType>(
-          getSubscription()->getEngine<EventTypes, RoundSwitch>()))
-{
+          getSubscription()->getEngine<EventTypes, RoundSwitch>())) {
   processed_hashes_subscription_->setCallback(
       [this](auto, auto &, auto key, auto hashes) {
         assert(EventTypes::kOnProcessedHashes == key);

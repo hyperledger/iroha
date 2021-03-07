@@ -21,8 +21,7 @@ OnDemandConnectionManager::OnDemandConnectionManager(
     : log_(std::move(log)),
       factory_(std::move(factory)),
       subscription_(std::make_shared<SubscriberType>(
-          getSubscription()->getEngine<EventTypes, CurrentPeers>()))
-{
+          getSubscription()->getEngine<EventTypes, CurrentPeers>())) {
   subscription_->setCallback([this](auto, auto &, auto key, auto const &peers) {
     assert(EventTypes::kOnCurrentRoundPeers == key);
     this->initializeConnections(peers);

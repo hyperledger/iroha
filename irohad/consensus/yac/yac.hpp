@@ -130,11 +130,11 @@ namespace iroha {
         std::shared_ptr<YacCryptoProvider> crypto_;
         std::shared_ptr<Timer> timer_;
 
-        using ApplyStateSubscription = subscription::SubscriberImpl<
-            EventTypes,
-            SubscriptionDispatcher,
-            utils::RWObjectHolder<Round>,
-            Round>;
+        using ApplyStateSubscription =
+            subscription::SubscriberImpl<EventTypes,
+                                         SubscriptionDispatcher,
+                                         utils::RWObjectHolder<Round>,
+                                         Round>;
 
         std::shared_ptr<ApplyStateSubscription> apply_state_subscription_;
       };

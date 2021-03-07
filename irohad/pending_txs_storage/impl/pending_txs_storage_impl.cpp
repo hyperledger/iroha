@@ -42,7 +42,10 @@ namespace iroha {
           removeBatch(expiredBatch);
         });
     finalized_txs_subscription_->setCallback(
-        [this](auto, auto &, auto key, shared_model::interface::types::HashType const &hash) {
+        [this](auto,
+               auto &,
+               auto key,
+               shared_model::interface::types::HashType const &hash) {
           assert(EventTypes::kOnFinalizedTxs == key);
           removeTransaction(hash);
         });
