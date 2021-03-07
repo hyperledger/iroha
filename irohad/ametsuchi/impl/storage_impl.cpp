@@ -312,7 +312,6 @@ namespace iroha {
               EventTypes::kOnBlock,
               std::shared_ptr<const shared_model::interface::Block>(
                   *std::move(maybe_block)));
-          // notifier_.get_subscriber().on_next(*std::move(maybe_block));
         }
         return expected::makeValue(std::move(commit_result.ledger_state));
       };
@@ -364,7 +363,6 @@ namespace iroha {
         getSubscription()->notify(
             EventTypes::kOnBlock,
             std::shared_ptr<const shared_model::interface::Block>(block));
-        // notifier_.get_subscriber().on_next(block);
 
         decltype(std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
         {
@@ -465,7 +463,6 @@ namespace iroha {
         getSubscription()->notify(
             EventTypes::kOnBlock,
             std::shared_ptr<const shared_model::interface::Block>(block));
-        // notifier_.get_subscriber().on_next(block);
         return {};
       }
       return expected::makeError("Block insertion to storage failed");
