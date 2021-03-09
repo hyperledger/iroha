@@ -8,6 +8,7 @@
 #include "framework/crypto_literals.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
+#include "main/subscription.hpp"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -28,8 +29,6 @@ TEST_F(YacTest, UnknownVoteBeforeCommit) {
   initYac(my_order.value());
 
   // verify that commit not emitted
-  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 0);
-  wrapper.subscribe();
 
   EXPECT_CALL(*network, sendState(_, _)).Times(0);
 
@@ -44,9 +43,19 @@ TEST_F(YacTest, UnknownVoteBeforeCommit) {
     yac->onState({createVote(my_hash, std::to_string(i))});
   }
 
+  using Subscription =
+  iroha::subscription::SubscriberImpl<iroha::EventTypes,
+      iroha::SubscriptionDispatcher,
+      bool,
+      iroha::consensus::yac::Answer>;
+  auto wrapper = std::make_shared<Subscription>(iroha::getSubscription()->getEngine<iroha::EventTypes, iroha::consensus::yac::Answer>());
+  wrapper->setCallback([](auto /*set_id*/, auto &/*obj*/, auto key, iroha::consensus::yac::Answer const&answer){
+
+  });
+  wrapper->subscribe<>()
+
   // send a vote from unknown peer
   yac->onState({createVote(my_hash, "unknown")});
-
   ASSERT_TRUE(wrapper.validate());
 }
 
