@@ -769,7 +769,7 @@ iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
       return std::make_optional(std::move(doc));
     }};
 
-    JsonDeserializerImpl parser(common_objects_factory, doc, std::move(log));   //why move log?
+    JsonDeserializerImpl parser(common_objects_factory, doc, std::move(log));
     return parser.deserialize<IrohadConfig>();
   } catch (ConfigParsingException const &e) {
     return e.what();

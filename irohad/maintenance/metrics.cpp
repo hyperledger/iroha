@@ -24,8 +24,8 @@ auto maintenance_metrics_init(std::string const& listen_addr)
 {
   using namespace prometheus;
 
-  std::regex full_matcher("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]):[0-9]+$");
-  std::regex port_matcher("^:?([0-9]{1,5})$");
+  static const std::regex full_matcher("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]):[0-9]+$");
+  static const std::regex port_matcher("^:?([0-9]{1,5})$");
   std::string listen_addr_port;
   if(std::regex_match(listen_addr,full_matcher)) {
     listen_addr_port = listen_addr;
