@@ -6,6 +6,7 @@
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 
 #include <functional>
+#include <chrono>
 
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/indirected.hpp>
@@ -21,6 +22,7 @@
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -58,8 +60,6 @@ class OnDemandOrderingGateTest : public ::testing::Test {
     ordering_gate = std::make_shared<OnDemandOrderingGate>(
         ordering_service,
         std::unique_ptr<OdOsNotification>(notification),
-        processed_tx_hashes.get_observable(),
-        rounds.get_observable(),
         std::move(ufactory),
         tx_cache,
         proposal_creation_strategy,
@@ -90,6 +90,35 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         .build()
         .signAndAddSignature(kDefaultKey)
         .finish();
+  }
+
+  template<typename F>
+  auto waitProposalSync(F &&f, OnDemandOrderingGate::RoundSwitch const &event) {
+    using Subscription =
+    iroha::subscription::SubscriberImpl<iroha::EventTypes,
+        iroha::SubscriptionDispatcher,
+        bool,
+        iroha::network::OrderingEvent>;
+    auto wrapper = std::make_shared<Subscription>(
+        iroha::getSubscription()
+            ->getEngine<iroha::EventTypes, iroha::network::OrderingEvent>(),
+        false);
+
+    iroha::utils::waitForSingleObject ev;
+    wrapper->setCallback(
+        [&](auto /*set_id*/,
+            auto &flag,
+            auto key,
+            iroha::network::OrderingEvent const &val) {
+          std::forward<F>(f)(val);
+          flag = true;
+          ev.set();
+        });
+    wrapper->subscribe<iroha::SubscriptionEngineHandlers::kYac>(0, iroha::EventTypes::kOnProposal);
+    iroha::getSubscription()->notify(iroha::EventTypes::kOnRoundSwitch, event);
+    ev.wait(60ull * 1000'000);
+
+    return wrapper;
   }
 
   rxcpp::subjects::subject<
@@ -153,17 +182,11 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
       .WillOnce(Return(ByMove(std::move(oproposal))));
 
   auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
-
-  auto gate_wrapper =
-      make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
-  gate_wrapper.subscribe([&](auto val) {
+  auto wrapper = waitProposalSync([&](iroha::network::OrderingEvent const &val){
     ASSERT_EQ(proposal, getProposalUnsafe(val).get());
     EXPECT_EQ(val.ledger_state->ledger_peers, event.ledger_state->ledger_peers);
-  });
-
-  rounds.get_subscriber().on_next(event);
-
-  ASSERT_TRUE(gate_wrapper.validate());
+  }, event);
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -190,7 +213,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
 
   auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
 
-  auto gate_wrapper =
+  /*auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto val) {
     ASSERT_EQ(proposal, getProposalUnsafe(val).get());
@@ -199,7 +222,13 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
 
   rounds.get_subscriber().on_next(event);
 
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper.validate());*/
+
+  auto wrapper = waitProposalSync([&](iroha::network::OrderingEvent const &val){
+    ASSERT_EQ(proposal, getProposalUnsafe(val).get());
+    EXPECT_EQ(val.ledger_state->ledger_peers, event.ledger_state->ledger_peers);
+  }, event);
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -216,14 +245,18 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(proposal))));
 
-  auto gate_wrapper =
+  /*auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto val) { ASSERT_FALSE(val.proposal); });
 
   rounds.get_subscriber().on_next(
       OnDemandOrderingGate::RoundSwitch(round, ledger_state));
 
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper.validate());*/
+  auto wrapper = waitProposalSync([&](iroha::network::OrderingEvent const &val){
+    ASSERT_FALSE(val.proposal);
+  }, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -240,14 +273,18 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(proposal))));
 
-  auto gate_wrapper =
+  /*auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto val) { ASSERT_FALSE(val.proposal); });
 
   rounds.get_subscriber().on_next(
       OnDemandOrderingGate::RoundSwitch(round, ledger_state));
 
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper.validate());*/
+  auto wrapper = waitProposalSync([&](iroha::network::OrderingEvent const &val){
+    ASSERT_FALSE(val.proposal);
+  }, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -295,13 +332,16 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
       .Times(AtMost(1))
       .WillOnce(Return(ByMove(std::move(ufactory_proposal))));
 
-  auto gate_wrapper =
+  /*auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto proposal) {});
   rounds.get_subscriber().on_next(
       OnDemandOrderingGate::RoundSwitch(round, ledger_state));
 
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper.validate());*/
+  auto wrapper = waitProposalSync([&](iroha::network::OrderingEvent const &val){
+  }, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ASSERT_TRUE(wrapper->get());
 }
 
 MATCHER_P(hashEq, arg1, "") {
@@ -348,13 +388,16 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
       .Times(AtMost(1))
       .WillOnce(Return(ByMove(std::move(ufactory_proposal))));
 
-  auto gate_wrapper =
+  /*auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto proposal) {});
   rounds.get_subscriber().on_next(
       OnDemandOrderingGate::RoundSwitch(round, ledger_state));
 
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper.validate());*/
+  auto wrapper = waitProposalSync([&](iroha::network::OrderingEvent const &val){
+  }, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -377,11 +420,6 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 
   cache::OrderingGateCache::BatchesSetType collection{batch1, batch2};
   transport::OdOsNotification::BatchesSetType collection2{batch1, batch2};
-  EXPECT_CALL(*ordering_service, forCachedBatches(_))
-      .WillOnce(InvokeArgument<0>(collection2));
-
-  EXPECT_CALL(*notification, onBatches(UnorderedElementsAreArray(collection)))
-      .Times(1);
 
   rounds.get_subscriber().on_next(
       OnDemandOrderingGate::RoundSwitch(round, ledger_state));
