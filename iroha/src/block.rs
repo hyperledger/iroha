@@ -8,6 +8,7 @@ use crate::{
 use iroha_crypto::{KeyPair, Signatures};
 use iroha_data_model::events::prelude::*;
 use iroha_derive::Io;
+use iroha_error::Result;
 use parity_scale_codec::{Decode, Encode};
 use std::iter;
 use std::time::SystemTime;
@@ -252,7 +253,7 @@ impl ValidBlock {
     }
 
     /// Sign this block and get `ValidBlock`.
-    pub fn sign(mut self, key_pair: &KeyPair) -> Result<ValidBlock, String> {
+    pub fn sign(mut self, key_pair: &KeyPair) -> Result<ValidBlock> {
         let signature = Signature::new(key_pair.clone(), self.hash().as_ref())?;
         self.signatures.add(signature);
         Ok(self)

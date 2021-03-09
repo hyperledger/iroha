@@ -3,6 +3,7 @@
 pub mod multihash;
 mod varint;
 
+use iroha_error::{Error, Result};
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize, Serialize};
@@ -88,14 +89,14 @@ impl Default for Algorithm {
 }
 
 impl FromStr for Algorithm {
-    type Err = String;
-    fn from_str(algorithm: &str) -> Result<Self, Self::Err> {
+    type Err = Error;
+    fn from_str(algorithm: &str) -> Result<Self> {
         match algorithm {
             ED_25519 => Ok(Algorithm::Ed25519),
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
             BLS_SMALL => Ok(Algorithm::BlsSmall),
-            _ => Err(format!("The {} algorithm is not supported.", algorithm)),
+            _ => Err(Error::msg("The {} algorithm is not supported.")),
         }
     }
 }
@@ -117,19 +118,19 @@ pub enum KeyGenOption {
 }
 
 impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(key_gen_option: KeyGenOption) -> Result<Self, Self::Error> {
+    fn try_from(key_gen_option: KeyGenOption) -> Result<Self> {
         match key_gen_option {
             KeyGenOption::UseSeed(seed) => Ok(UrsaKeyGenOption::UseSeed(seed)),
             KeyGenOption::FromPrivateKey(key) => {
                 if key.digest_function == ED_25519 || key.digest_function == SECP_256_K1 {
                     Ok(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(key.payload)))
                 } else {
-                    Err(format!(
+                    Err(Error::msg(format!(
                         "Ursa does not support {} digest function.",
                         key.digest_function
-                    ))
+                    )))
                 }
             }
         }
@@ -171,13 +172,13 @@ pub struct KeyPair {
 impl KeyPair {
     /// Generates a pair of Public and Private key with `Algorithm::default()` selected as generation algorithm.
     /// Returns `Err(String)` with error message if failed.
-    pub fn generate() -> Result<Self, String> {
+    pub fn generate() -> Result<Self> {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
 
     /// Generates a pair of Public and Private key with the corresponding `KeyGenConfiguration`.
     /// Returns `Err(String)` with error message if failed.
-    pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, String> {
+    pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self> {
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option
             .map(|key_gen_option| key_gen_option.try_into())
@@ -188,7 +189,9 @@ impl KeyPair {
             Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
             Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
         }
-        .map_err(|e| format!("Failed to generate key pair: {}", e))?;
+        // TODO: Create an issue for ursa to impl Error for ursa::CryptoError
+        //.wrap_err("Failed to generate key pair")?;
+        .map_err(|e| Error::msg(e.to_string()))?;
         Ok(KeyPair {
             public_key: PublicKey {
                 digest_function: configuration.algorithm.to_string(),
@@ -231,9 +234,9 @@ impl Display for PublicKey {
 }
 
 impl TryFrom<&Multihash> for PublicKey {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
+    fn try_from(multihash: &Multihash) -> Result<Self> {
         match multihash.digest_function {
             MultihashDigestFunction::Ed25519Pub => Ok(ED_25519.to_string()),
             MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1.to_string()),
@@ -248,15 +251,15 @@ impl TryFrom<&Multihash> for PublicKey {
 }
 
 impl TryFrom<&PublicKey> for Multihash {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(public_key: &PublicKey) -> Result<Self, Self::Error> {
+    fn try_from(public_key: &PublicKey) -> Result<Self> {
         match public_key.digest_function.as_ref() {
             ED_25519 => Ok(MultihashDigestFunction::Ed25519Pub),
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
             BLS_NORMAL => Ok(MultihashDigestFunction::Bls12381G1Pub),
             BLS_SMALL => Ok(MultihashDigestFunction::Bls12381G2Pub),
-            _ => Err("Digest function not implemented.".to_string()),
+            _ => Err(Error::msg("Digest function not implemented.")),
         }
         .map(|digest_function| Multihash {
             digest_function,
@@ -280,7 +283,10 @@ impl<'de> Deserialize<'de> for PublicKey {
         D: serde::Deserializer<'de>,
     {
         let bytes = hex::decode(String::deserialize(deserializer)?).map_err(SerdeError::custom)?;
-        let multihash: &Multihash = &bytes.try_into().map_err(SerdeError::custom)?;
+        let multihash: &Multihash = &bytes
+            .try_into()
+            .map_err(|e: Error| e.to_string())
+            .map_err(SerdeError::custom)?;
         multihash.try_into().map_err(SerdeError::custom)
     }
 }
@@ -334,7 +340,7 @@ pub struct Signature {
 
 impl Signature {
     /// Creates new `Signature` by signing payload via `private_key`.
-    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature, String> {
+    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature> {
         let private_key = UrsaPrivateKey(key_pair.private_key.payload.to_vec());
         let algorithm: Algorithm = key_pair.public_key.digest_function.parse()?;
         let signature = match algorithm {
@@ -343,7 +349,7 @@ impl Signature {
             Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
             Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
         }
-        .map_err(|e| format!("Failed to sign payload: {}", e))?;
+        .map_err(|e| Error::msg(format!("Failed to sign payload: {}", e)))?;
         Ok(Signature {
             public_key: key_pair.public_key,
             signature,
@@ -351,10 +357,10 @@ impl Signature {
     }
 
     /// Verify `message` using signed data and `public_key`.
-    pub fn verify(&self, message: &[u8]) -> Result<(), String> {
+    pub fn verify(&self, message: &[u8]) -> Result<()> {
         let public_key = UrsaPublicKey(self.public_key.payload.to_vec());
         let algorithm: Algorithm = self.public_key.digest_function.parse()?;
-        match algorithm {
+        let result = match algorithm {
             Algorithm::Ed25519 => {
                 Ed25519Sha512::new().verify(message, &self.signature, &public_key)
             }
@@ -363,15 +369,11 @@ impl Signature {
             }
             Algorithm::BlsSmall => BlsSmall::new().verify(message, &self.signature, &public_key),
             Algorithm::BlsNormal => BlsNormal::new().verify(message, &self.signature, &public_key),
+        };
+        match result {
+            Ok(true) => Ok(()),
+            _ => Err(Error::msg("Signature did not pass verification.")),
         }
-        .map_err(|e| e.to_string())
-        .and_then(|verified| {
-            if verified {
-                Ok(())
-            } else {
-                Err("Signature did not pass verification.".to_string())
-            }
-        })
     }
 }
 

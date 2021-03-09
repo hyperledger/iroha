@@ -9,6 +9,7 @@ use iroha::{
     sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
 };
 use iroha_data_model::prelude::*;
+use iroha_error::{Error, Result};
 use iroha_logger::config::{LevelFilter, LoggerConfiguration};
 use rand::seq::SliceRandom;
 use std::thread;
@@ -53,12 +54,12 @@ impl Network {
         default_configuration: Option<Configuration>,
         n_peers: usize,
         offline_peers: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         let n_peers = n_peers - 1;
         let genesis = Peer::new()?;
         let peers = (0..n_peers)
             .map(|_| Peer::new())
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
         let mut configuration =
             default_configuration.unwrap_or(Configuration::from_path(CONFIGURATION_PATH)?);
@@ -94,10 +95,7 @@ impl Network {
     }
 
     /// Creates new network from configuration and with that number of peers
-    pub fn new(
-        default_configuration: Option<Configuration>,
-        n_peers: usize,
-    ) -> Result<Self, String> {
+    pub fn new(default_configuration: Option<Configuration>, n_peers: usize) -> Result<Self> {
         Self::new_with_offline_peers(default_configuration, n_peers, 0)
     }
 }
@@ -186,16 +184,22 @@ impl Peer {
     }
 
     /// Starts peer
-    pub fn start(&self) -> Result<task::JoinHandle<()>, String> {
+    pub fn start(&self) -> Result<task::JoinHandle<()>> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)?;
         Ok(self.start_with_config(configuration))
     }
 
     /// Creates peer
-    pub fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self> {
         let key_pair = KeyPair::generate()?;
-        let p2p_address = format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
-        let api_address = format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
+        let p2p_address = format!(
+            "127.0.0.1:{}",
+            unique_port::get_unique_free_port().map_err(Error::msg)?
+        );
+        let api_address = format!(
+            "127.0.0.1:{}",
+            unique_port::get_unique_free_port().map_err(Error::msg)?
+        );
         let id = PeerId {
             address: p2p_address.clone(),
             public_key: key_pair.public_key.clone(),

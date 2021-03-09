@@ -26,6 +26,7 @@ pub mod query;
 
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
+use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Debug};
@@ -123,85 +124,91 @@ impl Value {
 }
 
 impl TryFrom<Value> for u32 {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<u32, Self::Error> {
+    fn try_from(value: Value) -> Result<u32> {
         if let Value::U32(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not U32.", value))
+            Err(Error::msg(format!("Value {:?} is not U32.", value)))
         }
     }
 }
 
 impl TryFrom<Value> for bool {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<bool, Self::Error> {
+    fn try_from(value: Value) -> Result<bool> {
         if let Value::Bool(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not bool.", value))
+            Err(Error::msg(format!("Value {:?} is not bool.", value)))
         }
     }
 }
 
 impl TryFrom<Value> for Vec<Value> {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<Vec<Value>, Self::Error> {
+    fn try_from(value: Value) -> Result<Vec<Value>> {
         if let Value::Vec(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not vec.", value))
+            Err(Error::msg(format!("Value {:?} is not vec.", value)))
         }
     }
 }
 
 impl TryFrom<Value> for IdBox {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<IdBox, Self::Error> {
+    fn try_from(value: Value) -> Result<IdBox> {
         if let Value::Id(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not an id.", value))
+            Err(Error::msg(format!("Value {:?} is not an id.", value)))
         }
     }
 }
 
 impl TryFrom<Value> for IdentifiableBox {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<IdentifiableBox, Self::Error> {
+    fn try_from(value: Value) -> Result<IdentifiableBox> {
         if let Value::Identifiable(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not an identifiable entity.", value))
+            Err(Error::msg(format!(
+                "Value {:?} is not an identifiable entity.",
+                value
+            )))
         }
     }
 }
 
 impl TryFrom<Value> for PublicKey {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<PublicKey, Self::Error> {
+    fn try_from(value: Value) -> Result<PublicKey> {
         if let Value::PublicKey(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not a public key.", value))
+            Err(Error::msg(format!(
+                "Value {:?} is not a public key.",
+                value
+            )))
         }
     }
 }
 
 impl TryFrom<Value> for Parameter {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: Value) -> Result<Parameter, Self::Error> {
+    fn try_from(value: Value) -> Result<Parameter> {
         if let Value::Parameter(value) = value {
             Ok(value)
         } else {
-            Err(format!("Value {:?} is not a parameter.", value))
+            Err(Error::msg(format!("Value {:?} is not a parameter.", value)))
         }
     }
 }
@@ -363,6 +370,7 @@ pub mod account {
     use serde::{Deserialize, Serialize};
     //TODO: get rid of it?
     use iroha_crypto::prelude::*;
+    use iroha_error::{Error, Result};
     use parity_scale_codec::{Decode, Encode};
     use std::{collections::BTreeMap, fmt, iter::FromIterator};
 
@@ -583,10 +591,13 @@ pub mod account {
 
     /// Account Identification is represented by `name@domain_name` string.
     impl std::str::FromStr for Id {
-        type Err = String;
+        type Err = Error;
 
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('@').collect();
+            if vector.len() != 2 {
+                return Err(Error::msg("Id should have format `name@domain_name`"));
+            }
             Ok(Id {
                 name: String::from(vector[0]),
                 domain_name: String::from(vector[1]),
@@ -612,6 +623,7 @@ pub mod asset {
 
     use crate::{account::prelude::*, Bytes, Identifiable, Name, Value};
     use iroha_derive::Io;
+    use iroha_error::{Error, Result};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
     use std::{
@@ -837,10 +849,15 @@ pub mod asset {
 
     /// Asset Identification is represented by `name#domain_name` string.
     impl FromStr for DefinitionId {
-        type Err = String;
+        type Err = Error;
 
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('#').collect();
+            if vector.len() != 2 {
+                return Err(Error::msg(
+                    "Asset definition ID should have format `name#domain_name`.",
+                ));
+            }
             Ok(DefinitionId {
                 name: String::from(vector[0]),
                 domain_name: String::from(vector[1]),
@@ -1059,6 +1076,7 @@ pub mod transaction {
     use crate::{account::Account, isi::Instruction, Identifiable};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
+    use iroha_error::{Error, Result};
     use iroha_version::{declare_versioned_with_scale, version_with_scale};
     use parity_scale_codec::{Decode, Encode};
     use std::{
@@ -1130,7 +1148,7 @@ pub mod transaction {
         }
 
         /// Checks if number of instructions in payload exceeds maximum
-        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<(), String> {
+        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
             if self
                 .payload
                 .instructions
@@ -1139,7 +1157,7 @@ pub mod transaction {
                 .sum::<usize>()
                 > max_instruction_number
             {
-                return Err("Too many instructions in payload".to_owned());
+                return Err(Error::msg("Too many instructions in payload"));
             }
             Ok(())
         }
@@ -1147,7 +1165,7 @@ pub mod transaction {
         /// Sign transaction with the provided key pair.
         ///
         /// Returns `Ok(Transaction)` if succeeded and `Err(String)` if failed.
-        pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction, String> {
+        pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction> {
             let mut signatures = self.signatures.clone();
             signatures.push(Signature::new(key_pair.clone(), self.hash().as_ref())?);
             Ok(Transaction {
@@ -1214,14 +1232,13 @@ pub mod transaction {
     }
 
     impl TryFrom<&BTreeMap<String, String>> for Pagination {
-        type Error = String;
-        fn try_from(query_params: &BTreeMap<String, String>) -> Result<Self, Self::Error> {
+        type Error = Error;
+        fn try_from(query_params: &BTreeMap<String, String>) -> Result<Self> {
             let get_num = |key| {
                 query_params
                     .get(key)
                     .map(|value| value.parse::<usize>())
                     .transpose()
-                    .map_err(|e| e.to_string())
             };
             let start = get_num(PAGINATION_START)?;
             let limit = get_num(PAGINATION_LIMIT)?;

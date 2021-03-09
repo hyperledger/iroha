@@ -1,5 +1,6 @@
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_dsl::prelude::*;
+use iroha_error::{Error, Result, WrapErr};
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -50,49 +51,47 @@ impl Configuration {
     /// This method will panic if configuration file presented, but has incorrect scheme or format.
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
-    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration, String> {
-        let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
+    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration> {
+        let file = File::open(path).wrap_err("Failed to open a file")?;
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader)
-            .map_err(|e| format!("Failed to deserialize json from reader: {}", e))
+        serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")
     }
 
     /// Load environment variables and replace predefined parameters with these variables
     /// values.
-    pub fn load_environment(&mut self) -> Result<(), String> {
-        self.logger_configuration.load_environment()?;
+    pub fn load_environment(&mut self) -> Result<()> {
+        self.logger_configuration
+            .load_environment()
+            .map_err(Error::msg)?;
         if let Ok(torii_api_url) = env::var(TORII_API_URL) {
             self.torii_api_url = torii_api_url;
         }
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
-                .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
+                .wrap_err("Failed to parse Public Key")?;
         }
         if let Ok(private_key) = env::var(IROHA_PRIVATE_KEY) {
-            self.private_key = serde_json::from_str(&private_key)
-                .map_err(|e| format!("Failed to parse Private Key: {}", e))?;
+            self.private_key =
+                serde_json::from_str(&private_key).wrap_err("Failed to parse Private Key")?;
         }
         if let Ok(proposed_transaction_ttl_ms) = env::var(TRANSACTION_TIME_TO_LIVE_MS) {
             self.transaction_time_to_live_ms =
                 serde_json::from_str(&proposed_transaction_ttl_ms)
-                    .map_err(|e| format!("Failed to parse proposed transaction ttl: {}", e))?;
+                    .wrap_err("Failed to parse proposed transaction ttl")?;
         }
         if let Ok(transaction_status_timeout_ms) = env::var(TRANSACTION_STATUS_TIMEOUT) {
             self.transaction_status_timeout_ms =
                 serde_json::from_str(&transaction_status_timeout_ms)
-                    .map_err(|e| format!("Failed to parse transaction status timeout: {}", e))?;
+                    .wrap_err("Failed to parse transaction status timeout")?;
         }
         if let Ok(account_id) = env::var(ACCOUNT_ID) {
-            self.account_id = serde_json::from_str(&account_id)
-                .map_err(|e| format!("Failed to parse account id: {}", e))?;
+            self.account_id =
+                serde_json::from_str(&account_id).wrap_err("Failed to parse account id")?;
         }
         if let Ok(max_instruction_number) = env::var(MAX_INSTRUCTION_NUMBER) {
-            self.max_instruction_number = max_instruction_number.parse().map_err(|e| {
-                format!(
-                    "Failed to parse maximum number of instructions per transaction: {}",
-                    e
-                )
-            })?;
+            self.max_instruction_number = max_instruction_number
+                .parse::<usize>()
+                .wrap_err("Failed to parse maximum number of instructions per transaction")?;
         }
         Ok(())
     }

@@ -12,5 +12,6 @@ unique_port = { version = "0.1.0", git = "https://github.com/soramitsu/iroha2-un
 iroha = { path = "../../iroha" }
 iroha_data_model = { path = "../../iroha_data_model" }
 iroha_logger = { path = "../../iroha_logger" }
+iroha_error = { path = "../../iroha_error" }
 async-std = { version = "=1.6.2", features = ["attributes","unstable"] }
 rand = "0.7.3"

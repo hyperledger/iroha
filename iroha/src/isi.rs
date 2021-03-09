@@ -3,6 +3,7 @@
 use crate::{expression::Evaluate, prelude::*};
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::log;
+use iroha_error::{Error, Result};
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 pub trait Execute {
@@ -11,7 +12,7 @@ pub trait Execute {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String>;
+    ) -> Result<WorldStateView>;
 }
 
 impl Execute for Instruction {
@@ -19,7 +20,7 @@ impl Execute for Instruction {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         use Instruction::*;
         match self {
             Register(register_box) => register_box.execute(authority, world_state_view),
@@ -41,7 +42,7 @@ impl Execute for RegisterBox {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let context = Context::new();
         match self.object.evaluate(world_state_view, &context)? {
             IdentifiableBox::Account(account) => {
@@ -57,7 +58,7 @@ impl Execute for RegisterBox {
             IdentifiableBox::Peer(peer) => {
                 Register::<Peer>::new(*peer).execute(authority, world_state_view)
             }
-            _ => Err("Unsupported instruction.".to_string()),
+            _ => Err(Error::msg("Unsupported instruction.")),
         }
     }
 }
@@ -68,7 +69,7 @@ impl Execute for UnregisterBox {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let context = Context::new();
         match self.object_id.evaluate(world_state_view, &context)? {
             IdBox::AccountId(account_id) => {
@@ -81,7 +82,7 @@ impl Execute for UnregisterBox {
             IdBox::DomainName(domain_name) => {
                 Unregister::<Domain>::new(domain_name).execute(authority, world_state_view)
             }
-            _ => Err("Unsupported instruction.".to_string()),
+            _ => Err(Error::msg("Unsupported instruction.")),
         }
     }
 }
@@ -92,19 +93,19 @@ impl Execute for MintBox {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let context = Context::new();
         match self.destination_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => match self.object.evaluate(world_state_view, &context)? {
                 Value::U32(quantity) => {
                     Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
-                _ => Err("Unsupported instruction.".to_string()),
+                _ => Err(Error::msg("Unsupported instruction.")),
             },
             IdBox::WorldId => match self.object.evaluate(world_state_view, &context)? {
                 Value::Parameter(parameter) => Mint::<World, Parameter>::new(parameter, WorldId)
                     .execute(authority, world_state_view),
-                _ => Err("Unsupported instruction.".to_string()),
+                _ => Err(Error::msg("Unsupported instruction.")),
             },
             IdBox::AccountId(account_id) => {
                 match self.object.evaluate(world_state_view, &context)? {
@@ -116,10 +117,10 @@ impl Execute for MintBox {
                         Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                             .execute(authority, world_state_view)
                     }
-                    _ => Err("Unsupported instruction.".to_string()),
+                    _ => Err(Error::msg("Unsupported instruction.")),
                 }
             }
-            _ => Err("Unsupported instruction.".to_string()),
+            _ => Err(Error::msg("Unsupported instruction.")),
         }
     }
 }
@@ -130,14 +131,14 @@ impl Execute for BurnBox {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let context = Context::new();
         match self.destination_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => match self.object.evaluate(world_state_view, &context)? {
                 Value::U32(quantity) => {
                     Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
-                _ => Err("Unsupported instruction.".to_string()),
+                _ => Err(Error::msg("Unsupported instruction.")),
             },
             IdBox::AccountId(account_id) => {
                 match self.object.evaluate(world_state_view, &context)? {
@@ -145,10 +146,10 @@ impl Execute for BurnBox {
                         Burn::<Account, PublicKey>::new(public_key, account_id)
                             .execute(authority, world_state_view)
                     }
-                    _ => Err("Unsupported instruction.".to_string()),
+                    _ => Err(Error::msg("Unsupported instruction.")),
                 }
             }
-            _ => Err("Unsupported instruction.".to_string()),
+            _ => Err(Error::msg("Unsupported instruction.")),
         }
     }
 }
@@ -159,7 +160,7 @@ impl Execute for TransferBox {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let context = Context::new();
         match self.source_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(source_asset_id) => {
@@ -174,12 +175,12 @@ impl Execute for TransferBox {
                             destination_asset_id,
                         )
                         .execute(authority, world_state_view),
-                        _ => Err("Unsupported instruction.".to_string()),
+                        _ => Err(Error::msg("Unsupported instruction.")),
                     },
-                    _ => Err("Unsupported instruction.".to_string()),
+                    _ => Err(Error::msg("Unsupported instruction.")),
                 }
             }
-            _ => Err("Unsupported instruction.".to_string()),
+            _ => Err(Error::msg("Unsupported instruction.")),
         }
     }
 }
@@ -190,7 +191,7 @@ impl Execute for If {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let context = Context::new();
         if self.condition.evaluate(world_state_view, &context)? {
             self.then.execute(authority, &world_state_view)
@@ -208,7 +209,7 @@ impl Execute for Pair {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let world_state_view = self
             .left_instruction
             .execute(authority.clone(), world_state_view)?;
@@ -225,7 +226,7 @@ impl Execute for SequenceBox {
         self,
         authority: <Account as Identifiable>::Id,
         world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
+    ) -> Result<WorldStateView> {
         let mut world_state_view = world_state_view.clone();
         for instruction in self.instructions {
             world_state_view = instruction.execute(authority.clone(), &world_state_view)?;
@@ -240,8 +241,8 @@ impl Execute for FailBox {
         self,
         _authority: <Account as Identifiable>::Id,
         _world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView, String> {
-        Err(format!("Execution failed: {}.", self.message))
+    ) -> Result<WorldStateView> {
+        Err(Error::msg(format!("Execution failed: {}.", self.message)))
     }
 }
 

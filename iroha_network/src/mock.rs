@@ -5,10 +5,10 @@ use async_std::{
     task,
 };
 use iroha_derive::{log, Io};
+use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use std::{
     convert::{TryFrom, TryInto},
-    error::Error,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -93,22 +93,19 @@ impl Network {
         }
     }
 
-    pub async fn send_request(&self, request: Request) -> Result<Response, String> {
+    pub async fn send_request(&self, request: Request) -> Result<Response> {
         Network::send_request_to(&self.server_url, request).await
     }
 
     #[log]
-    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
+    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
         let (tx, rx) = sync::channel(100);
         let mut stream = RequestStream {
             bytes: Vec::new(),
             tx,
         };
         let payload: Vec<u8> = request.into();
-        stream
-            .write_all(&payload)
-            .await
-            .map_err(|e| e.to_string())?;
+        stream.write_all(&payload).await?;
         find_sender(server_url).send(stream).await;
         //TODO: return actual response
         Ok(Response::try_from(rx.recv().await.unwrap())?)
@@ -121,14 +118,10 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
-    pub async fn listen<H, F, S>(
-        state: State<S>,
-        server_url: &str,
-        mut handler: H,
-    ) -> Result<(), String>
+    pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
-        F: Future<Output = Result<(), String>>,
+        F: Future<Output = Result<()>>,
     {
         let (tx, rx) = sync::channel(100);
         unsafe {
@@ -147,10 +140,10 @@ impl Network {
         state: State<S>,
         mut stream: Box<dyn AsyncStream>,
         mut handler: H,
-    ) -> Result<(), String>
+    ) -> Result<()>
     where
         H: FnMut(State<S>, Request) -> F,
-        F: Future<Output = Result<Response, String>>,
+        F: Future<Output = Result<Response>>,
     {
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream
@@ -158,15 +151,10 @@ impl Network {
             .await
             .expect("Request read failed.");
         let bytes: Vec<u8> = buffer[..read_size].to_vec();
-        let request: Request = bytes
-            .try_into()
-            .map_err(|e: Box<dyn Error>| e.to_string())?;
+        let request: Request = bytes.try_into()?;
         let response: Vec<u8> = handler(state, request).await?.into();
-        stream
-            .write_all(&response)
-            .await
-            .map_err(|e| e.to_string())?;
-        stream.flush().await.map_err(|e| e.to_string())?;
+        stream.write_all(&response).await?;
+        stream.flush().await?;
         Ok(())
     }
 }
@@ -217,10 +205,10 @@ impl From<Request> for Vec<u8> {
 }
 
 impl TryFrom<Vec<u8>> for Request {
-    type Error = Box<dyn Error>;
+    type Error = Error;
 
     #[log]
-    fn try_from(mut bytes: Vec<u8>) -> Result<Request, Box<dyn Error>> {
+    fn try_from(mut bytes: Vec<u8>) -> Result<Request> {
         let n = bytes
             .iter()
             .position(|byte| *byte == b"\n"[0])

@@ -10,6 +10,10 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
+pub mod error {
+    pub use iroha_error::*;
+}
+
 /// General trait describing if this is a versioned container.
 pub trait Version {
     /// Version of the data contained inside.
@@ -56,38 +60,40 @@ pub enum RawVersioned {
 /// Scale related versioned (de)serialization traits.
 #[cfg(feature = "scale")]
 pub mod scale {
+    use super::error::Result;
     use super::Version;
     use parity_scale_codec::{Decode, Encode};
 
     /// `Decode` versioned analog.
     pub trait DecodeVersioned: Decode + Version {
         /// Use this function for versioned objects instead of `decode`.
-        fn decode_versioned(input: &[u8]) -> Result<Self, String>;
+        fn decode_versioned(input: &[u8]) -> Result<Self>;
     }
 
     /// `Encode` versioned analog.
     pub trait EncodeVersioned: Encode + Version {
         /// Use this function for versioned objects instead of `encode`.
-        fn encode_versioned(&self) -> Result<Vec<u8>, String>;
+        fn encode_versioned(&self) -> Result<Vec<u8>>;
     }
 }
 
 /// JSON related versioned (de)serialization traits.
 #[cfg(feature = "json")]
 pub mod json {
+    use super::error::Result;
     use super::Version;
     use serde::{Deserialize, Serialize};
 
     /// `Serialize` versioned analog, specifically for JSON.
     pub trait DeserializeVersionedJson<'a>: Deserialize<'a> + Version {
         /// Use this function for versioned objects instead of `serde_json::from_str`.
-        fn from_versioned_json_str(input: &str) -> Result<Self, String>;
+        fn from_versioned_json_str(input: &str) -> Result<Self>;
     }
 
     /// `Deserialize` versioned analog, specifically for JSON.
     pub trait SerializeVersionedJson: Serialize + Version {
         /// Use this function for versioned objects instead of `serde_json::to_string`.
-        fn to_versioned_json_str(&self) -> Result<String, String>;
+        fn to_versioned_json_str(&self) -> Result<String>;
     }
 }
 
