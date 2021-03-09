@@ -44,6 +44,7 @@ target_link_libraries(yac_unknown_peer_test
     mock_yac_crypto_provider
     yac
     test_logger
+    subscription
     )
 
 addtest(yac_block_storage_test yac_block_storage_test.cpp)

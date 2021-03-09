@@ -44,19 +44,26 @@ TEST_F(YacTest, UnknownVoteBeforeCommit) {
   }
 
   using Subscription =
-  iroha::subscription::SubscriberImpl<iroha::EventTypes,
-      iroha::SubscriptionDispatcher,
-      bool,
-      iroha::consensus::yac::Answer>;
-  auto wrapper = std::make_shared<Subscription>(iroha::getSubscription()->getEngine<iroha::EventTypes, iroha::consensus::yac::Answer>());
-  wrapper->setCallback([](auto /*set_id*/, auto &/*obj*/, auto key, iroha::consensus::yac::Answer const&answer){
-
-  });
-  wrapper->subscribe<>()
+      iroha::subscription::SubscriberImpl<iroha::EventTypes,
+                                          iroha::SubscriptionDispatcher,
+                                          bool,
+                                          iroha::consensus::yac::Answer>;
+  auto wrapper = std::make_shared<Subscription>(
+      iroha::getSubscription()
+          ->getEngine<iroha::EventTypes, iroha::consensus::yac::Answer>(),
+      false);
+  wrapper->setCallback(
+      [](auto /*set_id*/,
+         auto &flag,
+         auto key,
+         iroha::consensus::yac::Answer const &answer) {
+        flag = true;
+      });
+  wrapper->subscribeSync(0, iroha::EventTypes::kOnOutcomeFromYac);
 
   // send a vote from unknown peer
   yac->onState({createVote(my_hash, "unknown")});
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_FALSE(wrapper->get());
 }
 
 /**
