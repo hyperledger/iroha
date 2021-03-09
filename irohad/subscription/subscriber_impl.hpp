@@ -67,6 +67,20 @@ namespace iroha::subscription {
 
     CallbackFnType on_notify_callback_;
 
+    template <typename F>
+    inline void callSubscribe(SubscriptionSetId id,
+                              const typename Parent::EventType &key,
+                              F &&f) {
+      std::lock_guard lock(subscriptions_cs_);
+      auto &&[it, inserted] = subscriptions_sets_[id].emplace(
+          key, typename SubscriptionEngineType::IteratorType{});
+
+      /// Here we check first local subscriptions because of strong connection
+      /// with SubscriptionEngine.
+      if (inserted)
+        it->second = std::forward<F>(f)();
+    }
+
    public:
     template <typename... SubscriberConstructorArgs>
     SubscriberImpl(SubscriptionEnginePtr const &ptr,
@@ -92,15 +106,18 @@ namespace iroha::subscription {
     template <typename Dispatcher::Tid kTid>
     void subscribe(SubscriptionSetId id,
                    const typename Parent::EventType &key) {
-      std::lock_guard lock(subscriptions_cs_);
-      auto &&[it, inserted] = subscriptions_sets_[id].emplace(
-          key, typename SubscriptionEngineType::IteratorType{});
-
-      /// Here we check first local subscriptions because of strong connection
-      /// with SubscriptionEngine.
-      if (inserted)
-        it->second = engine_->template subscribe<kTid>(
+      callSubscribe(id, key, [&]() {
+        return engine_->template subscribe<kTid>(
             id, key, Parent::weak_from_this());
+      });
+    }
+
+    void subscribeSync(SubscriptionSetId id,
+                       const typename Parent::EventType &key) {
+      callSubscribe(id, key, [&]() {
+        return engine_->template subscribeSync(
+            id, key, Parent::weak_from_this());
+      });
     }
 
     /**
