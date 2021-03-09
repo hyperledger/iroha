@@ -3,6 +3,7 @@ use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
+use iroha_error::{Result, WrapErr};
 use std::{str::FromStr, time::Duration};
 
 const CONFIG: &str = "config";
@@ -119,11 +120,10 @@ mod events {
             .listen_for_events(filter)
             .expect("Failed to listen to events.")
         {
-            let event = match event {
-                Ok(event) => format!("{:#?}", event),
-                Err(err) => err,
+            match event {
+                Ok(event) => println!("{:#?}", event),
+                Err(err) => println!("{:#?}", err),
             };
-            println!("{}", event);
         }
     }
 }
@@ -279,11 +279,11 @@ mod account {
 
     fn signature_condition_from_file(
         path: impl AsRef<Path> + Debug,
-    ) -> Result<SignatureCheckCondition, String> {
-        let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
+    ) -> Result<SignatureCheckCondition> {
+        let file = File::open(path).wrap_err("Failed to open a file")?;
         let reader = BufReader::new(file);
-        let condition: Box<Expression> = serde_json::from_reader(reader)
-            .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?;
+        let condition: Box<Expression> =
+            serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
         Ok(SignatureCheckCondition(condition.into()))
     }
 

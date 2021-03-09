@@ -59,6 +59,7 @@ use async_std::{
     task,
 };
 use iroha_data_model::prelude::*;
+use iroha_error::Result;
 use permissions::PermissionsValidatorBox;
 use std::{sync::Arc, time::Duration};
 
@@ -183,7 +184,7 @@ impl Iroha {
     /// To make `Iroha` peer work it should be started first. After that moment it will listen for
     /// incoming requests and messages.
     #[allow(clippy::eval_order_dependence)]
-    pub async fn start(&self) -> Result<(), String> {
+    pub async fn start(&self) -> Result<()> {
         log::info!("Starting Iroha.");
         //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
         let kura = Arc::clone(&self.kura);

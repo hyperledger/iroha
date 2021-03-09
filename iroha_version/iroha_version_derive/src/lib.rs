@@ -278,32 +278,34 @@ fn impl_declare_versioned(
     let scale_impl = if with_scale {
         quote! (
             impl iroha_version::scale::DecodeVersioned for #enum_name {
-                fn decode_versioned(input: &[u8]) -> Result<Self, String> {
+                fn decode_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
+                    use iroha_version::error::Error;
                     use iroha_version::{Version, UnsupportedVersion, RawVersioned};
                     use parity_scale_codec::Decode;
 
                     if let Some(version) = input.first() {
                         if Self::supported_versions().contains(version) {
                             let mut input = input.clone();
-                            Self::decode(&mut input).map_err(|err| err.to_string())
+                            Ok(Self::decode(&mut input)?)
                         } else {
                             Ok(Self::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
                         }
                     } else {
-                        Err("This is not a versioned object. No version information found.".to_string())
+                        Err(Error::msg("This is not a versioned object. No version information found."))
                     }
                 }
             }
 
             impl iroha_version::scale::EncodeVersioned for #enum_name {
-                fn encode_versioned(&self) -> Result<Vec<u8>, String> {
+                fn encode_versioned(&self) -> iroha_version::error::Result<Vec<u8>> {
+                    use iroha_version::error::Error;
                     use iroha_version::{UnsupportedVersion, RawVersioned};
                     use parity_scale_codec::Encode;
 
                     if let Self::UnsupportedVersion(unsupported_version) = self {
                         match &unsupported_version.raw {
                             RawVersioned::ScaleBytes(bytes) => Ok(bytes.clone()),
-                            RawVersioned::Json(_) => Err("Can not encode unsupported version from json to scale.".to_string())
+                            RawVersioned::Json(_) => Err(Error::msg("Can not encode unsupported version from json to scale."))
                         }
                     } else {
                         Ok(self.encode())
@@ -334,39 +336,41 @@ fn impl_declare_versioned(
     let json_impl = if with_json {
         quote!(
             impl<'a> iroha_version::json::DeserializeVersionedJson<'a> for #enum_name {
-                fn from_versioned_json_str(input: &str) -> Result<Self, String> {
+                fn from_versioned_json_str(input: &str) -> iroha_version::error::Result<Self> {
                     use iroha_version::{Version, UnsupportedVersion, RawVersioned};
+                    use iroha_version::error::Error;
                     use serde_json::Value;
 
-                    let json: Value = serde_json::from_str(input).map_err(|err| format!("{}", err))?;
+                    let json: Value = serde_json::from_str(input)?;
                     if let Value::Object(map) = json {
                         if let Some(Value::String(version_number)) = map.get(#version_field_name) {
-                            let version: u8 = version_number.parse().map_err(|err| format!("{}", err))?;
+                            let version: u8 = version_number.parse()?;
                             if Self::supported_versions().contains(&version) {
-                                serde_json::from_str(input).map_err(|err| format!("{}", err))
+                                Ok(serde_json::from_str(input)?)
                             } else {
                                 Ok(Self::UnsupportedVersion(UnsupportedVersion::new(version, RawVersioned::Json(input.to_string()))))
                             }
                         } else {
-                            Err("This is not a versioned object. No version information found.".to_string())
+                            Err(Error::msg("This is not a versioned object. No version information found."))
                         }
                     } else {
-                        Err("Expected json object.".to_string())
+                        Err(Error::msg("Expected json object."))
                     }
                 }
             }
 
             impl iroha_version::json::SerializeVersionedJson for #enum_name {
-                fn to_versioned_json_str(&self) -> Result<String, String> {
+                fn to_versioned_json_str(&self) -> iroha_version::error::Result<String> {
                     use iroha_version::RawVersioned;
+                    use iroha_version::error::Error;
 
                     if let Self::UnsupportedVersion(unsupported_version) = self {
                         match &unsupported_version.raw {
-                            RawVersioned::ScaleBytes(_) => Err("Can not serialize unsupported version from scale to json.".to_string()),
+                            RawVersioned::ScaleBytes(_) => Err(Error::msg("Can not serialize unsupported version from scale to json.")),
                             RawVersioned::Json(json) => Ok(json.to_string())
                         }
                     } else {
-                        serde_json::to_string(self).map_err(|err| format!("{}", err))
+                        Ok(serde_json::to_string(self)?)
                     }
                 }
             }

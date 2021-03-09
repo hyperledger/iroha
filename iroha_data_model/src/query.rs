@@ -5,6 +5,7 @@ use crate::Value;
 use self::{account::*, asset::*, domain::*, peer::*};
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
+use iroha_error::Result;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -104,7 +105,7 @@ impl QueryRequest {
     }
 
     /// Consumes self and returns a signed `QueryReuest`.
-    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest, String> {
+    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest> {
         Ok(SignedQueryRequest {
             timestamp_ms: self.timestamp_ms,
             signature: Signature::new(key_pair.clone(), self.hash().as_ref())?,

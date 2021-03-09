@@ -1,12 +1,13 @@
 use clap::{App, Arg};
 use iroha::{config::Configuration, permissions::AllowAll, Iroha};
+use iroha_error::Result;
 use std::{thread, time::Duration};
 
 const CONFIGURATION_PATH: &str = "config.json";
 const GENESIS: &str = "genesis";
 
 #[async_std::main]
-async fn main() -> Result<(), String> {
+async fn main() -> Result<()> {
     println!("Hyperledgerいろは2にようこそ！");
     // TODO Add more information about iroha2
     let matches = App::new("Hyperledger/iroha 2")

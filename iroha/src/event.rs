@@ -8,6 +8,7 @@ use async_std::{
 };
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};
+use iroha_error::{Error, Result, WrapErr};
 use iroha_http_server::web_socket::{WebSocketMessage, WebSocketStream};
 use iroha_version::prelude::*;
 use std::{fmt::Debug, time::Duration};
@@ -29,48 +30,48 @@ pub struct Consumer {
 
 impl Consumer {
     /// Constructs `Consumer`, which consumes `Event`s and forwards it through the `stream`.
-    pub async fn new(mut stream: WebSocketStream) -> Result<Self, String> {
+    pub async fn new(mut stream: WebSocketStream) -> Result<Self> {
         if let WebSocketMessage::Text(message) = future::timeout(TIMEOUT, stream.next())
             .await
-            .map_err(|e| format!("Read message timeout: {}", e))?
-            .ok_or("Failed to read message: no message")?
-            .map_err(|e| format!("Web Socket failure: {}", e))?
+            .wrap_err("Read message timeout")?
+            .ok_or_else(|| Error::msg("Failed to read message: no message"))?
+            .wrap_err("Web Socket failure")?
         {
             let request: SubscriptionRequest =
                 VersionedSubscriptionRequest::from_versioned_json_str(&message)?
                     .as_v1()
-                    .ok_or("Expected subscription request version 1.")?
+                    .ok_or_else(|| Error::msg("Expected subscription request version 1."))?
                     .clone()
                     .into();
             let SubscriptionRequest(filter) = request;
             Ok(Consumer { stream, filter })
         } else {
-            Err("Unexepcted message type".to_string())
+            Err(Error::msg("Unexepcted message type"))
         }
     }
 
     /// Forwards the `event` over the `stream` if it matches the `filter`.
-    pub async fn consume(mut self, event: &Event) -> Result<Self, String> {
+    pub async fn consume(mut self, event: &Event) -> Result<Self> {
         if self.filter.apply(event) {
             let event = VersionedEvent::from(event.clone())
                 .to_versioned_json_str()
-                .map_err(|err| format!("Failed to serialize event: {}", err))?;
+                .wrap_err("Failed to serialize event")?;
             future::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Text(event)))
                 .await
-                .map_err(|e| format!("Read message timeout: {}", e))?
-                .map_err(|e| format!("Failed to write message: {}", e))?;
+                .wrap_err("Read message timeout")?
+                .wrap_err("Failed to write message")?;
             if let WebSocketMessage::Text(receipt) = future::timeout(TIMEOUT, self.stream.next())
                 .await
-                .map_err(|e| format!("Failed to read receipt: {}", e))?
-                .ok_or("Failed to read receipt: no receipt")?
-                .map_err(|e| format!("Web Socket failure: {}", e))?
+                .wrap_err("Failed to read receipt")?
+                .ok_or_else(|| Error::msg("Failed to read receipt: no receipt"))?
+                .wrap_err("Web Socket failure")?
             {
-                let _receipt =
-                    VersionedEventReceived::from_versioned_json_str(&receipt).map_err(|_| {
+                let _receipt = VersionedEventReceived::from_versioned_json_str(&receipt)
+                    .wrap_err_with(|| {
                         format!("Unexpected message, waited for receipt got: {}", receipt)
                     })?;
             } else {
-                return Err("Unexepcted message type".to_string());
+                return Err(Error::msg("Unexepcted message type"));
             }
         }
         Ok(self)

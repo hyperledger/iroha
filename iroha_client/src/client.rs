@@ -6,6 +6,7 @@ use http_client::WebSocketStream;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_derive::log;
 use iroha_dsl::prelude::*;
+use iroha_error::{Error, Result, WrapErr};
 use iroha_version::prelude::*;
 use std::{
     convert::TryInto,
@@ -44,7 +45,7 @@ impl Client {
     }
 
     /// Builds transaction out of supplied instructions.
-    pub fn build_transaction(&self, instructions: Vec<Instruction>) -> Result<Transaction, String> {
+    pub fn build_transaction(&self, instructions: Vec<Instruction>) -> Result<Transaction> {
         Transaction::new(
             instructions,
             self.account_id.clone(),
@@ -53,26 +54,26 @@ impl Client {
         .sign(&self.key_pair)
     }
 
-    pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction, String> {
+    pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction> {
         transaction.sign(&self.key_pair)
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
     #[log]
-    pub fn submit(&mut self, instruction: Instruction) -> Result<Hash, String> {
+    pub fn submit(&mut self, instruction: Instruction) -> Result<Hash> {
         self.submit_all(vec![instruction])
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
-    pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
+    pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
         self.submit_transaction(self.build_transaction(instructions)?)
     }
 
     /// Submit a prebuilt transaction.
     /// Returns submitted transaction's hash or error string.
-    pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash, String> {
+    pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash> {
         transaction.check_instruction_len(self.max_instruction_number)?;
         let hash = transaction.hash();
         let transaction: VersionedTransaction = transaction.into();
@@ -81,31 +82,26 @@ impl Client {
             &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
             transaction.clone(),
         )
-        .map_err(|e| {
-            format!(
-                "Error: {}, failed to send transaction: {:?}",
-                e, &transaction
-            )
-        })?;
+        .wrap_err_with(|| format!("Failed to send transaction: {:?}", &transaction))?;
         if response.status() == StatusCode::OK {
             Ok(hash)
         } else {
-            Err(format!(
+            Err(Error::msg(format!(
                 "Failed to submit instructions with HTTP status: {}",
                 response.status()
-            ))
+            )))
         }
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
     /// Returns rejection reason if transaction was rejected.
-    pub fn submit_blocking(&mut self, instruction: Instruction) -> Result<Hash, String> {
+    pub fn submit_blocking(&mut self, instruction: Instruction) -> Result<Hash> {
         self.submit_all_blocking(vec![instruction])
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
     /// Returns rejection reason if transaction was rejected.
-    pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash, String> {
+    pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions)?;
@@ -132,8 +128,8 @@ impl Client {
         receiver
             .recv_timeout(self.transaction_status_timout)
             .map_or_else(
-                |err| Err(format!("Timeout waiting for transaction status: {}", err)),
-                |result| result.map_err(|e| e.to_string()),
+                |err| Err(err).wrap_err("Timeout waiting for transaction status"),
+                |result| Ok(result?),
             )
     }
 
@@ -143,7 +139,7 @@ impl Client {
         &mut self,
         request: &QueryRequest,
         pagination: Pagination,
-    ) -> Result<QueryResult, String> {
+    ) -> Result<QueryResult> {
         let pagination: Vec<_> = pagination.into();
         let request: VersionedSignedQueryRequest = request.clone().sign(&self.key_pair)?.into();
         let response = http_client::get(
@@ -152,26 +148,23 @@ impl Client {
             pagination,
         )?;
         if response.status() == StatusCode::OK {
-            response.body().clone().try_into()
+            response.body().clone().try_into().map_err(Error::msg)
         } else {
-            Err(format!(
+            Err(Error::msg(format!(
                 "Failed to make query request with HTTP status: {}",
                 response.status()
-            ))
+            )))
         }
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
     #[log]
-    pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
+    pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult> {
         self.request_with_pagination(request, Default::default())
     }
 
     /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
-    pub fn listen_for_events(
-        &mut self,
-        event_filter: EventFilter,
-    ) -> Result<EventIterator, String> {
+    pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
         EventIterator::new(
             &format!("ws://{}{}", self.torii_url, uri::SUBSCRIPTION_URI),
             event_filter,
@@ -187,7 +180,7 @@ impl Client {
         retry_count: u32,
         retry_in: Duration,
         pagination: Pagination,
-    ) -> Result<Option<Transaction>, String> {
+    ) -> Result<Option<Transaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = http_client::get(
@@ -204,7 +197,7 @@ impl Client {
                     VersionedPendingTransactions::decode_versioned(&response.body())?
                         .as_v1()
                         .ok_or_else(|| {
-                            "Expected pending transaction message version 1.".to_string()
+                            Error::msg("Expected pending transaction message version 1.")
                         })?
                         .clone()
                         .into();
@@ -221,10 +214,10 @@ impl Client {
                     thread::sleep(retry_in)
                 }
             } else {
-                return Err(format!(
+                return Err(Error::msg(format!(
                     "Failed to make query request with HTTP status: {}",
                     response.status()
-                ));
+                )));
             }
         }
         Ok(None)
@@ -237,7 +230,7 @@ impl Client {
         transaction: &Transaction,
         retry_count: u32,
         retry_in: Duration,
-    ) -> Result<Option<Transaction>, String> {
+    ) -> Result<Option<Transaction>> {
         self.get_original_transaction_with_pagination(
             transaction,
             retry_count,
@@ -254,20 +247,18 @@ pub struct EventIterator {
 
 impl EventIterator {
     /// Constructs `EventIterator` and sends the subscription request.
-    pub fn new(url: &str, event_filter: EventFilter) -> Result<EventIterator, String> {
+    pub fn new(url: &str, event_filter: EventFilter) -> Result<EventIterator> {
         let mut stream = http_client::web_socket_connect(url)?;
-        stream
-            .write_message(WebSocketMessage::Text(
-                VersionedSubscriptionRequest::from(SubscriptionRequest(event_filter))
-                    .to_versioned_json_str()?,
-            ))
-            .map_err(|err| err.to_string())?;
+        stream.write_message(WebSocketMessage::Text(
+            VersionedSubscriptionRequest::from(SubscriptionRequest(event_filter))
+                .to_versioned_json_str()?,
+        ))?;
         Ok(EventIterator { stream })
     }
 }
 
 impl Iterator for EventIterator {
-    type Item = Result<Event, String>;
+    type Item = Result<Event>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -286,7 +277,10 @@ impl Iterator for EventIterator {
                                     .expect("Failed to serialize receipt."),
                             )) {
                                 Ok(_) => Some(Ok(event)),
-                                Err(err) => Some(Err(format!("Failed to send receipt: {}", err))),
+                                Err(err) => Some(Err(Error::msg(format!(
+                                    "Failed to send receipt: {}",
+                                    err
+                                )))),
                             };
                         }
                         Err(err) => return Some(Err(err)),
@@ -295,7 +289,7 @@ impl Iterator for EventIterator {
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed) => return None,
                 Err(WebSocketError::AlreadyClosed) => return None,
-                Err(err) => return Some(Err(err.to_string())),
+                Err(err) => return Some(Err(err.into())),
             }
         }
     }
