@@ -146,15 +146,15 @@ fn impl_io(ast: &syn::DeriveInput) -> TokenStream {
         }
 
         impl std::convert::TryFrom<Vec<u8>> for #name {
-            type Error = String;
+            type Error = iroha_macro::error::Error;
 
-            fn try_from(vector: Vec<u8>) -> Result<Self, Self::Error> {
+            fn try_from(vector: Vec<u8>) -> iroha_macro::error::Result<Self> {
+                use iroha_macro::error::WrapErr;
                 #name::decode(&mut vector.as_slice())
-                    .map_err(|e| format!(
-                            "Failed to deserialize vector {:?} into {}, because: {}.",
+                    .wrap_err_with(|| format!(
+                            "Failed to deserialize vector {:?} into {}.",
                             &vector,
                             stringify!(#name),
-                            e
                         )
                     )
             }

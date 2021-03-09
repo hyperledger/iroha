@@ -6,6 +6,7 @@ use crate::{
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
+use iroha_error::{Result, WrapErr};
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -44,11 +45,11 @@ impl Configuration {
     /// This method will panic if configuration file presented, but has incorrect scheme or format.
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
-    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration, String> {
-        let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
+    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration> {
+        let file = File::open(path).wrap_err("Failed to open a file")?;
         let reader = BufReader::new(file);
-        let mut configuration: Configuration = serde_json::from_reader(reader)
-            .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?;
+        let mut configuration: Configuration =
+            serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
         configuration.sumeragi_configuration.key_pair = KeyPair {
             public_key: configuration.public_key.clone(),
             private_key: configuration.private_key.clone(),
@@ -61,7 +62,7 @@ impl Configuration {
     }
 
     /// Load environment variables and replace existing parameters with these variables values.
-    pub fn load_environment(&mut self) -> Result<(), String> {
+    pub fn load_environment(&mut self) -> Result<()> {
         self.torii_configuration.load_environment()?;
         self.kura_configuration.load_environment()?;
         self.sumeragi_configuration.load_environment()?;
@@ -71,11 +72,11 @@ impl Configuration {
         self.genesis_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
-                .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
+                .wrap_err("Failed to parse Public Key")?;
         }
         if let Ok(private_key) = env::var(IROHA_PRIVATE_KEY) {
-            self.private_key = serde_json::from_str(&private_key)
-                .map_err(|e| format!("Failed to parse Private Key: {}", e))?;
+            self.private_key =
+                serde_json::from_str(&private_key).wrap_err("Failed to parse Private Key")?;
         }
         self.sumeragi_configuration.key_pair = KeyPair {
             public_key: self.public_key.clone(),
@@ -107,9 +108,9 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[test]
-    fn parse_example_json() -> Result<(), String> {
+    fn parse_example_json() -> Result<()> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)
-            .map_err(|e| format!("Failed to read configuration from example config: {}", e))?;
+            .wrap_err("Failed to read configuration from example config")?;
         let public_key = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(

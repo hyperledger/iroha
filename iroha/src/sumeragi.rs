@@ -13,6 +13,7 @@ use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
+use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -69,7 +70,7 @@ impl Sumeragi {
         transactions_sender: TransactionSender,
         permissions_validator: PermissionsValidatorBox,
         //TODO: separate initialization from construction and do not return Result in `new`
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         Ok(Self {
             key_pair: configuration.key_pair.clone(),
             network_topology: NetworkTopology::new(
@@ -131,20 +132,20 @@ impl Sumeragi {
         &mut self,
         transactions: Vec<AcceptedTransaction>,
         genesis_topology: InitializedNetworkTopology,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         if transactions.is_empty() {
-            Err("Genesis transactions set is empty.".to_string())
+            Err(Error::msg("Genesis transactions set is empty."))
         } else if genesis_topology.leader() != &self.peer_id {
-            Err(format!(
+            Err(Error::msg(format!(
                 "Incorrect network topology this peer should be {:?} but is {:?}",
                 Role::Leader,
                 genesis_topology.role(&self.peer_id)
-            ))
+            )))
         } else if self.block_height > 0 {
-            Err(format!(
+            Err(Error::msg(format!(
                 "Block height should be 0 for genesis round. But it is: {}",
                 self.block_height
-            ))
+            )))
         } else {
             self.validate_and_publish_created_block(
                 PendingBlock::new(transactions).chain_first_with_genesis_topology(genesis_topology),
@@ -154,7 +155,7 @@ impl Sumeragi {
     }
 
     /// The leader of each round just uses the transactions they have at hand to create a block.
-    pub async fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Result<(), String> {
+    pub async fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Result<()> {
         if transactions.is_empty() {
             return Ok(());
         }
@@ -176,7 +177,7 @@ impl Sumeragi {
     pub async fn forward_transactions_to_leader(
         &mut self,
         transactions: &[AcceptedTransaction],
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         log::info!(
             "{:?} - Forwarding transactions to leader. Number of transactions to forward: {}",
             self.network_topology.role(&self.peer_id),
@@ -261,7 +262,7 @@ impl Sumeragi {
     pub async fn gossip_transactions(
         &mut self,
         transactions: &[AcceptedTransaction],
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         log::debug!(
             "{:?} - Gossiping transactions. Number of transactions to forward: {}",
             self.network_topology.role(&self.peer_id),
@@ -292,10 +293,7 @@ impl Sumeragi {
     }
 
     /// Should be called by a leader to start the consensus round with `BlockCreated` message.
-    pub async fn validate_and_publish_created_block(
-        &mut self,
-        block: ChainedBlock,
-    ) -> Result<(), String> {
+    pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
         let wsv = self.world_state_view.clone();
         let block = block.validate(&*wsv.read().await, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
@@ -501,7 +499,7 @@ impl NetworkTopology {
     }
 
     /// Initializes network topology.
-    pub fn init(self) -> Result<InitializedNetworkTopology, String> {
+    pub fn init(self) -> Result<InitializedNetworkTopology> {
         let min_peers = 3 * self.max_faults + 1;
         if self.peers.len() >= min_peers as usize {
             let mut topology = InitializedNetworkTopology {
@@ -511,7 +509,11 @@ impl NetworkTopology {
             topology.sort_peers_by_hash(self.block_hash);
             Ok(topology)
         } else {
-            Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * self.max_faults + 1, self.peers.len()))
+            Err(Error::msg(format!(
+                "Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}",
+                3 * self.max_faults + 1,
+                self.peers.len(),
+            )))
         }
     }
 }
@@ -533,22 +535,22 @@ impl InitializedNetworkTopology {
         proxy_tail: PeerId,
         observing_peers: Vec<PeerId>,
         max_faults: u32,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         let validating_peers_required_len = 2 * max_faults - 1;
         if validating_peers.len() != validating_peers_required_len as usize {
-            return Err(format!(
+            return Err(Error::msg(format!(
                 "Expected {} validating peers, found {}.",
                 validating_peers_required_len,
                 validating_peers.len()
-            ));
+            )));
         }
         let observing_peers_min_len = max_faults as usize;
         if observing_peers.len() < observing_peers_min_len {
-            return Err(format!(
+            return Err(Error::msg(format!(
                 "Expected at least {} observing peers, found {}.",
                 observing_peers_min_len,
                 observing_peers.len()
-            ));
+            )));
         }
         Ok(Self {
             sorted_peers: iter::once(leader)
@@ -670,7 +672,7 @@ impl InitializedNetworkTopology {
         signature: Signature,
         role: Role,
         message_payload: &[u8],
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         if role
             .peers(&self)
             .iter()
@@ -678,7 +680,10 @@ impl InitializedNetworkTopology {
         {
             Ok(())
         } else {
-            Err(format!("No {:?} with this public key exists.", role))
+            Err(Error::msg(format!(
+                "No {:?} with this public key exists.",
+                role
+            )))
         }
         .and(signature.verify(message_payload))
     }
@@ -771,6 +776,7 @@ pub mod message {
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
+    use iroha_error::{Error, Result, WrapErr};
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -803,30 +809,26 @@ pub mod message {
     impl Message {
         /// Send this message over the network to the specified `peer`.
         #[log]
-        pub async fn send_to(self, peer: &PeerId) -> Result<(), String> {
+        pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             let message: VersionedMessage = self.into();
             match Network::send_request_to(
                 &peer.address,
                 Request::new(uri::CONSENSUS_URI.to_string(), message.encode_versioned()?),
             )
             .await
-            .map_err(|err| {
-                format!(
-                    "Failed to send to peer {} with error: {}",
-                    peer.address, err
-                )
-            })? {
+            .wrap_err_with(|| format!("Failed to send to peer {} with error", peer.address))?
+            {
                 Response::Ok(_) => Ok(()),
-                Response::InternalError => Err(format!(
+                Response::InternalError => Err(Error::msg(format!(
                     "Failed to send message - Internal Error on peer: {:?}",
                     peer
-                )),
+                ))),
             }
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
         #[log]
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             match self {
                 Message::BlockCreated(block_created) => block_created.handle(sumeragi).await,
                 Message::BlockSigned(block_signed) => block_signed.handle(sumeragi).await,
@@ -857,7 +859,7 @@ pub mod message {
 
     impl BlockCreated {
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             // There should be only one block in discussion during a round.
             if sumeragi.voting_block.write().await.is_some() {
                 return Ok(());
@@ -962,7 +964,7 @@ pub mod message {
 
     impl BlockSigned {
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             if let Role::ProxyTail = network_topology.role(&sumeragi.peer_id) {
                 let block_hash = self.block.hash();
@@ -1035,7 +1037,7 @@ pub mod message {
 
     impl BlockCommitted {
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             let verified_signatures = self.block.verified_signatures();
             let valid_signatures = network_topology.filter_signatures_by_roles(
@@ -1096,7 +1098,7 @@ pub mod message {
         /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader does not produce a block
         /// after receiving transaction in `block_time`.
-        pub fn sign(mut self, key_pair: &KeyPair) -> Result<BlockCreationTimeout, String> {
+        pub fn sign(mut self, key_pair: &KeyPair) -> Result<BlockCreationTimeout> {
             let signature = Signature::new(
                 key_pair.clone(),
                 &Vec::<u8>::from(self.transaction_receipt.clone()),
@@ -1117,7 +1119,7 @@ pub mod message {
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());
             }
@@ -1199,7 +1201,7 @@ pub mod message {
 
         /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
-        pub fn sign(mut self, key_pair: &KeyPair) -> Result<NoTransactionReceiptReceived, String> {
+        pub fn sign(mut self, key_pair: &KeyPair) -> Result<NoTransactionReceiptReceived> {
             let signature =
                 Signature::new(key_pair.clone(), &Vec::<u8>::from(self.transaction.clone()))?;
             self.signatures.add(signature);
@@ -1218,7 +1220,7 @@ pub mod message {
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());
             }
@@ -1302,7 +1304,7 @@ pub mod message {
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if sumeragi.is_leader() {
                 if let Err(err) = Message::TransactionReceived(TransactionReceipt::new(
                     &self.transaction,
@@ -1343,7 +1345,7 @@ pub mod message {
         pub fn new(
             transaction: &AcceptedTransaction,
             key_pair: &KeyPair,
-        ) -> Result<TransactionReceipt, String> {
+        ) -> Result<TransactionReceipt> {
             let transaction_hash = transaction.hash();
             Ok(TransactionReceipt {
                 transaction_hash,
@@ -1374,7 +1376,7 @@ pub mod message {
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             // Implausible time in the future, means that the leader lies
             if sumeragi.network_topology.role(&sumeragi.peer_id) != Role::Leader
                 && self.received_at
@@ -1467,7 +1469,7 @@ pub mod message {
 
         /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the proxy tail does not send commit message in `commit_time`.
-        pub fn sign(mut self, key_pair: &KeyPair) -> Result<CommitTimeout, String> {
+        pub fn sign(mut self, key_pair: &KeyPair) -> Result<CommitTimeout> {
             let signature = Signature::new(key_pair.clone(), self.voting_block_hash.as_ref())?;
             self.signatures.add(signature);
             Ok(self)
@@ -1484,7 +1486,7 @@ pub mod message {
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
-        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<(), String> {
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());
             }
@@ -1560,6 +1562,7 @@ pub mod message {
 pub mod config {
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
+    use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
     use std::{collections::BTreeSet, env};
 
@@ -1608,30 +1611,30 @@ pub mod config {
     impl SumeragiConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(block_time_ms) = env::var(BLOCK_TIME_MS) {
                 self.block_time_ms = block_time_ms
-                    .parse()
-                    .map_err(|e| format!("Failed to parse Block Build Time: {}", e))?;
+                    .parse::<u64>()
+                    .wrap_err("Failed to parse Block Build Time")?;
             }
             if let Ok(trusted_peers) = env::var(TRUSTED_PEERS) {
                 self.trusted_peers = serde_json::from_str(&trusted_peers)
-                    .map_err(|e| format!("Failed to parse Trusted Peers: {}", e))?;
+                    .wrap_err("Failed to parse Trusted Peers")?;
             }
             if let Ok(max_faulty_peers) = env::var(MAX_FAULTY_PEERS) {
                 self.max_faulty_peers = max_faulty_peers
-                    .parse()
-                    .map_err(|e| format!("Failed to parse Max Faulty Peers: {}", e))?;
+                    .parse::<u32>()
+                    .wrap_err("Failed to parse Max Faulty Peers")?;
             }
             if let Ok(commit_time_ms) = env::var(COMMIT_TIME_MS) {
                 self.commit_time_ms = commit_time_ms
-                    .parse()
-                    .map_err(|e| format!("Failed to parse Commit Time Ms: {}", e))?;
+                    .parse::<u64>()
+                    .wrap_err("Failed to parse Commit Time Ms")?;
             }
             if let Ok(tx_receipt_time_ms) = env::var(TX_RECEIPT_TIME_MS) {
                 self.tx_receipt_time_ms = tx_receipt_time_ms
-                    .parse()
-                    .map_err(|e| format!("Failed to parse Tx Receipt Time Ms: {}", e))?;
+                    .parse::<u64>()
+                    .wrap_err("Failed to parse Tx Receipt Time Ms")?;
             }
             Ok(())
         }

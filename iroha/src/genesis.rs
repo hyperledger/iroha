@@ -13,6 +13,7 @@ use async_std::{
 use futures::future;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
+use iroha_error::{Error, Result, WrapErr};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
@@ -48,7 +49,7 @@ impl GenesisTransaction {
         &self,
         genesis_key_pair: &KeyPair,
         max_instruction_number: usize,
-    ) -> Result<AcceptedTransaction, String> {
+    ) -> Result<AcceptedTransaction> {
         let transaction = Transaction::new(
             self.isi.clone(),
             <Account as Identifiable>::Id::genesis_account(),
@@ -64,19 +65,19 @@ impl GenesisNetwork {
     pub fn from_configuration(
         genesis_config: &GenesisConfiguration,
         max_instructions_number: usize,
-    ) -> Result<Option<GenesisNetwork>, String> {
+    ) -> Result<Option<GenesisNetwork>> {
         if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
             let file = File::open(Path::new(genesis_block_path))
-                .map_err(|e| format!("Failed to open a genesis block file: {}", e))?;
+                .wrap_err("Failed to open a genesis block file")?;
             let reader = BufReader::new(file);
             let raw_block: RawGenesisBlock = serde_json::from_reader(reader)
-                .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?;
+                .wrap_err("Failed to deserialize json from reader")?;
             let genesis_key_pair = KeyPair {
                 public_key: genesis_config.genesis_account_public_key.clone(),
                 private_key: genesis_config
                     .genesis_account_private_key
                     .clone()
-                    .ok_or("genesis account private key is empty")?,
+                    .ok_or_else(|| Error::msg("genesis account private key is empty"))?,
             };
             Ok(Some(GenesisNetwork {
                 transactions: raw_block
@@ -96,7 +97,7 @@ impl GenesisNetwork {
     }
 
     /// Submits genesis transactions.
-    pub async fn submit_transactions(&self, sumeragi: Arc<RwLock<Sumeragi>>) -> Result<(), String> {
+    pub async fn submit_transactions(&self, sumeragi: Arc<RwLock<Sumeragi>>) -> Result<()> {
         let genesis_topology = {
             let sumeragi = sumeragi.read().await;
             self.wait_for_peers(sumeragi.peer_id.clone(), sumeragi.network_topology.clone())
@@ -116,7 +117,7 @@ impl GenesisNetwork {
         &self,
         this_peer_id: PeerId,
         network_topology: InitializedNetworkTopology,
-    ) -> Result<InitializedNetworkTopology, String> {
+    ) -> Result<InitializedNetworkTopology> {
         log::info!("Waiting for active peers.",);
         for i in 0..self.wait_for_peers_retry_count {
             let (online_peers, offline_peers): (Vec<_>, Vec<_>) =
@@ -190,13 +191,14 @@ impl GenesisNetwork {
                 task::sleep(Duration::from_millis(reconnect_in_ms)).await;
             }
         }
-        Err("Waiting for peers failed.".to_string())
+        Err(Error::msg("Waiting for peers failed."))
     }
 }
 
 /// This module contains all genesis configuration related logic.
 pub mod config {
     use iroha_crypto::{PrivateKey, PublicKey};
+    use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
     use std::env;
 
@@ -228,18 +230,16 @@ pub mod config {
     impl GenesisConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(genesis_account_public_key) = env::var(GENESIS_ACCOUNT_PUBLIC_KEY) {
-                self.genesis_account_public_key = serde_json::from_value(serde_json::json!(
-                    genesis_account_public_key
-                ))
-                .map_err(|e| format!("Failed to parse Public Key of genesis account: {}", e))?;
+                self.genesis_account_public_key =
+                    serde_json::from_value(serde_json::json!(genesis_account_public_key))
+                        .wrap_err("Failed to parse Public Key of genesis account")?;
             }
             if let Ok(genesis_account_private_key) = env::var(GENESIS_ACCOUNT_PRIVATE_KEY) {
                 self.genesis_account_private_key =
-                    serde_json::from_str(&genesis_account_private_key).map_err(|e| {
-                        format!("Failed to parse Private Key of genesis account: {}", e)
-                    })?;
+                    serde_json::from_str(&genesis_account_private_key)
+                        .wrap_err("Failed to parse Private Key of genesis account")?;
             }
             Ok(())
         }
@@ -261,7 +261,7 @@ mod tests {
     const GENESIS_BLOCK_PATH: &str = "tests/genesis.json";
 
     #[test]
-    fn load_genesis_block() -> Result<(), String> {
+    fn load_genesis_block() -> Result<()> {
         let genesis_key_pair = KeyPair::generate()?;
         let _genesis_block = GenesisNetwork::from_configuration(
             &GenesisConfiguration {

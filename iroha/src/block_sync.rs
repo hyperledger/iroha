@@ -143,6 +143,7 @@ pub mod message {
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
+    use iroha_error::{Error, Result};
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -209,7 +210,7 @@ pub mod message {
 
         /// Send this message over the network to the specified `peer`.
         #[log("TRACE")]
-        pub async fn send_to(self, peer: &PeerId) -> Result<(), String> {
+        pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             let message: VersionedMessage = self.into();
             match Network::send_request_to(
                 &peer.address,
@@ -218,10 +219,10 @@ pub mod message {
             .await?
             {
                 Response::Ok(_) => Ok(()),
-                Response::InternalError => Err(format!(
+                Response::InternalError => Err(Error::msg(format!(
                     "Failed to send message - Internal Error on peer: {:?}",
                     peer
-                )),
+                ))),
             }
         }
     }
@@ -229,6 +230,7 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
     use std::env;
 
@@ -253,14 +255,14 @@ pub mod config {
     impl BlockSyncConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(batch_size) = env::var(BATCH_SIZE) {
-                self.batch_size = serde_json::from_str(&batch_size)
-                    .map_err(|e| format!("Failed to parse batch size: {}", e))?;
+                self.batch_size =
+                    serde_json::from_str(&batch_size).wrap_err("Failed to parse batch size")?;
             }
             if let Ok(gossip_period_ms) = env::var(GOSSIP_PERIOD_MS) {
                 self.gossip_period_ms = serde_json::from_str(&gossip_period_ms)
-                    .map_err(|e| format!("Failed to parse gossip period: {}", e))?;
+                    .wrap_err("Failed to parse gossip period")?;
             }
             Ok(())
         }

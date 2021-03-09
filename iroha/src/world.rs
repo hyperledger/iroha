@@ -7,13 +7,14 @@ use iroha_data_model::*;
 pub mod isi {
     use super::*;
     use iroha_data_model::prelude::*;
+    use iroha_error::{Error, Result};
 
     impl Execute for Register<Peer> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             if world_state_view
                 .world()
@@ -22,7 +23,9 @@ pub mod isi {
             {
                 Ok(world_state_view)
             } else {
-                Err("Peer already presented in the list of trusted peers.".to_string())
+                Err(Error::msg(
+                    "Peer already presented in the list of trusted peers.",
+                ))
             }
         }
     }
@@ -32,7 +35,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .world()
@@ -47,7 +50,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view.world().domains.remove(&self.object_id);
             Ok(world_state_view)
@@ -59,7 +62,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             world_state_view.world().parameters.push(self.object);
             Ok(world_state_view)
@@ -72,10 +75,11 @@ pub mod query {
     use super::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
+    use iroha_error::Result;
 
     impl Query for FindAllPeers {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(Value::Vec(
                 world_state_view
                     .read_all_peers()
@@ -90,7 +94,7 @@ pub mod query {
 
     impl Query for FindAllParameters {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_world()
                 .parameters

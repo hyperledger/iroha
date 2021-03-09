@@ -75,13 +75,18 @@ fn permissions_disallow_asset_transfer() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
     );
-    let rejection_reason = iroha_client
+    let err = iroha_client
         .submit_blocking(transfer_asset.into())
         .expect_err("Transaction was not rejected.");
+    let rejection_reason = err.downcast_ref::<PipelineRejectionReason>().unwrap();
     //Then
     assert_eq!(
         rejection_reason,
-        "Action not permitted: Can\'t transfer assets of the other account."
+        &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
+            NotPermittedFail {
+                reason: "Can\'t transfer assets of the other account.".to_owned(),
+            }
+        ))
     );
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
@@ -137,13 +142,18 @@ fn permissions_disallow_asset_burn() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, bob_id)),
     );
-    let rejection_reason = iroha_client
+    let err = iroha_client
         .submit_blocking(burn_asset.into())
         .expect_err("Transaction was not rejected.");
+    let rejection_reason = err.downcast_ref::<PipelineRejectionReason>().unwrap();
     //Then
     assert_eq!(
         rejection_reason,
-        "Action not permitted: Can't burn assets from another account."
+        &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
+            NotPermittedFail {
+                reason: "Can\'t burn assets from another account.".to_owned(),
+            }
+        ))
     );
 
     let alice_assets = get_assets(&mut iroha_client, &alice_id);

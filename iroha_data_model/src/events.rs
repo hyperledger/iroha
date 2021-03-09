@@ -286,6 +286,8 @@ pub mod pipeline {
         Transaction(TransactionRejectionReason),
     }
 
+    impl std::error::Error for RejectionReason {}
+
     impl std::fmt::Display for RejectionReason {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             use BlockRejectionReason::*;

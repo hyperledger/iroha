@@ -186,7 +186,7 @@ mod tests {
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
             match instruction {
-                Instruction::Burn(_) => Err("Denying sequence isi.".to_string()),
+                Instruction::Burn(_) => Err("Denying sequence isi.".to_owned()),
                 _ => Ok(()),
             }
         }
@@ -202,7 +202,7 @@ mod tests {
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
             if authority.name == "alice" {
-                Err("Alice account is denied.".to_string())
+                Err("Alice account is denied.".to_owned())
             } else {
                 Ok(())
             }

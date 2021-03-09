@@ -6,6 +6,7 @@ mod tests {
         config::Configuration as ClientConfiguration,
     };
     use iroha_data_model::prelude::*;
+    use iroha_error::Result;
     use std::{iter, thread};
     use test_network::Peer as TestPeer;
 
@@ -14,7 +15,7 @@ mod tests {
     const GENESIS_PATH: &str = "tests/genesis.json";
 
     #[test]
-    fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<(), String> {
+    fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
         let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
         configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
         let peer = TestPeer::new()?;

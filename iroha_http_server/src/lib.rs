@@ -6,6 +6,7 @@ use async_std::{
     task,
 };
 use http::{HttpEndpoint, HttpHandler, HttpRequest, HttpResponse};
+use iroha_error::Result;
 use route_recognizer::Router;
 use std::{borrow::Borrow, convert::TryFrom, sync::Arc};
 use web_socket::WebSocketHandler;
@@ -32,12 +33,10 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         }
     }
 
-    pub async fn start(&self, address: &str) -> Result<(), String> {
-        let listener = TcpListener::bind(address)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn start(&self, address: &str) -> Result<()> {
+        let listener = TcpListener::bind(address).await?;
         while let Some(stream) = listener.incoming().next().await {
-            let mut stream = stream.map_err(|e| e.to_string())?;
+            let mut stream = stream?;
             let router = self.router.clone();
             let state = self.state.clone();
             task::spawn(async move {
@@ -85,6 +84,7 @@ pub mod http {
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
     use httparse::{Request as HttpParseRequest, Status};
+    use iroha_error::{Error, Result, WrapErr};
     use route_recognizer::Router;
     use std::{
         collections::BTreeMap,
@@ -134,7 +134,7 @@ pub mod http {
             path_params: PathParams,
             query_params: QueryParams,
             request: HttpRequest,
-        ) -> Result<HttpResponse, String>;
+        ) -> Result<HttpResponse>;
     }
 
     #[async_trait]
@@ -142,7 +142,7 @@ pub mod http {
     where
         State: Clone + Send + Sync + 'static,
         F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, HttpRequest) -> Fut,
-        Fut: Future<Output = Result<HttpResponse, String>> + Send + 'static,
+        Fut: Future<Output = Result<HttpResponse>> + Send + 'static,
     {
         async fn call(
             &self,
@@ -150,7 +150,7 @@ pub mod http {
             path_params: PathParams,
             query_params: QueryParams,
             request: HttpRequest,
-        ) -> Result<HttpResponse, String> {
+        ) -> Result<HttpResponse> {
             let future = (self)(state, path_params, query_params, request);
             future.await
         }
@@ -172,13 +172,13 @@ pub mod http {
     }
 
     impl TryFrom<HttpParseHttpVersion> for HttpVersion {
-        type Error = String;
+        type Error = Error;
 
-        fn try_from(version: HttpParseHttpVersion) -> Result<Self, Self::Error> {
+        fn try_from(version: HttpParseHttpVersion) -> Result<Self> {
             if version == 1 {
                 Ok(HttpVersion::Http1_1)
             } else {
-                Err("Http version not supported.".to_string())
+                Err(Error::msg("Http version not supported."))
             }
         }
     }
@@ -295,13 +295,22 @@ pub mod http {
     }
 
     impl<'h, 'b> TryFrom<HttpParseRequest<'h, 'b>> for HttpRequest {
-        type Error = String;
+        type Error = Error;
 
-        fn try_from(request: HttpParseRequest<'h, 'b>) -> Result<Self, Self::Error> {
+        fn try_from(request: HttpParseRequest<'h, 'b>) -> Result<Self> {
             Ok(HttpRequest {
-                method: request.method.ok_or("Method not found.")?.to_string(),
-                path: request.path.ok_or("Path not found.")?.to_string(),
-                version: request.version.ok_or("Version not found.")?.try_into()?,
+                method: request
+                    .method
+                    .ok_or_else(|| Error::msg("Method not found."))?
+                    .to_string(),
+                path: request
+                    .path
+                    .ok_or_else(|| Error::msg("Path not found."))?
+                    .to_string(),
+                version: request
+                    .version
+                    .ok_or_else(|| Error::msg("Version not found."))?
+                    .try_into()?,
                 headers: request
                     .headers
                     .iter()
@@ -313,29 +322,27 @@ pub mod http {
     }
 
     impl TryFrom<&[u8]> for HttpRequest {
-        type Error = String;
+        type Error = Error;
 
-        fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        fn try_from(bytes: &[u8]) -> Result<Self> {
             let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
             let mut request = httparse::Request::new(&mut headers);
-            if let Status::Complete(header_size) =
-                request.parse(&bytes).map_err(|err| err.to_string())?
-            {
+            if let Status::Complete(header_size) = request.parse(&bytes)? {
                 let mut request: HttpRequest = request.try_into()?;
                 //TODO: Deal with chunked messages which do not have Content-Length header
                 //They instead have Transfer-Encoding: `Chunked` https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
                 if let Some(content_length) =
                     request.headers.get(&CONTENT_LENGTH_HEADER.to_lowercase())
                 {
-                    let content_length: usize = String::from_utf8(content_length.clone())
-                        .map_err(|_| "Failed to parse content length value - invalid utf-8.")?
-                        .parse()
-                        .map_err(|_| "Failed to parse content length value - not a number.")?;
+                    let content_length = String::from_utf8(content_length.clone())
+                        .wrap_err("Failed to parse content length value - invalid utf-8.")?
+                        .parse::<usize>()
+                        .wrap_err("Failed to parse content length value - not a number.")?;
                     request.body = bytes[header_size..(header_size + content_length)].to_vec();
                 }
                 Ok(request)
             } else {
-                Err("Failed to read header.".to_string())
+                Err(Error::msg("Failed to read header."))
             }
         }
     }
@@ -470,6 +477,7 @@ pub mod web_socket {
     pub use async_tungstenite::tungstenite::Message as WebSocketMessage;
     use async_tungstenite::WebSocketStream as TungsteniteWebSocketStream;
     pub type WebSocketStream = TungsteniteWebSocketStream<TcpStream>;
+    use iroha_error::Result;
 
     pub const WEB_SOCKET_UPGRADE: &[u8] = b"websocket";
 
@@ -484,7 +492,7 @@ pub mod web_socket {
             path_params: PathParams,
             query_params: QueryParams,
             stream: WebSocketStream,
-        ) -> Result<(), String>;
+        ) -> Result<()>;
     }
 
     #[async_trait]
@@ -492,7 +500,7 @@ pub mod web_socket {
     where
         State: Clone + Send + Sync + 'static,
         F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, WebSocketStream) -> Fut,
-        Fut: Future<Output = Result<(), String>> + Send + 'static,
+        Fut: Future<Output = Result<()>> + Send + 'static,
     {
         async fn call(
             &self,
@@ -500,7 +508,7 @@ pub mod web_socket {
             path_params: PathParams,
             query_params: QueryParams,
             stream: WebSocketStream,
-        ) -> Result<(), String> {
+        ) -> Result<()> {
             let future = (self)(state, path_params, query_params, stream);
             future.await
         }

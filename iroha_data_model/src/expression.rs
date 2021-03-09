@@ -2,6 +2,7 @@
 
 use super::{query::QueryBox, Value, ValueBox};
 use iroha_derive::FromVariant;
+use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, marker::PhantomData};
@@ -400,13 +401,13 @@ impl IfBuilder {
     }
 
     /// Returns [`If`] expression, if all the fields are filled.
-    pub fn build(self) -> Result<If, String> {
+    pub fn build(self) -> Result<If> {
         if let (Some(then_expression), Some(else_expression)) =
             (self.then_expression, self.else_expression)
         {
             Ok(If::new(self.condition, then_expression, else_expression))
         } else {
-            Err("Not all fields are filled.".to_string())
+            Err(Error::msg("Not all fields are filled."))
         }
     }
 }

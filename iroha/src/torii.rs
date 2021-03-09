@@ -20,6 +20,7 @@ use crate::{
 use async_std::{prelude::*, sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
+use iroha_error::{Error, Result, WrapErr};
 use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
@@ -103,7 +104,7 @@ impl Torii {
     }
 
     /// To handle incoming requests `Torii` should be started first.
-    pub async fn start(&mut self) -> Result<(), String> {
+    pub async fn start(&mut self) -> Result<()> {
         let state = self.create_state();
         let connections = state.consumers.clone();
         let state = Arc::new(RwLock::new(state));
@@ -149,18 +150,18 @@ async fn handle_instructions(
     _path_params: PathParams,
     _query_params: QueryParams,
     request: HttpRequest,
-) -> Result<HttpResponse, String> {
+) -> Result<HttpResponse> {
     if request.body.len() > state.read().await.max_transaction_size {
-        return Err("Transaction is too big".to_owned());
+        return Err(Error::msg("Transaction is too big"));
     }
     let transaction = VersionedTransaction::decode_versioned(&request.body)?;
     let transaction: Transaction = transaction
         .as_v1()
         .ok_or_else(|| {
-            format!(
+            Error::msg(format!(
                 "Transaction has unsupported version. Expected version 1, got: {}",
                 transaction.version()
-            )
+            ))
         })?
         .clone()
         .into();
@@ -184,22 +185,21 @@ async fn handle_queries(
     _path_params: PathParams,
     query_params: QueryParams,
     request: HttpRequest,
-) -> Result<HttpResponse, String> {
+) -> Result<HttpResponse> {
     //TODO: Remove when `Result::flatten` https://github.com/rust-lang/rust/issues/70142 will be stabilized
-    let range = Pagination::try_from(&query_params)
-        .map_err(|e| format!("Failed to decode pagination: {}", e))?;
+    let range = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
     let request: SignedQueryRequest = VersionedSignedQueryRequest::decode_versioned(&request.body)
-        .map_err(|e| format!("Failed to decode query: {}", e))?
+        .wrap_err("Failed to decode query")?
         .as_v1()
-        .ok_or("Expected version 1 query.")?
+        .ok_or_else(|| Error::msg("Expected version 1 query."))?
         .clone()
         .into();
-    let request = VerifiedQueryRequest::try_from(request)
-        .map_err(|e| format!("Failed to verify Query Request: {}", e))?;
+    let request =
+        VerifiedQueryRequest::try_from(request).wrap_err("Failed to verify Query Request")?;
     let result = request
         .query
         .execute(&*state.read().await.world_state_view.read().await)
-        .map_err(|e| format!("Failed to execute query: {}", e))?;
+        .wrap_err("Failed to execute query")?;
     let result = &QueryResult(if let Value::Vec(value) = result {
         // if invalid number is inside range then we exit
         if range.is_outside_array(value.len()) {
@@ -222,7 +222,7 @@ async fn handle_health(
     _path_params: PathParams,
     _query_params: QueryParams,
     _request: HttpRequest,
-) -> Result<HttpResponse, String> {
+) -> Result<HttpResponse> {
     Ok(HttpResponse::ok(Headers::new(), Health::Healthy.into()))
 }
 
@@ -231,9 +231,8 @@ async fn handle_pending_transactions_on_leader(
     _path_params: PathParams,
     query_params: QueryParams,
     _request: HttpRequest,
-) -> Result<HttpResponse, String> {
-    let range = Pagination::try_from(&query_params)
-        .map_err(|e| format!("Failed to decode pagination: {}", e))?;
+) -> Result<HttpResponse> {
+    let range = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
     let PendingTransactions(pending_transactions) = if state
         .read()
         .await
@@ -266,7 +265,7 @@ async fn handle_pending_transactions_on_leader(
         .await?
         .into_result()?;
         let message = VersionedPendingTransactions::decode_versioned(&bytes)?;
-        message.as_v1().ok_or_else(|| format!("Version mismatch when recieving pending transactions from leader, expected version 1, got: {}", message.version()))?.clone().into()
+        message.as_v1().ok_or_else(|| Error::msg(format!("Version mismatch when recieving pending transactions from leader, expected version 1, got: {}", message.version())))?.clone().into()
     };
     let pending_transactions: VersionedPendingTransactions =
         PendingTransactions(pending_transactions[range].to_vec()).into();
@@ -281,7 +280,7 @@ async fn handle_metrics(
     _path_params: PathParams,
     _query_params: QueryParams,
     _request: HttpRequest,
-) -> Result<HttpResponse, String> {
+) -> Result<HttpResponse> {
     match state.read().await.system.read().await.scrape_metrics() {
         Ok(metrics) => Ok(HttpResponse::ok(Headers::new(), metrics.into())),
         Err(e) => {
@@ -296,16 +295,13 @@ async fn handle_subscription(
     _path_params: PathParams,
     _query_params: QueryParams,
     stream: WebSocketStream,
-) -> Result<(), String> {
+) -> Result<()> {
     let consumer = Consumer::new(stream).await?;
     state.read().await.consumers.write().await.push(consumer);
     Ok(())
 }
 
-async fn handle_requests(
-    state: State<ToriiState>,
-    stream: Box<dyn AsyncStream>,
-) -> Result<(), String> {
+async fn handle_requests(state: State<ToriiState>, stream: Box<dyn AsyncStream>) -> Result<()> {
     let state_arc = Arc::clone(&state);
     task::spawn(async {
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
@@ -334,7 +330,7 @@ async fn consume_events(
 }
 
 #[log("TRACE")]
-async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
+async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response> {
     match request.url() {
         uri::CONSENSUS_URI => match SumeragiVersionedMessage::decode_versioned(request.payload()) {
             Ok(message) => {
@@ -347,10 +343,9 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                         .write()
                         .await
                         .try_send(message)
-                        .map_err(|_| {
-                            "The sumeragi message channel is full. Dropping the incoming message."
-                                .to_string()
-                        })?;
+                        .wrap_err(
+                            "The sumeragi message channel is full. Dropping the incoming message.",
+                        )?;
 
                     Ok(Response::empty_ok())
                 } else {
@@ -375,10 +370,9 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                         .write()
                         .await
                         .try_send(message)
-                        .map_err(|_| {
+                        .wrap_err(
                             "The block sync message channel is full. Dropping the incoming message."
-                                .to_string()
-                        })?;
+                        )?;
                     Ok(Response::empty_ok())
                 } else {
                     log::error!("Unsupported version: {}", message.version());
@@ -434,6 +428,7 @@ pub mod uri {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
     use std::env;
 
@@ -467,7 +462,7 @@ pub mod config {
     impl ToriiConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(torii_api_url) = env::var(TORII_API_URL) {
                 self.torii_api_url = torii_api_url;
             }
@@ -475,19 +470,15 @@ pub mod config {
                 self.torii_p2p_url = torii_p2p_url;
             }
             if let Ok(torii_max_transaction_size) = env::var(TORII_MAX_TRANSACTION_SIZE) {
-                self.torii_max_transaction_size =
-                    torii_max_transaction_size.parse().map_err(|error| {
-                        format!("Failed to get maximum size of transaction: {}", error)
-                    })?;
+                self.torii_max_transaction_size = torii_max_transaction_size
+                    .parse::<usize>()
+                    .wrap_err("Failed to get maximum size of transaction")?;
             }
             if let Ok(torii_max_instruction_number) = env::var(TORII_MAX_INSTRUCTION_NUMBER) {
                 self.torii_max_instruction_number =
-                    torii_max_instruction_number.parse().map_err(|error| {
-                        format!(
-                            "Failed to get maximum number of instructions per transaction: {}",
-                            error
-                        )
-                    })?;
+                    torii_max_instruction_number.parse::<usize>().wrap_err(
+                        "Failed to get maximum number of instructions per transaction: {}",
+                    )?;
             }
             Ok(())
         }
@@ -517,6 +508,7 @@ mod tests {
     use async_std::{future, sync};
     use futures::future::FutureExt;
     use iroha_data_model::account::Id;
+    use iroha_error::MessageError;
     use std::{convert::TryInto, time::Duration};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -616,7 +608,9 @@ mod tests {
         let result =
             handle_instructions(state, Default::default(), Default::default(), request).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Transaction is too big");
+        let err = result.unwrap_err();
+        let err = err.downcast_ref::<MessageError<&'static str>>().unwrap();
+        assert_eq!(err.msg, "Transaction is too big");
     }
 
     #[async_std::test]

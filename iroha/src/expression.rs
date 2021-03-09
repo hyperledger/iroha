@@ -5,7 +5,8 @@ use iroha_data_model::{
     expression::{prelude::*, Expression},
     prelude::*,
 };
-use std::{convert::TryFrom, string::ToString};
+use iroha_error::{Error, Result};
+use std::convert::TryFrom;
 
 /// Calculate the result of the expression without mutating the state.
 pub trait Evaluate {
@@ -13,22 +14,22 @@ pub trait Evaluate {
     type Value;
 
     /// Calculates result.
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value, String>;
+    fn evaluate(&self, world_state_view: &WorldStateView, context: &Context)
+        -> Result<Self::Value>;
 }
 
-impl<E: ToString, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
+impl<E: Into<Error>, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
     type Value = V;
 
     fn evaluate(
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
-        V::try_from(self.expression.evaluate(world_state_view, context)?).map_err(|e| e.to_string())
+    ) -> Result<Self::Value> {
+        match V::try_from(self.expression.evaluate(world_state_view, context)?) {
+            Ok(value) => Ok(value),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -39,7 +40,7 @@ impl Evaluate for Expression {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         match self {
             Expression::Add(add) => add.evaluate(world_state_view, context),
             Expression::Subtract(subtract) => subtract.evaluate(world_state_view, context),
@@ -76,10 +77,15 @@ impl Evaluate for ContextValue {
         &self,
         _world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         context
             .get(&self.value_name)
-            .ok_or_else(|| format!("Value with name {} not found in context", self.value_name))
+            .ok_or_else(|| {
+                Error::msg(format!(
+                    "Value with name {} not found in context",
+                    self.value_name
+                ))
+            })
             .map(|value| value.to_owned())
     }
 }
@@ -91,7 +97,7 @@ impl Evaluate for Add {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left + right).into())
@@ -105,7 +111,7 @@ impl Evaluate for Subtract {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left - right).into())
@@ -119,7 +125,7 @@ impl Evaluate for Greater {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left > right).into())
@@ -133,7 +139,7 @@ impl Evaluate for Less {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left < right).into())
@@ -147,7 +153,7 @@ impl Evaluate for Not {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let expression = self.expression.evaluate(world_state_view, context)?;
         Ok((!expression).into())
     }
@@ -160,7 +166,7 @@ impl Evaluate for And {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left && right).into())
@@ -174,7 +180,7 @@ impl Evaluate for Or {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left || right).into())
@@ -188,7 +194,7 @@ impl Evaluate for IfExpression {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let condition = self.condition.evaluate(world_state_view, context)?;
         if condition {
             self.then_expression.evaluate(world_state_view, context)
@@ -205,7 +211,7 @@ impl Evaluate for Contains {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let collection = self.collection.evaluate(world_state_view, context)?;
         let element = self.element.evaluate(world_state_view, context)?;
         Ok(collection.contains(&element).into())
@@ -219,7 +225,7 @@ impl Evaluate for ContainsAll {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let collection = self.collection.evaluate(world_state_view, context)?;
         let elements = self.elements.evaluate(world_state_view, context)?;
         Ok(elements
@@ -236,7 +242,7 @@ impl Evaluate for ContainsAny {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let collection = self.collection.evaluate(world_state_view, context)?;
         let elements = self.elements.evaluate(world_state_view, context)?;
         Ok(elements
@@ -253,7 +259,7 @@ impl Evaluate for Equal {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
+    ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
         Ok((left == right).into())
@@ -267,8 +273,8 @@ impl Evaluate for Where {
         &self,
         world_state_view: &WorldStateView,
         context: &Context,
-    ) -> Result<Self::Value, String> {
-        let additional_context: Result<Context, String> = self
+    ) -> Result<Self::Value> {
+        let additional_context: Result<Context> = self
             .values
             .clone()
             .into_iter()
@@ -293,11 +299,12 @@ impl Evaluate for Where {
 mod tests {
     use super::*;
     use iroha_crypto::KeyPair;
+    use iroha_error::{MessageError, Result};
     use parity_scale_codec::{Decode, Encode};
 
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
-    fn conditional_multisignature_quorum() -> Result<(), String> {
+    fn conditional_multisignature_quorum() -> Result<()> {
         let asset_quantity_high = Value::U32(750);
         let asset_quantity_low = Value::U32(300);
         let key_pair_teller_1 = KeyPair::generate()?;
@@ -369,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn where_expression() -> Result<(), String> {
+    fn where_expression() -> Result<()> {
         assert_eq!(
             WhereBuilder::evaluate(ContextValue::new("test_value"))
                 .with_value("test_value".to_string(), Add::new(2u32, 3u32))
@@ -381,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_where_expression() -> Result<(), String> {
+    fn nested_where_expression() -> Result<()> {
         let expression = WhereBuilder::evaluate(ContextValue::new("a"))
             .with_value("a".to_string(), 2u32)
             .build();
@@ -415,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn if_condition_branches_correctly() -> Result<(), String> {
+    fn if_condition_branches_correctly() -> Result<()> {
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
             IfExpression::new(true, 1u32, 2u32).evaluate(&wsv, &Context::new())?,
@@ -430,39 +437,57 @@ mod tests {
 
     #[test]
     fn wrong_operand_types_are_caught() {
-        let wsv = WorldStateView::new(World::new());
-        assert!(Add::new(10u32, true)
-            .evaluate(&wsv, &Context::new())
-            .expect_err("Should not be possible to add int and bool.")
-            .ends_with("is not U32."));
-        assert!(Subtract::new(10u32, true)
-            .evaluate(&wsv, &Context::new())
-            .expect_err("Should not be possible to subtract int and bool.")
-            .ends_with("is not U32."));
-        assert!(And::new(1u32, Vec::<Value>::new())
-            .evaluate(&wsv, &Context::new())
-            .expect_err("Should not be possible to apply logical and to int and vec.")
-            .ends_with("is not bool."));
-        assert!(Or::new(1u32, Vec::<Value>::new())
-            .evaluate(&wsv, &Context::new())
-            .expect_err("Should not be possible to apply logical or to int and vec.")
-            .ends_with("is not bool."));
-        assert!(Greater::new(1u32, Vec::<Value>::new())
-            .evaluate(&wsv, &Context::new())
-            .expect_err("Should not be possible to apply greater sign to int and vec.")
-            .ends_with("is not U32."));
-        assert!(Less::new(1u32, Vec::<Value>::new())
-            .evaluate(&wsv, &Context::new())
-            .expect_err("Should not be possible to apply greater sign to int and vec.")
-            .ends_with("is not U32."));
-        assert!(IfExpression::new(1u32, 2u32, 3u32)
-            .evaluate(&wsv, &Context::new())
-            .expect_err("If condition should be bool")
-            .ends_with("is not bool."));
+        fn assert_eval<V, E>(inst: E, err_msg: &str, ends_with: &str)
+        where
+            V: std::fmt::Debug,
+            E: Evaluate<Value = V> + std::fmt::Debug,
+        {
+            let wsv = WorldStateView::new(World::new());
+            let result: Result<_> = inst.evaluate(&wsv, &Context::new());
+            let err = result.expect_err(err_msg);
+            let err = err.downcast_ref::<MessageError<String>>().unwrap();
+            assert!(err.msg.ends_with(ends_with))
+        }
+
+        assert_eval(
+            Add::new(10u32, true),
+            "Should not be possible to add int and bool.",
+            "is not U32.",
+        );
+        assert_eval(
+            Subtract::new(10u32, true),
+            "Should not be possible to subtract int and bool.",
+            "is not U32.",
+        );
+        assert_eval(
+            And::new(1u32, Vec::<Value>::new()),
+            "Should not be possible to apply logical and to int and vec.",
+            "is not bool.",
+        );
+        assert_eval(
+            Or::new(1u32, Vec::<Value>::new()),
+            "Should not be possible to apply logical or to int and vec.",
+            "is not bool.",
+        );
+        assert_eval(
+            Greater::new(1u32, Vec::<Value>::new()),
+            "Should not be possible to apply greater sign to int and vec.",
+            "is not U32.",
+        );
+        assert_eval(
+            Less::new(1u32, Vec::<Value>::new()),
+            "Should not be possible to apply greater sign to int and vec.",
+            "is not U32.",
+        );
+        assert_eval(
+            IfExpression::new(1u32, 2u32, 3u32),
+            "If condition should be bool",
+            "is not bool.",
+        );
     }
 
     #[test]
-    fn operations_are_correctly_calculated() -> Result<(), String> {
+    fn operations_are_correctly_calculated() -> Result<()> {
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
             Add::new(1u32, 2u32).evaluate(&wsv, &Context::new())?,

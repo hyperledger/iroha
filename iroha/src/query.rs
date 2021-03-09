@@ -3,6 +3,7 @@
 use crate::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
+use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 
 use std::convert::TryFrom;
@@ -24,13 +25,13 @@ pub trait Query {
     /// Execute query on the `WorldStateView`.
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String>;
+    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value>;
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(sr: SignedQueryRequest) -> Result<Self, Self::Error> {
+    fn try_from(sr: SignedQueryRequest) -> Result<Self> {
         sr.signature.verify(sr.hash().as_ref()).map(|_| Self {
             timestamp_ms: sr.timestamp_ms,
             signature: sr.signature,
@@ -40,7 +41,7 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 }
 
 impl Query for QueryBox {
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
         match self {
             QueryBox::FindAllAccounts(query) => query.execute(world_state_view),
             QueryBox::FindAccountById(query) => query.execute(world_state_view),

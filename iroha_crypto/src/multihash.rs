@@ -1,8 +1,8 @@
 use super::varint::VarUint;
+use iroha_error::{Error, Result};
 use std::{
     convert::{TryFrom, TryInto},
     fmt::Display,
-    num::TryFromIntError,
     str::FromStr,
 };
 
@@ -34,7 +34,7 @@ impl Display for DigestFunction {
 }
 
 impl FromStr for DigestFunction {
-    type Err = String;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -42,7 +42,9 @@ impl FromStr for DigestFunction {
             SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
             BLS12_381_G1_PUB => Ok(DigestFunction::Bls12381G1Pub),
             BLS12_381_G2_PUB => Ok(DigestFunction::Bls12381G2Pub),
-            _ => Err("The specified digest function is not supported.".to_string()),
+            _ => Err(Error::msg(
+                "The specified digest function is not supported.",
+            )),
         }
     }
 }
@@ -54,9 +56,9 @@ impl From<&DigestFunction> for u64 {
 }
 
 impl TryFrom<u64> for DigestFunction {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(variant: u64) -> Result<Self, Self::Error> {
+    fn try_from(variant: u64) -> Result<Self> {
         match variant {
             variant if variant == DigestFunction::Ed25519Pub as u64 => {
                 Ok(DigestFunction::Ed25519Pub)
@@ -70,7 +72,9 @@ impl TryFrom<u64> for DigestFunction {
             variant if variant == DigestFunction::Bls12381G2Pub as u64 => {
                 Ok(DigestFunction::Bls12381G2Pub)
             }
-            _ => Err("The specified digest function is not supported.".to_string()),
+            _ => Err(Error::msg(
+                "The specified digest function is not supported.",
+            )),
         }
     }
 }
@@ -82,13 +86,13 @@ pub struct Multihash {
 }
 
 impl TryFrom<Vec<u8>> for Multihash {
-    type Error = String;
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+    type Error = Error;
+    fn try_from(bytes: Vec<u8>) -> Result<Self> {
         let idx = bytes
             .iter()
             .enumerate()
             .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-            .ok_or_else(|| "Last byte should be less than 128".to_owned())?
+            .ok_or_else(|| Error::msg("Last byte should be less than 128"))?
             .0;
         let (digest_function, bytes) = bytes.split_at(idx + 1);
         let mut bytes = bytes.iter().copied();
@@ -98,7 +102,7 @@ impl TryFrom<Vec<u8>> for Multihash {
 
         let digest_size = bytes
             .next()
-            .ok_or_else(|| "Failed to parse digest size.".to_string())?;
+            .ok_or_else(|| Error::msg("Failed to parse digest size."))?;
         let payload: Vec<u8> = bytes.collect();
         if payload.len() == digest_size as usize {
             Ok(Multihash {
@@ -106,27 +110,23 @@ impl TryFrom<Vec<u8>> for Multihash {
                 payload,
             })
         } else {
-            Err("The digest size is not equal to the actual length.".to_string())
+            Err(Error::msg(
+                "The digest size is not equal to the actual length.",
+            ))
         }
     }
 }
 
 impl TryFrom<&Multihash> for Vec<u8> {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
+    fn try_from(multihash: &Multihash) -> Result<Self> {
         let mut bytes = Vec::new();
         let digest_function: u64 = (&multihash.digest_function).into();
         let digest_function: VarUint = digest_function.into();
         let mut digest_function: Vec<_> = digest_function.into();
         bytes.append(&mut digest_function);
-        bytes.push(
-            multihash
-                .payload
-                .len()
-                .try_into()
-                .map_err(|err: TryFromIntError| err.to_string())?,
-        );
+        bytes.push(multihash.payload.len().try_into()?);
         bytes.extend_from_slice(&multihash.payload);
         Ok(bytes)
     }
