@@ -20,6 +20,7 @@ target_link_libraries(yac_cold_case_test
     mock_yac_crypto_provider
     yac
     test_logger
+    subscription
     )
 
 addtest(yac_sunny_day_test yac_sunny_day_test.cpp)
@@ -27,6 +28,7 @@ target_link_libraries(yac_sunny_day_test
     mock_yac_crypto_provider
     yac
     test_logger
+    subscription
     )
 
 addtest(yac_rainy_day_test yac_rainy_day_test.cpp)
@@ -34,6 +36,7 @@ target_link_libraries(yac_rainy_day_test
     mock_yac_crypto_provider
     yac
     test_logger
+    subscription
     )
 
 addtest(yac_unknown_peer_test yac_unknown_peer_test.cpp)
