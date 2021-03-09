@@ -7,6 +7,7 @@ use async_std::{
     prelude::*,
 };
 use iroha_derive::*;
+use iroha_error::{Result, WrapErr};
 use serde::Deserialize;
 use std::{
     convert::TryFrom,
@@ -52,7 +53,7 @@ impl Kura {
     }
 
     /// After constructing `Kura` it should be initialized to be ready to work with it.
-    pub async fn init(&mut self) -> Result<(), String> {
+    pub async fn init(&mut self) -> Result<()> {
         let blocks = self.block_store.read_all().await;
         self.merkle_tree =
             MerkleTree::new().build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
@@ -62,7 +63,7 @@ impl Kura {
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[log]
-    pub async fn store(&mut self, block: ValidBlock) -> Result<Hash, String> {
+    pub async fn store(&mut self, block: ValidBlock) -> Result<Hash> {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
@@ -147,33 +148,26 @@ impl BlockStore {
         self.path.join(BlockStore::get_block_filename(block_height))
     }
 
-    async fn write(&self, block: &ValidBlock) -> Result<Hash, String> {
+    async fn write(&self, block: &ValidBlock) -> Result<Hash> {
         //filename is its height
         let path = self.get_block_path(block.header.height);
-        match File::create(path).await {
-            Ok(mut file) => {
-                let hash = block.hash();
-                let serialized_block: Vec<u8> = block.into();
-                if let Err(error) = file.write_all(&serialized_block).await {
-                    return Err(format!("Failed to write to storage file {}.", error));
-                }
-                Ok(hash)
-            }
-            Err(error) => Result::Err(format!("Failed to open storage file {}.", error)),
-        }
+        let mut file = File::create(path)
+            .await
+            .wrap_err("Failed to open storage file.")?;
+        let hash = block.hash();
+        let serialized_block: Vec<u8> = block.into();
+        file.write_all(&serialized_block)
+            .await
+            .wrap_err("Failed to write to storage file.")?;
+        Ok(hash)
     }
 
-    async fn read(&self, height: u64) -> Result<ValidBlock, String> {
+    async fn read(&self, height: u64) -> Result<ValidBlock> {
         let path = self.get_block_path(height);
-        let mut file = File::open(&path).await.map_err(|_| "No file found.")?;
-        let metadata = metadata(&path)
-            .await
-            .map_err(|_| "Unable to read metadata.")?;
+        let mut file = File::open(&path).await.wrap_err("No file found.")?;
+        let metadata = metadata(&path).await.wrap_err("Unable to read metadata.")?;
         let mut buffer = vec![0; metadata.len() as usize];
-        let _ = file
-            .read(&mut buffer)
-            .await
-            .map_err(|_| "Buffer overflow.")?;
+        let _ = file.read(&mut buffer).await.wrap_err("Buffer overflow.")?;
         Ok(ValidBlock::try_from(buffer).expect("Failed to read block from store."))
     }
 
@@ -192,6 +186,7 @@ impl BlockStore {
 /// This module contains all configuration related logic.
 pub mod config {
     use super::Mode;
+    use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
     use std::{env, path::Path};
 
@@ -222,10 +217,10 @@ pub mod config {
                 .to_string();
         }
 
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(kura_init_mode) = env::var(KURA_INIT_MODE) {
                 self.kura_init_mode = serde_json::from_str(&kura_init_mode)
-                    .map_err(|e| format!("Failed to parse Kura Init Mode: {}", e))?;
+                    .wrap_err("Failed to parse Kura Init Mode")?;
             }
             if let Ok(kura_block_store_path) = env::var(KURA_BLOCK_STORE_PATH) {
                 self.kura_block_store_path = kura_block_store_path;

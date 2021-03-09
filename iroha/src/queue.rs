@@ -1,6 +1,7 @@
 use self::config::QueueConfiguration;
 use crate::prelude::*;
 use iroha_data_model::prelude::*;
+use iroha_error::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
@@ -35,7 +36,7 @@ impl Queue {
     }
 
     /// Puts new transaction into queue. Returns error if queue is full.
-    pub fn push_pending_transaction(&mut self, tx: AcceptedTransaction) -> Result<(), String> {
+    pub fn push_pending_transaction(&mut self, tx: AcceptedTransaction) -> Result<()> {
         if let Some(transaction) = self.pending_tx_by_hash.get_mut(&tx.hash()) {
             let mut signatures: BTreeSet<_> = transaction.signatures.iter().cloned().collect();
             let mut new_signatures: BTreeSet<_> = tx.signatures.into_iter().collect();
@@ -47,7 +48,7 @@ impl Queue {
             let _result = self.pending_tx_by_hash.insert(tx.hash(), tx);
             Ok(())
         } else {
-            Err("The queue is full.".to_string())
+            Err(Error::msg("The queue is full."))
         }
     }
 
@@ -120,6 +121,7 @@ impl Queue {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
     use std::env;
 
@@ -151,28 +153,18 @@ pub mod config {
     impl QueueConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(max_block_tx) = env::var(MAXIMUM_TRANSACTIONS_IN_BLOCK) {
-                self.maximum_transactions_in_block =
-                    serde_json::from_str(&max_block_tx).map_err(|e| {
-                        format!(
-                            "Failed to parse maximum number of transactions per block: {}",
-                            e
-                        )
-                    })?;
+                self.maximum_transactions_in_block = serde_json::from_str(&max_block_tx)
+                    .wrap_err("Failed to parse maximum number of transactions per block")?;
             }
             if let Ok(max_queue_tx) = env::var(MAXIMUM_TRANSACTIONS_IN_QUEUE) {
-                self.maximum_transactions_in_queue =
-                    serde_json::from_str(&max_queue_tx).map_err(|e| {
-                        format!(
-                            "Failed to parse maximum number of transactions in a queue: {}",
-                            e
-                        )
-                    })?;
+                self.maximum_transactions_in_queue = serde_json::from_str(&max_queue_tx)
+                    .wrap_err("Failed to parse maximum number of transactions in a queue")?;
             }
             if let Ok(transaction_ttl_ms) = env::var(TRANSACTION_TIME_TO_LIVE_MS) {
                 self.transaction_time_to_live_ms = serde_json::from_str(&transaction_ttl_ms)
-                    .map_err(|e| format!("Failed to parse transaction's ttl: {}", e))?;
+                    .wrap_err("Failed to parse transaction's ttl")?;
             }
             Ok(())
         }

@@ -18,3 +18,4 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 parity-scale-codec = "1.2"
+iroha_error = { path = "../iroha_error" }

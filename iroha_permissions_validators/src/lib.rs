@@ -52,20 +52,17 @@ pub mod public_blockchain {
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             if let Instruction::Transfer(transfer_box) = instruction {
-                if let IdBox::AssetId(source_id) =
-                    transfer_box.source_id.evaluate(wsv, &Context::new())?
+                if let IdBox::AssetId(source_id) = transfer_box
+                    .source_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
                 {
-                    if source_id.account_id == authority {
-                        Ok(())
-                    } else {
-                        Err("Can't transfer assets of the other account.".to_string())
+                    if source_id.account_id != authority {
+                        return Err("Can't transfer assets of the other account.".to_owned());
                     }
-                } else {
-                    Ok(())
                 }
-            } else {
-                Ok(())
             }
+            Ok(())
         }
     }
 
@@ -87,26 +84,23 @@ pub mod public_blockchain {
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             if let Instruction::Unregister(instruction) = instruction {
-                if let IdBox::AssetDefinitionId(asset_definition_id) =
-                    instruction.object_id.evaluate(wsv, &Context::new())?
+                if let IdBox::AssetDefinitionId(asset_definition_id) = instruction
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
                 {
                     if let Some(asset_definiton_entry) =
                         wsv.read_asset_definition_entry(&asset_definition_id)
                     {
-                        if asset_definiton_entry.registered_by == authority {
-                            Ok(())
-                        } else {
-                            Err("Can't unregister assets registered by other accounts.".to_string())
+                        if asset_definiton_entry.registered_by != authority {
+                            return Err(
+                                "Can't unregister assets registered by other accounts.".to_owned()
+                            );
                         }
-                    } else {
-                        Ok(())
                     }
-                } else {
-                    Ok(())
                 }
-            } else {
-                Ok(())
             }
+            Ok(())
         }
     }
 
@@ -128,26 +122,23 @@ pub mod public_blockchain {
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             if let Instruction::Mint(instruction) = instruction {
-                if let IdBox::AssetId(asset_id) =
-                    instruction.destination_id.evaluate(wsv, &Context::new())?
+                if let IdBox::AssetId(asset_id) = instruction
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
                 {
                     if let Some(asset_definiton_entry) =
                         wsv.read_asset_definition_entry(&asset_id.definition_id)
                     {
-                        if asset_definiton_entry.registered_by == authority {
-                            Ok(())
-                        } else {
-                            Err("Can't mint assets registered by other accounts.".to_string())
+                        if asset_definiton_entry.registered_by != authority {
+                            return Err(
+                                "Can't mint assets registered by other accounts.".to_owned()
+                            );
                         }
-                    } else {
-                        Ok(())
                     }
-                } else {
-                    Ok(())
                 }
-            } else {
-                Ok(())
             }
+            Ok(())
         }
     }
 
@@ -169,26 +160,23 @@ pub mod public_blockchain {
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             if let Instruction::Burn(instruction) = instruction {
-                if let IdBox::AssetId(asset_id) =
-                    instruction.destination_id.evaluate(wsv, &Context::new())?
+                if let IdBox::AssetId(asset_id) = instruction
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
                 {
                     if let Some(asset_definiton_entry) =
                         wsv.read_asset_definition_entry(&asset_id.definition_id)
                     {
-                        if asset_definiton_entry.registered_by == authority {
-                            Ok(())
-                        } else {
-                            Err("Can't mint assets registered by other accounts.".to_string())
+                        if asset_definiton_entry.registered_by != authority {
+                            return Err(
+                                "Can't mint assets registered by other accounts.".to_owned()
+                            );
                         }
-                    } else {
-                        Ok(())
                     }
-                } else {
-                    Ok(())
                 }
-            } else {
-                Ok(())
             }
+            Ok(())
         }
     }
 
@@ -210,20 +198,17 @@ pub mod public_blockchain {
             wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             if let Instruction::Burn(instruction) = instruction {
-                if let IdBox::AssetId(asset_id) =
-                    instruction.destination_id.evaluate(wsv, &Context::new())?
+                if let IdBox::AssetId(asset_id) = instruction
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
                 {
-                    if asset_id.account_id == authority {
-                        Ok(())
-                    } else {
-                        Err("Can't burn assets from another account.".to_string())
+                    if asset_id.account_id != authority {
+                        return Err("Can't burn assets from another account.".to_owned());
                     }
-                } else {
-                    Ok(())
                 }
-            } else {
-                Ok(())
             }
+            Ok(())
         }
     }
 
@@ -371,9 +356,9 @@ pub mod public_blockchain {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            assert!(BurnOnlyOwnedAssets
-                .check_instruction(alice_id, burn.clone(), &wsv)
-                .is_ok());
+            assert!(
+                dbg!(BurnOnlyOwnedAssets.check_instruction(alice_id, burn.clone(), &wsv)).is_ok()
+            );
             assert!(BurnOnlyOwnedAssets
                 .check_instruction(bob_id, burn, &wsv)
                 .is_err());

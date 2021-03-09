@@ -1,6 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use iroha_version::{scale::*, RawVersioned, Version};
+    use iroha_version::{
+        error::{Error, Result},
+        scale::*,
+        RawVersioned, Version,
+    };
     use iroha_version_derive::{declare_versioned, version};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -38,7 +42,7 @@ mod tests {
     }
 
     #[test]
-    fn supported_version() -> Result<(), String> {
+    fn supported_version() -> Result<()> {
         use model_1::*;
 
         let versioned_message: VersionedMessage = Message.into();
@@ -51,14 +55,14 @@ mod tests {
             }
             VersionedMessage::V2(message) => {
                 let _message: Message2 = message.into();
-                Err("Should have been message v1.".to_string())
+                Err(Error::msg("Should have been message v1."))
             }
-            _ => Err("Unsupported version.".to_string()),
+            _ => Err(Error::msg("Unsupported version.")),
         }
     }
 
     #[test]
-    fn unsupported_version() -> Result<(), String> {
+    fn unsupported_version() -> Result<()> {
         let bytes = {
             use model_2::*;
 
@@ -77,10 +81,10 @@ mod tests {
                     assert_eq!(bytes[1..], raw_string[..]);
                     Ok(())
                 } else {
-                    Err("Should be scale bytes.".to_string())
+                    Err(Error::msg("Should be scale bytes."))
                 }
             }
-            _ => Err("Should be an unsupported version".to_string()),
+            _ => Err(Error::msg("Should be an unsupported version")),
         }
     }
 }

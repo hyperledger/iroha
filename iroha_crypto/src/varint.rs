@@ -1,3 +1,5 @@
+use iroha_error::{Error, Result};
+
 /// Variable length unsigned int. [ref](https://github.com/multiformats/unsigned-varint)
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub struct VarUint {
@@ -12,11 +14,13 @@ macro_rules! try_into_uint(
     { $( $ty:ty ),* } => {
         $(
             impl std::convert::TryInto<$ty> for VarUint {
-                type Error = String;
-                fn try_into(self) -> Result<$ty, Self::Error> {
+                type Error = Error;
+                fn try_into(self) -> Result<$ty> {
                     let VarUint { payload } = self;
                     if std::mem::size_of::<$ty>() * 8 < payload.len() * 7 {
-                        return Err(concat!("Number is too large for type ", stringify!($ty)).to_owned());
+                        return Err(Error::msg(
+                            concat!("Number is too large for type ", stringify!($ty))
+                        ));
                     }
                     let offsets = (0..payload.len()).map(|i| i * 7);
                     let bytes = payload.into_iter().map(|byte| byte & 0b0111_1111);
@@ -70,19 +74,19 @@ from_uint!(u8, u16, u32, u64, u128);
 
 impl VarUint {
     /// Default constructor for VarUint number
-    pub fn new(bytes: impl AsRef<[u8]>) -> Result<Self, String> {
+    pub fn new(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let idx = bytes
             .as_ref()
             .iter()
             .enumerate()
             .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-            .ok_or_else(|| "Last byte should be less than 128".to_owned())?
+            .ok_or_else(|| Error::msg("Last byte should be less than 128"))?
             .0;
         let (payload, empty) = bytes.as_ref().split_at(idx + 1);
         let payload = payload.to_vec();
 
         match empty.is_empty() {
-            false => Err("Last byte shouldn't be followed by anything".to_owned()),
+            false => Err(Error::msg("Last byte shouldn't be followed by anything")),
             true => Ok(Self { payload }),
         }
     }

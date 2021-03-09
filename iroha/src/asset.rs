@@ -10,17 +10,18 @@ use iroha_derive::log;
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
+    use iroha_error::{Error, Result};
 
     impl Execute for Mint<Asset, u32> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or("Failed to find asset.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset."))?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     asset.quantity += self.object;
@@ -39,11 +40,11 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or("Failed to find asset.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset."))?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     asset.big_quantity += self.object;
@@ -62,14 +63,16 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or(format!(
-                    "Failed to find asset definition. {:?}",
-                    &self.destination_id.definition_id
-                ))?;
+                .ok_or_else(|| {
+                    Error::msg(format!(
+                        "Failed to find asset definition. {:?}",
+                        &self.destination_id.definition_id
+                    ))
+                })?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     let _ = asset
@@ -90,18 +93,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or("Failed to find asset.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset."))?;
             let asset = world_state_view
                 .asset(&self.destination_id)
-                .ok_or("Asset not found.")?;
+                .ok_or_else(|| Error::msg("Asset not found."))?;
             asset.quantity = asset
                 .quantity
                 .checked_sub(self.object)
-                .ok_or("Not enough quantity to burn.")?;
+                .ok_or_else(|| Error::msg("Not enough quantity to burn."))?;
             Ok(world_state_view)
         }
     }
@@ -111,18 +114,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or("Failed to find asset.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset."))?;
             let asset = world_state_view
                 .asset(&self.destination_id)
-                .ok_or("Asset not found.")?;
+                .ok_or_else(|| Error::msg("Asset not found."))?;
             asset.big_quantity = asset
                 .big_quantity
                 .checked_sub(self.object)
-                .ok_or("Not enough big quantity to burn.")?;
+                .ok_or_else(|| Error::msg("Not enough big quantity to burn."))?;
             Ok(world_state_view)
         }
     }
@@ -132,15 +135,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or("Failed to find asset definition.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset definition."))?;
             let asset = world_state_view
                 .asset(&self.destination_id)
-                .ok_or("Asset not found.")?;
-            let _ = asset.store.remove(&self.object).ok_or("Key not found.")?;
+                .ok_or_else(|| Error::msg("Asset not found."))?;
+            let _ = asset
+                .store
+                .remove(&self.object)
+                .ok_or_else(|| Error::msg("Key not found."))?;
             Ok(world_state_view)
         }
     }
@@ -151,23 +157,23 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.source_id.definition_id)
-                .ok_or("Failed to find asset.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset."))?;
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or("Failed to find asset.")?;
+                .ok_or_else(|| Error::msg("Failed to find asset."))?;
             match world_state_view.asset(&self.source_id) {
                 Some(asset) => {
                     if asset.quantity >= self.object {
                         asset.quantity -= self.object;
                     } else {
-                        return Err("Source asset is too small.".to_string());
+                        return Err(Error::msg("Source asset is too small."));
                     }
                 }
-                None => return Err("Source asset not found.".to_string()),
+                None => return Err(Error::msg("Source asset not found.")),
             }
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
@@ -186,10 +192,11 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Asset related implementations.
 pub mod query {
     use super::*;
+    use iroha_error::{Error, Result};
 
     impl Query for FindAllAssets {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
@@ -200,7 +207,7 @@ pub mod query {
 
     impl Query for FindAllAssetsDefinitions {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_assets_definitions_entries()
                 .into_iter()
@@ -212,21 +219,23 @@ pub mod query {
 
     impl Query for FindAssetById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_asset(&self.id)
                 .cloned()
-                .ok_or(format!(
-                    "Failed to get an asset with identification: {}.",
-                    &self.id
-                ))?
+                .ok_or_else(|| {
+                    Error::msg(format!(
+                        "Failed to get an asset with identification: {}.",
+                        &self.id
+                    ))
+                })?
                 .into())
         }
     }
 
     impl Query for FindAssetsByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
@@ -238,10 +247,12 @@ pub mod query {
 
     impl Query for FindAssetsByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             let vec = world_state_view
                 .read_account_assets(&self.account_id)
-                .ok_or(format!("No account with id: {} found.", &self.account_id))?
+                .ok_or_else(|| {
+                    Error::msg(format!("No account with id: {} found.", &self.account_id))
+                })?
                 .into_iter()
                 .cloned()
                 .map(Box::new)
@@ -254,7 +265,7 @@ pub mod query {
 
     impl Query for FindAssetsByAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
@@ -266,7 +277,7 @@ pub mod query {
 
     impl Query for FindAssetsByDomainName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
@@ -278,10 +289,12 @@ pub mod query {
 
     impl Query for FindAssetsByAccountIdAndAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             let vec = world_state_view
                 .read_account_assets(&self.account_id)
-                .ok_or(format!("No account with id: {} found.", &self.account_id))?
+                .ok_or_else(|| {
+                    Error::msg(format!("No account with id: {} found.", &self.account_id))
+                })?
                 .into_iter()
                 .filter(|asset| asset.id.definition_id == self.asset_definition_id)
                 .cloned()
@@ -295,7 +308,7 @@ pub mod query {
 
     impl Query for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
@@ -310,14 +323,16 @@ pub mod query {
 
     impl Query for FindAssetQuantityById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_asset(&self.id)
                 .map(|asset| asset.quantity)
-                .ok_or(format!(
-                    "Failed to get an asset with identification: {}.",
-                    &self.id
-                ))?
+                .ok_or_else(|| {
+                    Error::msg(format!(
+                        "Failed to get an asset with identification: {}.",
+                        &self.id
+                    ))
+                })?
                 .into())
         }
     }

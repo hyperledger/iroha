@@ -77,6 +77,7 @@ pub fn init(configuration: &config::LoggerConfiguration) -> Result<(), SetLogger
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use iroha_error::{Result, WrapErr};
     pub use log::LevelFilter;
     use serde::Deserialize;
     use std::env;
@@ -103,14 +104,14 @@ pub mod config {
     impl LoggerConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        pub fn load_environment(&mut self) -> Result<(), String> {
+        pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(max_log_level) = env::var(MAX_LOG_LEVEL) {
                 self.max_log_level = serde_json::from_str(&max_log_level)
-                    .map_err(|e| format!("Failed to parse maximum log level: {}", e))?;
+                    .wrap_err("Failed to parse maximum log level")?;
             }
             if let Ok(terminal_color_enabled) = env::var(TERMINAL_COLOR_ENABLED) {
                 self.terminal_color_enabled = serde_json::from_str(&terminal_color_enabled)
-                    .map_err(|e| format!("Failed to parse terminal color enabled: {}", e))?;
+                    .wrap_err("Failed to parse terminal color enabled")?;
             }
             if let Ok(date_time_format) = env::var(DATE_TIME_FORMAT) {
                 self.date_time_format = date_time_format;

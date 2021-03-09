@@ -5,6 +5,7 @@
 use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
+use iroha_error::{Error, Result, WrapErr};
 use parity_scale_codec::{Decode, Encode};
 use std::{
     cmp::min,
@@ -25,15 +26,15 @@ impl AcceptedTransaction {
     pub fn from_transaction(
         transaction: Transaction,
         max_instruction_number: usize,
-    ) -> Result<AcceptedTransaction, String> {
+    ) -> Result<AcceptedTransaction> {
         transaction
             .check_instruction_len(max_instruction_number)
-            .map_err(|e| format!("Failed to accept transaction: {}", e))?;
+            .wrap_err("Failed to accept transaction")?;
 
         for signature in &transaction.signatures {
-            if let Err(e) = signature.verify(transaction.hash().as_ref()) {
-                return Err(format!("Failed to verify signatures: {}", e));
-            }
+            signature
+                .verify(transaction.hash().as_ref())
+                .wrap_err("Failed to verify signatures")?;
         }
 
         Ok(Self {
@@ -82,7 +83,8 @@ impl AcceptedTransaction {
                     .verify(self.hash().as_ref())
                     .map_err(|reason| SignatureVerificationFail {
                         signature: signature.clone(),
-                        reason,
+                        // TODO: Should here also be iroha_error::Error?
+                        reason: reason.to_string(),
                     })
             })
             .collect::<Result<Vec<()>, _>>()
@@ -91,7 +93,7 @@ impl AcceptedTransaction {
         let option_reason = match self.check_signature_condition(world_state_view) {
             Ok(true) => None,
             Ok(false) => Some("Signature condition not satisfied.".to_owned()),
-            Err(reason) => Some(reason),
+            Err(reason) => Some(reason.to_string()),
         }
         .map(|reason| UnsatisfiedSignatureConditionFail { reason })
         .map(TransactionRejectionReason::UnsatisfiedSignatureCondition);
@@ -108,7 +110,7 @@ impl AcceptedTransaction {
                 .execute(account_id.clone(), &world_state_view_temp)
                 .map_err(|reason| InstructionExecutionFail {
                     instruction: instruction.clone(),
-                    reason,
+                    reason: reason.to_string(),
                 })
                 .map_err(TransactionRejectionReason::InstructionExecution)?;
 
@@ -143,14 +145,11 @@ impl AcceptedTransaction {
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
-    pub fn check_signature_condition(
-        &self,
-        world_state_view: &WorldStateView,
-    ) -> Result<bool, String> {
+    pub fn check_signature_condition(&self, world_state_view: &WorldStateView) -> Result<bool> {
         let account_id = self.payload.account_id.clone();
         world_state_view
             .read_account(&account_id)
-            .ok_or_else(|| format!("Account with id {} not found", account_id))?
+            .ok_or_else(|| Error::msg(format!("Account with id {} not found", account_id)))?
             .check_signature_condition(&self.signatures)
             .evaluate(world_state_view, &Context::new())
     }
@@ -189,7 +188,7 @@ pub struct ValidTransaction {
 
 impl ValidTransaction {
     /// Apply instructions to the `WorldStateView`.
-    pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+    pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<()> {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
             world_state_view_temp = instruction
@@ -260,6 +259,7 @@ mod tests {
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
         transaction::MAX_INSTRUCTION_NUMBER,
     };
+    use iroha_error::{Error, MessageError, Result, WrappedError};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
@@ -308,12 +308,15 @@ mod tests {
             AccountId::new("root", "global"),
             1000,
         );
-        let result: Result<AcceptedTransaction, _> =
-            AcceptedTransaction::from_transaction(tx, 4096);
+        let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction(tx, 4096);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            "Failed to accept transaction: Too many instructions in payload".to_owned()
-        );
+
+        let err = result.unwrap_err();
+        let err = err
+            .downcast_ref::<WrappedError<&'static str, Error>>()
+            .unwrap();
+        assert_eq!(err.msg, "Failed to accept transaction");
+        let err = err.downcast_ref::<MessageError<&'static str>>().unwrap();
+        assert_eq!(err.msg, "Too many instructions in payload");
     }
 }

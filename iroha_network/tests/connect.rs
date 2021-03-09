@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use async_std::{prelude::*, sync::RwLock, task};
+    use iroha_error::{Result, WrapErr};
     use iroha_network::prelude::*;
     use std::{sync::Arc, thread, time::Duration};
 
@@ -32,24 +33,18 @@ mod tests {
         assert_eq!(actual_changes.len(), 99);
     }
 
-    async fn handle_connection(
-        _state: State<()>,
-        mut stream: Box<dyn AsyncStream>,
-    ) -> Result<(), String> {
+    async fn handle_connection(_state: State<()>, mut stream: Box<dyn AsyncStream>) -> Result<()> {
         for i in 1..100 {
             stream
                 .write_all(&[i])
                 .await
-                .map_err(|e| format!("Failed to write message: {}", e))?;
-            stream
-                .flush()
-                .await
-                .map_err(|e| format!("Failed to flush: {}", e))?;
+                .wrap_err("Failed to write message")?;
+            stream.flush().await.wrap_err("Failed to flush")?;
             let mut receipt = [0u8; 4];
             stream
                 .read(&mut receipt)
                 .await
-                .map_err(|e| format!("Failed to read receipt: {}", e))?;
+                .wrap_err("Failed to read receipt")?;
         }
         Ok(())
     }

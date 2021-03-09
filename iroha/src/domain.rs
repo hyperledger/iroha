@@ -1,6 +1,7 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
 use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::prelude::*;
+use iroha_error::{Error, Result};
 
 /// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
@@ -13,17 +14,17 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let account = self.object;
             let domain = world_state_view
                 .domain(&account.id.domain_name)
-                .ok_or("Failed to find domain.")?;
+                .ok_or_else(|| Error::msg("Failed to find domain."))?;
             if domain.accounts.contains_key(&account.id) {
-                Err(format!(
+                Err(Error::msg(format!(
                     "Domain already contains an account with an Id: {:?}",
                     &account.id
-                ))
+                )))
             } else {
                 let _ = domain.accounts.insert(account.id.clone(), account);
                 Ok(world_state_view)
@@ -36,12 +37,12 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let account_id = self.object_id;
             let domain = world_state_view
                 .domain(&account_id.domain_name)
-                .ok_or("Failed to find domain.")?;
+                .ok_or_else(|| Error::msg("Failed to find domain."))?;
             let _ = domain.accounts.remove(&account_id);
             Ok(world_state_view)
         }
@@ -52,12 +53,12 @@ pub mod isi {
             self,
             authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let asset_definition = self.object;
             let _ = world_state_view
                 .domain(&asset_definition.id.domain_name)
-                .ok_or("Failed to find domain.")?
+                .ok_or_else(|| Error::msg("Failed to find domain."))?
                 .asset_definitions
                 .insert(
                     asset_definition.id.clone(),
@@ -75,12 +76,12 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView, String> {
+        ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let asset_definition_id = self.object_id;
             let _ = world_state_view
                 .domain(&asset_definition_id.domain_name)
-                .ok_or("Failed to find domain.")?
+                .ok_or_else(|| Error::msg("Failed to find domain."))?
                 .asset_definitions
                 .remove(&asset_definition_id);
             Ok(world_state_view)
@@ -95,7 +96,7 @@ pub mod query {
 
     impl Query for FindAllDomains {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_all_domains()
                 .into_iter()
@@ -106,11 +107,11 @@ pub mod query {
 
     impl Query for FindDomainByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value, String> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_domain(&self.name)
                 .map(Clone::clone)
-                .ok_or("Failed to get a domain.")?
+                .ok_or_else(|| Error::msg("Failed to get a domain."))?
                 .into())
         }
     }

@@ -4,6 +4,7 @@
 use crate::config::Configuration;
 use async_std::task;
 use iroha_derive::Io;
+use iroha_error::Result;
 use parity_scale_codec::{Decode, Encode};
 
 /// Entry point and main entity in `maintenance` API.
@@ -22,7 +23,7 @@ impl System {
     }
 
     /// Scrape current system metrics.
-    pub fn scrape_metrics(&self) -> Result<Metrics, String> {
+    pub fn scrape_metrics(&self) -> Result<Metrics> {
         let mut metrics = Metrics::new(&self.configuration);
         metrics.calculate()?;
         Ok(metrics)
@@ -58,7 +59,7 @@ impl Metrics {
     }
 
     /// Update current `Metrics` state with new data.
-    pub fn calculate(&mut self) -> Result<(), String> {
+    pub fn calculate(&mut self) -> Result<()> {
         self.disk.calculate()?;
         task::block_on(async {
             self.cpu.calculate().await?;
@@ -71,6 +72,7 @@ impl Metrics {
 mod disk {
     use crate::kura::config::KuraConfiguration;
     use iroha_derive::Io;
+    use iroha_error::{Result, WrapErr};
     use parity_scale_codec::{Decode, Encode};
     use std::fs::read_dir;
 
@@ -88,18 +90,16 @@ mod disk {
             }
         }
 
-        pub fn calculate(&mut self) -> Result<(), String> {
+        pub fn calculate(&mut self) -> Result<()> {
             let mut total_size: u64 = 0;
             for entry in read_dir(&self.block_storage_path)
-                .map_err(|e| format!("Failed to read block storage directoru: {}", e))?
+                .wrap_err("Failed to read block storage directoru")?
             {
-                let path = entry
-                    .map_err(|e| format!("Failed to retrieve entry path: {}", e))?
-                    .path();
+                let path = entry.wrap_err("Failed to retrieve entry path")?.path();
                 if path.is_file() {
                     total_size += path
                         .metadata()
-                        .map_err(|e| format!("Failed to get file metadata: {}", e))?
+                        .wrap_err("Failed to get file metadata")?
                         .len();
                 }
             }
@@ -112,6 +112,7 @@ mod disk {
 mod cpu {
     use heim::cpu;
     use iroha_derive::Io;
+    use iroha_error::Result;
     use parity_scale_codec::{Decode, Encode};
 
     #[derive(Clone, Debug, Default, Io, Encode, Decode)]
@@ -124,7 +125,7 @@ mod cpu {
             Cpu::default()
         }
 
-        pub async fn calculate(&mut self) -> Result<(), String> {
+        pub async fn calculate(&mut self) -> Result<()> {
             self.load.calculate().await
         }
     }
@@ -141,7 +142,7 @@ mod cpu {
             Load::default()
         }
 
-        pub async fn calculate(&mut self) -> Result<(), String> {
+        pub async fn calculate(&mut self) -> Result<()> {
             self.frequency = format!("{:?}", cpu::frequency().await);
             self.stats = format!("{:?}", cpu::stats().await);
             self.time = format!("{:?}", cpu::time().await);
@@ -153,6 +154,7 @@ mod cpu {
 mod memory {
     use heim::memory;
     use iroha_derive::Io;
+    use iroha_error::Result;
     use parity_scale_codec::{Decode, Encode};
 
     #[derive(Clone, Debug, Default, Io, Encode, Decode)]
@@ -166,7 +168,7 @@ mod memory {
             Memory::default()
         }
 
-        pub async fn calculate(&mut self) -> Result<(), String> {
+        pub async fn calculate(&mut self) -> Result<()> {
             self.memory = format!("{:?}", memory::memory().await);
             self.swap = format!("{:?}", memory::swap().await);
             Ok(())

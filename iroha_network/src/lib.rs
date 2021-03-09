@@ -7,10 +7,10 @@ use async_std::{
     sync::RwLock,
 };
 use iroha_derive::{log, Io};
+use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use std::{
     convert::{TryFrom, TryInto},
-    error::Error,
     future::Future,
     io::{prelude::*, ErrorKind},
     net::TcpStream as SyncTcpStream,
@@ -50,13 +50,13 @@ impl Network {
     }
 
     /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
-    pub async fn send_request(&self, request: Request) -> Result<Response, String> {
+    pub async fn send_request(&self, request: Request) -> Result<Response> {
         Network::send_request_to(&self.server_url, request).await
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
     #[log("TRACE")]
-    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
+    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
         async_std::io::timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
             let mut stream = TcpStream::connect(server_url).await?;
             let payload: Vec<u8> = request.into();
@@ -66,8 +66,7 @@ impl Network {
             let read_size = stream.read(&mut buffer).await?;
             Ok(Response::try_from(buffer[..read_size].to_vec()))
         })
-        .await
-        .map_err(|e| e.to_string())?
+        .await?
     }
 
     /// Listens on the specified `server_url`.
@@ -77,24 +76,14 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
-    pub async fn listen<H, F, S>(
-        state: State<S>,
-        server_url: &str,
-        mut handler: H,
-    ) -> Result<(), String>
+    pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
-        F: Future<Output = Result<(), String>>,
+        F: Future<Output = Result<()>>,
     {
-        let listener = TcpListener::bind(server_url)
-            .await
-            .map_err(|e| e.to_string())?;
+        let listener = TcpListener::bind(server_url).await?;
         while let Some(stream) = listener.incoming().next().await {
-            handler(
-                Arc::clone(&state),
-                Box::new(stream.map_err(|e| e.to_string())?),
-            )
-            .await?;
+            handler(Arc::clone(&state), Box::new(stream?)).await?;
         }
         Ok(())
     }
@@ -106,10 +95,10 @@ impl Network {
         state: State<S>,
         mut stream: Box<dyn AsyncStream>,
         mut handler: H,
-    ) -> Result<(), String>
+    ) -> Result<()>
     where
         H: FnMut(State<S>, Request) -> F,
-        F: Future<Output = Result<Response, String>>,
+        F: Future<Output = Result<Response>>,
     {
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream
@@ -117,19 +106,14 @@ impl Network {
             .await
             .expect("Request read failed.");
         let bytes: Vec<u8> = buffer[..read_size].to_vec();
-        let request: Request = bytes
-            .try_into()
-            .map_err(|e: Box<dyn Error>| e.to_string())?;
+        let request: Request = bytes.try_into()?;
         let response: Vec<u8> = handler(state, request).await?.into();
-        stream
-            .write_all(&response)
-            .await
-            .map_err(|e| e.to_string())?;
-        stream.flush().await.map_err(|e| e.to_string())?;
+        stream.write_all(&response).await?;
+        stream.flush().await?;
         Ok(())
     }
 
-    pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection, String> {
+    pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection> {
         Connection::connect(&self.server_url, REQUEST_TIMEOUT_MILLIS, initial_message)
     }
 }
@@ -147,9 +131,8 @@ pub enum Receipt {
 }
 
 impl Connection {
-    fn connect(address: &str, timeout_millis: u64, initial_message: &[u8]) -> Result<Self, String> {
-        let mut tcp_stream: SyncTcpStream =
-            SyncTcpStream::connect(address).map_err(|e| e.to_string())?;
+    fn connect(address: &str, timeout_millis: u64, initial_message: &[u8]) -> Result<Self> {
+        let mut tcp_stream: SyncTcpStream = SyncTcpStream::connect(address)?;
         tcp_stream
             .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
             .expect("Set read timeout call failed.");
@@ -245,10 +228,10 @@ impl From<Request> for Vec<u8> {
 }
 
 impl TryFrom<Vec<u8>> for Request {
-    type Error = Box<dyn Error>;
+    type Error = Error;
 
     #[log("TRACE")]
-    fn try_from(mut bytes: Vec<u8>) -> Result<Request, Box<dyn Error>> {
+    fn try_from(mut bytes: Vec<u8>) -> Result<Request> {
         let n = bytes
             .iter()
             .position(|byte| *byte == b"\n"[0])
@@ -273,10 +256,10 @@ impl Response {
         Response::Ok(Vec::new())
     }
 
-    pub fn into_result(self) -> Result<Vec<u8>, String> {
+    pub fn into_result(self) -> Result<Vec<u8>> {
         match self {
             Response::Ok(bytes) => Ok(bytes),
-            Response::InternalError => Err("Internal Server Error.".to_string()),
+            Response::InternalError => Err(Error::msg("Internal Server Error.")),
         }
     }
 }
@@ -295,6 +278,7 @@ mod tests {
     #[cfg(not(feature = "mock"))]
     use super::*;
     use async_std::{sync::RwLock, task};
+    use iroha_error::Result;
     use std::{convert::TryFrom, sync::Arc};
 
     fn get_empty_state() -> State<()> {
@@ -325,17 +309,11 @@ mod tests {
 
     #[async_std::test]
     async fn single_threaded_async() {
-        async fn handle_request<S>(
-            _state: State<S>,
-            _request: Request,
-        ) -> Result<Response, String> {
+        async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response> {
             Ok(Response::Ok(b"pong".to_vec()))
         };
 
-        async fn handle_connection<S>(
-            state: State<S>,
-            stream: Box<dyn AsyncStream>,
-        ) -> Result<(), String> {
+        async fn handle_connection<S>(state: State<S>, stream: Box<dyn AsyncStream>) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
         };
 
@@ -356,10 +334,7 @@ mod tests {
     async fn single_threaded_async_stateful() {
         let counter: State<usize> = Arc::new(RwLock::new(0));
 
-        async fn handle_request(
-            state: State<usize>,
-            _request: Request,
-        ) -> Result<Response, String> {
+        async fn handle_request(state: State<usize>, _request: Request) -> Result<Response> {
             let mut data = state.write().await;
             *data += 1;
             Ok(Response::Ok(b"pong".to_vec()))
@@ -367,7 +342,7 @@ mod tests {
         async fn handle_connection(
             state: State<usize>,
             stream: Box<dyn AsyncStream>,
-        ) -> Result<(), String> {
+        ) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
         };
         let counter_move = counter.clone();
