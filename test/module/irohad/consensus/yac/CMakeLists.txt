@@ -115,4 +115,5 @@ target_link_libraries(yac_synchronization_test
     mock_yac_crypto_provider
     yac
     test_logger
+    subscription
     )

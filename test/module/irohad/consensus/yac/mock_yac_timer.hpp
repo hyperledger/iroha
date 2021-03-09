@@ -48,6 +48,7 @@ namespace iroha {
         }
 
         MOCK_METHOD0(deny, void());
+        MOCK_CONST_METHOD0(getDelay, std::chrono::milliseconds());
 
         MockTimer() = default;
 

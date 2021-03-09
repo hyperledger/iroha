@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/yac.hpp"
@@ -113,10 +114,16 @@ namespace iroha {
             ::testing::Matcher<const YacHash &> hash,
             size_t times_to_send_state) {
           using namespace testing;
+          using namespace std::chrono_literals;
 
           timer->setInvokeEnabled(true);
 
           InSequence seq;
+
+          EXPECT_CALL(
+              *timer,
+              getDelay())
+              .WillRepeatedly(Return(10min));
 
           EXPECT_CALL(
               *network,

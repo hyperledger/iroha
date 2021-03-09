@@ -6,6 +6,7 @@
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 #include "common/hexutils.hpp"
+//#include "module/irohad/main/mock_subscription_engine.hpp"
 
 using namespace iroha::consensus::yac;
 
