@@ -24,21 +24,35 @@ namespace iroha::utils {
     NoMove() = default;
   };
 
+  /**
+   * Protected object wrapper. Allow read-write access.
+   * @tparam T object type
+   * Example:
+   * @code
+   * ReadWriteObject<std::string> obj("1");
+   * bool const is_one_att1 = obj.sharedAccess([](auto const &str) { return str == "1"; });
+   * obj.exclusiveAccess([](auto &str) { str = "2"; });
+   * bool const is_one_att2 = obj.sharedAccess([](auto const &str) { return str == "1"; });
+   * std::cout <<
+   *   "Attempt 1: " << is_one_att1 << std::endl <<
+   *   "Attempt 2: " << is_one_att2;
+   * @endcode
+   */
   template <typename T>
-  struct RWObjectHolder {
+  struct ReadWriteObject {
     template <typename... Args>
-    RWObjectHolder(Args &&... args) : t_(std::forward<Args>(args)...) {}
+    ReadWriteObject(Args &&... args) : t_(std::forward<Args>(args)...) {}
 
     template <typename F>
-    inline void exclusive(F &&f) {
+    inline auto exclusiveAccess(F &&f) {
       std::unique_lock lock(cs_);
-      std::forward<F>(f)(t_);
+      return std::forward<F>(f)(t_);
     }
 
     template <typename F>
-    inline void shared(F &&f) const {
+    inline auto sharedAccess(F &&f) const {
       std::shared_lock lock(cs_);
-      std::forward<F>(f)(t_);
+      return std::forward<F>(f)(t_);
     }
 
    private:
@@ -46,25 +60,25 @@ namespace iroha::utils {
     mutable std::shared_mutex cs_;
   };
 
-  class waitForSingleObject : NoMove, NoCopy {
+  class WaitForSingleObject final : NoMove, NoCopy {
     std::condition_variable wait_cv_;
     std::mutex wait_m_;
-    std::atomic_flag wait_lock_;
+    std::atomic_flag flag_;
 
    public:
-    waitForSingleObject() {
-      wait_lock_.test_and_set();
+    WaitForSingleObject() {
+      flag_.test_and_set();
     }
 
-    bool wait(uint64_t const wait_timeout_us) {
+    bool wait(std::chrono::microseconds wait_timeout) {
       std::unique_lock<std::mutex> _lock(wait_m_);
       return wait_cv_.wait_for(_lock,
-                               std::chrono::microseconds(wait_timeout_us),
-                               [&]() { return !wait_lock_.test_and_set(); });
+                               wait_timeout,
+                               [&]() { return !flag_.test_and_set(); });
     }
 
     void set() {
-      wait_lock_.clear();
+      flag_.clear();
       wait_cv_.notify_one();
     }
   };

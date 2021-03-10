@@ -18,21 +18,24 @@
 
 namespace iroha::subscription {
 
-  class threadHandler final : utils::NoCopy, utils::NoMove {
+  class ThreadHandler final : utils::NoCopy, utils::NoMove {
    public:
     using Task = std::function<void()>;
 
    private:
     using Time = std::chrono::high_resolution_clock;
     using Timepoint = std::chrono::time_point<Time>;
-    using TimedTask = std::pair<Timepoint, Task>;
+    struct TimedTask {
+      Timepoint timepoint;
+      Task task;
+    };
     using TaskContainer = std::deque<TimedTask>;
 
     std::atomic_flag proceed_;
     mutable std::mutex tasks_cs_;
     TaskContainer tasks_;
     std::thread worker_;
-    utils::waitForSingleObject event_;
+    utils::WaitForSingleObject event_;
 
    private:
     inline void checkLocked() {
@@ -43,23 +46,11 @@ namespace iroha::subscription {
       return Time::now();
     }
 
-    static inline Timepoint &tpFromTimedTask(TimedTask &t) {
-      return t.first;
-    }
-
-    static inline Timepoint const &tpFromTimedTask(TimedTask const &t) {
-      return t.first;
-    }
-
-    static inline Task &taskFromTimedTask(TimedTask &t) {
-      return t.second;
-    }
-
     TaskContainer::const_iterator after(Timepoint const &tp) {
       checkLocked();
       return std::upper_bound(
           tasks_.begin(), tasks_.end(), tp, [](auto const &l, auto const &r) {
-            return l < tpFromTimedTask(r);
+            return l < r.timepoint;
           });
     }
 
@@ -73,8 +64,8 @@ namespace iroha::subscription {
       std::lock_guard lock(tasks_cs_);
       if (!tasks_.empty()) {
         auto &first_task = tasks_.front();
-        if (tpFromTimedTask(first_task) <= before) {
-          taskFromTimedTask(first_task).swap(task);
+        if (first_task.timepoint <= before) {
+          first_task.task.swap(task);
           tasks_.pop_front();
           return true;
         }
@@ -82,22 +73,22 @@ namespace iroha::subscription {
       return false;
     }
 
-    uint64_t untilFirst() const {
+    ///@returns time duration from now till first task will be executed
+    std::chrono::microseconds untilFirst() const {
       auto const before = now();
       std::lock_guard lock(tasks_cs_);
       if (!tasks_.empty()) {
         auto const &first = tasks_.front();
-        if (tpFromTimedTask(first) > before) {
+        if (first.timepoint > before) {
           return std::chrono::duration_cast<std::chrono::microseconds>(
-                     tpFromTimedTask(first) - before)
-              .count();
+                     first.timepoint - before);
         }
-        return 0ull;
+        return std::chrono::microseconds(0ull);
       }
-      return 10ull * 60 * 1000'000;
+      return std::chrono::minutes(10ull);
     }
 
-    uint32_t proc() {
+    uint32_t process() {
       Task task;
       do {
         while (extractExpired(task, now())) {
@@ -109,18 +100,17 @@ namespace iroha::subscription {
         }
         event_.wait(untilFirst());
       } while (proceed_.test_and_set());
-
       return 0;
     }
 
    public:
-    threadHandler() {
+    ThreadHandler() {
       proceed_.test_and_set();
       worker_ = std::thread(
-          [](threadHandler *__this) { return __this->proc(); }, this);
+          [](ThreadHandler *__this) { return __this->process(); }, this);
     }
 
-    ~threadHandler() {
+    ~ThreadHandler() {
       proceed_.clear();
       event_.set();
       worker_.join();
@@ -135,7 +125,7 @@ namespace iroha::subscription {
     void addDelayed(std::chrono::microseconds timeout, F &&f) {
       auto const tp = now() + timeout;
       std::lock_guard lock(tasks_cs_);
-      insert(after(tp), std::make_pair(tp, std::forward<F>(f)));
+      insert(after(tp), TimedTask{tp, std::forward<F>(f)});
       event_.set();
     }
   };
