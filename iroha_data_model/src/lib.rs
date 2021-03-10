@@ -26,7 +26,7 @@ pub mod query;
 
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Debug};
@@ -130,7 +130,7 @@ impl TryFrom<Value> for u32 {
         if let Value::U32(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!("Value {:?} is not U32.", value)))
+            Err(error!("Value {:?} is not U32.", value))
         }
     }
 }
@@ -142,7 +142,7 @@ impl TryFrom<Value> for bool {
         if let Value::Bool(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!("Value {:?} is not bool.", value)))
+            Err(error!("Value {:?} is not bool.", value))
         }
     }
 }
@@ -154,7 +154,7 @@ impl TryFrom<Value> for Vec<Value> {
         if let Value::Vec(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!("Value {:?} is not vec.", value)))
+            Err(error!("Value {:?} is not vec.", value))
         }
     }
 }
@@ -166,7 +166,7 @@ impl TryFrom<Value> for IdBox {
         if let Value::Id(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!("Value {:?} is not an id.", value)))
+            Err(error!("Value {:?} is not an id.", value))
         }
     }
 }
@@ -178,10 +178,7 @@ impl TryFrom<Value> for IdentifiableBox {
         if let Value::Identifiable(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!(
-                "Value {:?} is not an identifiable entity.",
-                value
-            )))
+            Err(error!("Value {:?} is not an identifiable entity.", value))
         }
     }
 }
@@ -193,10 +190,7 @@ impl TryFrom<Value> for PublicKey {
         if let Value::PublicKey(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!(
-                "Value {:?} is not a public key.",
-                value
-            )))
+            Err(error!("Value {:?} is not a public key.", value))
         }
     }
 }
@@ -208,7 +202,7 @@ impl TryFrom<Value> for Parameter {
         if let Value::Parameter(value) = value {
             Ok(value)
         } else {
-            Err(Error::msg(format!("Value {:?} is not a parameter.", value)))
+            Err(error!("Value {:?} is not a parameter.", value))
         }
     }
 }

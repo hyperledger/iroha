@@ -3,7 +3,7 @@
 use crate::{expression::Evaluate, prelude::*};
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::log;
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 pub trait Execute {
@@ -242,7 +242,7 @@ impl Execute for FailBox {
         _authority: <Account as Identifiable>::Id,
         _world_state_view: &WorldStateView,
     ) -> Result<WorldStateView> {
-        Err(Error::msg(format!("Execution failed: {}.", self.message)))
+        Err(error!("Execution failed: {}.", self.message))
     }
 }
 

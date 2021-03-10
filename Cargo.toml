@@ -9,6 +9,7 @@ members = [
   "iroha_data_model",
   "iroha_dsl",
   "iroha_error",
+  "iroha_error/iroha_error_macro",
   "iroha_http_server",
   "iroha_macro",
   "iroha_macro/iroha_derive",

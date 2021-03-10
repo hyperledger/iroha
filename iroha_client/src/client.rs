@@ -6,7 +6,7 @@ use http_client::WebSocketStream;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_derive::log;
 use iroha_dsl::prelude::*;
-use iroha_error::{Error, Result, WrapErr};
+use iroha_error::{error, Error, Result, WrapErr};
 use iroha_version::prelude::*;
 use std::{
     convert::TryInto,
@@ -86,10 +86,10 @@ impl Client {
         if response.status() == StatusCode::OK {
             Ok(hash)
         } else {
-            Err(Error::msg(format!(
+            Err(error!(
                 "Failed to submit instructions with HTTP status: {}",
                 response.status()
-            )))
+            ))
         }
     }
 
@@ -150,10 +150,10 @@ impl Client {
         if response.status() == StatusCode::OK {
             response.body().clone().try_into().map_err(Error::msg)
         } else {
-            Err(Error::msg(format!(
+            Err(error!(
                 "Failed to make query request with HTTP status: {}",
                 response.status()
-            )))
+            ))
         }
     }
 
@@ -214,10 +214,10 @@ impl Client {
                     thread::sleep(retry_in)
                 }
             } else {
-                return Err(Error::msg(format!(
+                return Err(error!(
                     "Failed to make query request with HTTP status: {}",
                     response.status()
-                )));
+                ));
             }
         }
         Ok(None)
@@ -277,10 +277,7 @@ impl Iterator for EventIterator {
                                     .expect("Failed to serialize receipt."),
                             )) {
                                 Ok(_) => Some(Ok(event)),
-                                Err(err) => Some(Err(Error::msg(format!(
-                                    "Failed to send receipt: {}",
-                                    err
-                                )))),
+                                Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
                             };
                         }
                         Err(err) => return Some(Err(err)),
