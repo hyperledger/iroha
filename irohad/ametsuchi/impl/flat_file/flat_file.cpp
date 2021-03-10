@@ -5,16 +5,16 @@
 
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 
-#include <ciso646>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
-
 #include <boost/filesystem.hpp>
 #include <boost/iostreams/device/file_descriptor.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/algorithm/find_if.hpp>
+#include <ciso646>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
@@ -27,6 +27,9 @@
 using namespace iroha::ametsuchi;
 using Identifier = FlatFile::Identifier;
 using BlockIdCollectionType = FlatFile::BlockIdCollectionType;
+
+const std::string FlatFile::kTempFileExtension = ".tmp";
+const std::regex FlatFile::kBlockFilenameRegex = std::regex("[0-9]{16}");
 
 // ----------| public API |----------
 
@@ -57,28 +60,19 @@ FlatFile::create(const std::string &path, logger::LoggerPtr log) {
         "Cannot create storage dir '{}': {}", path, err.message());
   }
 
-  BlockIdCollectionType files_found;
-  for (auto it = boost::filesystem::directory_iterator{path};
-       it != boost::filesystem::directory_iterator{};
-       ++it) {
-    if (auto id = FlatFile::name_to_id(it->path().filename().string())) {
-      files_found.insert(*id);
-    } else {
-      boost::filesystem::remove(it->path());
-    }
-  }
-
-  return std::make_unique<FlatFile>(
-      path, std::move(files_found), private_tag{}, std::move(log));
+  return std::make_unique<FlatFile>(path, private_tag{}, std::move(log));
 }
 
 bool FlatFile::add(Identifier id, const Bytes &block) {
   // TODO(x3medima17): Change bool to generic Result return type
 
+  const auto tmp_file_name = boost::filesystem::path{dump_dir_}
+      / (id_to_name(id) + kTempFileExtension);
   const auto file_name = boost::filesystem::path{dump_dir_} / id_to_name(id);
 
   // Write block to binary file
-  if (boost::filesystem::exists(file_name)) {
+  if (boost::filesystem::exists(tmp_file_name)
+      || boost::filesystem::exists(file_name)) {
     // File already exist
     log_->warn("insertion for {} failed, because file already exists", id);
     return false;
@@ -86,7 +80,7 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
   // New file will be created
   boost::iostreams::stream<boost::iostreams::file_descriptor_sink> file;
   try {
-    file.open(file_name, std::ofstream::binary);
+    file.open(tmp_file_name, std::ofstream::binary);
   } catch (std::ios_base::failure const &e) {
     log_->warn("Cannot open file by index {} for writing: {}", id, e.what());
     return false;
@@ -119,6 +113,14 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
     return false;
   }
 
+  boost::system::error_code error_code;
+  boost::filesystem::rename(tmp_file_name, file_name, error_code);
+  if (error_code != boost::system::errc::success) {
+    log_->error(
+        "insertion for {} failed, because {}", id, error_code.message());
+    return false;
+  }
+
   available_blocks_.insert(id);
   return true;
 }
@@ -142,6 +144,24 @@ Identifier FlatFile::last_id() const {
   return (available_blocks_.empty()) ? 0 : *available_blocks_.rbegin();
 }
 
+void FlatFile::reload() {
+  available_blocks_.clear();
+  for (auto it = boost::filesystem::directory_iterator{dump_dir_};
+       it != boost::filesystem::directory_iterator{};
+       ++it) {
+    // skip non-block files
+    if (!std::regex_match(it->path().filename().string(),
+                          kBlockFilenameRegex)) {
+      continue;
+    }
+    if (auto id = FlatFile::name_to_id(it->path().filename().string())) {
+      available_blocks_.insert(*id);
+    } else {
+      boost::filesystem::remove(it->path());
+    }
+  }
+}
+
 void FlatFile::dropAll() {
   iroha::remove_dir_contents(dump_dir_, log_);
   available_blocks_.clear();
@@ -154,9 +174,8 @@ const BlockIdCollectionType &FlatFile::blockIdentifiers() const {
 // ----------| private API |----------
 
 FlatFile::FlatFile(std::string path,
-                   BlockIdCollectionType existing_files,
                    FlatFile::private_tag,
                    logger::LoggerPtr log)
-    : dump_dir_(std::move(path)),
-      available_blocks_(std::move(existing_files)),
-      log_{std::move(log)} {}
+    : dump_dir_(std::move(path)), log_{std::move(log)} {
+  reload();
+}

@@ -38,18 +38,11 @@ Although it can be a great idea for some of the cases, but please consider that 
 	Please, restore it from blocks.
 
 
-Enabling WSV Reuse
+Dropping WSV
 ^^^^^^^^^^^^^^^^^^
 
-If you want to reuse WSV state, start Iroha with `--reuse_state` flag.
-Given this flag, Iroha will not reset or overwrite the state database if it fails to start for whatever reason.
-
-
-Enabling WSV Reuse
-^^^^^^^^^^^^^^^^^^
-
-If you want to reuse WSV state, start Iroha with `--reuse_state` flag.
-Given this flag, Iroha will not reset or overwrite the state database if it fails to start for whatever reason.
+By default Iroha reuses WSV state on startup, so there is no need in `--reuse_state` flag anymore. However, it is left for backward compatibility.
+If you want to drop WSV state, start Iroha with '--drop_state' flag. Given this flag, Iroha will reset and overwrite the state database.
 
 State Database Schema version
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -79,3 +72,8 @@ Then it will find all migration paths that will transition your database to the 
 
 .. seealso::
 	`Here <https://github.com/hyperledger/iroha-state-migration-tool/blob/master/README.md>`_ are some details about different migration cases and examples you can check out to perform migration
+
+Synchronize WSV mode.
+^^^^^^^^^^^^^^^^^^^^^
+
+Specify '--wait_for_new_blocks' options for WSV synchronization mode. Iroha restores WSV from blockstore and waits for new blocks to be added externally. In this mode Iroha will not perform network operations.

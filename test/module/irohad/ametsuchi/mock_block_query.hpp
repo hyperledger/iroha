@@ -24,6 +24,7 @@ namespace iroha {
                   (override));
       MOCK_METHOD0(getTopBlockHeight,
                    shared_model::interface::types::HeightType());
+      MOCK_METHOD0(reloadBlockstore, void());
     };
 
   }  // namespace ametsuchi

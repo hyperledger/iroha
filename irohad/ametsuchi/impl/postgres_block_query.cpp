@@ -44,6 +44,10 @@ namespace iroha {
       return block_storage_.size();
     }
 
+    void PostgresBlockQuery::reloadBlockstore() {
+      block_storage_.reload();
+    }
+
     std::optional<TxCacheStatusType> PostgresBlockQuery::checkTxPresence(
         const shared_model::crypto::Hash &hash) {
       int res = -1;

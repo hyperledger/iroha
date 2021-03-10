@@ -41,6 +41,8 @@ namespace iroha {
 
       size_t size() const override;
 
+      void reload() override;
+
       void clear() override;
 
       expected::Result<void, std::string> forEach(

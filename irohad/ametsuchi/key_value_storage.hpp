@@ -49,6 +49,11 @@ namespace iroha {
        */
       virtual Identifier last_id() const = 0;
 
+      /**
+       * Reloads data in case it was modified externally
+       */
+      virtual void reload() = 0;
+
       virtual void dropAll() = 0;
 
       virtual ~KeyValueStorage() = default;
