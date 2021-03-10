@@ -41,10 +41,9 @@ namespace iroha::subscription {
     /// List is preferable here because this container iterators remain
     /// alive after removal from the middle of the container
     /// using custom allocator
-    using SubscribersContainer =
-        std::list<std::tuple<std::optional<typename Dispatcher::Tid>,
-                             SubscriptionSetId,
-                             SubscriberWeakPtr>>;
+    using SubscribersContainer = std::list<std::tuple<typename Dispatcher::Tid,
+                                                      SubscriptionSetId,
+                                                      SubscriberWeakPtr>>;
     using IteratorType = typename SubscribersContainer::iterator;
 
    public:
@@ -66,33 +65,19 @@ namespace iroha::subscription {
     KeyValueContainer subscribers_map_;
     DispatcherPtr dispatcher_;
 
-    inline IteratorType callSubscribe(
-        std::optional<typename Dispatcher::Tid> &&tid,
-        SubscriptionSetId set_id,
-        const EventKeyType &key,
-        SubscriberWeakPtr ptr) {
-      std::unique_lock lock(subscribers_map_cs_);
-      auto &subscribers_context = subscribers_map_[key];
-
-      std::lock_guard l(subscribers_context.subscribers_list_cs);
-      return subscribers_context.subscribers_list.emplace(
-          subscribers_context.subscribers_list.end(),
-          std::make_tuple(std::move(tid), set_id, std::move(ptr)));
-    }
-
    public:
     template <typename Dispatcher::Tid kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
                            SubscriberWeakPtr ptr) {
       Dispatcher::template checkTid<kTid>();
-      return callSubscribe(kTid, set_id, key, ptr);
-    }
+      std::unique_lock lock(subscribers_map_cs_);
+      auto &subscribers_context = subscribers_map_[key];
 
-    IteratorType subscribeSync(SubscriptionSetId set_id,
-                               const EventKeyType &key,
-                               SubscriberWeakPtr ptr) {
-      return callSubscribe(std::nullopt, set_id, key, ptr);
+      std::lock_guard l(subscribers_context.subscribers_list_cs);
+      return subscribers_context.subscribers_list.emplace(
+          subscribers_context.subscribers_list.end(),
+          std::make_tuple(kTid, set_id, std::move(ptr)));
     }
 
     void unsubscribe(const EventKeyType &key, const IteratorType &it_remove) {
@@ -148,32 +133,22 @@ namespace iroha::subscription {
            it_sub != subscribers_container.subscribers_list.end();) {
         auto wsub = std::get<2>(*it_sub);
         auto id = std::get<1>(*it_sub);
-        auto const tid = std::get<0>(*it_sub);
 
         if (auto sub = wsub.lock()) {
-          if (tid.has_value()) {
-            dispatcher_->addDelayed(
-                tid.value(),
-                timeout,
-                [wsub(std::move(wsub)),
-                 id(id),
-                 key(key),
-                 args = std::make_tuple(args...)]() mutable {
-                  if (auto sub = wsub.lock())
-                    std::apply(
-                        [&](auto &&... args) {
-                          sub->on_notify(id, key, std::move(args)...);
-                        },
-                        std::move(args));
-                });
-          } else {
-            assert(timeout == std::chrono::microseconds(0ull));
-            std::apply(
-                [&](auto &&... args) {
-                  sub->on_notify(id, key, std::move(args)...);
-                },
-                std::make_tuple(args...));
-          }
+          dispatcher_->addDelayed(std::get<0>(*it_sub),
+                                  timeout,
+                                  [wsub(std::move(wsub)),
+                                   id(id),
+                                   key(key),
+                                   args = std::make_tuple(args...)]() mutable {
+                                    if (auto sub = wsub.lock())
+                                      std::apply(
+                                          [&](auto &&... args) {
+                                            sub->on_notify(
+                                                id, key, std::move(args)...);
+                                          },
+                                          std::move(args));
+                                  });
           ++it_sub;
         } else {
           it_sub = subscribers_container.subscribers_list.erase(it_sub);
