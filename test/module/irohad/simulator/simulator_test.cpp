@@ -62,9 +62,6 @@ class SimulatorTest : public ::testing::Test {
         std::make_unique<
             shared_model::validation::MockValidator<iroha::protocol::Block>>());
 
-    EXPECT_CALL(*ordering_gate, onProposal())
-        .WillOnce(Return(ordering_events.get_observable()));
-
     simulator = std::make_shared<Simulator>(std::move(command_executor),
                                             ordering_gate,
                                             validator,
@@ -152,31 +149,34 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   auto ordering_event =
       OrderingEvent{proposal, consensus::Round{}, ledger_state};
 
-  auto proposal_wrapper =
-      make_test_subscriber<CallExact>(simulator->onVerifiedProposal(), 1);
-  proposal_wrapper.subscribe([&](auto event) {
-    auto verification_result = getVerifiedProposalUnsafe(event);
-    auto verified_proposal = verification_result->verified_proposal;
-    EXPECT_EQ(verified_proposal->height(), proposal->height());
-    EXPECT_EQ(verified_proposal->transactions(), proposal->transactions());
-    EXPECT_TRUE(verification_result->rejected_transactions.empty());
-    EXPECT_EQ(event.ledger_state->ledger_peers,
-              ordering_event.ledger_state->ledger_peers);
-  });
 
-  auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 1);
-  block_wrapper.subscribe([&](auto event) {
-    auto block = getBlockUnsafe(event);
-    EXPECT_EQ(block->height(), proposal->height());
-    EXPECT_EQ(block->transactions(), proposal->transactions());
-    EXPECT_EQ(event.ledger_state->ledger_peers,
-              ordering_event.ledger_state->ledger_peers);
-  });
+  auto proposal_wrapper = subscribeEventAsync<VerifiedProposalCreatorEvent,
+      EventTypes::kOnVerifiedProposal>(
+      [&](auto const &event) {
+        auto verification_result = getVerifiedProposalUnsafe(event);
+        auto verified_proposal = verification_result->verified_proposal;
+        EXPECT_EQ(verified_proposal->height(), proposal->height());
+        EXPECT_EQ(verified_proposal->transactions(), proposal->transactions());
+        EXPECT_TRUE(verification_result->rejected_transactions.empty());
+        EXPECT_EQ(event.ledger_state->ledger_peers,
+                  ordering_event.ledger_state->ledger_peers);
+      });
 
-  ordering_events.get_subscriber().on_next(ordering_event);
+  auto block_wrapper = subscribeEventSync<BlockCreatorEvent,
+      EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &event) {
+        auto block = getBlockUnsafe(event);
+        EXPECT_EQ(block->height(), proposal->height());
+        EXPECT_EQ(block->transactions(), proposal->transactions());
+        EXPECT_EQ(event.ledger_state->ledger_peers,
+                  ordering_event.ledger_state->ledger_peers);
+      },
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnProposal, ordering_event);
+      });
 
-  EXPECT_TRUE(proposal_wrapper.validate());
-  EXPECT_TRUE(block_wrapper.validate());
+  EXPECT_TRUE(proposal_wrapper->get());
+  EXPECT_TRUE(block_wrapper->get());
 }
 
 /**

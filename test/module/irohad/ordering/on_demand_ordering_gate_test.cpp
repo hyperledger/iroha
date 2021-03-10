@@ -153,15 +153,16 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
       .WillOnce(Return(ByMove(std::move(oproposal))));
 
   auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
-  auto wrapper = waitProposalSync<iroha::network::OrderingEvent,
-                                  EventTypes::kOnProposal,
-                                  EventTypes::kOnRoundSwitch>(
+  auto wrapper = subscribeEventSync<iroha::network::OrderingEvent,
+                                  EventTypes::kOnProposal>(
       [&](iroha::network::OrderingEvent const &val) {
         ASSERT_EQ(proposal, getProposalUnsafe(val).get());
         EXPECT_EQ(val.ledger_state->ledger_peers,
                   event.ledger_state->ledger_peers);
       },
-      event);
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnRoundSwitch, event);
+      });
   ASSERT_TRUE(wrapper->get());
 }
 
@@ -188,14 +189,15 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
       .WillOnce(Return(ByMove(std::move(oproposal))));
 
   auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
-  auto wrapper = waitProposalSync<iroha::network::OrderingEvent,
-      EventTypes::kOnProposal,
-      EventTypes::kOnRoundSwitch>(
+  auto wrapper = subscribeEventSync<iroha::network::OrderingEvent,
+      EventTypes::kOnProposal>(
       [&](iroha::network::OrderingEvent const &val) {
         ASSERT_EQ(proposal, getProposalUnsafe(val).get());
         EXPECT_EQ(val.ledger_state->ledger_peers, event.ledger_state->ledger_peers);
       },
-      event);
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnRoundSwitch, event);
+      });
   ASSERT_TRUE(wrapper->get());
 }
 
@@ -213,13 +215,14 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(proposal))));
 
-  auto wrapper = waitProposalSync<iroha::network::OrderingEvent,
-      EventTypes::kOnProposal,
-      EventTypes::kOnRoundSwitch>(
+  auto wrapper = subscribeEventSync<iroha::network::OrderingEvent,
+      EventTypes::kOnProposal>(
       [&](iroha::network::OrderingEvent const &val) {
         ASSERT_FALSE(val.proposal);
       },
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnRoundSwitch, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      });
   ASSERT_TRUE(wrapper->get());
 }
 
@@ -237,13 +240,14 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(proposal))));
 
-  auto wrapper = waitProposalSync<iroha::network::OrderingEvent,
-      EventTypes::kOnProposal,
-      EventTypes::kOnRoundSwitch>(
+  auto wrapper = subscribeEventSync<iroha::network::OrderingEvent,
+      EventTypes::kOnProposal>(
       [&](iroha::network::OrderingEvent const &val) {
         ASSERT_FALSE(val.proposal);
       },
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnRoundSwitch, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      });
   ASSERT_TRUE(wrapper->get());
 }
 
@@ -292,12 +296,13 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
       .Times(AtMost(1))
       .WillOnce(Return(ByMove(std::move(ufactory_proposal))));
 
-  auto wrapper = waitProposalSync<iroha::network::OrderingEvent,
-      EventTypes::kOnProposal,
-      EventTypes::kOnRoundSwitch>(
+  auto wrapper = subscribeEventSync<iroha::network::OrderingEvent,
+      EventTypes::kOnProposal>(
       [&](iroha::network::OrderingEvent const &val) {
       },
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnRoundSwitch, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      });
   ASSERT_TRUE(wrapper->get());
 }
 
@@ -345,12 +350,13 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
       .Times(AtMost(1))
       .WillOnce(Return(ByMove(std::move(ufactory_proposal))));
 
-  auto wrapper = waitProposalSync<iroha::network::OrderingEvent,
-      EventTypes::kOnProposal,
-      EventTypes::kOnRoundSwitch>(
+  auto wrapper = subscribeEventSync<iroha::network::OrderingEvent,
+      EventTypes::kOnProposal>(
       [&](iroha::network::OrderingEvent const &val) {
       },
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      [&](){
+        iroha::getSubscription()->notify(EventTypes::kOnRoundSwitch, OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+      });
   ASSERT_TRUE(wrapper->get());
 }
 

@@ -202,29 +202,36 @@ namespace framework {
           std::make_unique<S<T>>(std::forward<Args>(args)...));
     }
 
-    template<typename WaitableType, iroha::EventTypes waitable_event, iroha::EventTypes emitted_event,  typename F, typename EmittedType>
-    auto waitProposalSync(F &&f, EmittedType const &emitted_data) {
+    template<typename WaitableType, iroha::EventTypes waitable_event, typename F>
+    auto subscribeEventAsync(F &&f) {
       using Subscription =
-          iroha::subscription::SubscriberImpl<iroha::EventTypes,
-                                              iroha::SubscriptionDispatcher,
-                                              bool,
-                                              WaitableType>;
+      iroha::subscription::SubscriberImpl<iroha::EventTypes,
+          iroha::SubscriptionDispatcher,
+          bool,
+          WaitableType>;
       auto wrapper = std::make_shared<Subscription>(
           iroha::getSubscription()
               ->getEngine<iroha::EventTypes, WaitableType>(),
           false);
 
-      iroha::utils::waitForSingleObject ev;
       wrapper->setCallback(
           [&](auto /*set_id*/, auto &flag, auto key, WaitableType const &val) {
             std::forward<F>(f)(val);
             flag = true;
-            ev.set();
           });
       wrapper->subscribeSync(0, waitable_event);
-      iroha::getSubscription()->notify(emitted_event, emitted_data);
-      ev.wait(60ull * 1000'000);
+      return wrapper;
+    }
 
+    template<typename WaitableType, iroha::EventTypes waitable_event, typename F, typename Emitter>
+    auto subscribeEventSync(F &&f, Emitter &&e) {
+      iroha::utils::waitForSingleObject ev;
+      auto wrapper = subscribeEventAsync<WaitableType, waitable_event>([&](WaitableType const &val){
+        std::forward<F>(f)(val);
+        ev.set();
+      });
+      std::forward<Emitter>(e)();
+      ev.wait(60ull * 1000'000);
       return wrapper;
     }
 
