@@ -20,7 +20,7 @@ use crate::{
 use async_std::{prelude::*, sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
-use iroha_error::{Error, Result, WrapErr};
+use iroha_error::{error, Error, Result, WrapErr};
 use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
@@ -158,10 +158,10 @@ async fn handle_instructions(
     let transaction: Transaction = transaction
         .as_v1()
         .ok_or_else(|| {
-            Error::msg(format!(
+            error!(
                 "Transaction has unsupported version. Expected version 1, got: {}",
                 transaction.version()
-            ))
+            )
         })?
         .clone()
         .into();
@@ -265,7 +265,7 @@ async fn handle_pending_transactions_on_leader(
         .await?
         .into_result()?;
         let message = VersionedPendingTransactions::decode_versioned(&bytes)?;
-        message.as_v1().ok_or_else(|| Error::msg(format!("Version mismatch when recieving pending transactions from leader, expected version 1, got: {}", message.version())))?.clone().into()
+        message.as_v1().ok_or_else(|| error!("Version mismatch when recieving pending transactions from leader, expected version 1, got: {}", message.version()))?.clone().into()
     };
     let pending_transactions: VersionedPendingTransactions =
         PendingTransactions(pending_transactions[range].to_vec()).into();

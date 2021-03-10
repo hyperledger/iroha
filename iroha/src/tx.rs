@@ -5,7 +5,7 @@
 use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
-use iroha_error::{Error, Result, WrapErr};
+use iroha_error::{error, Result, WrapErr};
 use parity_scale_codec::{Decode, Encode};
 use std::{
     cmp::min,
@@ -149,7 +149,7 @@ impl AcceptedTransaction {
         let account_id = self.payload.account_id.clone();
         world_state_view
             .read_account(&account_id)
-            .ok_or_else(|| Error::msg(format!("Account with id {} not found", account_id)))?
+            .ok_or_else(|| error!("Account with id {} not found", account_id))?
             .check_signature_condition(&self.signatures)
             .evaluate(world_state_view, &Context::new())
     }

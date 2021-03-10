@@ -13,7 +13,7 @@ use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -136,16 +136,16 @@ impl Sumeragi {
         if transactions.is_empty() {
             Err(Error::msg("Genesis transactions set is empty."))
         } else if genesis_topology.leader() != &self.peer_id {
-            Err(Error::msg(format!(
+            Err(error!(
                 "Incorrect network topology this peer should be {:?} but is {:?}",
                 Role::Leader,
                 genesis_topology.role(&self.peer_id)
-            )))
+            ))
         } else if self.block_height > 0 {
-            Err(Error::msg(format!(
+            Err(error!(
                 "Block height should be 0 for genesis round. But it is: {}",
                 self.block_height
-            )))
+            ))
         } else {
             self.validate_and_publish_created_block(
                 PendingBlock::new(transactions).chain_first_with_genesis_topology(genesis_topology),
@@ -509,11 +509,11 @@ impl NetworkTopology {
             topology.sort_peers_by_hash(self.block_hash);
             Ok(topology)
         } else {
-            Err(Error::msg(format!(
+            Err(error!(
                 "Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}",
                 3 * self.max_faults + 1,
                 self.peers.len(),
-            )))
+            ))
         }
     }
 }
@@ -538,19 +538,19 @@ impl InitializedNetworkTopology {
     ) -> Result<Self> {
         let validating_peers_required_len = 2 * max_faults - 1;
         if validating_peers.len() != validating_peers_required_len as usize {
-            return Err(Error::msg(format!(
+            return Err(error!(
                 "Expected {} validating peers, found {}.",
                 validating_peers_required_len,
                 validating_peers.len()
-            )));
+            ));
         }
         let observing_peers_min_len = max_faults as usize;
         if observing_peers.len() < observing_peers_min_len {
-            return Err(Error::msg(format!(
+            return Err(error!(
                 "Expected at least {} observing peers, found {}.",
                 observing_peers_min_len,
                 observing_peers.len()
-            )));
+            ));
         }
         Ok(Self {
             sorted_peers: iter::once(leader)
@@ -680,10 +680,7 @@ impl InitializedNetworkTopology {
         {
             Ok(())
         } else {
-            Err(Error::msg(format!(
-                "No {:?} with this public key exists.",
-                role
-            )))
+            Err(error!("No {:?} with this public key exists.", role))
         }
         .and(signature.verify(message_payload))
     }
@@ -776,7 +773,7 @@ pub mod message {
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
-    use iroha_error::{Error, Result, WrapErr};
+    use iroha_error::{error, Result, WrapErr};
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -819,10 +816,10 @@ pub mod message {
             .wrap_err_with(|| format!("Failed to send to peer {} with error", peer.address))?
             {
                 Response::Ok(_) => Ok(()),
-                Response::InternalError => Err(Error::msg(format!(
+                Response::InternalError => Err(error!(
                     "Failed to send message - Internal Error on peer: {:?}",
                     peer
-                ))),
+                )),
             }
         }
 

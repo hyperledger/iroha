@@ -10,7 +10,7 @@ use iroha_data_model::prelude::*;
 pub mod isi {
     use super::*;
     use crate::isi::prelude::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Error, Result};
 
     impl Execute for Mint<Account, PublicKey> {
         fn execute(
@@ -80,10 +80,10 @@ pub mod isi {
                 .ok_or_else(|| Error::msg("Asset's component was not found."))?;
             let quantity_to_transfer = self.object.quantity;
             if source.quantity < quantity_to_transfer {
-                return Err(Error::msg(format!(
+                return Err(error!(
                     "Not enough assets: {:?}, {:?}.",
                     source, self.object
-                )));
+                ));
             }
             source.quantity -= quantity_to_transfer;
             let transferred_asset = {
