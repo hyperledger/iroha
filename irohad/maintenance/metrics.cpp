@@ -17,10 +17,9 @@
 #include <thread>
 #include <future>
 #include <regex>
-#include <optional>
 
 auto maintenance_metrics_init(std::string const& listen_addr)
-->std::optional<std::shared_ptr<prometheus::Registry>>
+->std::shared_ptr<prometheus::Registry>
 {
   using namespace prometheus;
 
@@ -35,7 +34,7 @@ auto maintenance_metrics_init(std::string const& listen_addr)
       listen_addr_port += ":";
     listen_addr_port += listen_addr;
   } else {
-    return std::nullopt;
+    return nullptr;
   }
 
   // create a metrics registry
