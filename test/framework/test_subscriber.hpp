@@ -10,6 +10,7 @@
 #include <memory>
 #include <rxcpp/rx-lite.hpp>
 #include <utility>
+#include <chrono>
 
 #include "main/subscription.hpp"
 
@@ -219,19 +220,19 @@ namespace framework {
             std::forward<F>(f)(val);
             flag = true;
           });
-      wrapper->subscribeSync(0, waitable_event);
+      wrapper->template subscribe<iroha::SubscriptionEngineHandlers::kYac>(0, waitable_event);
       return wrapper;
     }
 
     template<typename WaitableType, iroha::EventTypes waitable_event, typename F, typename Emitter>
     auto subscribeEventSync(F &&f, Emitter &&e) {
-      iroha::utils::waitForSingleObject ev;
+      iroha::utils::WaitForSingleObject ev;
       auto wrapper = subscribeEventAsync<WaitableType, waitable_event>([&](WaitableType const &val){
         std::forward<F>(f)(val);
         ev.set();
       });
       std::forward<Emitter>(e)();
-      ev.wait(60ull * 1000'000);
+      ev.wait(std::chrono::minutes(1ull));
       return wrapper;
     }
 
