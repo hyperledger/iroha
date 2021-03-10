@@ -23,4 +23,3 @@ boost-property-tree
 boost-process
 iroha-ed25519
 prometheus-cpp
-civetweb

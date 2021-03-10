@@ -3,11 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#pragma once
+#ifndef IROHA_MAINTENANCE_METRICS_HPP
+#define IROHA_MAINTENANCE_METRICS_HPP
 
 #include <string>
 #include <memory>
 #include <prometheus/registry.h>
 
-auto maintenance_metrics_init(std::string const& listen_addr)
-->std::shared_ptr<prometheus::Registry>;
+std::shared_ptr<prometheus::Registry>
+    maintenance_metrics_init(std::string const& listen_addr);
+
+#endif //IROHA_MAINTENANCE_METRICS_HPP
