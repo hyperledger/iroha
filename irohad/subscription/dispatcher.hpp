@@ -15,17 +15,17 @@ namespace iroha::subscription {
   class Dispatcher final : utils::NoCopy, utils::NoMove {
    public:
     static constexpr uint32_t kHandlersCount = kCount;
-    using Task = threadHandler::Task;
+    using Task = ThreadHandler::Task;
     using Tid = uint32_t;
 
    private:
-    threadHandler handlers_[kHandlersCount];
+    ThreadHandler handlers_[kHandlersCount];
 
    public:
     Dispatcher() = default;
 
     template <Tid kId>
-    static void checkTid() {
+    static constexpr void checkTid() {
       static_assert(kId < kHandlersCount, "Unexpected TID handler.");
     }
 
