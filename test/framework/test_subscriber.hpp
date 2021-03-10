@@ -11,6 +11,8 @@
 #include <rxcpp/rx-lite.hpp>
 #include <utility>
 
+#include "main/subscription.hpp"
+
 namespace framework {
   namespace test_subscriber {
 
@@ -198,6 +200,32 @@ namespace framework {
       return TestSubscriber<T, O<T, SourceOperator>>(
           unwrapped_observable,
           std::make_unique<S<T>>(std::forward<Args>(args)...));
+    }
+
+    template<typename WaitableType, iroha::EventTypes waitable_event, iroha::EventTypes emitted_event,  typename F, typename EmittedType>
+    auto waitProposalSync(F &&f, EmittedType const &emitted_data) {
+      using Subscription =
+          iroha::subscription::SubscriberImpl<iroha::EventTypes,
+                                              iroha::SubscriptionDispatcher,
+                                              bool,
+                                              WaitableType>;
+      auto wrapper = std::make_shared<Subscription>(
+          iroha::getSubscription()
+              ->getEngine<iroha::EventTypes, WaitableType>(),
+          false);
+
+      iroha::utils::waitForSingleObject ev;
+      wrapper->setCallback(
+          [&](auto /*set_id*/, auto &flag, auto key, WaitableType const &val) {
+            std::forward<F>(f)(val);
+            flag = true;
+            ev.set();
+          });
+      wrapper->subscribeSync(0, waitable_event);
+      iroha::getSubscription()->notify(emitted_event, emitted_data);
+      ev.wait(60ull * 1000'000);
+
+      return wrapper;
     }
 
     /**
