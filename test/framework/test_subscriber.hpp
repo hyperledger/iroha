@@ -216,7 +216,7 @@ namespace framework {
           false);
 
       wrapper->setCallback(
-          [&](auto /*set_id*/, auto &flag, auto key, WaitableType const &val) {
+          [f{std::forward<F>(f)}](auto /*set_id*/, auto &flag, auto key, WaitableType const &val) mutable {
             flag = true;
             std::forward<F>(f)(val);
           });
@@ -227,7 +227,7 @@ namespace framework {
     template<typename WaitableType, iroha::EventTypes waitable_event, typename F, typename Emitter>
     auto subscribeEventSync(F &&f, Emitter &&e) {
       iroha::utils::WaitForSingleObject ev;
-      auto wrapper = subscribeEventAsync<WaitableType, waitable_event>([&](WaitableType const &val){
+      auto wrapper = subscribeEventAsync<WaitableType, waitable_event>([&ev, f{std::forward<F>(f)}](WaitableType const &val) mutable {
         std::forward<F>(f)(val);
         ev.set();
       });

@@ -122,7 +122,7 @@ namespace iroha {
         // ------|One round|------
         ClusterOrdering cluster_order_;
         boost::optional<ClusterOrdering> alternative_order_;
-        utils::RWObjectHolder<Round> round_;
+        utils::ReadWriteObject<Round> round_;
 
         // ------|Fields|------
         YacVoteStorage vote_storage_;
@@ -133,7 +133,7 @@ namespace iroha {
         using ApplyStateSubscription =
             subscription::SubscriberImpl<EventTypes,
                                          SubscriptionDispatcher,
-                                         utils::RWObjectHolder<Round>,
+                                         utils::ReadWriteObject<Round>,
                                          Round>;
 
         std::shared_ptr<ApplyStateSubscription> apply_state_subscription_;
