@@ -217,8 +217,8 @@ namespace framework {
 
       wrapper->setCallback(
           [&](auto /*set_id*/, auto &flag, auto key, WaitableType const &val) {
-            std::forward<F>(f)(val);
             flag = true;
+            std::forward<F>(f)(val);
           });
       wrapper->template subscribe<iroha::SubscriptionEngineHandlers::kYac>(0, waitable_event);
       return wrapper;
