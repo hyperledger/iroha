@@ -3,7 +3,7 @@
 pub mod multihash;
 mod varint;
 
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize, Serialize};
@@ -127,10 +127,10 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
                 if key.digest_function == ED_25519 || key.digest_function == SECP_256_K1 {
                     Ok(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(key.payload)))
                 } else {
-                    Err(Error::msg(format!(
+                    Err(error!(
                         "Ursa does not support {} digest function.",
                         key.digest_function
-                    )))
+                    ))
                 }
             }
         }
@@ -349,7 +349,7 @@ impl Signature {
             Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
             Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
         }
-        .map_err(|e| Error::msg(format!("Failed to sign payload: {}", e)))?;
+        .map_err(|e| error!("Failed to sign payload: {}", e))?;
         Ok(Signature {
             public_key: key_pair.public_key,
             signature,

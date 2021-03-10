@@ -92,6 +92,23 @@ use std::result::Result as StdResult;
 pub use message_error::MessageError;
 pub use wrap_err::{WrapErr, WrappedError};
 
+/// Module with derive macroses
+pub mod derive {
+    /// Derive macro for enums which implements source and display for it.
+    ///
+    /// ```rust
+    /// #[derive(iroha_error::derive::Error, Debug)]
+    /// enum Error {
+    ///     #[error("Failed because of reason a")]
+    ///     ErrorA,
+    ///     // #[source] tells macro to use io::Error as source for this variant
+    ///     #[error("Failed during reading file")]
+    ///     IOError(#[source] std::io::Error),
+    /// }
+    /// ```
+    pub use iroha_error_macro::Error;
+}
+
 mod message_error;
 mod wrap_err;
 
@@ -164,3 +181,19 @@ impl Error {
         Self { inner }
     }
 }
+
+/// Macro for creation of error messages
+/// ```rust
+/// use iroha_error::{Error, error};
+///
+/// # stringify!(
+/// assert_eq!(error!("x = {}", 2), Error::msg(format!("x = {}", 2)));
+/// # );
+/// ```
+///
+#[macro_export]
+macro_rules! error(
+    ( $( $x:expr ),* $(,)* ) => {
+        iroha_error::Error::msg(format!($($x,)*))
+    }
+);

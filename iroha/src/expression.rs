@@ -5,7 +5,7 @@ use iroha_data_model::{
     expression::{prelude::*, Expression},
     prelude::*,
 };
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 use std::convert::TryFrom;
 
 /// Calculate the result of the expression without mutating the state.
@@ -80,12 +80,7 @@ impl Evaluate for ContextValue {
     ) -> Result<Self::Value> {
         context
             .get(&self.value_name)
-            .ok_or_else(|| {
-                Error::msg(format!(
-                    "Value with name {} not found in context",
-                    self.value_name
-                ))
-            })
+            .ok_or_else(|| error!("Value with name {} not found in context", self.value_name))
             .map(|value| value.to_owned())
     }
 }
