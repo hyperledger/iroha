@@ -19,7 +19,7 @@ jobs:
     - name: Set nightly toolchain  
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly
+        toolchain: nightly-2021-02-20
         override: true
     - name: Cargo clean
       uses: actions-rs/cargo@v1

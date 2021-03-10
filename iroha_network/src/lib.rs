@@ -311,11 +311,11 @@ mod tests {
     async fn single_threaded_async() {
         async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response> {
             Ok(Response::Ok(b"pong".to_vec()))
-        };
+        }
 
         async fn handle_connection<S>(state: State<S>, stream: Box<dyn AsyncStream>) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
-        };
+        }
 
         task::spawn(async move {
             Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
@@ -338,13 +338,13 @@ mod tests {
             let mut data = state.write().await;
             *data += 1;
             Ok(Response::Ok(b"pong".to_vec()))
-        };
+        }
         async fn handle_connection(
             state: State<usize>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
-        };
+        }
         let counter_move = counter.clone();
         task::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
