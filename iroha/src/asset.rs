@@ -10,7 +10,7 @@ use iroha_derive::log;
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Error, Result};
 
     impl Execute for Mint<Asset, u32> {
         fn execute(
@@ -68,10 +68,10 @@ pub mod isi {
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
                 .ok_or_else(|| {
-                    Error::msg(format!(
+                    error!(
                         "Failed to find asset definition. {:?}",
                         &self.destination_id.definition_id
-                    ))
+                    )
                 })?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
@@ -192,7 +192,7 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Asset related implementations.
 pub mod query {
     use super::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Result};
 
     impl Query for FindAllAssets {
         #[log]
@@ -223,12 +223,7 @@ pub mod query {
             Ok(world_state_view
                 .read_asset(&self.id)
                 .cloned()
-                .ok_or_else(|| {
-                    Error::msg(format!(
-                        "Failed to get an asset with identification: {}.",
-                        &self.id
-                    ))
-                })?
+                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &self.id))?
                 .into())
         }
     }
@@ -250,9 +245,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             let vec = world_state_view
                 .read_account_assets(&self.account_id)
-                .ok_or_else(|| {
-                    Error::msg(format!("No account with id: {} found.", &self.account_id))
-                })?
+                .ok_or_else(|| error!("No account with id: {} found.", &self.account_id))?
                 .into_iter()
                 .cloned()
                 .map(Box::new)
@@ -292,9 +285,7 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             let vec = world_state_view
                 .read_account_assets(&self.account_id)
-                .ok_or_else(|| {
-                    Error::msg(format!("No account with id: {} found.", &self.account_id))
-                })?
+                .ok_or_else(|| error!("No account with id: {} found.", &self.account_id))?
                 .into_iter()
                 .filter(|asset| asset.id.definition_id == self.asset_definition_id)
                 .cloned()
@@ -327,12 +318,7 @@ pub mod query {
             Ok(world_state_view
                 .read_asset(&self.id)
                 .map(|asset| asset.quantity)
-                .ok_or_else(|| {
-                    Error::msg(format!(
-                        "Failed to get an asset with identification: {}.",
-                        &self.id
-                    ))
-                })?
+                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &self.id))?
                 .into())
         }
     }

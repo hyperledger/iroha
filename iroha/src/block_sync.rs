@@ -143,7 +143,7 @@ pub mod message {
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Result};
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -219,10 +219,10 @@ pub mod message {
             .await?
             {
                 Response::Ok(_) => Ok(()),
-                Response::InternalError => Err(Error::msg(format!(
+                Response::InternalError => Err(error!(
                     "Failed to send message - Internal Error on peer: {:?}",
                     peer
-                ))),
+                )),
             }
         }
     }

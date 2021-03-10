@@ -1,7 +1,7 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
 use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::prelude::*;
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 
 /// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
@@ -21,10 +21,10 @@ pub mod isi {
                 .domain(&account.id.domain_name)
                 .ok_or_else(|| Error::msg("Failed to find domain."))?;
             if domain.accounts.contains_key(&account.id) {
-                Err(Error::msg(format!(
+                Err(error!(
                     "Domain already contains an account with an Id: {:?}",
                     &account.id
-                )))
+                ))
             } else {
                 let _ = domain.accounts.insert(account.id.clone(), account);
                 Ok(world_state_view)

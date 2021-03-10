@@ -150,6 +150,7 @@ pub mod pipeline {
     use crate::isi::Instruction;
     use iroha_crypto::{Hash, Signature};
     use iroha_derive::FromVariant;
+    use iroha_error::derive::Error;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -228,6 +229,16 @@ pub mod pipeline {
         /// Error which happened during verification
         pub reason: String,
     }
+    impl std::fmt::Display for SignatureVerificationFail {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "Failed to verify signatures because of signature {}: {}",
+                self.signature.public_key, self.reason,
+            )
+        }
+    }
+    impl std::error::Error for SignatureVerificationFail {}
 
     /// Transaction was reject because it doesn't satisfy signature condition
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
@@ -235,6 +246,16 @@ pub mod pipeline {
         /// Reason why signature condition failed
         pub reason: String,
     }
+    impl std::fmt::Display for UnsatisfiedSignatureConditionFail {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "Failed to verify signature condition specified in the account: {}",
+                self.reason,
+            )
+        }
+    }
+    impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 
     /// Transaction was reject because of fail of instruction
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
@@ -244,6 +265,28 @@ pub mod pipeline {
         /// Error which happened during execution
         pub reason: String,
     }
+    impl std::fmt::Display for InstructionExecutionFail {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            use Instruction::*;
+            let type_ = match self.instruction {
+                Burn(_) => "burn",
+                Fail(_) => "fail",
+                If(_) => "if",
+                Mint(_) => "mint",
+                Pair(_) => "pair",
+                Register(_) => "register",
+                Sequence(_) => "sequence",
+                Transfer(_) => "transfer",
+                Unregister(_) => "unregister",
+            };
+            write!(
+                f,
+                "Failed execute instruction of type {}: {}",
+                type_, self.reason
+            )
+        }
+    }
+    impl std::error::Error for InstructionExecutionFail {}
 
     /// Transaction was reject because of low authority
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
@@ -251,94 +294,67 @@ pub mod pipeline {
         /// Reason of failure
         pub reason: String,
     }
+    impl std::fmt::Display for NotPermittedFail {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Action not permitted: {}", self.reason)
+        }
+    }
+    impl std::error::Error for NotPermittedFail {}
 
     /// The reason for rejecting transaction which happened because of new blocks.
     #[derive(
-        Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant,
+        Debug,
+        Clone,
+        Copy,
+        Eq,
+        PartialEq,
+        Serialize,
+        Deserialize,
+        Decode,
+        Encode,
+        FromVariant,
+        Error,
     )]
     pub enum BlockRejectionReason {
         /// Block was rejected during consensus.
         //TODO: store rejection reasons for blocks?
+        #[error("Block was rejected during consensus.")]
         ConsensusBlockRejection,
     }
 
     /// The reason for rejecting transaction which happened because of transaction.
-    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant)]
+    #[derive(
+        Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant, Error,
+    )]
     pub enum TransactionRejectionReason {
         /// Failed due to low authority.
-        NotPermitted(NotPermittedFail),
+        #[error("Transaction rejected due to low authority")]
+        NotPermitted(#[source] NotPermittedFail),
         /// Failed verify signature condition specified in the account.
-        UnsatisfiedSignatureCondition(UnsatisfiedSignatureConditionFail),
+        #[error("Transaction rejected due to unsatisfied signature condition")]
+        UnsatisfiedSignatureCondition(#[source] UnsatisfiedSignatureConditionFail),
         /// Failed execute instruction.
-        InstructionExecution(InstructionExecutionFail),
+        #[error("Transaction rejected due to instruction execution")]
+        InstructionExecution(#[source] InstructionExecutionFail),
         /// Failed to verify signatures.
-        SignatureVerification(SignatureVerificationFail),
+        #[error("Transaction rejected due to signature verification")]
+        SignatureVerification(#[source] SignatureVerificationFail),
         /// Genesis account can sign only transactions in the genesis block.
+        #[error("Genesis account can sign only transactions in the genesis block.")]
         UnexpectedGenesisAccountSignature,
     }
 
     /// The reason for rejecting transaction.
-    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant)]
+    #[derive(
+        Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant, Error,
+    )]
     pub enum RejectionReason {
         /// The reason for rejecting the block.
-        Block(BlockRejectionReason),
+        #[error("Transaction was rejected because of block")]
+        Block(#[source] BlockRejectionReason),
         /// The reason for rejecting transaction.
-        Transaction(TransactionRejectionReason),
-    }
-
-    impl std::error::Error for RejectionReason {}
-
-    impl std::fmt::Display for RejectionReason {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            use BlockRejectionReason::*;
-            use Instruction::*;
-            use TransactionRejectionReason::*;
-
-            match self {
-                RejectionReason::Transaction(UnexpectedGenesisAccountSignature) => write!(
-                    f,
-                    "Genesis account can sign only transactions in the genesis block."
-                ),
-                RejectionReason::Transaction(SignatureVerification(verification_error)) => write!(
-                    f,
-                    "Failed to verify signatures because of signature {}: {}",
-                    verification_error.signature.public_key, verification_error.reason,
-                ),
-                RejectionReason::Transaction(UnsatisfiedSignatureCondition(
-                    signature_conditon_error,
-                )) => {
-                    write!(
-                        f,
-                        "Failed to verify signature condition specified in the account: {}",
-                        signature_conditon_error.reason,
-                    )
-                }
-                RejectionReason::Transaction(InstructionExecution(execute_instruction)) => {
-                    let type_ = match execute_instruction.instruction {
-                        Burn(_) => "burn",
-                        Fail(_) => "fail",
-                        If(_) => "if",
-                        Mint(_) => "mint",
-                        Pair(_) => "pair",
-                        Register(_) => "register",
-                        Sequence(_) => "sequence",
-                        Transfer(_) => "transfer",
-                        Unregister(_) => "unregister",
-                    };
-                    write!(
-                        f,
-                        "Failed execute instruction of type {}: {}",
-                        type_, execute_instruction.reason
-                    )
-                }
-                RejectionReason::Transaction(NotPermitted(permission_error)) => {
-                    write!(f, "Action not permitted: {}", permission_error.reason)
-                }
-                RejectionReason::Block(ConsensusBlockRejection) => {
-                    write!(f, "Block was rejected during consensus.")
-                }
-            }
-        }
+        #[error("Transaction was rejected")]
+        Transaction(#[source] TransactionRejectionReason),
     }
 
     /// Entity type to filter events.
