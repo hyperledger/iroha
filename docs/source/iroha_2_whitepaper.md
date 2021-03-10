@@ -354,11 +354,33 @@ The hashes are computed based on the public keys of the peers that are concatena
 and then SHA-3 hashed. Rounds occur whenever the Merkle root is less than TODO:XXX.
 Results are shared in a separate Merkle tree, maintained independently of the transactions (so the systems can run in parallel).
 
-## 3.0 Iroha Queries
+### 2.13 Iroha Queries
 
 To retrieve information about World State View of the Peer clients will use Iroha Queries API.
 
-## 4.0 Performance Goals
+### 2.14 Client API
+
+Client libraries interact with Iroha over the HTTP and WebSocket. Check the up to date API reference [here](./references/api_spec.md).
+
+### 2.15 Versioning
+
+As the system develops and new Iroha 2.x versions are released some of the formats and structures might change.
+It is practical to track these changes in the following serialized objects:
+
+1. Client API data formats
+2. Internal P2P message formats
+3. Transactions
+4. Blocks
+
+For this purpose these structures will be serialized together with their version information. The detailed description of the versioning support in relation to the serialization formats used in Iroha can be found in this [RFC](https://wiki.hyperledger.org/display/iroha/Message+Versioning).
+
+Versioning support will have the following benefits:
+1. Client libraries will be able to clearly indicate if they recieve an unsupported versioned response.
+2. Iroha peers will be able to clearly indicate if they recieve an unsupported versioned request.
+3. The network upgrade will not require for all peers to be upgraded simultaneously.
+4. Transactions and Blocks older versions can be handled conditionally after the network upgrade.
+
+## 3.0 Performance Goals
 
 - 20,000 tps
 - 2-3 s block time
