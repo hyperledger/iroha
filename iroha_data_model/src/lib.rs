@@ -1073,14 +1073,7 @@ pub mod transaction {
     use iroha_error::{Error, Result};
     use iroha_version::{declare_versioned_with_scale, version_with_scale};
     use parity_scale_codec::{Decode, Encode};
-    use std::{
-        collections::BTreeMap,
-        convert::TryFrom,
-        iter::FromIterator,
-        ops::{Index, IndexMut},
-        time::SystemTime,
-        vec::IntoIter as VecIter,
-    };
+    use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
 
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
@@ -1178,6 +1171,87 @@ pub mod transaction {
         }
     }
 
+    declare_versioned_with_scale!(VersionedPendingTransactions 1..2);
+
+    /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
+    #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
+    #[derive(Debug, Clone, Encode, Decode, Io)]
+    pub struct PendingTransactions(pub Vec<Transaction>);
+
+    impl FromIterator<Transaction> for PendingTransactions {
+        fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+            PendingTransactions(iter.into_iter().collect())
+        }
+    }
+
+    impl IntoIterator for PendingTransactions {
+        type Item = Transaction;
+
+        type IntoIter = VecIter<Self::Item>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            let PendingTransactions(transactions) = self;
+            transactions.into_iter()
+        }
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
+    pub mod prelude {
+        pub use super::{
+            Payload, PendingTransactions, Transaction, VersionedPendingTransactions,
+            VersionedTransaction,
+        };
+    }
+}
+
+/// Structures and traits related to pagination.
+pub mod pagination {
+    use iroha_error::{Error, Result};
+    use std::{collections::BTreeMap, convert::TryFrom};
+
+    /// Describes a collection to which pagination can be applied.
+    /// Implemented for the [`Iterator`] implementors.
+    pub trait Paginate: Iterator + Sized {
+        /// Returns a paginated [`Iterator`].
+        fn paginate(self, pagination: Pagination) -> Paginated<Self>;
+    }
+
+    impl<I: Iterator + Sized> Paginate for I {
+        fn paginate(self, pagination: Pagination) -> Paginated<Self> {
+            Paginated {
+                pagination,
+                iter: self,
+            }
+        }
+    }
+
+    /// Paginated [`Iterator`].
+    /// Not recommended to use directly, only use in iterator chains.
+    #[derive(Debug)]
+    pub struct Paginated<I: Iterator> {
+        pagination: Pagination,
+        iter: I,
+    }
+
+    impl<I: Iterator> Iterator for Paginated<I> {
+        type Item = I::Item;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if let Some(limit) = self.pagination.limit.as_mut() {
+                if *limit == 0 {
+                    return None;
+                } else {
+                    *limit -= 1
+                }
+            }
+            if let Some(start) = self.pagination.start.take() {
+                self.iter.nth(start)
+            } else {
+                self.iter.next()
+            }
+        }
+    }
+
     /// Structure for pagination requests
     #[derive(Clone, Eq, PartialEq, Debug, Default, Copy)]
     pub struct Pagination {
@@ -1187,46 +1261,19 @@ pub mod transaction {
         pub limit: Option<usize>,
     }
 
+    impl Pagination {
+        /// Constructs [`Pagination`].
+        pub fn new(start: Option<usize>, limit: Option<usize>) -> Pagination {
+            Pagination { start, limit }
+        }
+    }
+
     const PAGINATION_START: &str = "start";
     const PAGINATION_LIMIT: &str = "limit";
 
-    impl Pagination {
-        /// Returns true if index is outside of array range
-        pub fn is_outside_array(&self, len: usize) -> bool {
-            match (self.start, self.limit) {
-                (Some(start), Some(limit)) => start + limit >= len,
-                (Some(start), None) => start >= len,
-                (None, Some(limit)) => limit >= len,
-                (None, None) => false,
-            }
-        }
-    }
-
-    impl<T> Index<Pagination> for Vec<T> {
-        type Output = [T];
-        fn index(&self, pagination: Pagination) -> &Self::Output {
-            match (pagination.start, pagination.limit) {
-                (Some(start), Some(limit)) => &self[start..start + limit],
-                (Some(start), None) => &self[start..],
-                (None, Some(limit)) => &self[..limit],
-                (None, None) => &self[..],
-            }
-        }
-    }
-
-    impl<T> IndexMut<Pagination> for Vec<T> {
-        fn index_mut(&mut self, pagination: Pagination) -> &mut Self::Output {
-            match (pagination.start, pagination.limit) {
-                (Some(start), Some(limit)) => &mut self[start..start + limit],
-                (Some(start), None) => &mut self[start..],
-                (None, Some(limit)) => &mut self[..limit],
-                (None, None) => &mut self[..],
-            }
-        }
-    }
-
     impl TryFrom<&BTreeMap<String, String>> for Pagination {
         type Error = Error;
+
         fn try_from(query_params: &BTreeMap<String, String>) -> Result<Self> {
             let get_num = |key| {
                 query_params
@@ -1266,45 +1313,95 @@ pub mod transaction {
         }
     }
 
-    declare_versioned_with_scale!(VersionedPendingTransactions 1..2);
-
-    /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
-    #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
-    #[derive(Debug, Clone, Encode, Decode, Io)]
-    pub struct PendingTransactions(pub Vec<Transaction>);
-
-    impl FromIterator<Transaction> for PendingTransactions {
-        fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
-            PendingTransactions(iter.into_iter().collect())
-        }
-    }
-
-    impl IntoIterator for PendingTransactions {
-        type Item = Transaction;
-
-        type IntoIter = VecIter<Self::Item>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            let PendingTransactions(transactions) = self;
-            transactions.into_iter()
-        }
-    }
-
-    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{
-            Pagination, Payload, PendingTransactions, Transaction, VersionedPendingTransactions,
-            VersionedTransaction,
-        };
+        pub use super::*;
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn empty() {
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(None, None))
+                    .collect::<Vec<_>>(),
+                vec![1, 2, 3]
+            )
+        }
+
+        #[test]
+        fn start() {
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(Some(0), None))
+                    .collect::<Vec<_>>(),
+                vec![1, 2, 3]
+            );
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(Some(1), None))
+                    .collect::<Vec<_>>(),
+                vec![2, 3]
+            );
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(Some(3), None))
+                    .collect::<Vec<_>>(),
+                Vec::<usize>::new()
+            );
+        }
+
+        #[test]
+        fn limit() {
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(None, Some(0)))
+                    .collect::<Vec<_>>(),
+                Vec::<usize>::new()
+            );
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(None, Some(2)))
+                    .collect::<Vec<_>>(),
+                vec![1, 2]
+            );
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(None, Some(4)))
+                    .collect::<Vec<_>>(),
+                vec![1, 2, 3]
+            );
+        }
+
+        #[test]
+        fn start_and_limit() {
+            assert_eq!(
+                vec![1, 2, 3]
+                    .into_iter()
+                    .paginate(Pagination::new(Some(1), Some(1)))
+                    .collect::<Vec<_>>(),
+                vec![2]
+            )
+        }
     }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox,
-        Name, Parameter, Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, pagination::prelude::*,
+        peer::prelude::*, transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable,
+        IdentifiableBox, Name, Parameter, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, query::prelude::*,
