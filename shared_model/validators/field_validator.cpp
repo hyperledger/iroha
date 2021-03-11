@@ -9,8 +9,6 @@
 #include <string_view>
 
 #include <fmt/core.h>
-#include <boost/algorithm/string_regex.hpp>
-#include <boost/format.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include "common/bind.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
@@ -29,31 +27,55 @@
 #include "validators/field_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
 
-// TODO: 15.02.18 nickaleks Change structure to compositional IR-978
-
-using iroha::operator|;
+#include <initializer_list>
+#include "utils/constexpr_to_string.hpp"
 
 namespace {
-  class RegexValidator {
-   public:
-    RegexValidator(
-        std::string name,
-        std::string pattern,
-        std::optional<const char *> format_description = std::nullopt)
-        : name_(std::move(name)),
-          pattern_(std::move(pattern)),
-          regex_(pattern_),
-          format_description_(
-              std::move(format_description) | [](std::string description) {
-                return std::string{" "} + std::move(description);
-              }) {}
+
+  using namespace std::string_view_literals;
+  using std::string_view;
+
+  // we cannot return a char array from a function, therefore we need a wrapper
+  template <unsigned N>
+  struct String {
+    char c[N];
+//    constexpr operator (char[N])()const{ return c; }
+    constexpr operator string_view()const{return {c,N};}
+  };
+
+  /// https://stackoverflow.com/a/65440575/3743145
+  template<unsigned ...Len>
+  constexpr auto cat(const char (&...strings)[Len]) {
+    constexpr unsigned N = (... + Len) - sizeof...(Len);
+    String<N + 1> result = {};
+    result.c[N] = '\0';
+
+    char* dst = result.c;
+    for (const char* src : {strings...}) {
+      for (; *src != '\0'; src++, dst++) {
+        *dst = *src;
+      }
+    }
+    return result;
+  }
+
+  struct RegexValidator {
+    constexpr RegexValidator(
+        string_view name,
+        string_view pattern,
+        string_view format_description = "")
+        : name_(name),
+          pattern_(pattern),
+          format_description_(format_description)
+    {}
 
     std::optional<shared_model::validation::ValidationError> validate(
         std::string_view value) const {
-      if (not std::regex_match(value.begin(), value.end(), regex_)) {
+      std::regex rex(pattern_.begin(),pattern_.end());
+      if (not std::regex_match(value.begin(), value.end(), rex)) {
         return shared_model::validation::ValidationError(
-            name_,
-            {fmt::format("passed value: '{}' does not match regex '{}'.{}",
+            std::string(name_),
+            {fmt::format("passed value: '{}' does not match regex '{}'. {}",
                          value,
                          pattern_,
                          format_description_)});
@@ -61,63 +83,62 @@ namespace {
       return std::nullopt;
     }
 
-    std::string getPattern() const {
+    constexpr std::string_view const& getPattern() const {
       return pattern_;
     }
 
    private:
-    std::string name_;
-    std::string pattern_;
-    std::regex regex_;
-    std::string format_description_;
+    string_view name_;
+    string_view pattern_;
+    string_view format_description_;
   };
 
-  const RegexValidator kAccountNameValidator{"AccountName",
-                                             R"#([a-z_0-9]{1,32})#"};
-  const RegexValidator kAssetNameValidator{"AssetName", R"#([a-z_0-9]{1,32})#"};
-  const RegexValidator kDomainValidator{
-      "Domain",
-      R"#(([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*)#"
-      R"#([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)#"};
-  static const std::string kIpV4Pattern{
+  constexpr char kAccountNamePattern[] = R"#([a-z_0-9]{1,32})#";
+  constexpr RegexValidator kAccountNameValidator{"AccountName",kAccountNamePattern};
+
+  constexpr char kAssetNamePattern[]{R"#([a-z_0-9]{1,32})#"};
+  constexpr RegexValidator kAssetNameValidator{"AssetName", kAssetNamePattern};
+
+  constexpr char kDomainPattern[]{R"#(([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*)#"
+                                           R"#([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)#"};
+  constexpr RegexValidator kDomainValidator{
+      "Domain", kDomainPattern
+      };
+  constexpr char kIpV4Pattern[]{
       R"#(^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3})#"
       R"#(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])))#"};
-  static const std::string kPortPattern{
-      R"#((6553[0-5]|655[0-2]\d|65[0-4]\d\d|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3}|0)$)#"};
-  const RegexValidator kPeerAddressValidator{
-      "PeerAddress",
-      fmt::format("(({})|({})):{}",
-                  kIpV4Pattern,
-                  kDomainValidator.getPattern(),
-                  kPortPattern),
+  constexpr char kPortPattern[] =
+      R"#((6553[0-5]|655[0-2][0-9]|65[0-4][0-9][0-9]|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3}|0)$)#";
+  constexpr auto kPeerAddressPattern = cat("(",kIpV4Pattern,")|(",kDomainPattern,"):",kPortPattern);
+  constexpr RegexValidator kPeerAddressValidator{
+      "PeerAddress", kPeerAddressPattern,
       "Field should have a valid 'host:port' format where host is "
       "IPv4 or a hostname following RFC1035, RFC1123 specifications"};
-  const RegexValidator kPortValidator{
-      "IpPort",
-      fmt::format(":?{}",kPortPattern),
+
+  constexpr auto kOptionalPortPattern = cat(":?",kPortPattern);
+  constexpr RegexValidator kPortValidator{
+      "IpPort", kOptionalPortPattern,
       "Field should have a valid 'port' or ':port' format"};
-  const RegexValidator kAccountIdValidator{"AccountId",
-                                           kAccountNameValidator.getPattern()
-                                               + R"#(\@)#"
-                                               + kDomainValidator.getPattern()};
-  const RegexValidator kAssetIdValidator{"AssetId",
-                                         kAssetNameValidator.getPattern()
-                                             + R"#(\#)#"
-                                             + kDomainValidator.getPattern()};
-  const RegexValidator kAccountDetailKeyValidator{"DetailKey",
+
+  constexpr auto kAccountIdPattern = cat(kAccountNamePattern,"\\@",kDomainPattern);
+  constexpr RegexValidator kAccountIdValidator{"AccountId",kAccountIdPattern};
+
+  constexpr auto kAssetIdPattern = cat(kAssetNamePattern,"\\#",kDomainPattern);
+  constexpr RegexValidator kAssetIdValidator{"AssetId",kAssetIdPattern};
+
+  constexpr RegexValidator kAccountDetailKeyValidator{"DetailKey",
                                                   R"([A-Za-z0-9_]{1,64})"};
-  const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
-  const RegexValidator kHexValidator{
+  constexpr RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
+  constexpr RegexValidator kHexValidator{
       "Hex", R"#(([0-9a-fA-F][0-9a-fA-F])*)#", "Hex encoded string expected"};
-  const RegexValidator kPublicKeyHexValidator{
-      "PublicKeyHex",
-      fmt::format("[A-Fa-f0-9]{{1,{}}}",
-                  shared_model::crypto::CryptoVerifier::kMaxPublicKeySize * 2)};
-  const RegexValidator kSignatureHexValidator{
-      "SignatureHex",
-      fmt::format("[A-Fa-f0-9]{{1,{}}}",
-                  shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2)};
-  const RegexValidator kEvmAddressValidator{
+
+  constexpr auto kPublicKeyHexPattern{cat("[A-Fa-f0-9]{{1,",to_string<shared_model::crypto::CryptoVerifier::kMaxPublicKeySize * 2>.buf,"}}")};
+  constexpr RegexValidator kPublicKeyHexValidator{"PublicKeyHex",kPublicKeyHexPattern};
+
+  constexpr auto kSignatureHexPattern{cat("[A-Fa-f0-9]{{1,",to_string<shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2>.buf,"}}")};
+  constexpr RegexValidator kSignatureHexValidator{"SignatureHex",kSignatureHexPattern};
+
+  constexpr RegexValidator kEvmAddressValidator{
       "EvmHexAddress",
       R"#([0-9a-fA-F]{40})#",
       "Hex encoded 20-byte address expected"};
