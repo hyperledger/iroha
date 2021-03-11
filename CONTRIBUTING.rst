@@ -15,9 +15,11 @@ Reporting Bugs
 to produce an incorrect or unexpected result, or to behave in unintended
 ways.
 
-Bugs are tracked as `JIRA
-issues <https://jira.hyperledger.org/projects/IR/issues/IR-275?filter=allopenissues&orderby=issuetype+ASC%2C+priority+DESC%2C+updated+DESC>`__
+Bugs are tracked as `GitHub issues <https://github.com/hyperledger/iroha/issues>` (this is the preferred option) or as `JIRA
+issues <https://jira.hyperledger.org/projects/IR/issues/IR-275?filter=allopenissues&orderby=issuetype+ASC%2C+priority+DESC%2C+updated+DESC>` (if it is convenient to you)__
 in Hyperledger Jira.
+
+If you decide to go with the GitHub issues, just `click on this link <https://github.com/hyperledger/iroha/issues/new>` and follow the instructions in the template.
 
 To submit a bug, `create new
 issue <https://jira.hyperledger.org/secure/CreateIssue.jspa>`__ and
@@ -69,9 +71,12 @@ Suggesting Improvements
 An *improvement* is a code or idea, which makes **existing** code or
 design faster, more stable, portable, secure or better in any other way.
 
-Improvements are tracked as `JIRA
+Improvements are tracked as `GitHub issues <https://github.com/hyperledger/iroha/issues>` (this is the preferred option) or as `JIRA
 improvements <https://jira.hyperledger.org/browse/IR-184?jql=project%20%3D%20IR%20and%20issuetype%20%3D%20Improvement%20ORDER%20BY%20updated%20DESC>`__.
-To submit new improvement, `create new
+
+Again, if you choose GitHub issues, just `click on this link <https://github.com/hyperledger/iroha/issues/new>` and follow the instructions in the template.
+
+To submit a new improvement in JIRA, `create new
 issue <https://jira.hyperledger.org/secure/CreateIssue.jspa>`__ and
 include these details:
 
