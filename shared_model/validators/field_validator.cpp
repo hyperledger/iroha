@@ -92,6 +92,10 @@ namespace {
                   kPortPattern),
       "Field should have a valid 'host:port' format where host is "
       "IPv4 or a hostname following RFC1035, RFC1123 specifications"};
+  const RegexValidator kPortValidator{
+      "IpPort",
+      fmt::format(":?{}",kPortPattern),
+      "Field should have a valid 'port' or ':port' format"};
   const RegexValidator kAccountIdValidator{"AccountId",
                                            kAccountNameValidator.getPattern()
                                                + R"#(\@)#"
@@ -172,6 +176,11 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validatePeerAddress(
         const interface::types::AddressType &address) const {
       return kPeerAddressValidator.validate(address);
+    }
+
+    std::optional<ValidationError> FieldValidator::validatePort(
+        const interface::types::AddressType &port) const {
+      return kPortValidator.validate(port);
     }
 
     std::optional<ValidationError> FieldValidator::validateRoleId(

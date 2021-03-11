@@ -18,16 +18,17 @@
 #include <future>
 #include <regex>
 
+#include "validators/field_validator.hpp"
+
 std::shared_ptr<prometheus::Registry> maintenance_metrics_init(std::string const& listen_addr)
 {
   using namespace prometheus;
 
-  static const std::regex full_matcher("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]):[0-9]+$");
-  static const std::regex port_matcher("^:?([0-9]{1,5})$");
+  shared_model::validation::FieldValidator validator;
   std::string listen_addr_port;
-  if(std::regex_match(listen_addr,full_matcher)) {
+  if(not validator.validatePeerAddress(listen_addr)) {
     listen_addr_port = listen_addr;
-  } else if(std::regex_match(listen_addr,port_matcher)) {
+  } else if(not validator.validatePort(listen_addr)) {
     listen_addr_port = "127.0.0.1";
     if (listen_addr[0] != ':')
       listen_addr_port += ":";
