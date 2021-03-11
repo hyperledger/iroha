@@ -325,7 +325,6 @@ fn impl_declare_versioned(
         .iter()
         .map(|version| {
             if with_scale {
-                let version = version.to_string();
                 quote!(#[codec(index = #version)])
             } else {
                 quote!()
