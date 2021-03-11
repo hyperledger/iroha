@@ -18,8 +18,7 @@
 #include <future>
 #include <regex>
 
-auto maintenance_metrics_init(std::string const& listen_addr)
-->std::shared_ptr<prometheus::Registry>
+std::shared_ptr<prometheus::Registry> maintenance_metrics_init(std::string const& listen_addr)
 {
   using namespace prometheus;
 
