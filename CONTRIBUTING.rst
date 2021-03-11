@@ -118,9 +118,8 @@ community could help you. You can also help others!
 Your First Code Contribution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Read our `C++ Style Guide <#c-style-guide>`__ and start with
-beginner-friendly issues with JIRA label
-`good-first-issue <https://jira.hyperledger.org/issues/?jql=project%20%3D%20IR%20and%20labels%20%3D%20good-first-issue%20ORDER%20BY%20updated%20DESC>`__.
+Read our `C++ Style Guide <#c-style-guide>`__ and start with checking out `the GitHub board <https://github.com/hyperledger/iroha/projects/1>` or the beginner-friendly issues in JIRA with
+`good-first-issue label <https://jira.hyperledger.org/issues/?jql=project%20%3D%20IR%20and%20labels%20%3D%20good-first-issue%20ORDER%20BY%20updated%20DESC>`__.
 Indicate somehow that you are working on this task: get in touch with
 maintainers team, community or simply assign this issue to yourself.
 
