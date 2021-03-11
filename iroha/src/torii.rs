@@ -187,7 +187,7 @@ async fn handle_queries(
     request: HttpRequest,
 ) -> Result<HttpResponse> {
     //TODO: Remove when `Result::flatten` https://github.com/rust-lang/rust/issues/70142 will be stabilized
-    let range = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
+    let pagination = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
     let request: SignedQueryRequest = VersionedSignedQueryRequest::decode_versioned(&request.body)
         .wrap_err("Failed to decode query")?
         .as_v1()
@@ -201,16 +201,7 @@ async fn handle_queries(
         .execute(&*state.read().await.world_state_view.read().await)
         .wrap_err("Failed to execute query")?;
     let result = &QueryResult(if let Value::Vec(value) = result {
-        // if invalid number is inside range then we exit
-        if range.is_outside_array(value.len()) {
-            log::error!(
-                "Invalid number in pagination range (length={}): {:?}",
-                value.len(),
-                range
-            );
-            return Ok(HttpResponse::internal_server_error());
-        }
-        Value::Vec(value[range].to_vec())
+        Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
         result
     });
@@ -232,7 +223,7 @@ async fn handle_pending_transactions_on_leader(
     query_params: QueryParams,
     _request: HttpRequest,
 ) -> Result<HttpResponse> {
-    let range = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
+    let pagination = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
     let PendingTransactions(pending_transactions) = if state
         .read()
         .await
@@ -267,8 +258,13 @@ async fn handle_pending_transactions_on_leader(
         let message = VersionedPendingTransactions::decode_versioned(&bytes)?;
         message.as_v1().ok_or_else(|| error!("Version mismatch when recieving pending transactions from leader, expected version 1, got: {}", message.version()))?.clone().into()
     };
-    let pending_transactions: VersionedPendingTransactions =
-        PendingTransactions(pending_transactions[range].to_vec()).into();
+    let pending_transactions: VersionedPendingTransactions = PendingTransactions(
+        pending_transactions
+            .into_iter()
+            .paginate(pagination)
+            .collect(),
+    )
+    .into();
     Ok(HttpResponse::ok(
         Headers::new(),
         pending_transactions.encode_versioned()?,
