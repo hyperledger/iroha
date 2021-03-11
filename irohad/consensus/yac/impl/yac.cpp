@@ -70,7 +70,7 @@ namespace iroha {
                                                   auto const key,
                                                   Round const &closed_round) {
           assert(key == EventTypes::kOnApplyState);
-          cached_closed_round.exclusive([&](auto &obj) {
+          cached_closed_round.exclusiveAccess([&](auto &obj) {
             assert(closed_round >= obj);
             obj = closed_round;
           });
@@ -100,7 +100,7 @@ namespace iroha {
         std::unique_lock<std::mutex> lock(mutex_);
         cluster_order_ = order;
         alternative_order_ = std::move(alternative_order);
-        round_.exclusive([&](auto &obj) { obj = hash.vote_round; });
+        round_.exclusiveAccess([&](auto &obj) { obj = hash.vote_round; });
         lock.unlock();
         auto vote = crypto_->getVote(hash);
         // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
@@ -151,7 +151,7 @@ namespace iroha {
         if (crypto_->verify(state)) {
           auto &proposal_round = getRound(state);
 
-          if (round_.shared([&](auto const &obj) {
+          if (round_.sharedAccess([&](auto const &obj) {
                 return (proposal_round.block_round > obj.block_round);
               })) {
             guard.unlock();
@@ -163,7 +163,7 @@ namespace iroha {
             return;
           }
 
-          if (round_.shared([&](auto const &obj) {
+          if (round_.sharedAccess([&](auto const &obj) {
                 return (proposal_round.block_round < obj.block_round);
               })) {
             log_->info("Received state from past for {}, try to propagate back",
@@ -206,8 +206,8 @@ namespace iroha {
           return;
         }
 
-        if (round_.shared([&](auto const &current_round) {
-              return apply_state_subscription_->get().shared(
+        if (round_.sharedAccess([&](auto const &current_round) {
+              return apply_state_subscription_->get().sharedAccess(
                   [&](auto const &closed_round) {
                     return (closed_round >= current_round);
                   });
@@ -286,7 +286,7 @@ namespace iroha {
             [&](const Answer &answer) {
               auto &proposal_round = getRound(state);
               auto current_round =
-                  round_.shared([](auto const &obj) { return obj; });
+                  round_.sharedAccess([](auto const &obj) { return obj; });
 
               /*
                * It is possible that a new peer with an outdated peers list may
