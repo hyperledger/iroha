@@ -17,6 +17,7 @@ target_link_libraries(storage_test
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
+    subscription
     )
 
 AddTest(completer_test completer_test.cpp)
