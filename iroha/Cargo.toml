@@ -23,7 +23,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_data_model = { path = "../iroha_data_model" }
+iroha_data_model = { path = "../iroha_data_model", features = ["http_error"] }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
 iroha_error = { version = "=0.1.0", path = "../iroha_error" }
@@ -31,7 +31,7 @@ iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_http_server = { version = "=0.1.0", path = "../iroha_http_server" }
-iroha_version = { version = "=0.1.0", path = "../iroha_version" }
+iroha_version = { version = "=0.1.0", path = "../iroha_version", features = ["http_error"] }
 async-std = { version = "=1.6.2", features = ["attributes","unstable"] }
 chrono = "0.4"
 clap = "2.33.0"
