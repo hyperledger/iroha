@@ -59,7 +59,7 @@ TEST_F(YacTest, UnknownVoteBeforeCommit) {
          iroha::consensus::yac::Answer const &answer) {
         flag = true;
       });
-  wrapper->subscribeSync(0, iroha::EventTypes::kOnOutcomeFromYac);
+  wrapper->subscribe<iroha::SubscriptionEngineHandlers::kYac>(0, iroha::EventTypes::kOnOutcomeFromYac);
 
   // send a vote from unknown peer
   yac->onState({createVote(my_hash, "unknown")});
