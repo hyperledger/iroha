@@ -44,6 +44,12 @@ namespace iroha {
       SubscriptionEngineHandlers::kTotalCount>;
   using SubscriptionDispatcher = typename Subscription::Dispatcher;
 
+  template <typename ObjectType, typename EventDataType>
+  using BaseSubscriber = subscription::SubscriberImpl<EventTypes,
+                                                      SubscriptionDispatcher,
+                                                      ObjectType,
+                                                      EventDataType>;
+
   std::shared_ptr<Subscription> getSubscription();
 }  // namespace iroha
 
