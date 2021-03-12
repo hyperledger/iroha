@@ -96,7 +96,6 @@ TEST_F(YacTest, DISABLED_YacWhenColdStartAndAchieveSupermajorityOfVotes) {
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
       iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &event) {
-        int p = 0; ++p;
       },
       [&](){
         for (auto peer : default_peers)

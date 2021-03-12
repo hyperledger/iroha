@@ -71,27 +71,30 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommit) {
   initYac(my_order.value());
 
   YacHash my_hash(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
-  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
-  wrapper.subscribe([my_hash](auto val) {
-    ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
-  });
 
   EXPECT_CALL(*timer, deny()).Times(AtLeast(1));
-
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
-  setNetworkOrderCheckerSingleVote(
-      my_order.value(), my_hash, kRandomFixedNumber);
+  auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
+      iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &val) {
+        ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
+      },
+      [&](){
+        setNetworkOrderCheckerSingleVote(
+            my_order.value(), my_hash, kRandomFixedNumber);
 
-  yac->vote(my_hash, my_order.value());
+        yac->vote(my_hash, my_order.value());
 
-  auto votes = std::vector<VoteMessage>();
+        auto votes = std::vector<VoteMessage>();
 
-  for (auto i = 0; i < 4; ++i) {
-    votes.push_back(createVote(my_hash, std::to_string(i)));
-  };
-  yac->onState(votes);
-  ASSERT_TRUE(wrapper.validate());
+        for (auto i = 0; i < 4; ++i) {
+          votes.push_back(createVote(my_hash, std::to_string(i)));
+        };
+        yac->onState(votes);
+      });
+
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -115,33 +118,36 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommitTwice) {
   initYac(my_order.value());
 
   YacHash my_hash(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
-  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
-  wrapper.subscribe([my_hash](auto val) {
-    ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
-  });
-
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
-  setNetworkOrderCheckerSingleVote(
-      my_order.value(), my_hash, kRandomFixedNumber);
+  auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
+      iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &val) {
+        ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
+      },
+      [&](){
+        setNetworkOrderCheckerSingleVote(
+            my_order.value(), my_hash, kRandomFixedNumber);
 
-  yac->vote(my_hash, my_order.value());
+        yac->vote(my_hash, my_order.value());
 
-  auto votes = std::vector<VoteMessage>();
+        auto votes = std::vector<VoteMessage>();
 
-  // first commit
-  for (auto i = 0; i < 3; ++i) {
-    votes.push_back(createVote(my_hash, std::to_string(i)));
-  };
-  yac->onState(votes);
+        // first commit
+        for (auto i = 0; i < 3; ++i) {
+          votes.push_back(createVote(my_hash, std::to_string(i)));
+        };
+        yac->onState(votes);
 
-  // second commit
-  for (auto i = 1; i < 4; ++i) {
-    votes.push_back(createVote(my_hash, std::to_string(i)));
-  };
-  yac->onState(votes);
+        // second commit
+        for (auto i = 1; i < 4; ++i) {
+          votes.push_back(createVote(my_hash, std::to_string(i)));
+        };
+        yac->onState(votes);
 
-  ASSERT_TRUE(wrapper.validate());
+      });
+
+  ASSERT_TRUE(wrapper->get());
 }
 
 TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
@@ -154,29 +160,30 @@ TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
   initYac(my_order.value());
 
   EXPECT_CALL(*timer, deny()).Times(AtLeast(1));
-
   EXPECT_CALL(*crypto, verify(_)).Times(2).WillRepeatedly(Return(true));
 
   YacHash my_hash(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
+  auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
+      iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &val) {
+        ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
+      },
+      [&](){
+        auto vote_message = createVote(my_hash, std::to_string(0));
 
-  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
-  wrapper.subscribe([my_hash](auto val) {
-    ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
-  });
+        setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
 
-  auto vote_message = createVote(my_hash, std::to_string(0));
+        yac->vote(my_hash, my_order.value());
 
-  setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
+        yac->onState({vote_message});
 
-  yac->vote(my_hash, my_order.value());
+        auto commit_message = CommitMessage({vote_message});
 
-  yac->onState({vote_message});
+        yac->onState(commit_message.votes);
 
-  auto commit_message = CommitMessage({vote_message});
+      });
 
-  yac->onState(commit_message.votes);
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
