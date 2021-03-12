@@ -14,7 +14,9 @@ Some configuration parameters must be the same in all the nodes (they are marked
 Let's take a look
 at ``example/config.sample``
 
-.. note:: Starting with v1.2 ``irohad`` can also be configured via environment variables, not only via config file. We will start with looking at config file and then look at how Iroha can be configured with `environment parameters <#environment-variables>`_.
+.. note:: Starting with v1.2 ``irohad`` can also be configured via environment variables, not only via config file.
+We will start with looking at config file and then look at how Iroha can be configured with
+`environment parameters <#environment-variables>`_.
 
 .. code-block:: javascript
   :linenos:
@@ -46,7 +48,8 @@ at ``example/config.sample``
     "utility_service": {
       "ip": "127.0.0.1",
       "port": 11001
-    }
+    },
+    "metrics":"127.0.0.1:8080"
   }
 
 As you can see, configuration file is a valid ``json`` structure.
@@ -70,6 +73,10 @@ Deployment-specific parameters
 - ``utility_service`` (optional) endpoint for maintenance tasks.
   If present, must include ``ip`` address and ``port`` to bind to.
   See `shepherd docs <../maintenance/shepherd.html>` for an example usage of maintenance endpoint.
+- ``metrics`` (optional) endpoint to monitor iroha's metrics. Prometheus HTTP server listens on this endpoint.
+  If present, must correspond format "[addr]:<port>" and could be for example "127.0.0.1:8080", "9090", or ":1234".
+  Wrong values implicitly disables Prometheus metrics server. There are also cmdline options ```--metrics_port`` and
+  ``--metrics_addr`` to override this parameter.
 
 There is also an optional ``torii_tls_params`` parameter, which could be included
 in the config to enable TLS support for client communication.
