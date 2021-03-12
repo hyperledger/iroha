@@ -5,10 +5,11 @@ use async_std::{
     prelude::*,
     task,
 };
-use http::{HttpEndpoint, HttpHandler, HttpRequest, HttpResponse};
-use iroha_error::Result;
+use futures::FutureExt;
+use http::{HttpEndpoint, HttpRequest, HttpResponse, HttpResponseError, PathParams, QueryParams};
 use route_recognizer::Router;
-use std::{borrow::Borrow, convert::TryFrom, sync::Arc};
+use std::convert::{Into, TryFrom, TryInto};
+use std::{borrow::Borrow, sync::Arc};
 use web_socket::WebSocketHandler;
 
 const BUFFER_SIZE: usize = 4096;
@@ -33,7 +34,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         }
     }
 
-    pub async fn start(&self, address: &str) -> Result<()> {
+    pub async fn start(&self, address: &str) -> iroha_error::Result<()> {
         let listener = TcpListener::bind(address).await?;
         while let Some(stream) = listener.incoming().next().await {
             let mut stream = stream?;
@@ -84,12 +85,13 @@ pub mod http {
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
     use httparse::{Request as HttpParseRequest, Status};
-    use iroha_error::{Error, Result, WrapErr};
+    use iroha_derive::FromVariant;
+    use iroha_error::derive::Error;
     use route_recognizer::Router;
     use std::{
         collections::BTreeMap,
-        convert::{TryFrom, TryInto},
-        fmt::Display,
+        convert::{From, TryFrom, TryInto},
+        fmt::{self, Display},
     };
     use url::form_urlencoded;
 
@@ -98,18 +100,20 @@ pub mod http {
     pub const ALLOW_HEADER: &str = "Allow";
     pub const UPGRADE_HEADER: &str = "Upgrade";
     pub const CONTENT_LENGTH_HEADER: &str = "Content-Length";
-    pub const HTTP_CODE_OK: u16 = 200;
-    pub const HTTP_CODE_INTERNAL_SERVER_ERROR: u16 = 500;
-    pub const HTTP_CODE_NOT_FOUND: u16 = 404;
-    pub const HTTP_CODE_BAD_REQUEST: u16 = 400;
-    pub const HTTP_CODE_METHOD_NOT_ALLOWED: u16 = 405;
-    pub const HTTP_CODE_UPGRADE_REQUIRED: u16 = 426;
+    pub const HTTP_CODE_OK: StatusCode = 200;
+    pub const HTTP_CODE_INTERNAL_SERVER_ERROR: StatusCode = 500;
+    pub const HTTP_CODE_NOT_FOUND: StatusCode = 404;
+    pub const HTTP_CODE_BAD_REQUEST: StatusCode = 400;
+    pub const HTTP_CODE_METHOD_NOT_ALLOWED: StatusCode = 405;
+    pub const HTTP_CODE_UPGRADE_REQUIRED: StatusCode = 426;
     pub const HTTP_VERSION_1_1: &str = "HTTP/1.1";
     const MAX_HEADERS: usize = 128;
 
     pub type Headers = BTreeMap<HeaderName, HeaderValue>;
 
     pub type HeaderName = String;
+
+    pub type StatusCode = u16;
 
     pub type HeaderValue = Vec<u8>;
 
@@ -125,7 +129,7 @@ pub mod http {
         //TODO: add other endpoints PUT, PATCH, DELETE and etc.
     }
 
-    /// Handler for HTT connection. Gets a web socket stream after initial HTTP handshake.
+    /// Handler for HTTP connection. Just a trait alias for Fn
     #[async_trait]
     pub trait HttpHandler<State: Clone + Send + Sync + 'static>: Send + Sync + 'static {
         async fn call(
@@ -134,7 +138,7 @@ pub mod http {
             path_params: PathParams,
             query_params: QueryParams,
             request: HttpRequest,
-        ) -> Result<HttpResponse>;
+        ) -> HttpResponse;
     }
 
     #[async_trait]
@@ -142,7 +146,7 @@ pub mod http {
     where
         State: Clone + Send + Sync + 'static,
         F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, HttpRequest) -> Fut,
-        Fut: Future<Output = Result<HttpResponse>> + Send + 'static,
+        Fut: Future<Output = HttpResponse> + Send + 'static,
     {
         async fn call(
             &self,
@@ -150,9 +154,46 @@ pub mod http {
             path_params: PathParams,
             query_params: QueryParams,
             request: HttpRequest,
-        ) -> Result<HttpResponse> {
+        ) -> HttpResponse {
             let future = (self)(state, path_params, query_params, request);
             future.await
+        }
+    }
+
+    pub trait HttpResponseError: Send + Sync + 'static {
+        fn status_code(&self) -> StatusCode {
+            HTTP_CODE_INTERNAL_SERVER_ERROR
+        }
+
+        fn reason(code: StatusCode) -> String {
+            match code {
+                HTTP_CODE_INTERNAL_SERVER_ERROR => "Internal server error",
+                HTTP_CODE_NOT_FOUND => "Not found",
+                HTTP_CODE_BAD_REQUEST => "Bad request",
+                HTTP_CODE_METHOD_NOT_ALLOWED => "Method not allowed",
+                HTTP_CODE_UPGRADE_REQUIRED => "Upgrade required",
+                _ => unimplemented!(),
+            }
+            .to_owned()
+        }
+
+        fn error_body(&self) -> Vec<u8>;
+
+        fn error_response(&self) -> HttpResponse {
+            let code = self.status_code();
+            HttpResponse {
+                version: HttpVersion::Http1_1,
+                code,
+                reason: Self::reason(code),
+                headers: Headers::new(),
+                body: self.error_body(),
+            }
+        }
+    }
+
+    impl HttpResponseError for std::convert::Infallible {
+        fn error_body(&self) -> Vec<u8> {
+            unreachable!()
         }
     }
 
@@ -164,21 +205,50 @@ pub mod http {
     }
 
     impl Display for HttpVersion {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 HttpVersion::Http1_1 => write!(f, "{}", HTTP_VERSION_1_1),
             }
         }
     }
 
+    #[derive(Debug, Clone, Eq, PartialEq, FromVariant, Error)]
+    pub enum Error {
+        /// Http version is not supported
+        #[error("Http version not supported.")]
+        UnsupportedHttpVersion,
+        /// Method not found
+        #[error("Method not found.")]
+        MethodNotFound,
+        /// Path not found
+        #[error("Path not found.")]
+        PathNotFound,
+        /// Version not found
+        #[error("Version not found.")]
+        VersionNotFound,
+        /// Failed to read header
+        #[error("Failed to read header.")]
+        ReadHeaderFailed,
+
+        /// Failed to parse content length value - invalid utf-8.
+        #[error("Failed to parse content length value - invalid utf-8.")]
+        ContentLengthUtf(#[source] std::string::FromUtf8Error),
+        /// Failed to parse content length value - not a number.
+        #[error("Failed to parse content length value - not a number.")]
+        ContentLengthParse(#[source] std::num::ParseIntError),
+        /// HTTP parsing error.
+        #[error("Http format error")]
+        HttpFormat(#[source] httparse::Error),
+    }
+
     impl TryFrom<HttpParseHttpVersion> for HttpVersion {
         type Error = Error;
 
-        fn try_from(version: HttpParseHttpVersion) -> Result<Self> {
+        fn try_from(version: HttpParseHttpVersion) -> Result<Self, Self::Error> {
             if version == 1 {
                 Ok(HttpVersion::Http1_1)
             } else {
-                Err(Error::msg("Http version not supported."))
+                Err(Error::UnsupportedHttpVersion)
             }
         }
     }
@@ -247,40 +317,20 @@ pub mod http {
                     match self.method.as_ref() {
                         GET_METHOD => {
                             if let Endpoint::Http(HttpEndpoint::Get(handler)) = endpoint {
-                                match handler
+                                let response = handler
                                     .call(state, path_params, query_params, self.clone())
-                                    .await
-                                {
-                                    Ok(response) => Some(response),
-                                    Err(err) => {
-                                        log::error!(
-                                            "Failed to handle get request {:?} with error: {}",
-                                            self,
-                                            err
-                                        );
-                                        Some(HttpResponse::internal_server_error())
-                                    }
-                                }
+                                    .await;
+                                Some(response)
                             } else {
                                 Some(HttpResponse::method_not_allowed(&[GET_METHOD]))
                             }
                         }
                         POST_METHOD => {
                             if let Endpoint::Http(HttpEndpoint::Post(handler)) = endpoint {
-                                match handler
+                                let response = handler
                                     .call(state, path_params, query_params, self.clone())
-                                    .await
-                                {
-                                    Ok(response) => Some(response),
-                                    Err(err) => {
-                                        log::error!(
-                                            "Failed to handle post request {:?} with error: {}",
-                                            self,
-                                            err
-                                        );
-                                        Some(HttpResponse::internal_server_error())
-                                    }
-                                }
+                                    .await;
+                                Some(response)
                             } else {
                                 Some(HttpResponse::method_not_allowed(&[POST_METHOD]))
                             }
@@ -297,20 +347,11 @@ pub mod http {
     impl<'h, 'b> TryFrom<HttpParseRequest<'h, 'b>> for HttpRequest {
         type Error = Error;
 
-        fn try_from(request: HttpParseRequest<'h, 'b>) -> Result<Self> {
+        fn try_from(request: HttpParseRequest<'h, 'b>) -> Result<Self, Self::Error> {
             Ok(HttpRequest {
-                method: request
-                    .method
-                    .ok_or_else(|| Error::msg("Method not found."))?
-                    .to_string(),
-                path: request
-                    .path
-                    .ok_or_else(|| Error::msg("Path not found."))?
-                    .to_string(),
-                version: request
-                    .version
-                    .ok_or_else(|| Error::msg("Version not found."))?
-                    .try_into()?,
+                method: request.method.ok_or(Error::MethodNotFound)?.to_string(),
+                path: request.path.ok_or(Error::PathNotFound)?.to_string(),
+                version: request.version.ok_or(Error::VersionNotFound)?.try_into()?,
                 headers: request
                     .headers
                     .iter()
@@ -324,7 +365,7 @@ pub mod http {
     impl TryFrom<&[u8]> for HttpRequest {
         type Error = Error;
 
-        fn try_from(bytes: &[u8]) -> Result<Self> {
+        fn try_from(bytes: &[u8]) -> Result<Self, Error> {
             let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
             let mut request = httparse::Request::new(&mut headers);
             if let Status::Complete(header_size) = request.parse(&bytes)? {
@@ -334,15 +375,13 @@ pub mod http {
                 if let Some(content_length) =
                     request.headers.get(&CONTENT_LENGTH_HEADER.to_lowercase())
                 {
-                    let content_length = String::from_utf8(content_length.clone())
-                        .wrap_err("Failed to parse content length value - invalid utf-8.")?
-                        .parse::<usize>()
-                        .wrap_err("Failed to parse content length value - not a number.")?;
+                    let content_length =
+                        String::from_utf8(content_length.clone())?.parse::<usize>()?;
                     request.body = bytes[header_size..(header_size + content_length)].to_vec();
                 }
                 Ok(request)
             } else {
-                Err(Error::msg("Failed to read header."))
+                Err(Error::ReadHeaderFailed)
             }
         }
     }
@@ -361,6 +400,33 @@ pub mod http {
         pub headers: Headers,
         /// The response body.
         pub body: Vec<u8>,
+    }
+
+    impl From<()> for HttpResponse {
+        fn from((): ()) -> Self {
+            Self::ok(Headers::new(), Vec::new())
+        }
+    }
+
+    impl<E, T> From<Result<T, E>> for HttpResponse
+    where
+        E: HttpResponseError + Display,
+        T: TryInto<HttpResponse>,
+        T::Error: HttpResponseError + Display,
+    {
+        fn from(result: Result<T, E>) -> Self {
+            match result.map(TryInto::try_into) {
+                Ok(Ok(ok)) => ok,
+                Ok(Err(err)) => {
+                    log::error!("Failed to handle request with error: {}", err);
+                    err.error_response()
+                }
+                Err(err) => {
+                    log::error!("Failed to handle request with error: {}", err);
+                    err.error_response()
+                }
+            }
+        }
     }
 
     impl HttpResponse {
@@ -521,27 +587,115 @@ pub struct RouteBuilder<'s, State> {
     server: &'s mut Server<State>,
 }
 
+async fn wrapper_handler<State, Path, Query, Req, Fut, F>(
+    fut: F,
+    state: State,
+    path: Result<Path, Path::Error>,
+    query: Result<Query, Query::Error>,
+    req: Result<Req, Req::Error>,
+) -> http::HttpResponse
+where
+    State: Clone + Send + Sync + 'static,
+    Fut: Future<Output = http::HttpResponse>,
+    F: Send + Sync + 'static + Fn(State, Path, Query, Req) -> Fut,
+    Path: TryFrom<http::PathParams> + Send + Sync + 'static,
+    Path::Error: http::HttpResponseError,
+    Query: TryFrom<http::QueryParams> + Send + Sync + 'static,
+    Query::Error: http::HttpResponseError,
+    Req: TryFrom<http::HttpRequest> + Send + Sync + 'static,
+    Req::Error: http::HttpResponseError,
+{
+    let path = match path {
+        Ok(path) => path,
+        Err(err) => return http::HttpResponseError::error_response(&err),
+    };
+    let query = match query {
+        Ok(query) => query,
+        Err(err) => return http::HttpResponseError::error_response(&err),
+    };
+    let req = match req {
+        Ok(req) => req,
+        Err(err) => return http::HttpResponseError::error_response(&err),
+    };
+    fut(state, path, query, req).await
+}
+
 impl<'s, State> RouteBuilder<'s, State>
 where
     State: Clone + Send + Sync + 'static,
 {
     /// Add GET handler at the specified url.
-    pub fn get(&mut self, handler: impl HttpHandler<State>) {
+    pub fn get<Path, Query, Req, F, Fut>(&mut self, handler: F)
+    where
+        Path: TryFrom<PathParams> + Send + Sync + 'static,
+        Path::Error: HttpResponseError,
+        Query: TryFrom<QueryParams> + Send + Sync + 'static,
+        Query::Error: HttpResponseError,
+        Req: TryFrom<HttpRequest> + Send + Sync + 'static,
+        Req::Error: HttpResponseError,
+        F: Send + Sync + Copy + 'static + Fn(State, Path, Query, Req) -> Fut,
+        Fut: Future + Send + 'static,
+        Fut::Output: TryInto<HttpResponse> + 'static,
+        <Fut::Output as TryInto<HttpResponse>>::Error: HttpResponseError,
+    {
         Arc::get_mut(&mut self.server.router)
             .expect("Registering routes is not possible after the Server has started.")
             .add(
                 &self.path,
-                Endpoint::Http(HttpEndpoint::Get(Box::new(handler))),
+                Endpoint::Http(HttpEndpoint::Get(Box::new(
+                    move |state,
+                          path: http::PathParams,
+                          query: http::QueryParams,
+                          req: http::HttpRequest| {
+                        let fut = move |state, path, query, req| {
+                            handler(state, path, query, req).map(|resp| match resp.try_into() {
+                                Ok(resp) => resp,
+                                Err(err) => err.error_response(),
+                            })
+                        };
+                        let path: Result<Path, _> = path.try_into();
+                        let query: Result<Query, _> = query.try_into();
+                        let req: Result<Req, _> = req.try_into();
+
+                        wrapper_handler(fut, state, path, query, req)
+                    },
+                ))),
             );
     }
 
     /// Add POST handler at the specified url.
-    pub fn post(&mut self, handler: impl HttpHandler<State>) {
+    pub fn post<Path, Query, Req, F, Fut>(&mut self, handler: F)
+    where
+        Path: TryFrom<PathParams> + Send + Sync + 'static,
+        Path::Error: HttpResponseError,
+        Query: TryFrom<QueryParams> + Send + Sync + 'static,
+        Query::Error: HttpResponseError,
+        Req: TryFrom<HttpRequest> + Send + Sync + 'static,
+        Req::Error: HttpResponseError,
+        F: Send + Sync + Copy + 'static + Fn(State, Path, Query, Req) -> Fut,
+        Fut: Future + Send + 'static,
+        Fut::Output: TryInto<HttpResponse> + 'static,
+        <Fut::Output as TryInto<HttpResponse>>::Error: HttpResponseError,
+    {
         Arc::get_mut(&mut self.server.router)
             .expect("Registering routes is not possible after the Server has started.")
             .add(
                 &self.path,
-                Endpoint::Http(HttpEndpoint::Post(Box::new(handler))),
+                Endpoint::Http(HttpEndpoint::Post(Box::new(
+                    move |state, path: PathParams, query: QueryParams, req: HttpRequest| {
+                        let fut = move |state, path, query, req| {
+                            handler(state, path, query, req).map(|resp| match resp.try_into() {
+                                Ok(resp) => resp,
+                                Err(err) => err.error_response(),
+                            })
+                        };
+                        let path: Result<Path, _> = path.try_into();
+                        let query: Result<Query, _> = query.try_into();
+                        let req: Result<Req, _> = req.try_into();
+
+                        wrapper_handler(fut, state, path, query, req)
+                    },
+                ))),
             );
     }
 
@@ -575,7 +729,7 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     use super::{prelude::*, Server};
-    use async_std::sync::RwLock;
+    use async_std::{sync::RwLock, task};
     use futures::{SinkExt, StreamExt};
     use isahc::AsyncReadResponseExt;
     use std::sync::Arc;
@@ -585,7 +739,7 @@ mod tests {
     #[test]
     fn get_request() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
                 |_state: (),
@@ -593,7 +747,7 @@ mod tests {
                  _query_params: QueryParams,
                  request: HttpRequest| async move {
                     assert_eq!(&request.body, b"Hello, world!");
-                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
+                    HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -610,14 +764,14 @@ mod tests {
     #[async_std::test]
     async fn get_request_isahc() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let mut server = Server::new(());
             server.at("/hello/world").get(
                 |_state: (),
                  _path_params: PathParams,
                  _query_params: QueryParams,
                  _request: HttpRequest| async move {
-                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
+                    HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -633,7 +787,7 @@ mod tests {
     #[test]
     fn multiple_routes() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let mut server = Server::new(());
             server.at("/a").get(
                 |_state: (),
@@ -646,7 +800,7 @@ mod tests {
                  _path_params: PathParams,
                  _query_params: QueryParams,
                  _request: HttpRequest| async move {
-                    Ok(HttpResponse::ok(Headers::new(), b"Right path".to_vec()))
+                    HttpResponse::ok(Headers::new(), b"Right path".to_vec())
                 },
             );
             server.at("/c/b").get(
@@ -669,7 +823,7 @@ mod tests {
     #[test]
     fn path_params() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let mut server = Server::new(());
             server.at("/:a/path/:c").get(
                 |_state: (),
@@ -678,7 +832,7 @@ mod tests {
                  _request: HttpRequest| async move {
                     assert_eq!(path_params["a"], "hello");
                     assert_eq!(path_params["c"], "params");
-                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
+                    HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -695,7 +849,7 @@ mod tests {
     #[test]
     fn query_params() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
                 |_state: (),
@@ -705,7 +859,7 @@ mod tests {
                     assert_eq!(query_params.len(), 2);
                     assert_eq!(query_params["a"], "hello");
                     assert_eq!(query_params["c"], "params");
-                    Ok(HttpResponse::ok(Headers::new(), b"Hi!".to_vec()))
+                    HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -722,7 +876,7 @@ mod tests {
     #[test]
     fn stateful_server() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let state = Arc::new(RwLock::new(0));
             let mut server = Server::new(state);
             server.at("/add/:num").get(
@@ -732,7 +886,6 @@ mod tests {
                  _request: HttpRequest| async move {
                     let number: i32 = path_params["num"].parse().expect("Failed to parse i32");
                     *state.write().await += number;
-                    Ok(HttpResponse::ok(Headers::new(), Vec::new()))
                 },
             );
             server.at("/value").get(
@@ -740,10 +893,10 @@ mod tests {
                  _path_params: PathParams,
                  _query_params: QueryParams,
                  _request: HttpRequest| async move {
-                    Ok(HttpResponse::ok(
+                    HttpResponse::ok(
                         Headers::new(),
                         format!("{}", state.read().await).as_bytes().to_vec(),
-                    ))
+                    )
                 },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
@@ -767,7 +920,7 @@ mod tests {
     #[test]
     fn web_socket() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        async_std::task::spawn(async move {
+        task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").web_socket(
                 |_state: (),

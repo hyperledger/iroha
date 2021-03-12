@@ -6,6 +6,8 @@ use self::{account::*, asset::*, domain::*, peer::*};
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
 use iroha_error::Result;
+#[cfg(feature = "http_error")]
+use iroha_http_server::http::HttpResponse;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -83,6 +85,19 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2);
 #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode)]
 pub struct QueryResult(pub Value);
+
+#[cfg(feature = "http_error")]
+impl Into<HttpResponse> for &QueryResult {
+    fn into(self) -> HttpResponse {
+        HttpResponse::ok(Default::default(), self.into())
+    }
+}
+#[cfg(feature = "http_error")]
+impl Into<HttpResponse> for QueryResult {
+    fn into(self) -> HttpResponse {
+        (&self).into()
+    }
+}
 
 impl QueryRequest {
     /// Constructs a new request with the `query`.

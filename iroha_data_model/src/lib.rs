@@ -1075,6 +1075,12 @@ pub mod transaction {
     use parity_scale_codec::{Decode, Encode};
     use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
 
+    #[cfg(feature = "http_error")]
+    use {
+        iroha_http_server::http::HttpResponse,
+        iroha_version::{error::Error as VersionError, scale::EncodeVersioned},
+    };
+
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
 
@@ -1173,6 +1179,15 @@ pub mod transaction {
 
     declare_versioned_with_scale!(VersionedPendingTransactions 1..2);
 
+    #[cfg(feature = "http_error")]
+    impl std::convert::TryInto<HttpResponse> for VersionedPendingTransactions {
+        type Error = VersionError;
+        fn try_into(self) -> Result<HttpResponse, Self::Error> {
+            self.encode_versioned()
+                .map(|pending| HttpResponse::ok(Default::default(), pending))
+        }
+    }
+
     /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
     #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
     #[derive(Debug, Clone, Encode, Decode, Io)]
@@ -1206,8 +1221,10 @@ pub mod transaction {
 
 /// Structures and traits related to pagination.
 pub mod pagination {
-    use iroha_error::{Error, Result};
-    use std::{collections::BTreeMap, convert::TryFrom};
+    use iroha_error::Result;
+    #[cfg(feature = "http_error")]
+    use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
+    use std::{collections::BTreeMap, convert::TryFrom, fmt};
 
     /// Describes a collection to which pagination can be applied.
     /// Implemented for the [`Iterator`] implementors.
@@ -1271,19 +1288,50 @@ pub mod pagination {
     const PAGINATION_START: &str = "start";
     const PAGINATION_LIMIT: &str = "limit";
 
-    impl TryFrom<&BTreeMap<String, String>> for Pagination {
-        type Error = Error;
+    /// Error for pagination
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub struct PaginateError(pub std::num::ParseIntError);
 
-        fn try_from(query_params: &BTreeMap<String, String>) -> Result<Self> {
+    impl fmt::Display for PaginateError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "Failed to decode pagination. Error occurred in one of numbers: {}",
+                self.0
+            )
+        }
+    }
+    impl std::error::Error for PaginateError {}
+
+    #[cfg(feature = "http_error")]
+    impl HttpResponseError for PaginateError {
+        fn status_code(&self) -> StatusCode {
+            HTTP_CODE_BAD_REQUEST
+        }
+        fn error_body(&self) -> Vec<u8> {
+            self.to_string().into()
+        }
+    }
+
+    impl<'a> TryFrom<&'a BTreeMap<String, String>> for Pagination {
+        type Error = PaginateError;
+
+        fn try_from(query_params: &'a BTreeMap<String, String>) -> Result<Self, PaginateError> {
             let get_num = |key| {
                 query_params
                     .get(key)
                     .map(|value| value.parse::<usize>())
                     .transpose()
             };
-            let start = get_num(PAGINATION_START)?;
-            let limit = get_num(PAGINATION_LIMIT)?;
+            let start = get_num(PAGINATION_START).map_err(PaginateError)?;
+            let limit = get_num(PAGINATION_LIMIT).map_err(PaginateError)?;
             Ok(Self { start, limit })
+        }
+    }
+    impl TryFrom<BTreeMap<String, String>> for Pagination {
+        type Error = PaginateError;
+        fn try_from(query_params: BTreeMap<String, String>) -> Result<Self, PaginateError> {
+            Self::try_from(&query_params)
         }
     }
 

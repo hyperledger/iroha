@@ -280,7 +280,7 @@ impl Iterator for EventIterator {
                                 Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
                             };
                         }
-                        Err(err) => return Some(Err(err)),
+                        Err(err) => return Some(Err(err.into())),
                     }
                 }
                 Ok(_) => continue,
