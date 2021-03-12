@@ -15,6 +15,7 @@ target_link_libraries(pending_txs_storage_test
     shared_model_proto_backend
     shared_model_interfaces_factories
     test_logger
+    subscription
     )
 
 addtest(old_pending_txs_storage_test
