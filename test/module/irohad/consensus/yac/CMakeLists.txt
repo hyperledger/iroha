@@ -82,6 +82,7 @@ target_link_libraries(yac_gate_test
     mock_yac_crypto_provider
     yac
     test_logger
+    subscription
     )
 
 addtest(yac_hash_provider_test yac_hash_provider_test.cpp)

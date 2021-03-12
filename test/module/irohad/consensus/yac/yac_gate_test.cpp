@@ -22,6 +22,7 @@
 #include "module/irohad/simulator/simulator_mocks.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "main/subscription.hpp"
 
 using namespace std::literals;
 using namespace iroha::consensus::yac;
@@ -163,27 +164,35 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
-      RoundData{expected_proposal, expected_block}, round, ledger_state});
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
+  ASSERT_TRUE(block_create->get());
 
   // verify that block we voted for is in the cache
   auto cache_block = block_cache->get();
   ASSERT_EQ(cache_block, expected_block);
 
   // verify that yac gate emit expected block
-  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
-  gate_wrapper.subscribe([this](auto outcome) {
-    auto block = boost::get<iroha::consensus::PairValid>(outcome).block;
-    ASSERT_EQ(block, expected_block);
+  auto wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+        auto block = boost::get<iroha::consensus::PairValid>(outcome).block;
+        ASSERT_EQ(block, expected_block);
 
-    // verify that gate has put to cache block received from consensus
-    auto cache_block = block_cache->get();
-    ASSERT_EQ(block, cache_block);
-  });
-
-  outcome_notifier.get_subscriber().on_next(expected_commit);
-
-  ASSERT_TRUE(gate_wrapper.validate());
+        // verify that gate has put to cache block received from consensus
+        auto cache_block = block_cache->get();
+        ASSERT_EQ(block, cache_block);
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
+      });
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -210,12 +219,26 @@ TEST_F(YacGateTest, CacheReleased) {
       .WillOnce(Return(expected_hash))
       .WillOnce(Return(empty_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
-      RoundData{expected_proposal, expected_block}, round, ledger_state});
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
+  ASSERT_TRUE(block_create->get());
 
-  outcome_notifier.get_subscriber().on_next(expected_commit);
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
+      });
+  ASSERT_TRUE(gate_wrapper->get());
+
   round.reject_round++;
-
   gate->vote({boost::none, round, ledger_state});
 
   ASSERT_EQ(block_cache->get(), nullptr);
@@ -236,8 +259,15 @@ TEST_F(YacGateTest, YacGateSubscribtionTestFailCase) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
-      RoundData{expected_proposal, expected_block}, round, ledger_state});
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
+  ASSERT_TRUE(block_create->get());
 }
 
 /**
@@ -300,20 +330,21 @@ TEST_F(YacGateTest, DifferentCommit) {
   ASSERT_EQ(cache_block, expected_block);
 
   // verify that yac gate emit expected block
-  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
-  gate_wrapper.subscribe([actual_hash](auto outcome) {
-    auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
-    auto public_keys = concrete_outcome.public_keys;
-    auto hash = concrete_outcome.hash;
+  auto wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+        auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
+        auto public_keys = concrete_outcome.public_keys;
+        auto hash = concrete_outcome.hash;
 
-    ASSERT_EQ(1, public_keys.size());
-    ASSERT_EQ(kActualPubkey, public_keys.front());
-    ASSERT_EQ(hash, actual_hash);
-  });
-
-  outcome_notifier.get_subscriber().on_next(expected_commit);
-
-  ASSERT_TRUE(gate_wrapper.validate());
+        ASSERT_EQ(1, public_keys.size());
+        ASSERT_EQ(kActualPubkey, public_keys.front());
+        ASSERT_EQ(hash, actual_hash);
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
+      });
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -345,16 +376,18 @@ TEST_F(YacGateTest, Future) {
   future_message.signature = signature;
 
   // verify that yac gate emit expected block
-  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
-  gate_wrapper.subscribe([&](auto outcome) {
-    auto concrete_outcome = boost::get<iroha::consensus::Future>(outcome);
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+        auto concrete_outcome = boost::get<iroha::consensus::Future>(outcome);
 
-    ASSERT_EQ(future_round, concrete_outcome.round);
-  });
+        ASSERT_EQ(future_round, concrete_outcome.round);
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, FutureMessage{future_message});
+      });
 
-  outcome_notifier.get_subscriber().on_next(FutureMessage{future_message});
-
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper->get());
 }
 
 /**
@@ -378,12 +411,15 @@ TEST_F(YacGateTest, OutdatedFuture) {
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 
   // verify that yac gate does not emit anything
-  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 0);
-  gate_wrapper.subscribe();
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, FutureMessage{message});
+      });
 
-  outcome_notifier.get_subscriber().on_next(FutureMessage{message});
-
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper->get());
 }
 
 /**
@@ -423,15 +459,18 @@ class CommitFromTheFuture : public YacGateTest {
   template <typename CommitType>
   void validate() {
     // verify that yac gate emit expected block
-    auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
-    gate_wrapper.subscribe([this](auto outcome) {
-      auto concrete_outcome = boost::get<CommitType>(outcome);
+    auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+        iroha::EventTypes::kOnOutcome>(
+        [&](auto const &outcome) {
+          auto concrete_outcome = boost::get<CommitType>(outcome);
 
-      ASSERT_EQ(future_round, concrete_outcome.round);
-    });
+          ASSERT_EQ(future_round, concrete_outcome.round);
+        },
+        [&](){
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
+        });
 
-    outcome_notifier.get_subscriber().on_next(expected_commit);
-    ASSERT_TRUE(gate_wrapper.validate());
+    ASSERT_TRUE(gate_wrapper->get());
   }
 
   iroha::consensus::Round future_round;
@@ -539,12 +578,15 @@ TEST_F(YacGateOlderTest, OlderCommit) {
                       signature};
   Answer commit{CommitMessage({message})};
 
-  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 0);
-  gate_wrapper.subscribe();
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, commit);
+      });
 
-  outcome_notifier.get_subscriber().on_next(commit);
-
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper->get());
 }
 
 /**
@@ -570,12 +612,15 @@ TEST_F(YacGateOlderTest, OlderReject) {
                signature2};
   Answer reject{RejectMessage({message1, message2})};
 
-  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 0);
-  gate_wrapper.subscribe();
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, reject);
+      });
 
-  outcome_notifier.get_subscriber().on_next(reject);
-
-  ASSERT_TRUE(gate_wrapper.validate());
+  ASSERT_TRUE(gate_wrapper->get());
 }
 
 class YacGateAlternativeOrderTest : public YacGateTest {
