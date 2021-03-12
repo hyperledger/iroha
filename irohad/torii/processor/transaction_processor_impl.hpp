@@ -69,22 +69,13 @@ namespace iroha {
       logger::LoggerPtr log_;
 
       using VerifiedProposalSubscription =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       simulator::VerifiedProposalCreatorEvent>;
-      using BlockSubscription = subscription::SubscriberImpl<
-          EventTypes,
-          SubscriptionDispatcher,
-          bool,
-          std::shared_ptr<const shared_model::interface::Block>>;
+          BaseSubscriber<bool, simulator::VerifiedProposalCreatorEvent>;
+      using BlockSubscription =
+          BaseSubscriber<bool,
+                         std::shared_ptr<const shared_model::interface::Block>>;
       using MSTStateUpdateSubscription =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       std::shared_ptr<MstState>>;
-      using MSTBatchesSubscription = subscription::
-          SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, DataType>;
+          BaseSubscriber<bool, std::shared_ptr<MstState>>;
+      using MSTBatchesSubscription = BaseSubscriber<bool, DataType>;
 
       std::shared_ptr<VerifiedProposalSubscription>
           verified_proposal_subscription_;

@@ -780,10 +780,7 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
       0, EventTypes::kOnProposal);
 
   syncSubscription =
-      std::make_shared<subscription::SubscriberImpl<EventTypes,
-                                                    SubscriptionDispatcher,
-                                                    bool,
-                                                    SynchronizationEvent>>(
+      std::make_shared<BaseSubscriber<bool, SynchronizationEvent>>(
           getSubscription()->getEngine<EventTypes, SynchronizationEvent>());
   syncSubscription->setCallback([&](auto, auto &, auto key, auto const &event) {
     assert(EventTypes::kOnSynchronization == key);

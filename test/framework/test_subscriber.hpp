@@ -6,11 +6,11 @@
 #ifndef IROHA_TEST_SUBSCRIBER_HPP
 #define IROHA_TEST_SUBSCRIBER_HPP
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <rxcpp/rx-lite.hpp>
 #include <utility>
-#include <chrono>
 
 #include "main/subscription.hpp"
 
@@ -203,34 +203,40 @@ namespace framework {
           std::make_unique<S<T>>(std::forward<Args>(args)...));
     }
 
-    template<typename WaitableType, iroha::EventTypes waitable_event, typename F>
+    template <typename WaitableType,
+              iroha::EventTypes waitable_event,
+              typename F>
     auto subscribeEventAsync(F &&f) {
-      using Subscription =
-      iroha::subscription::SubscriberImpl<iroha::EventTypes,
-          iroha::SubscriptionDispatcher,
-          bool,
-          WaitableType>;
+      using Subscription = iroha::BaseSubscriber<bool, WaitableType>;
       auto wrapper = std::make_shared<Subscription>(
           iroha::getSubscription()
               ->getEngine<iroha::EventTypes, WaitableType>(),
           false);
 
       wrapper->setCallback(
-          [f{std::forward<F>(f)}](auto /*set_id*/, auto &flag, auto key, WaitableType const &val) mutable {
+          [f{std::forward<F>(f)}](auto /*set_id*/,
+                                  auto &flag,
+                                  auto key,
+                                  WaitableType const &val) mutable {
             flag = true;
             std::forward<F>(f)(val);
           });
-      wrapper->template subscribe<iroha::SubscriptionEngineHandlers::kYac>(0, waitable_event);
+      wrapper->template subscribe<iroha::SubscriptionEngineHandlers::kYac>(
+          0, waitable_event);
       return wrapper;
     }
 
-    template<typename WaitableType, iroha::EventTypes waitable_event, typename F, typename Emitter>
+    template <typename WaitableType,
+              iroha::EventTypes waitable_event,
+              typename F,
+              typename Emitter>
     auto subscribeEventSync(F &&f, Emitter &&e) {
       iroha::utils::WaitForSingleObject ev;
-      auto wrapper = subscribeEventAsync<WaitableType, waitable_event>([&ev, f{std::forward<F>(f)}](WaitableType const &val) mutable {
-        std::forward<F>(f)(val);
-        ev.set();
-      });
+      auto wrapper = subscribeEventAsync<WaitableType, waitable_event>(
+          [&ev, f{std::forward<F>(f)}](WaitableType const &val) mutable {
+            std::forward<F>(f)(val);
+            ev.set();
+          });
       std::forward<Emitter>(e)();
       ev.wait(std::chrono::minutes(1ull));
       return wrapper;

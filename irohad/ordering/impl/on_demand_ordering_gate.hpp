@@ -103,11 +103,8 @@ namespace iroha {
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
 
-      using RoundSwitchSubscriberType = subscription::
-          SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, RoundSwitch>;
-      using ProcessedHashesSubscriberType = subscription::SubscriberImpl<
-          EventTypes,
-          SubscriptionDispatcher,
+      using RoundSwitchSubscriberType = BaseSubscriber<bool, RoundSwitch>;
+      using ProcessedHashesSubscriberType = BaseSubscriber<
           bool,
           std::shared_ptr<cache::OrderingGateCache::HashesSetType>>;
 

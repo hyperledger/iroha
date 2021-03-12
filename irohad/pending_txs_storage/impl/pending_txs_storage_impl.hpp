@@ -130,19 +130,11 @@ namespace iroha {
     std::unordered_map<AccountIdType, AccountBatches> storage_;
 
     using MSTStateUpdateSubscription =
-        subscription::SubscriberImpl<EventTypes,
-                                     SubscriptionDispatcher,
-                                     bool,
-                                     std::shared_ptr<MstState>>;
-    using MSTPreparedBatchesSubscription = subscription::
-        SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, DataType>;
-    using MSTExpiredBatchesSubscription = subscription::
-        SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, DataType>;
+        BaseSubscriber<bool, std::shared_ptr<MstState>>;
+    using MSTPreparedBatchesSubscription = BaseSubscriber<bool, DataType>;
+    using MSTExpiredBatchesSubscription = BaseSubscriber<bool, DataType>;
     using FinalizedTxsSubscription =
-        subscription::SubscriberImpl<EventTypes,
-                                     SubscriptionDispatcher,
-                                     bool,
-                                     shared_model::interface::types::HashType>;
+        BaseSubscriber<bool, shared_model::interface::types::HashType>;
 
     std::shared_ptr<MSTStateUpdateSubscription> mst_state_update_subscription_;
     std::shared_ptr<MSTPreparedBatchesSubscription>

@@ -88,11 +88,7 @@ namespace iroha {
       logger::LoggerPtr log_;
       std::shared_ptr<transport::OdOsNotificationFactory> factory_;
       // rxcpp::composite_subscription subscription_;
-      using SubscriberType =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       CurrentPeers>;
+      using SubscriberType = BaseSubscriber<bool, CurrentPeers>;
 
       std::shared_ptr<SubscriberType> subscription_;
 

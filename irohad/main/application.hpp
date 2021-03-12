@@ -373,26 +373,15 @@ class Irohad {
 
   logger::LoggerPtr log_;  ///< log for local messages
 
-  std::shared_ptr<iroha::subscription::SubscriberImpl<
-      iroha::EventTypes,
-      iroha::SubscriptionDispatcher,
-      bool,
-      iroha::synchronizer::SynchronizationEvent>>
+  std::shared_ptr<
+      iroha::BaseSubscriber<bool, iroha::synchronizer::SynchronizationEvent>>
       syncSubscription;
 
   using OnProposalSubscription =
-      iroha::subscription::SubscriberImpl<iroha::EventTypes,
-                                          iroha::SubscriptionDispatcher,
-                                          bool,
-                                          iroha::network::OrderingEvent>;
+      iroha::BaseSubscriber<bool, iroha::network::OrderingEvent>;
   using OnOutcomeSubscription =
-      iroha::subscription::SubscriberImpl<iroha::EventTypes,
-                                          iroha::SubscriptionDispatcher,
-                                          bool,
-                                          iroha::consensus::GateObject>;
-  using OnBlockSubscription = iroha::subscription::SubscriberImpl<
-      iroha::EventTypes,
-      iroha::SubscriptionDispatcher,
+      iroha::BaseSubscriber<bool, iroha::consensus::GateObject>;
+  using OnBlockSubscription = iroha::BaseSubscriber<
       bool,
       std::shared_ptr<const shared_model::interface::Block>>;
 

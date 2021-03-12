@@ -86,11 +86,7 @@ namespace iroha {
       // rxcpp::subjects::subject<SynchronizationEvent> notifier_;
       // rxcpp::composite_subscription subscription_;
 
-      using OnOutcomeSubscriber =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       consensus::GateObject>;
+      using OnOutcomeSubscriber = BaseSubscriber<bool, consensus::GateObject>;
 
       std::shared_ptr<OnOutcomeSubscriber> notifier_;
 

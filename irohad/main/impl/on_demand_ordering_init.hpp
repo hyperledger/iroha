@@ -183,16 +183,11 @@ namespace iroha {
       using HashesCache = std::tuple<shared_model::crypto::Hash,
                                      shared_model::crypto::Hash,
                                      shared_model::crypto::Hash>;
-      using OnBlockSubscription = subscription::SubscriberImpl<
-          EventTypes,
-          SubscriptionDispatcher,
-          HashesCache,
-          std::shared_ptr<shared_model::interface::Block const>>;
+      using OnBlockSubscription =
+          BaseSubscriber<HashesCache,
+                         std::shared_ptr<shared_model::interface::Block const>>;
       using OnSyncronizationSubscription =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       synchronizer::SynchronizationEvent>;
+          BaseSubscriber<bool, synchronizer::SynchronizationEvent>;
 
       std::shared_ptr<OnBlockSubscription> on_block_subscription_;
       std::shared_ptr<OnSyncronizationSubscription> on_syncro_subscription_;

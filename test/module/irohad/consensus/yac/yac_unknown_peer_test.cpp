@@ -7,8 +7,8 @@
 
 #include "framework/crypto_literals.hpp"
 #include "framework/test_subscriber.hpp"
-#include "module/irohad/consensus/yac/yac_fixture.hpp"
 #include "main/subscription.hpp"
+#include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -44,10 +44,7 @@ TEST_F(YacTest, UnknownVoteBeforeCommit) {
   }
 
   using Subscription =
-      iroha::subscription::SubscriberImpl<iroha::EventTypes,
-                                          iroha::SubscriptionDispatcher,
-                                          bool,
-                                          iroha::consensus::yac::Answer>;
+      iroha::BaseSubscriber<bool, iroha::consensus::yac::Answer>;
   auto wrapper = std::make_shared<Subscription>(
       iroha::getSubscription()
           ->getEngine<iroha::EventTypes, iroha::consensus::yac::Answer>(),
@@ -56,10 +53,9 @@ TEST_F(YacTest, UnknownVoteBeforeCommit) {
       [](auto /*set_id*/,
          auto &flag,
          auto key,
-         iroha::consensus::yac::Answer const &answer) {
-        flag = true;
-      });
-  wrapper->subscribe<iroha::SubscriptionEngineHandlers::kYac>(0, iroha::EventTypes::kOnOutcomeFromYac);
+         iroha::consensus::yac::Answer const &answer) { flag = true; });
+  wrapper->subscribe<iroha::SubscriptionEngineHandlers::kYac>(
+      0, iroha::EventTypes::kOnOutcomeFromYac);
 
   // send a vote from unknown peer
   yac->onState({createVote(my_hash, "unknown")});
