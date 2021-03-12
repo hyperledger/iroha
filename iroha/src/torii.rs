@@ -8,7 +8,7 @@ use crate::{
     event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
-    query::VerifiedQueryRequest,
+    query::{UnsupportedVersionError, VerifiedQueryRequest},
     queue::Queue,
     sumeragi::{
         message::{Message as SumeragiMessage, VersionedMessage as SumeragiVersionedMessage},
@@ -20,14 +20,14 @@ use crate::{
 use async_std::{prelude::*, sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
-use iroha_error::{error, Error, Result, WrapErr};
+use iroha_error::derive::Error;
 use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
 use iroha_network::prelude::*;
 use iroha_version::prelude::*;
-use std::{convert::TryFrom, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 /// Main network handler and the only entrypoint of the Iroha.
 #[derive(Debug)]
@@ -46,6 +46,75 @@ pub struct Torii {
     transactions_queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
 }
+
+/// Errors of torii
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Transaction has unsupported version
+    #[error("Transaction has unsupported version")]
+    UnsupportedTxVersion(#[source] UnsupportedVersionError),
+    /// Query has unsupported version
+    #[error("Query has unsupported version")]
+    UnsupportedQueryVersion(#[source] UnsupportedVersionError),
+    /// Messsage has unsupported version
+    #[error("Message has unsupported version")]
+    UnsupportedMessageVersion(#[source] UnsupportedVersionError),
+    /// Failed to decode transaction
+    #[error("Failed to decode transaction")]
+    VersionedTransaction(#[source] iroha_version::error::Error),
+    /// Failed to accept transaction
+    #[error("Failed to accept transaction")]
+    AcceptTransaction(iroha_error::Error),
+    /// Failed to execute query
+    #[error("Failed to execute query")]
+    ExecuteQuery(iroha_error::Error),
+    /// Failed to get pending transaction
+    #[error("Failed to get pending transactions")]
+    RequestPendingTransactions(iroha_error::Error),
+    /// Failed to decode pending transactions from leader
+    #[error("Failed to decode pending transactions from leader")]
+    DecodeRequestPendingTransactions(#[source] iroha_version::error::Error),
+    /// Failed to encode pending transactions
+    #[error("Failed to encode pending transactions")]
+    EncodePendingTransactions(#[source] iroha_version::error::Error),
+    /// The sumeragi message channel is full. Dropping the incoming message.
+    #[error("The sumeragi message channel is full. Dropping the incoming message.")]
+    SumeragiChannelFull(#[source] Box<async_std::sync::TrySendError<SumeragiMessage>>),
+    /// The block sync message channel is full. Dropping the incoming message.
+    #[error("The block sync message channel is full. Dropping the incoming message.")]
+    BlockSyncChannelFull(#[source] Box<async_std::sync::TrySendError<BlockSyncMessage>>),
+    /// The block sync message channel is full. Dropping the incoming message.
+    #[error("Transaction is too big")]
+    TxTooBig,
+}
+
+impl iroha_http_server::http::HttpResponseError for Error {
+    fn status_code(&self) -> iroha_http_server::http::StatusCode {
+        use Error::*;
+
+        match self {
+            UnsupportedMessageVersion(_)
+            | UnsupportedTxVersion(_)
+            | UnsupportedQueryVersion(_)
+            | ExecuteQuery(_)
+            | RequestPendingTransactions(_)
+            | DecodeRequestPendingTransactions(_)
+            | EncodePendingTransactions(_)
+            | SumeragiChannelFull(_)
+            | BlockSyncChannelFull(_) => iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR,
+            TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) => {
+                iroha_http_server::http::HTTP_CODE_BAD_REQUEST
+            }
+        }
+    }
+
+    fn error_body(&self) -> Vec<u8> {
+        self.to_string().into()
+    }
+}
+
+/// Result type
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
@@ -104,7 +173,7 @@ impl Torii {
     }
 
     /// To handle incoming requests `Torii` should be started first.
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> iroha_error::Result<()> {
         let state = self.create_state();
         let connections = state.consumers.clone();
         let state = Arc::new(RwLock::new(state));
@@ -152,23 +221,24 @@ async fn handle_instructions(
     request: HttpRequest,
 ) -> Result<HttpResponse> {
     if request.body.len() > state.read().await.max_transaction_size {
-        return Err(Error::msg("Transaction is too big"));
+        return Err(Error::TxTooBig);
     }
-    let transaction = VersionedTransaction::decode_versioned(&request.body)?;
+    let transaction = VersionedTransaction::decode_versioned(&request.body)
+        .map_err(Error::VersionedTransaction)?;
     let transaction: Transaction = transaction
         .as_v1()
         .ok_or_else(|| {
-            error!(
-                "Transaction has unsupported version. Expected version 1, got: {}",
-                transaction.version()
-            )
+            Error::UnsupportedTxVersion(UnsupportedVersionError {
+                version: transaction.version(),
+            })
         })?
         .clone()
         .into();
     let transaction = AcceptedTransaction::from_transaction(
         transaction,
         state.read().await.max_instruction_number,
-    )?;
+    )
+    .map_err(Error::AcceptTransaction)?;
     state
         .write()
         .await
@@ -183,29 +253,20 @@ async fn handle_instructions(
 async fn handle_queries(
     state: State<ToriiState>,
     _path_params: PathParams,
-    query_params: QueryParams,
-    request: HttpRequest,
-) -> Result<HttpResponse> {
+    pagination: Pagination,
+    request: VerifiedQueryRequest,
+) -> Result<QueryResult> {
     //TODO: Remove when `Result::flatten` https://github.com/rust-lang/rust/issues/70142 will be stabilized
-    let pagination = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
-    let request: SignedQueryRequest = VersionedSignedQueryRequest::decode_versioned(&request.body)
-        .wrap_err("Failed to decode query")?
-        .as_v1()
-        .ok_or_else(|| Error::msg("Expected version 1 query."))?
-        .clone()
-        .into();
-    let request =
-        VerifiedQueryRequest::try_from(request).wrap_err("Failed to verify Query Request")?;
     let result = request
         .query
         .execute(&*state.read().await.world_state_view.read().await)
-        .wrap_err("Failed to execute query")?;
-    let result = &QueryResult(if let Value::Vec(value) = result {
+        .map_err(Error::ExecuteQuery)?;
+    let result = QueryResult(if let Value::Vec(value) = result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
         result
     });
-    Ok(HttpResponse::ok(Headers::new(), result.into()))
+    Ok(result)
 }
 
 async fn handle_health(
@@ -220,55 +281,56 @@ async fn handle_health(
 async fn handle_pending_transactions_on_leader(
     state: State<ToriiState>,
     _path_params: PathParams,
-    query_params: QueryParams,
+    pagination: Pagination,
     _request: HttpRequest,
-) -> Result<HttpResponse> {
-    let pagination = Pagination::try_from(&query_params).wrap_err("Failed to decode pagination")?;
-    let PendingTransactions(pending_transactions) = if state
-        .read()
-        .await
-        .sumeragi
-        .read()
-        .await
-        .is_leader()
-    {
-        state
-            .read()
-            .await
-            .transactions_queue
-            .read()
-            .await
-            .pending_transactions()
-    } else {
-        let bytes = Network::send_request_to(
+) -> Result<VersionedPendingTransactions> {
+    let PendingTransactions(pending_transactions) =
+        if state.read().await.sumeragi.read().await.is_leader() {
             state
                 .read()
                 .await
-                .sumeragi
+                .transactions_queue
                 .read()
                 .await
-                .network_topology
-                .leader()
-                .address
-                .as_ref(),
-            Request::new(uri::PENDING_TRANSACTIONS_URI.to_string(), Vec::new()),
-        )
-        .await?
-        .into_result()?;
-        let message = VersionedPendingTransactions::decode_versioned(&bytes)?;
-        message.as_v1().ok_or_else(|| error!("Version mismatch when recieving pending transactions from leader, expected version 1, got: {}", message.version()))?.clone().into()
-    };
-    let pending_transactions: VersionedPendingTransactions = PendingTransactions(
+                .pending_transactions()
+        } else {
+            let bytes = Network::send_request_to(
+                state
+                    .read()
+                    .await
+                    .sumeragi
+                    .read()
+                    .await
+                    .network_topology
+                    .leader()
+                    .address
+                    .as_ref(),
+                Request::new(uri::PENDING_TRANSACTIONS_URI.to_string(), Vec::new()),
+            )
+            .await
+            .map_err(Error::RequestPendingTransactions)?
+            .into_result()
+            .map_err(Error::RequestPendingTransactions)?;
+            let message = VersionedPendingTransactions::decode_versioned(&bytes)
+                .map_err(Error::DecodeRequestPendingTransactions)?;
+            message
+                .as_v1()
+                .ok_or_else(|| {
+                    Error::UnsupportedMessageVersion(UnsupportedVersionError {
+                        version: message.version(),
+                    })
+                })?
+                .clone()
+                .into()
+        };
+
+    Ok(PendingTransactions(
         pending_transactions
             .into_iter()
             .paginate(pagination)
             .collect(),
     )
-    .into();
-    Ok(HttpResponse::ok(
-        Headers::new(),
-        pending_transactions.encode_versioned()?,
-    ))
+    .into())
 }
 
 async fn handle_metrics(
@@ -291,13 +353,16 @@ async fn handle_subscription(
     _path_params: PathParams,
     _query_params: QueryParams,
     stream: WebSocketStream,
-) -> Result<()> {
+) -> iroha_error::Result<()> {
     let consumer = Consumer::new(stream).await?;
     state.read().await.consumers.write().await.push(consumer);
     Ok(())
 }
 
-async fn handle_requests(state: State<ToriiState>, stream: Box<dyn AsyncStream>) -> Result<()> {
+async fn handle_requests(
+    state: State<ToriiState>,
+    stream: Box<dyn AsyncStream>,
+) -> iroha_error::Result<()> {
     let state_arc = Arc::clone(&state);
     task::spawn(async {
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
@@ -326,7 +391,10 @@ async fn consume_events(
 }
 
 #[log("TRACE")]
-async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response> {
+async fn handle_request(
+    state: State<ToriiState>,
+    request: Request,
+) -> iroha_error::Result<Response> {
     match request.url() {
         uri::CONSENSUS_URI => match SumeragiVersionedMessage::decode_versioned(request.payload()) {
             Ok(message) => {
@@ -339,9 +407,8 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                         .write()
                         .await
                         .try_send(message)
-                        .wrap_err(
-                            "The sumeragi message channel is full. Dropping the incoming message.",
-                        )?;
+                        .map_err(Box::new)
+                        .map_err(Error::SumeragiChannelFull)?;
 
                     Ok(Response::empty_ok())
                 } else {
@@ -366,9 +433,8 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                         .write()
                         .await
                         .try_send(message)
-                        .wrap_err(
-                            "The block sync message channel is full. Dropping the incoming message."
-                        )?;
+                        .map_err(Box::new)
+                        .map_err(Error::BlockSyncChannelFull)?;
                     Ok(Response::empty_ok())
                 } else {
                     log::error!("Unsupported version: {}", message.version());
@@ -390,7 +456,11 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 .await
                 .pending_transactions()
                 .into();
-            Ok(Response::Ok(pending_transactions.encode_versioned()?))
+            Ok(Response::Ok(
+                pending_transactions
+                    .encode_versioned()
+                    .map_err(Error::EncodePendingTransactions)?,
+            ))
         }
         non_supported_uri => {
             log::error!("URI not supported: {}.", &non_supported_uri);
@@ -504,7 +574,6 @@ mod tests {
     use async_std::{future, sync};
     use futures::future::FutureExt;
     use iroha_data_model::account::Id;
-    use iroha_error::MessageError;
     use std::{convert::TryInto, time::Duration};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -603,10 +672,10 @@ mod tests {
 
         let result =
             handle_instructions(state, Default::default(), Default::default(), request).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err = err.downcast_ref::<MessageError<&'static str>>().unwrap();
-        assert_eq!(err.msg, "Transaction is too big");
+        match result {
+            Err(Error::TxTooBig) => (),
+            _ => panic!("Should be equal to TxTooBig: {:?}", result),
+        }
     }
 
     #[async_std::test]
@@ -617,28 +686,17 @@ mod tests {
         let keys = KeyPair::generate().expect("Failed to generate keys");
 
         let get_domains = |start, limit| {
-            let query: VersionedSignedQueryRequest =
+            let query: VerifiedQueryRequest =
                 QueryRequest::new(QueryBox::FindAllDomains(Box::new(Default::default())))
                     .sign(&keys)
                     .expect("Failed to sign query with keys")
-                    .into();
-            let body: Vec<u8> = query.encode_versioned().expect("Failed to encode.");
-            let request = HttpRequest {
-                method: "POST".to_owned(),
-                path: uri::QUERY_URI.to_owned(),
-                version: HttpVersion::Http1_1,
-                headers: Default::default(),
-                body,
-            };
-
-            let pagination = Pagination { start, limit }.into();
-            handle_queries(state.clone(), Default::default(), pagination, request).map(|result| {
-                let QueryResult(query) = result
-                    .expect("Failed request with query")
-                    .body
                     .try_into()
-                    .expect("Failed to convert");
-                if let Value::Vec(domain) = query {
+                    .expect("Failed to verify");
+
+            let pagination = Pagination { start, limit };
+            handle_queries(state.clone(), Default::default(), pagination, query).map(|result| {
+                if let QueryResult(Value::Vec(domain)) = result.expect("Failed request with query")
+                {
                     domain
                 } else {
                     unreachable!()

@@ -11,7 +11,40 @@ use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 pub mod error {
-    pub use iroha_error::*;
+    use iroha_derive::FromVariant;
+    use iroha_error::derive::Error;
+    #[cfg(feature = "http_error")]
+    use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
+
+    #[derive(Error, Debug, FromVariant)]
+    pub enum Error {
+        #[error("This is not a versioned object. No version information found.")]
+        NotVersioned,
+        #[error("Can not encode unsupported version from json to scale.")]
+        UnsupportedJsonEncode,
+        #[error("Expected json object.")]
+        ExpectedJson,
+        #[error("Can not encode unsupported version from scale to json.")]
+        UnsupportedScaleEncode,
+        #[error("Problem with serialization/deserialization of json.")]
+        SerdeError(#[source] serde_json::Error),
+        #[error("Problem with serialization/deserialization of parity scale.")]
+        ParityScaleError(#[source] parity_scale_codec::Error),
+        #[error("Problem with parsing integers.")]
+        ParseInt(#[source] std::num::ParseIntError),
+    }
+
+    #[cfg(feature = "http_error")]
+    impl HttpResponseError for Error {
+        fn status_code(&self) -> StatusCode {
+            HTTP_CODE_BAD_REQUEST
+        }
+        fn error_body(&self) -> Vec<u8> {
+            self.to_string().into()
+        }
+    }
+
+    pub type Result<T, E = Error> = std::result::Result<T, E>;
 }
 
 /// General trait describing if this is a versioned container.

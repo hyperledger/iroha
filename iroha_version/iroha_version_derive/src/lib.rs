@@ -291,7 +291,7 @@ fn impl_declare_versioned(
                             Ok(Self::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
                         }
                     } else {
-                        Err(Error::msg("This is not a versioned object. No version information found."))
+                        Err(Error::NotVersioned)
                     }
                 }
             }
@@ -305,7 +305,7 @@ fn impl_declare_versioned(
                     if let Self::UnsupportedVersion(unsupported_version) = self {
                         match &unsupported_version.raw {
                             RawVersioned::ScaleBytes(bytes) => Ok(bytes.clone()),
-                            RawVersioned::Json(_) => Err(Error::msg("Can not encode unsupported version from json to scale."))
+                            RawVersioned::Json(_) => Err(Error::UnsupportedJsonEncode)
                         }
                     } else {
                         Ok(self.encode())
@@ -350,10 +350,10 @@ fn impl_declare_versioned(
                                 Ok(Self::UnsupportedVersion(UnsupportedVersion::new(version, RawVersioned::Json(input.to_string()))))
                             }
                         } else {
-                            Err(Error::msg("This is not a versioned object. No version information found."))
+                            Err(Error::NotVersioned)
                         }
                     } else {
-                        Err(Error::msg("Expected json object."))
+                        Err(Error::ExpectedJson)
                     }
                 }
             }
@@ -365,7 +365,7 @@ fn impl_declare_versioned(
 
                     if let Self::UnsupportedVersion(unsupported_version) = self {
                         match &unsupported_version.raw {
-                            RawVersioned::ScaleBytes(_) => Err(Error::msg("Can not serialize unsupported version from scale to json.")),
+                            RawVersioned::ScaleBytes(_) => Err(Error::UnsupportedScaleEncode),
                             RawVersioned::Json(json) => Ok(json.to_string())
                         }
                     } else {

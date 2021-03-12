@@ -1,10 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use iroha_version::{
-        error::{Error, Result},
-        json::*,
-        RawVersioned, Version,
-    };
+    use iroha_version::{error::Result, json::*, RawVersioned, Version};
     use iroha_version_derive::{declare_versioned, version};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -42,12 +38,15 @@ mod tests {
     }
 
     #[test]
-    fn supported_version() -> Result<()> {
+    fn supported_version() -> Result<(), String> {
         use model_1::*;
 
         let versioned_message: VersionedMessage = Message.into();
-        let json = versioned_message.to_versioned_json_str()?;
-        let decoded_message = VersionedMessage::from_versioned_json_str(&json)?;
+        let json = versioned_message
+            .to_versioned_json_str()
+            .map_err(|e| e.to_string())?;
+        let decoded_message =
+            VersionedMessage::from_versioned_json_str(&json).map_err(|e| e.to_string())?;
         match decoded_message {
             VersionedMessage::V1(message) => {
                 let _message: Message = message.into();
@@ -55,25 +54,28 @@ mod tests {
             }
             VersionedMessage::V2(message) => {
                 let _message: Message2 = message.into();
-                Err(Error::msg("Should have been message v1."))
+                Err("Should have been message v1.".to_owned())
             }
-            _ => Err(Error::msg("Unsupported version.")),
+            _ => Err("Unsupported version.".to_owned()),
         }
     }
 
     #[test]
-    fn unsupported_version() -> Result<()> {
+    fn unsupported_version() -> Result<(), String> {
         let json = {
             use model_2::*;
 
             let versioned_message: VersionedMessage = Message3("test string".to_string()).into();
-            versioned_message.to_versioned_json_str()?
+            versioned_message
+                .to_versioned_json_str()
+                .map_err(|e| e.to_string())?
         };
 
         use model_1::*;
 
         let raw_string = "{\"version\":\"3\",\"content\":\"test string\"}";
-        let decoded_message = VersionedMessage::from_versioned_json_str(&json)?;
+        let decoded_message =
+            VersionedMessage::from_versioned_json_str(&json).map_err(|e| e.to_string())?;
         assert!(!decoded_message.is_supported());
         match decoded_message {
             VersionedMessage::UnsupportedVersion(unsupported_version) => {
@@ -82,10 +84,10 @@ mod tests {
                     assert_eq!(json, raw_string);
                     Ok(())
                 } else {
-                    Err(Error::msg("Should be json."))
+                    Err("Should be json.".to_owned())
                 }
             }
-            _ => Err(Error::msg("Should be an unsupported version")),
+            _ => Err("Should be an unsupported version".to_owned()),
         }
     }
 }
