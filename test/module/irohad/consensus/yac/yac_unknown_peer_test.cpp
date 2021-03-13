@@ -70,7 +70,9 @@ TEST_F(YacTest, UnknownVoteAfterCommit) {
 
   EXPECT_CALL(*timer, deny()).Times(AtLeast(1));
 
-  EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
+  EXPECT_CALL(*crypto, verify(_))
+      .Times(AtLeast(1))
+      .WillRepeatedly(Return(true));
 
   YacHash my_hash(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
 
