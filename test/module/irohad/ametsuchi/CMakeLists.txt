@@ -11,6 +11,7 @@ target_link_libraries(ametsuchi_test
     flat_file_storage
     shared_model_stateless_validation
     test_logger
+    subscription
     )
 
 addtest(wsv_query_command_test wsv_query_command_test.cpp)
