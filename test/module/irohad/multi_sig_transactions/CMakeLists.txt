@@ -41,6 +41,7 @@ target_link_libraries(mst_processor_test
     test_logger
     shared_model_default_builders
     shared_model_stateless_validation
+    subscription
     )
 
 AddTest(gossip_propagation_strategy_test

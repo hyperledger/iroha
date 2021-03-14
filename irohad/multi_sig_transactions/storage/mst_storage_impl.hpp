@@ -43,8 +43,6 @@ namespace iroha {
 
     static std::shared_ptr<MstStorageStateImpl> create(
         CompleterType const &completer,
-        /*rxcpp::observable<shared_model::interface::types::HashType>
-            finalized_txs,*/
         logger::LoggerPtr mst_state_logger,
         logger::LoggerPtr log);
 

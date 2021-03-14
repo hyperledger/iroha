@@ -32,6 +32,24 @@ using testing::Return;
 static const PublicKeyHexStringView kPublicKey1{"first public key"sv};
 static const PublicKeyHexStringView kPublicKey2{"second public key"sv};
 
+/*
+ * Initialize observables of mst processor
+ */
+auto initObservers(std::shared_ptr<FairMstProcessor> mst_processor, iroha::utils::WaitForSingleObject &operation_complete) {
+  auto obs = std::make_tuple(
+      subscribeEventAsync<std::shared_ptr<MstState>,
+          EventTypes::kOnStateUpdate>([](auto const &) {}),
+      subscribeEventAsync<DataType, EventTypes::kOnPreparedBatches>(
+          [](auto const &) {}),
+      subscribeEventAsync<DataType, EventTypes::kOnExpiredBatches>(
+          [](auto const &) {}),
+      subscribeEventAsync<bool, EventTypes::kOnTestOperationComplete>(
+          [&](auto const &) {
+            operation_complete.set();
+          }));
+  return obs;
+}
+
 class MstProcessorTest : public testing::Test {
  public:
   // --------------------------------| fields |---------------------------------
@@ -58,11 +76,21 @@ class MstProcessorTest : public testing::Test {
   PublicKeyHexStringView yet_another_peer_key_hex{"yet_another_pubkey"sv};
 
  protected:
+  template<typename F>
+  auto executeProcessorOperation(F &&f) {
+    iroha::utils::WaitForSingleObject complete;
+    auto observers = initObservers(mst_processor, complete);
+    std::forward<F>(f)();
+    iroha::getSubscription()->notify(
+        iroha::EventTypes::kOnTestOperationComplete, false);
+    complete.wait(std::chrono::minutes(10ull));
+    return observers;
+  }
+
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
     storage = MstStorageStateImpl::create(
         std::make_shared<TestCompleter>(),
-        rxcpp::observable<>::empty<shared_model::interface::types::HashType>(),
         getTestLogger("MstState"),
         getTestLogger("MstStorage"));
 
@@ -84,33 +112,13 @@ class MstProcessorTest : public testing::Test {
 };
 
 /*
- * Initialize observables of mst processor
- */
-auto initObservers(std::shared_ptr<FairMstProcessor> mst_processor,
-                   int a,
-                   int b,
-                   int c) {
-  auto obs = std::make_tuple(
-      make_test_subscriber<CallExact>(mst_processor->onStateUpdate(), a),
-      make_test_subscriber<CallExact>(mst_processor->onPreparedBatches(), b),
-      make_test_subscriber<CallExact>(mst_processor->onExpiredBatches(), c));
-  std::get<0>(obs).subscribe();
-  std::get<1>(obs).subscribe();
-  std::get<2>(obs).subscribe();
-  return obs;
-}
-
-/*
  * Make sure that observables in the valid state
  */
 template <typename T>
-void check(T &t) {
-  ASSERT_TRUE(std::get<0>(t).validate())
-      << "onStateUpdate" << std::get<0>(t).reason();
-  ASSERT_TRUE(std::get<1>(t).validate())
-      << "onPreparedBatches" << std::get<1>(t).reason();
-  ASSERT_TRUE(std::get<2>(t).validate())
-      << "onExpiredBatches" << std::get<2>(t).reason();
+void check(T &t, uint32_t const (& counts)[3]) {
+  ASSERT_TRUE(std::get<0>(t)->get() == counts[0]);
+  ASSERT_TRUE(std::get<1>(t)->get() == counts[1]);
+  ASSERT_TRUE(std::get<2>(t)->get() == counts[2]);
 }
 
 /**
@@ -131,14 +139,11 @@ TEST_F(MstProcessorTest, receivedSameSignatures) {
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, 2)), 0, same_key));
 
-  auto observers = initObservers(mst_processor, 0, 0, 0);
-
-  // ---------------------------------| when |----------------------------------
-  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 2)), 0, same_key));
-
-  // ---------------------------------| then |----------------------------------
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, 2)), 0, same_key));
+  });
+  check(observers, {0ul, 0ul, 0ul});
 }
 
 /**
@@ -153,15 +158,11 @@ TEST_F(MstProcessorTest, receivedSameSignatures) {
  * AND absent expired transactions
  */
 TEST_F(MstProcessorTest, notCompletedTransactionUsecase) {
-  // ---------------------------------| given |---------------------------------
-  auto observers = initObservers(mst_processor, 1, 0, 0);
-
-  // ---------------------------------| when |----------------------------------
-  mst_processor->propagateBatch(
-      addSignaturesFromKeyPairs(makeTestBatch(txBuilder(1)), 0, makeKey()));
-
-  // ---------------------------------| then |----------------------------------
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    mst_processor->propagateBatch(
+        addSignaturesFromKeyPairs(makeTestBatch(txBuilder(1)), 0, makeKey()));
+  });
+  check(observers, {1, 0, 0});
 }
 
 /**
@@ -183,14 +184,11 @@ TEST_F(MstProcessorTest, newSignatureNotCompleted) {
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
 
-  auto observers = initObservers(mst_processor, 1, 0, 0);
-
-  // ---------------------------------| when |----------------------------------
-  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
-
-  // ---------------------------------| then |----------------------------------
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+  });
+  check(observers, {1, 0, 0});
 }
 
 /**
@@ -206,19 +204,15 @@ TEST_F(MstProcessorTest, newSignatureNotCompleted) {
  * AND absent expired transactions
  */
 TEST_F(MstProcessorTest, completedTransactionUsecase) {
-  // ---------------------------------| given |---------------------------------
-  auto observers = initObservers(mst_processor, 2, 1, 0);
-
-  // ---------------------------------| when |----------------------------------
-  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
-  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
-  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
-
-  // ---------------------------------| then |----------------------------------
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+    mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+    mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+  });
+  check(observers, {2, 1, 0});
 }
 
 /**
@@ -234,16 +228,12 @@ TEST_F(MstProcessorTest, completedTransactionUsecase) {
  * AND 1 expired transactions
  */
 TEST_F(MstProcessorTest, expiredTransactionUsecase) {
-  // ---------------------------------| given |---------------------------------
-  auto observers = initObservers(mst_processor, 1, 0, 1);
-
-  // ---------------------------------| when |----------------------------------
-  auto quorum = 1u;
-  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_before, quorum)), 0, makeKey()));
-
-  // ---------------------------------| then |----------------------------------
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    auto quorum = 1u;
+    mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_before, quorum)), 0, makeKey()));
+  });
+  check(observers, {1, 0, 1});
 }
 
 /**
@@ -265,17 +255,14 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey()));
 
-  auto observers = initObservers(mst_processor, 0, 1, 0);
-
-  // ---------------------------------| when |----------------------------------
-  auto transported_state = MstState::empty(getTestLogger("MstState"),
-                                           std::make_shared<TestCompleter>());
-  transported_state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(another_peer_key_hex, std::move(transported_state));
-
-  // ---------------------------------| then |----------------------------------
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    auto transported_state = MstState::empty(getTestLogger("MstState"),
+                                             std::make_shared<TestCompleter>());
+    transported_state += addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
+    mst_processor->onNewState(another_peer_key_hex, std::move(transported_state));
+  });
+  check(observers, {0, 1, 0});
 }
 
 /**
@@ -464,21 +451,16 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
 TEST_F(MstProcessorTest, receivedOutdatedState) {
   // ---------------------------------| then |----------------------------------
   EXPECT_CALL(*transport, sendState(_, _)).Times(0);
-  auto observers = initObservers(mst_processor, 0, 0, 0);
-
-  // ---------------------------------| when |----------------------------------
   const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
-  {
+  auto observers = executeProcessorOperation([&]() {
     auto transported_state = MstState::empty(getTestLogger("MstState"),
                                              std::make_shared<TestCompleter>());
     transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
     mst_processor->onNewState(another_peer_key_hex,
                               std::move(transported_state));
-  }
-
-  // ---------------------------------| then |----------------------------------
+  });
   EXPECT_FALSE(storage->batchInStorage(expired_batch));
-  check(observers);
+  check(observers, {0, 0, 0});
 }
 
 /**
@@ -499,8 +481,8 @@ TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
   auto received_state = MstState::empty(getTestLogger("MstState"),
                                         std::make_shared<TestCompleter>());
   received_state += batch;
-  auto observers = initObservers(mst_processor, 0, 0, 0);
-  mst_processor->onNewState(another_peer_key_hex, std::move(received_state));
-
-  check(observers);
+  auto observers = executeProcessorOperation([&]() {
+    mst_processor->onNewState(another_peer_key_hex, std::move(received_state));
+  });
+  check(observers, {0, 0, 0});
 }
