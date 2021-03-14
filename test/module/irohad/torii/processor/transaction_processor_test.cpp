@@ -46,9 +46,6 @@ class TransactionProcessorTest : public ::testing::Test {
     pcs = std::make_shared<MockPeerCommunicationService>();
     mst = std::make_shared<MockMstProcessor>(getTestLogger("MstProcessor"));
 
-    EXPECT_CALL(*pcs, onVerifiedProposal())
-        .WillRepeatedly(Return(verified_prop_notifier.get_observable()));
-
     EXPECT_CALL(*mst, onStateUpdateImpl())
         .WillRepeatedly(Return(mst_update_notifier.get_observable()));
     EXPECT_CALL(*mst, onPreparedBatchesImpl())
@@ -62,7 +59,6 @@ class TransactionProcessorTest : public ::testing::Test {
         mst,
         status_bus,
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>(),
-        commit_notifier.get_observable(),
         getTestLogger("TransactionProcessor"));
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
@@ -135,11 +131,6 @@ class TransactionProcessorTest : public ::testing::Test {
       mst_update_notifier;
   rxcpp::subjects::subject<iroha::DataType> mst_prepared_notifier;
   rxcpp::subjects::subject<iroha::DataType> mst_expired_notifier;
-  rxcpp::subjects::subject<
-      std::shared_ptr<const shared_model::interface::Block>>
-      commit_notifier;
-  rxcpp::subjects::subject<simulator::VerifiedProposalCreatorEvent>
-      verified_prop_notifier;
 
   std::shared_ptr<MockPeerCommunicationService> pcs;
   std::shared_ptr<MockStatusBus> status_bus;
@@ -281,10 +272,16 @@ TEST_F(TransactionProcessorTest, TransactionProcessorVerifiedProposalTest) {
       std::make_unique<shared_model::proto::Proposal>(
           TestProposalBuilder().transactions(txs).build());
 
-  // empty transactions errors - all txs are valid
-  verified_prop_notifier.get_subscriber().on_next(
-      simulator::VerifiedProposalCreatorEvent{
-          validation_result, round, ledger_state});
+  subscribeEventSync<simulator::VerifiedProposalCreatorEvent,
+      iroha::EventTypes::kOnVerifiedProposal>(
+      [&](auto const &) {
+      },
+      [&](){
+        getSubscription()->notify(
+            EventTypes::kOnVerifiedProposal,
+            simulator::VerifiedProposalCreatorEvent{
+                validation_result, round, ledger_state});
+      });
 
   SCOPED_TRACE("Stateful Valid status verification");
   validateStatuses<shared_model::interface::StatefulValidTxResponse>(txs);
@@ -326,15 +323,29 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnCommitTest) {
           TestProposalBuilder().transactions(txs).build());
 
   // empty transactions errors - all txs are valid
-  verified_prop_notifier.get_subscriber().on_next(
-      simulator::VerifiedProposalCreatorEvent{
-          validation_result, round, ledger_state});
+  subscribeEventSync<simulator::VerifiedProposalCreatorEvent,
+      iroha::EventTypes::kOnVerifiedProposal>(
+      [&](auto const &) {
+      },
+      [&](){
+        getSubscription()->notify(
+            EventTypes::kOnVerifiedProposal,
+            simulator::VerifiedProposalCreatorEvent{
+                validation_result, round, ledger_state});
+      });
 
   auto block = TestBlockBuilder().transactions(txs).build();
 
   // 2. Create block and notify transaction processor about it
-  commit_notifier.get_subscriber().on_next(
-      std::shared_ptr<shared_model::interface::Block>(clone(block)));
+  subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
+      iroha::EventTypes::kOnBlock>(
+      [&](auto const &) {
+      },
+      [&](){
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(clone(block)));
+      });
 
   SCOPED_TRACE("Committed status verification");
   validateStatuses<shared_model::interface::CommittedTxResponse>(txs);
@@ -396,9 +407,17 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
                                      iroha::validation::CommandError{
                                          "SomeCommandName", 1, "", true, i}});
   }
-  verified_prop_notifier.get_subscriber().on_next(
-      simulator::VerifiedProposalCreatorEvent{
-          validation_result, round, ledger_state});
+
+  subscribeEventSync<simulator::VerifiedProposalCreatorEvent,
+      iroha::EventTypes::kOnVerifiedProposal>(
+      [&](auto const &) {
+      },
+      [&](){
+        getSubscription()->notify(
+            EventTypes::kOnVerifiedProposal,
+            simulator::VerifiedProposalCreatorEvent{
+                validation_result, round, ledger_state});
+      });
 
   {
     SCOPED_TRACE("Stateful invalid status verification");
@@ -415,8 +434,15 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
                        }))
                    .build();
 
-  commit_notifier.get_subscriber().on_next(
-      std::shared_ptr<shared_model::interface::Block>(clone(block)));
+  subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
+      iroha::EventTypes::kOnBlock>(
+      [&](auto const &) {
+      },
+      [&](){
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(clone(block)));
+      });
 
   {
     SCOPED_TRACE("Rejected status verification");
@@ -459,7 +485,6 @@ TEST_F(TransactionProcessorTest, MultisigTransactionFromMst) {
   auto &&after_mst = framework::batch::createBatchFromSingleTransaction(
       std::shared_ptr<shared_model::interface::Transaction>(clone(tx)));
 
-  EXPECT_CALL(*pcs, propagate_batch(_)).Times(1);
   mst_prepared_notifier.get_subscriber().on_next(after_mst);
 }
 
