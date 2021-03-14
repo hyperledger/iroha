@@ -193,8 +193,9 @@ TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
     });
   });
   for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder().build()));
+    getSubscription()->notify(
+        EventTypes::kOnBlock,
+        std::shared_ptr<const shared_model::interface::Block>(clone(TestBlockBuilder().build())));
   }
   ASSERT_TRUE(wrapper.validate());
 }
@@ -213,18 +214,26 @@ TEST_F(QueryProcessorTest, GetBlocksQuery) {
   EXPECT_CALL(*storage, createQueryExecutor(_, _))
       .WillOnce(Return(ByMove(std::move(qry_exec))));
 
+  std::atomic<uint32_t> remains = block_number;
   auto wrapper = make_test_subscriber<CallExact>(
       qpi->blocksQueryHandle(block_query), block_number);
-  wrapper.subscribe([](auto response) {
+  wrapper.subscribe([&](auto response) {
     ASSERT_NO_THROW({
       boost::get<const shared_model::interface::BlockResponse &>(
           response->get());
+      --remains;
     });
   });
   for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder().build()));
+    getSubscription()->notify(
+        EventTypes::kOnBlock,
+        std::shared_ptr<const shared_model::interface::Block>(
+            clone(TestBlockBuilder().build())));
   }
+
+  while (remains.load(std::memory_order_relaxed) > 0)
+    std::this_thread::sleep_for(std::chrono::milliseconds(5ull));
+
   ASSERT_TRUE(wrapper.validate());
 }
 
@@ -250,11 +259,12 @@ TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
     });
   });
   for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder()
-                  .height(1)
-                  .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
-                  .build()));
+    getSubscription()->notify(
+        EventTypes::kOnBlock,
+        std::shared_ptr<const shared_model::interface::Block>(clone(TestBlockBuilder()
+                                                                        .height(1)
+                                                                        .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
+                                                                        .build())));
   }
   ASSERT_TRUE(wrapper.validate());
 }
