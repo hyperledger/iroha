@@ -48,6 +48,7 @@ target_link_libraries(storage_init_test
     shared_model_proto_backend
     pg_connection_init
     test_logger
+    subscription
     )
 
 addtest(postgres_options_test postgres_options_test.cpp)

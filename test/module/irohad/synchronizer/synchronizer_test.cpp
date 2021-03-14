@@ -243,17 +243,18 @@ TEST_F(SynchronizerTest, ValidWhenSingleCommitSynchronized) {
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::PairValid(
+            consensus::Round{kHeight, 1}, ledger_state, commit_message));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
-      consensus::Round{kHeight, 1}, ledger_state, commit_message));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -273,18 +274,19 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this, round](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-    ASSERT_EQ(commit_event.round, round);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+        ASSERT_EQ(commit_event.round, round);
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(
+            consensus::VoteOther(round, ledger_state, public_keys, hash));
+      });
 
-  gate_outcome.get_subscriber().on_next(
-      consensus::VoteOther(round, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -310,18 +312,19 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(rxcpp::observable<>::iterate(commits)));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this, target_height](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.round.block_round, target_height);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+        ASSERT_EQ(commit_event.round.block_round, target_height);
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -350,14 +353,16 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
       .WillOnce(Return(rxcpp::observable<>::just(commit_message)))
       .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 MATCHER_P(StringEqSharedPtr, ptr, "equals " + *ptr) {
@@ -432,14 +437,16 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
         .WillOnce(Return(true));
   }
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::Future{
+            consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::Future{
-      consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -504,14 +511,16 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
         .WillOnce(Return(true));
   }
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::Future{
+            consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::Future{
-      consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -567,14 +576,16 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
         .WillOnce(Return(true));
   }
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::Future{
+            consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::Future{
-      consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -594,14 +605,16 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
       .Times(number_of_failures)
       .WillRepeatedly(Return(false));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
-  wrapper.subscribe();
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -610,19 +623,20 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
  * @then synchronizer output is also reject
  */
 TEST_F(SynchronizerTest, ProposalRejectOutcome) {
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
+      },
+      [&](){
+        mutableStorageExpectChain(*mutable_factory, {});
+        EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
 
-  mutableStorageExpectChain(*mutable_factory, {});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+        gate_outcome.get_subscriber().on_next(consensus::ProposalReject(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::ProposalReject(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -631,19 +645,20 @@ TEST_F(SynchronizerTest, ProposalRejectOutcome) {
  * @then synchronizer output is also reject
  */
 TEST_F(SynchronizerTest, BlockRejectOutcome) {
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
+      },
+      [&](){
+        mutableStorageExpectChain(*mutable_factory, {});
+        EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
 
-  mutableStorageExpectChain(*mutable_factory, {});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+        gate_outcome.get_subscriber().on_next(consensus::BlockReject(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::BlockReject(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -652,19 +667,20 @@ TEST_F(SynchronizerTest, BlockRejectOutcome) {
  * @then synchronizer output is also none
  */
 TEST_F(SynchronizerTest, NoneOutcome) {
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kNothing);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kNothing);
+      },
+      [&](){
+        mutableStorageExpectChain(*mutable_factory, {});
+        EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
 
-  mutableStorageExpectChain(*mutable_factory, {});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+        gate_outcome.get_subscriber().on_next(consensus::AgreementOnNone(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::AgreementOnNone(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -682,17 +698,20 @@ TEST_F(SynchronizerTest, VotedForBlockCommitPrepared) {
 
   EXPECT_CALL(*mutable_factory, commit_(_)).Times(0);
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+      },
+      [&](){
+        mutableStorageExpectChain(*mutable_factory, {});
 
-  mutableStorageExpectChain(*mutable_factory, {});
+        gate_outcome.get_subscriber().on_next(consensus::PairValid(
+            consensus::Round{kHeight, 1}, ledger_state, commit_message));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
-      consensus::Round{kHeight, 1}, ledger_state, commit_message));
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -715,14 +734,17 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
       .WillOnce(Return(true));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -741,14 +763,17 @@ TEST_F(SynchronizerTest, VotedForThisCommitPreparedFailure) {
       .WillOnce(Return(ByMove(expected::makeValue(
           std::make_shared<LedgerState>(ledger_peers, kHeight, hash)))));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &commit_event) {
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::PairValid(
+            consensus::Round{kHeight, 1}, ledger_state, commit_message));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
-      consensus::Round{kHeight, 1}, ledger_state, commit_message));
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -766,13 +791,16 @@ TEST_F(SynchronizerTest, CommitFailureVoteSameBlock) {
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::PairValid(
+            consensus::Round{kHeight, 1}, ledger_state, commit_message));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
-      consensus::Round{kHeight, 1}, ledger_state, commit_message));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -791,13 +819,16 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [&](auto const &) {
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+            consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -816,18 +847,18 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this,
-                     expected_round = consensus::Round{commit_message->height(),
-                                                       0}](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-    ASSERT_EQ(commit_event.round, expected_round);
-  });
+  auto wrapper = subscribeEventSync<SynchronizationEvent,
+      iroha::EventTypes::kOnSynchronization>(
+      [this, expected_round = consensus::Round{commit_message->height(),
+                                               0}](auto const &commit_event) {
+        EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+        ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+        ASSERT_EQ(commit_event.round, expected_round);
+      },
+      [&](){
+        gate_outcome.get_subscriber().on_next(consensus::Future(
+            consensus::Round{kHeight + 1, 1}, ledger_state, public_keys));
+      });
 
-  gate_outcome.get_subscriber().on_next(consensus::Future(
-      consensus::Round{kHeight + 1, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
