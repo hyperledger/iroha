@@ -207,18 +207,18 @@ namespace framework {
               iroha::EventTypes waitable_event,
               typename F>
     auto subscribeEventAsync(F &&f) {
-      using Subscription = iroha::BaseSubscriber<bool, WaitableType>;
+      using Subscription = iroha::BaseSubscriber<uint32_t, WaitableType>;
       auto wrapper = std::make_shared<Subscription>(
           iroha::getSubscription()
               ->getEngine<iroha::EventTypes, WaitableType>(),
-          false);
+          0ul);
 
       wrapper->setCallback(
           [f{std::forward<F>(f)}](auto /*set_id*/,
-                                  auto &flag,
+                                  auto &counter,
                                   auto key,
                                   WaitableType const &val) mutable {
-            flag = true;
+            ++counter;
             std::forward<F>(f)(val);
           });
       wrapper->template subscribe<iroha::SubscriptionEngineHandlers::kYac>(

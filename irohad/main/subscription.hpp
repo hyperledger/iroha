@@ -37,7 +37,10 @@ namespace iroha {
     // MST
     kOnStateUpdate,
     kOnPreparedBatches,
-    kOnExpiredBatches
+    kOnExpiredBatches,
+
+    // TEST
+    kOnTestOperationComplete
   };
 
   using Subscription = subscription::SubscriptionManager<
