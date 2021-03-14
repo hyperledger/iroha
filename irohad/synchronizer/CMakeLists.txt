@@ -12,4 +12,5 @@ target_link_libraries(synchronizer
     rxcpp
     logger
     gate_object
+    subscription
     )
