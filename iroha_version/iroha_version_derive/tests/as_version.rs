@@ -24,4 +24,14 @@ mod tests {
             .into();
         Ok(())
     }
+
+    #[test]
+    fn into_version() -> Result<(), String> {
+        let versioned_message: VersionedMessage = Message.into();
+        let _message: Message = versioned_message
+            .into_v1()
+            .ok_or_else(|| "Should be version 1.".to_string())?
+            .into();
+        Ok(())
+    }
 }

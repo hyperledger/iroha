@@ -109,14 +109,12 @@ impl TryFrom<&HttpRequest> for VerifiedQueryRequest {
     fn try_from(request: &HttpRequest) -> Result<Self, Self::Error> {
         let query = VersionedSignedQueryRequest::decode_versioned(&request.body)
             .map_err(AcceptQueryError::DecodeVersionedSignedQuery)?;
+        let version = query.version();
         let query: SignedQueryRequest = query
-            .as_v1()
-            .ok_or_else(|| {
-                AcceptQueryError::UnsupportedQueryVersion(UnsupportedVersionError {
-                    version: query.version(),
-                })
-            })?
-            .clone()
+            .into_v1()
+            .ok_or(AcceptQueryError::UnsupportedQueryVersion(
+                UnsupportedVersionError { version },
+            ))?
             .into();
         VerifiedQueryRequest::try_from(query).map_err(AcceptQueryError::VerifyQuery)
     }

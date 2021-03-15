@@ -233,7 +233,15 @@ impl DeclareVersionedArgs {
         self.range.clone().into_iter().collect()
     }
 
-    pub fn version_method_idents(&self) -> Vec<Ident> {
+    pub fn version_method_idents_into(&self) -> Vec<Ident> {
+        self.range
+            .clone()
+            .into_iter()
+            .map(|i| Ident::new(&format!("into_v{}", i), Span::call_site()))
+            .collect()
+    }
+
+    pub fn version_method_idents_as(&self) -> Vec<Ident> {
         self.range
             .clone()
             .into_iter()
@@ -271,7 +279,8 @@ fn impl_declare_versioned(
     let version_idents = args.version_idents();
     let version_struct_idents = args.version_struct_idents();
     let version_numbers = args.version_numbers();
-    let version_method_idents = args.version_method_idents();
+    let version_method_idents_as = args.version_method_idents_as();
+    let version_method_idents_into = args.version_method_idents_into();
     let range_end = args.range.end;
     let range_start = args.range.start;
     let enum_name = args.enum_name;
@@ -423,8 +432,19 @@ fn impl_declare_versioned(
 
         impl #enum_name {
             #(
+            /// Returns Some(ref _) if this container has this version. None otherwise.
+            pub fn #version_method_idents_as (&self) -> Option<& #version_struct_idents> {
+                use #enum_name::*;
+
+                match self {
+                    #version_idents (content) => Some(content),
+                    _ => None
+                }
+            }
+            )*
+            #(
             /// Returns Some(_) if this container has this version. None otherwise.
-            pub fn #version_method_idents (&self) -> Option<& #version_struct_idents> {
+            pub fn #version_method_idents_into (self) -> Option<#version_struct_idents> {
                 use #enum_name::*;
 
                 match self {
