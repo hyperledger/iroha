@@ -35,16 +35,21 @@ namespace iroha {
                               std::shared_ptr<
                                   const shared_model::interface::Block>>())),
           log_{std::move(log)} {
+    }
+
+    void QueryProcessorImpl::initialize(){
       block_subscription_->setCallback(
-          [this](auto,
+          [wptr(weak_from_this())](auto,
                  auto,
                  auto key,
                  std::shared_ptr<const shared_model::interface::Block> block) {
             assert(EventTypes::kOnBlock == key);
-            auto block_response =
-                response_factory_->createBlockQueryResponse(block);
-            blocks_query_subject_.get_subscriber().on_next(
-                std::move(block_response));
+            if (auto ptr = wptr.lock()) {
+              auto block_response =
+                  ptr->response_factory_->createBlockQueryResponse(block);
+              ptr->blocks_query_subject_.get_subscriber().on_next(
+                  std::move(block_response));
+            }
           });
       block_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
           0, EventTypes::kOnBlock);

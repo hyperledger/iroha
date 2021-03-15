@@ -51,6 +51,7 @@ class QueryProcessorTest : public ::testing::Test {
         nullptr,
         query_response_factory,
         getTestLogger("QueryProcessor"));
+    qpi->initialize();
     EXPECT_CALL(*storage, getBlockQuery())
         .WillRepeatedly(Return(block_queries));
   }

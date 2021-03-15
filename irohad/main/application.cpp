@@ -922,6 +922,7 @@ Irohad::RunResult Irohad::initQueryService() {
       pending_txs_storage_,
       query_response_factory_,
       query_service_log_manager->getChild("Processor")->getLogger());
+  query_processor->initialize();
 
   query_service = std::make_shared<::torii::QueryService>(
       query_processor,

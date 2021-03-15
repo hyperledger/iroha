@@ -84,6 +84,7 @@ class ToriiQueriesTest : public testing::Test {
         pending_txs_storage,
         query_response_factory,
         getTestLogger("QueryProcessor"));
+    qpi->initialize();
 
     //----------- Server run ----------------
     initQueryFactory();
