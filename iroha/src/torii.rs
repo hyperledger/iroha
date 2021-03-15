@@ -225,14 +225,12 @@ async fn handle_instructions(
     }
     let transaction = VersionedTransaction::decode_versioned(&request.body)
         .map_err(Error::VersionedTransaction)?;
+    let version = transaction.version();
     let transaction: Transaction = transaction
-        .as_v1()
-        .ok_or_else(|| {
-            Error::UnsupportedTxVersion(UnsupportedVersionError {
-                version: transaction.version(),
-            })
-        })?
-        .clone()
+        .into_v1()
+        .ok_or(Error::UnsupportedTxVersion(UnsupportedVersionError {
+            version,
+        }))?
         .into();
     let transaction = AcceptedTransaction::from_transaction(
         transaction,
@@ -313,14 +311,12 @@ async fn handle_pending_transactions_on_leader(
             .map_err(Error::RequestPendingTransactions)?;
             let message = VersionedPendingTransactions::decode_versioned(&bytes)
                 .map_err(Error::DecodeRequestPendingTransactions)?;
+            let version = message.version();
             message
-                .as_v1()
-                .ok_or_else(|| {
-                    Error::UnsupportedMessageVersion(UnsupportedVersionError {
-                        version: message.version(),
-                    })
-                })?
-                .clone()
+                .into_v1()
+                .ok_or(Error::UnsupportedMessageVersion(UnsupportedVersionError {
+                    version,
+                }))?
                 .into()
         };
 
@@ -398,8 +394,9 @@ async fn handle_request(
     match request.url() {
         uri::CONSENSUS_URI => match SumeragiVersionedMessage::decode_versioned(request.payload()) {
             Ok(message) => {
-                if let Some(message) = message.as_v1() {
-                    let message: SumeragiMessage = message.clone().into();
+                let version = message.version();
+                if let Some(message) = message.into_v1() {
+                    let message: SumeragiMessage = message.into();
                     state
                         .read()
                         .await
@@ -412,7 +409,7 @@ async fn handle_request(
 
                     Ok(Response::empty_ok())
                 } else {
-                    log::error!("Unsupported version: {}", message.version());
+                    log::error!("Unsupported version: {}", version);
                     Ok(Response::InternalError)
                 }
             }
@@ -424,8 +421,9 @@ async fn handle_request(
         uri::BLOCK_SYNC_URI => match BlockSyncVersionedMessage::decode_versioned(request.payload())
         {
             Ok(message) => {
-                if let Some(message) = message.as_v1() {
-                    let message: BlockSyncMessage = message.clone().into();
+                let version = message.version();
+                if let Some(message) = message.into_v1() {
+                    let message: BlockSyncMessage = message.into();
                     state
                         .read()
                         .await
@@ -437,7 +435,7 @@ async fn handle_request(
                         .map_err(Error::BlockSyncChannelFull)?;
                     Ok(Response::empty_ok())
                 } else {
-                    log::error!("Unsupported version: {}", message.version());
+                    log::error!("Unsupported version: {}", version);
                     Ok(Response::InternalError)
                 }
             }

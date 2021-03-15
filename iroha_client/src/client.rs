@@ -195,9 +195,10 @@ impl Client {
             if response.status() == StatusCode::OK {
                 let pending_transactions: PendingTransactions =
                     VersionedPendingTransactions::decode_versioned(&response.body())?
-                        .as_v1()
-                        .ok_or_else(|| error!("Expected pending transaction message version 1."))?
-                        .clone()
+                        .into_v1()
+                        .ok_or_else(|| {
+                            Error::msg("Expected pending transaction message version 1.")
+                        })?
                         .into();
                 let transaction = pending_transactions
                     .into_iter()
@@ -264,11 +265,8 @@ impl Iterator for EventIterator {
                 Ok(WebSocketMessage::Text(message)) => {
                     match VersionedEvent::from_versioned_json_str(&message) {
                         Ok(event) => {
-                            let event: Event = event
-                                .as_v1()
-                                .expect("Expected event version 1.")
-                                .clone()
-                                .into();
+                            let event: Event =
+                                event.into_v1().expect("Expected event version 1.").into();
                             return match self.stream.write_message(WebSocketMessage::Text(
                                 VersionedEventReceived::from(EventReceived)
                                     .to_versioned_json_str()
