@@ -27,7 +27,6 @@ pub fn main() {
             let message: Message = message.into();
             message.handle();
         }
-        _ => panic!("Unsupported version."),
     }
     let versioned_message: VersionedMessage2 = Message2.into();
     match versioned_message {
@@ -35,6 +34,5 @@ pub fn main() {
             let message: Message2 = message.into();
             message.handle();
         }
-        _ => panic!("Unsupported version."),
     }
 }

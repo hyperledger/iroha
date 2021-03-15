@@ -2,36 +2,44 @@
 //! implementations.
 
 use crate::{
-    merkle::MerkleTree, permissions::PermissionsValidatorBox, prelude::*,
-    sumeragi::InitializedNetworkTopology, tx::RejectedTransaction,
+    merkle::MerkleTree,
+    permissions::PermissionsValidatorBox,
+    prelude::*,
+    sumeragi::InitializedNetworkTopology,
+    tx::{VersionedAcceptedTransaction, VersionedRejectedTransaction, VersionedValidTransaction},
 };
 use iroha_crypto::{KeyPair, Signatures};
 use iroha_data_model::events::prelude::*;
 use iroha_derive::Io;
 use iroha_error::Result;
+use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use std::iter;
 use std::time::SystemTime;
 
+declare_versioned_with_scale!(VersionedPendingBlock 1..2);
+
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
 /// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
+#[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<AcceptedTransaction>,
+    pub transactions: Vec<VersionedAcceptedTransaction>,
 }
 
 impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
-    pub fn new(transactions: Vec<AcceptedTransaction>) -> PendingBlock {
+    pub fn new(transactions: Vec<VersionedAcceptedTransaction>) -> PendingBlock {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Failed to get System Time.")
+            .as_millis();
         PendingBlock {
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.")
-                .as_millis(),
+            timestamp,
             transactions,
         }
     }
@@ -103,7 +111,7 @@ pub struct ChainedBlock {
     /// Header
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<AcceptedTransaction>,
+    pub transactions: Vec<VersionedAcceptedTransaction>,
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
@@ -147,7 +155,7 @@ impl ChainedBlock {
         self,
         world_state_view: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
-    ) -> ValidBlock {
+    ) -> VersionedValidBlock {
         let mut transactions = Vec::new();
         let mut rejected_transactions = Vec::new();
         for transaction in self.transactions {
@@ -160,7 +168,7 @@ impl ChainedBlock {
                 Err(transaction) => {
                     log::warn!(
                         "Transaction validation failed: {}",
-                        transaction.rejection_reason
+                        transaction.as_inner_v1().rejection_reason
                     );
                     rejected_transactions.push(transaction)
                 }
@@ -168,19 +176,13 @@ impl ChainedBlock {
         }
         let mut header = self.header;
         header.transactions_merkle_root_hash = MerkleTree::new()
-            .build(
-                &transactions
-                    .iter()
-                    .map(|transaction| transaction.hash())
-                    .collect::<Vec<_>>(),
-            )
+            .build(transactions.iter().map(|transaction| transaction.hash()))
             .root_hash();
         header.rejected_transactions_merkle_root_hash = MerkleTree::new()
             .build(
-                &rejected_transactions
+                rejected_transactions
                     .iter()
-                    .map(|transaction| transaction.hash())
-                    .collect::<Vec<_>>(),
+                    .map(|transaction| transaction.hash()),
             )
             .root_hash();
         ValidBlock {
@@ -189,6 +191,7 @@ impl ChainedBlock {
             transactions,
             signatures: Signatures::default(),
         }
+        .into()
     }
 
     /// Calculate hash of the current block.
@@ -197,15 +200,87 @@ impl ChainedBlock {
     }
 }
 
+declare_versioned_with_scale!(VersionedValidBlock 1..2);
+
+impl VersionedValidBlock {
+    /// Same as [`as_v1`] but also does conversion
+    pub fn as_inner_v1(&self) -> &ValidBlock {
+        match self {
+            Self::V1(v1) => &v1.0,
+        }
+    }
+
+    /// Same as [`as_inner_v1`] but returns mutable reference
+    pub fn as_mut_inner_v1(&mut self) -> &mut ValidBlock {
+        match self {
+            Self::V1(v1) => &mut v1.0,
+        }
+    }
+
+    /// Same as [`into_v1`] but also does conversion
+    pub fn into_inner_v1(self) -> ValidBlock {
+        match self {
+            Self::V1(v1) => v1.0,
+        }
+    }
+
+    /// Returns header of valid block
+    pub fn header(&self) -> &BlockHeader {
+        &self.as_inner_v1().header
+    }
+
+    /// Commit block to the store.
+    pub fn commit(self) -> VersionedCommittedBlock {
+        self.into_inner_v1().commit().into()
+    }
+
+    /// Validate block transactions against current state of the world.
+    pub fn revalidate(
+        self,
+        wsv: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+    ) -> VersionedValidBlock {
+        self.into_inner_v1()
+            .revalidate(wsv, permissions_validator)
+            .into()
+    }
+
+    /// Calculate hash of the current block.
+    pub fn hash(&self) -> Hash {
+        self.as_inner_v1().header.hash()
+    }
+
+    /// Sign this block and get `VersionedValidBlock`.
+    pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedValidBlock> {
+        self.into_inner_v1().sign(key_pair).map(Into::into)
+    }
+
+    /// Signatures that are verified with the `hash` of this block as `payload`.
+    pub fn verified_signatures(&self) -> Vec<Signature> {
+        self.as_inner_v1().verified_signatures()
+    }
+
+    /// Checks if there are no transactions in this block.
+    pub fn is_empty(&self) -> bool {
+        self.as_inner_v1().is_empty()
+    }
+
+    /// Checks if block has transactions that are already in blockchain.
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
+        self.as_inner_v1().has_committed_transactions(wsv)
+    }
+}
+
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
+#[version_with_scale(n = 1, versioned = "VersionedValidBlock")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidBlock {
     /// Header
     pub header: BlockHeader,
     /// Array of rejected transactions.
-    pub rejected_transactions: Vec<RejectedTransaction>,
+    pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// Array of transactions.
-    pub transactions: Vec<ValidTransaction>,
+    pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
     pub signatures: Signatures,
 }
@@ -235,15 +310,12 @@ impl ValidBlock {
                 transactions: self
                     .transactions
                     .into_iter()
-                    .map(|transaction| transaction.into())
-                    .chain(
-                        self.rejected_transactions
-                            .into_iter()
-                            .map(|transaction| transaction.into()),
-                    )
+                    .map(Into::into)
+                    .chain(self.rejected_transactions.into_iter().map(Into::into))
                     .collect(),
             }
             .validate(world_state_view, permissions_validator)
+            .into_inner_v1()
         }
     }
 
@@ -278,6 +350,12 @@ impl ValidBlock {
                 .rejected_transactions
                 .iter()
                 .any(|transaction| transaction.is_in_blockchain(world_state_view))
+    }
+}
+
+impl From<&VersionedValidBlock> for Vec<Event> {
+    fn from(block: &VersionedValidBlock) -> Self {
+        block.as_inner_v1().into()
     }
 }
 
@@ -321,16 +399,48 @@ impl From<&ValidBlock> for Vec<Event> {
     }
 }
 
+declare_versioned_with_scale!(VersionedCommittedBlock 1..2);
+
+impl VersionedCommittedBlock {
+    /// Same as [`as_v1`] but also does conversion
+    pub fn as_inner_v1(&self) -> &CommittedBlock {
+        match self {
+            Self::V1(v1) => &v1.0,
+        }
+    }
+
+    /// Same as [`as_inner_v1`] but returns mutable reference
+    pub fn as_mut_inner_v1(&mut self) -> &mut CommittedBlock {
+        match self {
+            Self::V1(v1) => &mut v1.0,
+        }
+    }
+
+    /// Same as [`into_v1`] but also does conversion
+    pub fn into_inner_v1(self) -> CommittedBlock {
+        match self {
+            Self::V1(v1) => v1.0,
+        }
+    }
+
+    /// Calculate hash of the current block.
+    /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
+    pub fn hash(&self) -> Hash {
+        self.as_inner_v1().hash()
+    }
+}
+
 /// When Kura receives `ValidBlock`, the block is stored and
 /// then sent to later stage of the pipeline as `CommitedBlock`.
+#[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct CommittedBlock {
     /// Header
     pub header: BlockHeader,
     /// Array of rejected transactions.
-    pub rejected_transactions: Vec<RejectedTransaction>,
+    pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<ValidTransaction>,
+    pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block
     pub signatures: Signatures,
 }
@@ -340,6 +450,12 @@ impl CommittedBlock {
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> Hash {
         self.header.hash()
+    }
+}
+
+impl From<&VersionedCommittedBlock> for Vec<Event> {
+    fn from(block: &VersionedCommittedBlock) -> Self {
+        block.as_inner_v1().into()
     }
 }
 
@@ -365,7 +481,9 @@ impl From<&CommittedBlock> for Vec<Event> {
                     .map(|transaction| {
                         PipelineEvent::new(
                             PipelineEntityType::Transaction,
-                            PipelineStatus::Rejected(transaction.rejection_reason.clone().into()),
+                            PipelineStatus::Rejected(
+                                transaction.as_inner_v1().rejection_reason.clone().into(),
+                            ),
                             transaction.hash(),
                         )
                         .into()
