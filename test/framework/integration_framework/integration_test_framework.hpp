@@ -77,6 +77,7 @@ namespace iroha {
     class ServerRunner;
     template <typename Response>
     class AsyncGrpcClient;
+    struct OrderingEvent;
   }  // namespace network
   namespace protocol {
     class Proposal;
@@ -86,6 +87,9 @@ namespace iroha {
     struct VerifiedProposalAndErrors;
   }
   class MstState;
+  namespace simulator {
+    struct VerifiedProposalCreatorEvent;
+  }
 }  // namespace iroha
 namespace torii {
   class CommandSyncClient;
@@ -575,6 +579,12 @@ namespace integration_framework {
     SubscriberTypePtr<iroha::consensus::GateObject> yac_gate_outcome_;
     SubscriberTypePtr<iroha::synchronizer::SynchronizationEvent> pcs_synchronization_;
     SubscriberTypePtr<std::shared_ptr<const shared_model::interface::Block>> storage_commit_;
+    SubscriberTypePtr<iroha::network::OrderingEvent> requested_proposals_;
+    SubscriberTypePtr<iroha::simulator::VerifiedProposalCreatorEvent> verified_proposals_;
+    std::shared_ptr<iroha::BaseSubscriber<
+        bool,
+        std::shared_ptr<const shared_model::interface::Block>
+    >> committed_blocks_;
 
    private:
     bool cleanup_on_exit_;
