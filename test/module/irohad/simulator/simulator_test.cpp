@@ -164,7 +164,7 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
 
   auto block_wrapper = subscribeEventSync<BlockCreatorEvent,
       EventTypes::kOnBlockCreatorEvent>(
-      [&](auto const &event) {
+      [proposal, ordering_event](auto const &event) {
         auto block = getBlockUnsafe(event);
         EXPECT_EQ(block->height(), proposal->height());
         EXPECT_EQ(block->transactions(), proposal->transactions());
