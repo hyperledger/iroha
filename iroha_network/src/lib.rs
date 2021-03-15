@@ -7,7 +7,7 @@ use async_std::{
     sync::RwLock,
 };
 use iroha_derive::{log, Io};
-use iroha_error::{Error, Result};
+use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use std::{
     convert::{TryFrom, TryInto},
@@ -228,7 +228,7 @@ impl From<Request> for Vec<u8> {
 }
 
 impl TryFrom<Vec<u8>> for Request {
-    type Error = Error;
+    type Error = iroha_error::Error;
 
     #[log("TRACE")]
     fn try_from(mut bytes: Vec<u8>) -> Result<Request> {
@@ -259,7 +259,7 @@ impl Response {
     pub fn into_result(self) -> Result<Vec<u8>> {
         match self {
             Response::Ok(bytes) => Ok(bytes),
-            Response::InternalError => Err(Error::msg("Internal Server Error.")),
+            Response::InternalError => Err(error!("Internal Server Error.")),
         }
     }
 }

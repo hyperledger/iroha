@@ -13,7 +13,7 @@ use async_std::{
 use futures::future;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
-use iroha_error::{Error, Result, WrapErr};
+use iroha_error::{error, Result, WrapErr};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
@@ -77,7 +77,7 @@ impl GenesisNetwork {
                 private_key: genesis_config
                     .genesis_account_private_key
                     .clone()
-                    .ok_or_else(|| Error::msg("genesis account private key is empty"))?,
+                    .ok_or_else(|| error!("genesis account private key is empty"))?,
             };
             Ok(Some(GenesisNetwork {
                 transactions: raw_block
@@ -191,7 +191,7 @@ impl GenesisNetwork {
                 task::sleep(Duration::from_millis(reconnect_in_ms)).await;
             }
         }
-        Err(Error::msg("Waiting for peers failed."))
+        Err(error!("Waiting for peers failed."))
     }
 }
 

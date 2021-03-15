@@ -20,7 +20,7 @@ use crate::{
 use async_std::{prelude::*, sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
-use iroha_error::derive::Error;
+use iroha_error::{derive::Error, error};
 use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;

@@ -7,7 +7,7 @@ use iroha_data_model::*;
 pub mod isi {
     use super::*;
     use iroha_data_model::prelude::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Result};
 
     impl Execute for Register<Peer> {
         fn execute(
@@ -23,7 +23,7 @@ pub mod isi {
             {
                 Ok(world_state_view)
             } else {
-                Err(Error::msg(
+                Err(error!(
                     "Peer already presented in the list of trusted peers.",
                 ))
             }

@@ -2,7 +2,7 @@
 
 use super::{query::QueryBox, Value, ValueBox};
 use iroha_derive::FromVariant;
-use iroha_error::{Error, Result};
+use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, marker::PhantomData};
@@ -407,7 +407,7 @@ impl IfBuilder {
         {
             Ok(If::new(self.condition, then_expression, else_expression))
         } else {
-            Err(Error::msg("Not all fields are filled."))
+            Err(error!("Not all fields are filled."))
         }
     }
 }

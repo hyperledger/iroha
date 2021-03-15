@@ -3,7 +3,7 @@
 use crate::{expression::Evaluate, prelude::*};
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::log;
-use iroha_error::{error, Error, Result};
+use iroha_error::{error, Result};
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 pub trait Execute {
@@ -58,7 +58,7 @@ impl Execute for RegisterBox {
             IdentifiableBox::Peer(peer) => {
                 Register::<Peer>::new(*peer).execute(authority, world_state_view)
             }
-            _ => Err(Error::msg("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.")),
         }
     }
 }
@@ -82,7 +82,7 @@ impl Execute for UnregisterBox {
             IdBox::DomainName(domain_name) => {
                 Unregister::<Domain>::new(domain_name).execute(authority, world_state_view)
             }
-            _ => Err(Error::msg("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.")),
         }
     }
 }
@@ -100,12 +100,12 @@ impl Execute for MintBox {
                 Value::U32(quantity) => {
                     Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
-                _ => Err(Error::msg("Unsupported instruction.")),
+                _ => Err(error!("Unsupported instruction.")),
             },
             IdBox::WorldId => match self.object.evaluate(world_state_view, &context)? {
                 Value::Parameter(parameter) => Mint::<World, Parameter>::new(parameter, WorldId)
                     .execute(authority, world_state_view),
-                _ => Err(Error::msg("Unsupported instruction.")),
+                _ => Err(error!("Unsupported instruction.")),
             },
             IdBox::AccountId(account_id) => {
                 match self.object.evaluate(world_state_view, &context)? {
@@ -117,10 +117,10 @@ impl Execute for MintBox {
                         Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                             .execute(authority, world_state_view)
                     }
-                    _ => Err(Error::msg("Unsupported instruction.")),
+                    _ => Err(error!("Unsupported instruction.")),
                 }
             }
-            _ => Err(Error::msg("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.")),
         }
     }
 }
@@ -138,7 +138,7 @@ impl Execute for BurnBox {
                 Value::U32(quantity) => {
                     Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
-                _ => Err(Error::msg("Unsupported instruction.")),
+                _ => Err(error!("Unsupported instruction.")),
             },
             IdBox::AccountId(account_id) => {
                 match self.object.evaluate(world_state_view, &context)? {
@@ -146,10 +146,10 @@ impl Execute for BurnBox {
                         Burn::<Account, PublicKey>::new(public_key, account_id)
                             .execute(authority, world_state_view)
                     }
-                    _ => Err(Error::msg("Unsupported instruction.")),
+                    _ => Err(error!("Unsupported instruction.")),
                 }
             }
-            _ => Err(Error::msg("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.")),
         }
     }
 }
@@ -175,12 +175,12 @@ impl Execute for TransferBox {
                             destination_asset_id,
                         )
                         .execute(authority, world_state_view),
-                        _ => Err(Error::msg("Unsupported instruction.")),
+                        _ => Err(error!("Unsupported instruction.")),
                     },
-                    _ => Err(Error::msg("Unsupported instruction.")),
+                    _ => Err(error!("Unsupported instruction.")),
                 }
             }
-            _ => Err(Error::msg("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.")),
         }
     }
 }
