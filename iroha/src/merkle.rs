@@ -17,8 +17,8 @@ impl MerkleTree {
     }
 
     /// Builds a Merkle Tree from an array of `Hash` values values. For example of `Block` and `Transaction` hashes.
-    pub fn build(self, hashes: &[Hash]) -> Self {
-        let mut hashes: Vec<Hash> = hashes.to_vec();
+    pub fn build(self, hashes: impl IntoIterator<Item = Hash>) -> Self {
+        let mut hashes: Vec<Hash> = hashes.into_iter().collect();
         hashes.sort_unstable();
         let mut nodes: VecDeque<Node> =
             hashes.into_iter().map(|hash| Node::Leaf { hash }).collect();
@@ -181,34 +181,34 @@ mod tests {
     #[test]
     fn four_hashes_should_built_seven_nodes() {
         let hash = Hash([1u8; 32]);
-        let hashes = [hash, hash, hash, hash];
-        let merkle_tree = MerkleTree::new().build(&hashes);
+        let hashes = vec![hash, hash, hash, hash];
+        let merkle_tree = MerkleTree::new().build(hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 
     #[test]
     fn three_hashes_should_built_seven_nodes() {
         let hash = Hash([1u8; 32]);
-        let hashes = [hash, hash, hash];
-        let merkle_tree = MerkleTree::new().build(&hashes);
+        let hashes = vec![hash, hash, hash];
+        let merkle_tree = MerkleTree::new().build(hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 
     #[test]
     fn same_root_hash_for_same_hashes() {
         let merkle_tree_1 =
-            MerkleTree::new().build(&[Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
+            MerkleTree::new().build(vec![Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
         let merkle_tree_2 =
-            MerkleTree::new().build(&[Hash([2u8; 32]), Hash([1u8; 32]), Hash([3u8; 32])]);
+            MerkleTree::new().build(vec![Hash([2u8; 32]), Hash([1u8; 32]), Hash([3u8; 32])]);
         assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 
     #[test]
     fn different_root_hash_for_different_hashes() {
         let merkle_tree_1 =
-            MerkleTree::new().build(&[Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
+            MerkleTree::new().build(vec![Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
         let merkle_tree_2 =
-            MerkleTree::new().build(&[Hash([1u8; 32]), Hash([4u8; 32]), Hash([5u8; 32])]);
+            MerkleTree::new().build(vec![Hash([1u8; 32]), Hash([4u8; 32]), Hash([5u8; 32])]);
         assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 }

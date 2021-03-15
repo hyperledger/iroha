@@ -1,6 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use iroha_version::{error::Result, json::*, RawVersioned, Version};
+    use iroha_version::{
+        error::{Error, Result},
+        json::*,
+        RawVersioned,
+    };
     use iroha_version_derive::{declare_versioned, version};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -56,7 +60,6 @@ mod tests {
                 let _message: Message2 = message.into();
                 Err("Should have been message v1.".to_owned())
             }
-            _ => Err("Unsupported version.".to_owned()),
         }
     }
 
@@ -74,11 +77,9 @@ mod tests {
         use model_1::*;
 
         let raw_string = "{\"version\":\"3\",\"content\":\"test string\"}";
-        let decoded_message =
-            VersionedMessage::from_versioned_json_str(&json).map_err(|e| e.to_string())?;
-        assert!(!decoded_message.is_supported());
+        let decoded_message = VersionedMessage::from_versioned_json_str(&json);
         match decoded_message {
-            VersionedMessage::UnsupportedVersion(unsupported_version) => {
+            Err(Error::UnsupportedVersion(unsupported_version)) => {
                 assert_eq!(unsupported_version.version, 3);
                 if let RawVersioned::Json(json) = unsupported_version.raw {
                     assert_eq!(json, raw_string);

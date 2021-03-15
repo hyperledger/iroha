@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 pub mod error {
+    use super::UnsupportedVersion;
     use iroha_derive::FromVariant;
     use iroha_error::derive::Error;
     #[cfg(feature = "http_error")]
@@ -32,6 +33,8 @@ pub mod error {
         ParityScaleError(#[source] parity_scale_codec::Error),
         #[error("Problem with parsing integers.")]
         ParseInt(#[source] std::num::ParseIntError),
+        #[error("Version of input is unsupported")]
+        UnsupportedVersion(UnsupportedVersion),
     }
 
     #[cfg(feature = "http_error")]

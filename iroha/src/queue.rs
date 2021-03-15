@@ -8,7 +8,7 @@ use std::time::Duration;
 #[derive(Debug)]
 pub struct Queue {
     pending_tx_hash_queue: VecDeque<Hash>,
-    pending_tx_by_hash: BTreeMap<Hash, AcceptedTransaction>,
+    pending_tx_by_hash: BTreeMap<Hash, VersionedAcceptedTransaction>,
     maximum_transactions_in_block: usize,
     maximum_transactions_in_queue: usize,
     transaction_time_to_live: Duration,
@@ -20,6 +20,7 @@ impl Queue {
         self.pending_tx_by_hash
             .values()
             .cloned()
+            .map(VersionedAcceptedTransaction::into_inner_v1)
             .map(Transaction::from)
             .collect()
     }
@@ -36,12 +37,18 @@ impl Queue {
     }
 
     /// Puts new transaction into queue. Returns error if queue is full.
-    pub fn push_pending_transaction(&mut self, tx: AcceptedTransaction) -> Result<()> {
+    pub fn push_pending_transaction(&mut self, tx: VersionedAcceptedTransaction) -> Result<()> {
         if let Some(transaction) = self.pending_tx_by_hash.get_mut(&tx.hash()) {
-            let mut signatures: BTreeSet<_> = transaction.signatures.iter().cloned().collect();
-            let mut new_signatures: BTreeSet<_> = tx.signatures.into_iter().collect();
+            let mut signatures: BTreeSet<_> = transaction
+                .as_inner_v1()
+                .signatures
+                .iter()
+                .cloned()
+                .collect();
+            let mut new_signatures: BTreeSet<_> =
+                tx.into_inner_v1().signatures.into_iter().collect();
             signatures.append(&mut new_signatures);
-            transaction.signatures = signatures.into_iter().collect();
+            transaction.as_mut_inner_v1().signatures = signatures.into_iter().collect();
             Ok(())
         } else if self.pending_tx_hash_queue.len() < self.maximum_transactions_in_queue {
             self.pending_tx_hash_queue.push_back(tx.hash());
@@ -63,10 +70,11 @@ impl Queue {
         &mut self,
         is_leader: bool,
         world_state_view: &WorldStateView,
-    ) -> Vec<AcceptedTransaction> {
+    ) -> Vec<VersionedAcceptedTransaction> {
         let mut output_transactions = Vec::new();
         let mut left_behind_transactions = VecDeque::new();
         let mut counter = self.maximum_transactions_in_block;
+
         while counter > 0 && !self.pending_tx_hash_queue.is_empty() {
             let transaction_hash = self
                 .pending_tx_hash_queue
@@ -195,7 +203,7 @@ mod tests {
         domain: &str,
         proposed_ttl_ms: u64,
         key: Option<&KeyPair>,
-    ) -> AcceptedTransaction {
+    ) -> VersionedAcceptedTransaction {
         let key = key
             .cloned()
             .unwrap_or_else(|| KeyPair::generate().expect("Failed to generate keypair."));
@@ -207,7 +215,8 @@ mod tests {
         )
         .sign(&key)
         .expect("Failed to sign.");
-        AcceptedTransaction::from_transaction(tx, 4096).expect("Failed to accept Transaction.")
+        VersionedAcceptedTransaction::from_transaction(tx, 4096)
+            .expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
@@ -267,7 +276,7 @@ mod tests {
             100000,
         );
         let get_tx = || {
-            AcceptedTransaction::from_transaction(
+            VersionedAcceptedTransaction::from_transaction(
                 transaction
                     .clone()
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
@@ -295,6 +304,7 @@ mod tests {
                     .expect("Failed to get first transaction."),
             )
             .expect("Failed to get tx by hash.")
+            .as_inner_v1()
             .signatures
             .len();
         assert_eq!(signature_count, 2);

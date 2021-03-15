@@ -26,21 +26,21 @@ impl WorldStateView {
     }
 
     /// Initializes WSV with the blocks from block storage.
-    pub fn init(&mut self, blocks: &[ValidBlock]) {
+    pub fn init(&mut self, blocks: &[VersionedValidBlock]) {
         for block in blocks {
             self.apply(&block.clone().commit());
         }
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
-    pub fn apply(&mut self, block: &CommittedBlock) {
-        for transaction in &block.transactions {
+    pub fn apply(&mut self, block: &VersionedCommittedBlock) {
+        for transaction in &block.as_inner_v1().transactions {
             if let Err(e) = &transaction.proceed(self) {
                 log::warn!("Failed to procced transaction on WSV: {}", e);
             }
             let _ = self.transactions_hashes.insert(transaction.hash());
         }
-        for transaction in &block.rejected_transactions {
+        for transaction in &block.as_inner_v1().rejected_transactions {
             let _ = self.transactions_hashes.insert(transaction.hash());
         }
     }

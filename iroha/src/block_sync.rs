@@ -2,9 +2,9 @@
 
 use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
-    block::ValidBlock,
     kura::Kura,
     sumeragi::{Role, Sumeragi},
+    VersionedValidBlock,
 };
 use async_std::{sync::RwLock, task};
 use iroha_data_model::prelude::*;
@@ -18,7 +18,7 @@ enum State {
     Idle,
     /// Synchronization is in progress: validating and committing blocks.
     /// Contains a vector of blocks left to commit and an id of the peer from which the blocks were requested.
-    InProgress(Vec<ValidBlock>, PeerId),
+    InProgress(Vec<VersionedValidBlock>, PeerId),
 }
 
 /// Structure responsible for block synchronization between peers.
@@ -94,15 +94,15 @@ impl BlockSynchronizer {
                     .read()
                     .await
                     .network_topology_current_or_genesis(block);
-                if block.header.number_of_view_changes < self.n_topology_shifts_before_reshuffle {
-                    network_topology.shift_peers_by_n(block.header.number_of_view_changes);
+                if block.header().number_of_view_changes < self.n_topology_shifts_before_reshuffle {
+                    network_topology.shift_peers_by_n(block.header().number_of_view_changes);
                 } else {
                     network_topology.sort_peers_by_hash_and_counter(
                         Some(block.hash()),
-                        block.header.number_of_view_changes,
+                        block.header().number_of_view_changes,
                     )
                 }
-                if self.kura.read().await.latest_block_hash() == block.header.previous_block_hash
+                if self.kura.read().await.latest_block_hash() == block.header().previous_block_hash
                     && network_topology
                         .filter_signatures_by_roles(
                             &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
@@ -139,7 +139,7 @@ impl BlockSynchronizer {
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
     use super::{BlockSynchronizer, State};
-    use crate::{block::ValidBlock, torii::uri};
+    use crate::{block::VersionedValidBlock, torii::uri};
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
@@ -159,7 +159,7 @@ pub mod message {
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(Hash, PeerId),
         /// The response to `GetBlocksAfter`. Contains the requested blocks and the id of the peer who shared them.
-        ShareBlocks(Vec<ValidBlock>, PeerId),
+        ShareBlocks(Vec<VersionedValidBlock>, PeerId),
     }
 
     impl Message {
@@ -174,13 +174,18 @@ pub mod message {
                                 .send_to(peer)
                                 .await
                         {
-                            log::error!("Failed to request blocks: {:?}", err)
+                            log::warn!("Failed to request blocks: {:?}", err)
                         }
                     }
                 }
                 Message::GetBlocksAfter(hash, peer) => {
-                    if block_sync.batch_size > 0 {
-                        if let Some(blocks) = block_sync.kura.read().await.blocks_after(*hash) {
+                    if block_sync.batch_size == 0 {
+                        log::warn!("Error: not sending any blocks as batch_size is equal to zero.");
+                        return;
+                    }
+
+                    match block_sync.kura.read().await.blocks_after(*hash) {
+                        Some(blocks) => {
                             if let Some(blocks_batch) =
                                 blocks.chunks(block_sync.batch_size as usize).next()
                             {
@@ -195,9 +200,10 @@ pub mod message {
                                 }
                             }
                         }
-                    } else {
-                        log::error!("Error: not sending any blocks as batch_size is equal to zero.")
-                    }
+                        None => log::error!(
+                            "Error: there are no blocks after the requested block hash."
+                        ),
+                    };
                 }
                 Message::ShareBlocks(blocks, peer_id) => {
                     if let State::Idle = block_sync.state.clone() {
