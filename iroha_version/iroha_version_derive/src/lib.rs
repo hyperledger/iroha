@@ -296,7 +296,9 @@ fn impl_declare_versioned(
                             let mut input = input.clone();
                             Ok(Self::decode(&mut input)?)
                         } else {
-                            Ok(Self::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
+                            Err(Error::UnsupportedVersion(
+                                UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))
+                            ))
                         }
                     } else {
                         Err(Error::NotVersioned)
@@ -309,14 +311,7 @@ fn impl_declare_versioned(
                     use iroha_version::{error::Error, UnsupportedVersion, RawVersioned};
                     use parity_scale_codec::Encode;
 
-                    if let Self::UnsupportedVersion(unsupported_version) = self {
-                        match &unsupported_version.raw {
-                            RawVersioned::ScaleBytes(bytes) => Ok(bytes.clone()),
-                            RawVersioned::Json(_) => Err(Error::UnsupportedJsonEncode)
-                        }
-                    } else {
-                        Ok(self.encode())
-                    }
+                    Ok(self.encode())
                 }
             }
         )
@@ -353,7 +348,9 @@ fn impl_declare_versioned(
                             if Self::supported_versions().contains(&version) {
                                 Ok(serde_json::from_str(input)?)
                             } else {
-                                Ok(Self::UnsupportedVersion(UnsupportedVersion::new(version, RawVersioned::Json(input.to_string()))))
+                                Err(Error::UnsupportedVersion(
+                                    UnsupportedVersion::new(version, RawVersioned::Json(input.to_string()))
+                                ))
                             }
                         } else {
                             Err(Error::NotVersioned)
@@ -369,14 +366,7 @@ fn impl_declare_versioned(
                     use iroha_version::RawVersioned;
                     use iroha_version::error::Error;
 
-                    if let Self::UnsupportedVersion(unsupported_version) = self {
-                        match &unsupported_version.raw {
-                            RawVersioned::ScaleBytes(_) => Err(Error::UnsupportedScaleEncode),
-                            RawVersioned::Json(json) => Ok(json.to_string())
-                        }
-                    } else {
-                        Ok(serde_json::to_string(self)?)
-                    }
+                    Ok(serde_json::to_string(self)?)
                 }
             }
         )
@@ -410,10 +400,11 @@ fn impl_declare_versioned(
         #json_enum_attribute
         #[derive(Debug, Clone, iroha_derive::FromVariant, #scale_derives #json_derives)]
         pub enum #enum_name {
-            #(/// This variant represents a particulare version.
-                #scale_variant_attributes #json_variant_attributes #version_idents (#version_struct_idents)),* ,
-            /// This variant represents a version unsupported by this container.
-            UnsupportedVersion(iroha_version::UnsupportedVersion)
+            #(
+                /// This variant represents a particulare version.
+                #scale_variant_attributes #json_variant_attributes
+                #version_idents (#version_struct_idents),
+            )*
         }
 
         impl iroha_version::Version for #enum_name {
@@ -421,7 +412,6 @@ fn impl_declare_versioned(
                 use #enum_name::*;
                 match self {
                     #(#version_idents (_) => #version_numbers),* ,
-                    UnsupportedVersion(unsupported_version) => unsupported_version.version
                 }
             }
 
@@ -438,7 +428,7 @@ fn impl_declare_versioned(
 
                 match self {
                     #version_idents (content) => Some(content),
-                    _ => None
+                    _ => None,
                 }
             }
             )*
@@ -449,7 +439,7 @@ fn impl_declare_versioned(
 
                 match self {
                     #version_idents (content) => Some(content),
-                    _ => None
+                    _ => None,
                 }
             }
             )*

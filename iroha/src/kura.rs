@@ -1,16 +1,16 @@
 //! This module contains persistence related Iroha logic.
 //! `Kura` is the main entity which should be used to store new `Block`s on the blockchain.
 
-use crate::{merkle::MerkleTree, prelude::*};
+use crate::{block::VersionedValidBlock, merkle::MerkleTree, prelude::*};
 use async_std::{
     fs::{metadata, File},
     prelude::*,
 };
 use iroha_derive::*;
 use iroha_error::{Result, WrapErr};
+use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::Deserialize;
 use std::{
-    convert::TryFrom,
     fs,
     path::{Path, PathBuf},
 };
@@ -21,7 +21,7 @@ use std::{
 pub struct Kura {
     mode: Mode,
     /// Blockchain.
-    pub blocks: Vec<ValidBlock>,
+    pub blocks: Vec<VersionedValidBlock>,
     block_store: BlockStore,
     block_sender: CommittedBlockSender,
     merkle_tree: MerkleTree,
@@ -55,15 +55,14 @@ impl Kura {
     /// After constructing `Kura` it should be initialized to be ready to work with it.
     pub async fn init(&mut self) -> Result<()> {
         let blocks = self.block_store.read_all().await;
-        self.merkle_tree =
-            MerkleTree::new().build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
+        self.merkle_tree = MerkleTree::new().build(blocks.iter().map(|block| block.hash()));
         self.blocks = blocks;
         Ok(())
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[log]
-    pub async fn store(&mut self, block: ValidBlock) -> Result<Hash> {
+    pub async fn store(&mut self, block: VersionedValidBlock) -> Result<Hash> {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
@@ -74,14 +73,14 @@ impl Kura {
             }
             Err(error) => {
                 let blocks = self.block_store.read_all().await;
-                self.merkle_tree = MerkleTree::new()
-                    .build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
+                self.merkle_tree = MerkleTree::new().build(blocks.iter().map(|block| block.hash()));
                 Err(error)
             }
         }
     }
 
     pub fn latest_block_hash(&self) -> Hash {
+        // Should we return Result here?
         self.blocks
             .last()
             .map(|block| block.hash())
@@ -89,17 +88,19 @@ impl Kura {
     }
 
     pub fn height(&self) -> u64 {
+        // Should we return Result here?
         self.blocks
             .last()
-            .map(|block| block.header.height)
+            .map(|block| block.header().height)
             .unwrap_or(0)
     }
 
-    pub fn blocks_after(&self, hash: Hash) -> Option<&[ValidBlock]> {
+    pub fn blocks_after(&self, hash: Hash) -> Option<&[VersionedValidBlock]> {
         let from_pos = self
             .blocks
             .iter()
-            .position(|block| block.header.previous_block_hash == hash)?;
+            .position(|block| block.header().previous_block_hash == hash)?;
+
         if self.blocks.len() > from_pos {
             Some(&self.blocks[from_pos..])
         } else {
@@ -148,31 +149,31 @@ impl BlockStore {
         self.path.join(BlockStore::get_block_filename(block_height))
     }
 
-    async fn write(&self, block: &ValidBlock) -> Result<Hash> {
+    async fn write(&self, block: &VersionedValidBlock) -> Result<Hash> {
         //filename is its height
-        let path = self.get_block_path(block.header.height);
+        let path = self.get_block_path(block.header().height);
         let mut file = File::create(path)
             .await
             .wrap_err("Failed to open storage file.")?;
         let hash = block.hash();
-        let serialized_block: Vec<u8> = block.into();
+        let serialized_block: Vec<u8> = block.encode_versioned()?;
         file.write_all(&serialized_block)
             .await
             .wrap_err("Failed to write to storage file.")?;
         Ok(hash)
     }
 
-    async fn read(&self, height: u64) -> Result<ValidBlock> {
+    async fn read(&self, height: u64) -> Result<VersionedValidBlock> {
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.wrap_err("No file found.")?;
         let metadata = metadata(&path).await.wrap_err("Unable to read metadata.")?;
         let mut buffer = vec![0; metadata.len() as usize];
         let _ = file.read(&mut buffer).await.wrap_err("Buffer overflow.")?;
-        Ok(ValidBlock::try_from(buffer).expect("Failed to read block from store."))
+        VersionedValidBlock::decode_versioned(&buffer).wrap_err("Failed to read block from store.")
     }
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
-    async fn read_all(&self) -> Vec<ValidBlock> {
+    async fn read_all(&self) -> Vec<VersionedValidBlock> {
         let mut height = 1;
         let mut blocks = Vec::new();
         while let Ok(block) = self.read(height).await {

@@ -1,6 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use iroha_version::{error::Result, scale::*, RawVersioned, Version};
+    use iroha_version::{
+        error::{Error, Result},
+        scale::*,
+        RawVersioned,
+    };
     use iroha_version_derive::{declare_versioned, version};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -56,7 +60,6 @@ mod tests {
                 let _message: Message2 = message.into();
                 Err("Should have been message v1.".to_owned())
             }
-            _ => Err("Unsupported version.".to_owned()),
         }
     }
 
@@ -73,11 +76,9 @@ mod tests {
 
         use model_1::*;
         let raw_string = "test string".encode();
-        let decoded_message =
-            VersionedMessage::decode_versioned(&bytes).map_err(|e| e.to_string())?;
-        assert!(!decoded_message.is_supported());
+        let decoded_message = VersionedMessage::decode_versioned(&bytes);
         match decoded_message {
-            VersionedMessage::UnsupportedVersion(unsupported_version) => {
+            Err(Error::UnsupportedVersion(unsupported_version)) => {
                 assert_eq!(unsupported_version.version, 3);
                 if let RawVersioned::ScaleBytes(bytes) = unsupported_version.raw {
                     assert_eq!(bytes[1..], raw_string[..]);

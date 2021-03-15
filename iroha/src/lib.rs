@@ -43,6 +43,7 @@ pub mod world;
 pub mod wsv;
 
 use crate::{
+    block::VersionedValidBlock,
     block_sync::{message::Message as BlockSyncMessage, BlockSynchronizer},
     config::Configuration,
     genesis::GenesisNetwork,
@@ -66,19 +67,19 @@ use std::{sync::Arc, time::Duration};
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Type of `Sender<ValidBlock>` which should be used for channels of `ValidBlock` messages.
-pub type ValidBlockSender = Sender<ValidBlock>;
+/// Type of `Sender<VersionedValidBlock>` which should be used for channels of `VersionedValidBlock` messages.
+pub type ValidBlockSender = Sender<VersionedValidBlock>;
 /// Type of `Receiver<ValidBlock>` which should be used for channels of `ValidBlock` messages.
-pub type ValidBlockReceiver = Receiver<ValidBlock>;
+pub type ValidBlockReceiver = Receiver<VersionedValidBlock>;
 /// Type of `Sender<CommittedBlock>` which should be used for channels of `CommittedBlock` messages.
-pub type CommittedBlockSender = Sender<CommittedBlock>;
+pub type CommittedBlockSender = Sender<VersionedCommittedBlock>;
 /// Type of `Receiver<CommittedBlock>` which should be used for channels of `CommittedBlock` messages.
-pub type CommittedBlockReceiver = Receiver<CommittedBlock>;
+pub type CommittedBlockReceiver = Receiver<VersionedCommittedBlock>;
 /// Type of `Sender<AcceptedTransaction>` which should be used for channels of `AcceptedTransaction` messages.
-pub type TransactionSender = Sender<AcceptedTransaction>;
+pub type TransactionSender = Sender<VersionedAcceptedTransaction>;
 /// Type of `Receiver<AcceptedTransaction>` which should be used for channels of
 /// `AcceptedTransaction` messages.
-pub type TransactionReceiver = Receiver<AcceptedTransaction>;
+pub type TransactionReceiver = Receiver<VersionedAcceptedTransaction>;
 /// Type of `Sender<Message>` which should be used for channels of `Message` messages.
 pub type SumeragiMessageSender = Sender<SumeragiMessage>;
 /// Type of `Receiver<Message>` which should be used for channels of `Message` messages.
@@ -305,10 +306,15 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{
-        block::{CommittedBlock, PendingBlock, ValidBlock},
+        block::{
+            CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
+        },
         permissions::AllowAll,
         query::Query,
-        tx::{AcceptedTransaction, ValidTransaction},
+        tx::{
+            AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
+            VersionedValidTransaction,
+        },
         wsv::WorldStateView,
         CommittedBlockReceiver, CommittedBlockSender, Iroha, TransactionReceiver,
         TransactionSender, ValidBlockReceiver, ValidBlockSender,

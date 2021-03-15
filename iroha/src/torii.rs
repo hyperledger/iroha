@@ -14,7 +14,6 @@ use crate::{
         message::{Message as SumeragiMessage, VersionedMessage as SumeragiVersionedMessage},
         Sumeragi,
     },
-    tx::AcceptedTransaction,
     BlockSyncMessageSender, SumeragiMessageSender,
 };
 use async_std::{prelude::*, sync::RwLock, task};
@@ -219,20 +218,14 @@ async fn handle_instructions(
     _path_params: PathParams,
     _query_params: QueryParams,
     request: HttpRequest,
-) -> Result<HttpResponse> {
+) -> Result<()> {
     if request.body.len() > state.read().await.max_transaction_size {
         return Err(Error::TxTooBig);
     }
     let transaction = VersionedTransaction::decode_versioned(&request.body)
         .map_err(Error::VersionedTransaction)?;
-    let version = transaction.version();
-    let transaction: Transaction = transaction
-        .into_v1()
-        .ok_or(Error::UnsupportedTxVersion(UnsupportedVersionError {
-            version,
-        }))?
-        .into();
-    let transaction = AcceptedTransaction::from_transaction(
+    let transaction: Transaction = transaction.into_inner_v1();
+    let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
         state.read().await.max_instruction_number,
     )
@@ -245,7 +238,7 @@ async fn handle_instructions(
         .await
         .send(transaction)
         .await;
-    Ok(HttpResponse::ok(Headers::new(), Vec::new()))
+    Ok(())
 }
 
 async fn handle_queries(

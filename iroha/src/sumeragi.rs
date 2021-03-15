@@ -4,10 +4,11 @@
 
 use self::message::*;
 use crate::{
-    block::{ChainedBlock, PendingBlock},
+    block::{ChainedBlock, VersionedPendingBlock},
     event::EventsSender,
     permissions::PermissionsValidatorBox,
     prelude::*,
+    VersionedValidBlock,
 };
 use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
@@ -25,7 +26,10 @@ use std::{
 };
 
 trait Consensus {
-    fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Option<PendingBlock>;
+    fn round(
+        &mut self,
+        transactions: Vec<VersionedAcceptedTransaction>,
+    ) -> Option<VersionedPendingBlock>;
 }
 
 /// `Sumeragi` is the implementation of the consensus.
@@ -38,7 +42,7 @@ pub struct Sumeragi {
     /// The block in discussion this round, received from a leader.
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
     /// This field is used to count votes when the peer is a proxy tail role.
-    votes_for_blocks: BTreeMap<Hash, ValidBlock>,
+    votes_for_blocks: BTreeMap<Hash, VersionedValidBlock>,
     blocks_sender: Arc<RwLock<ValidBlockSender>>,
     events_sender: EventsSender,
     transactions_sender: TransactionSender,
@@ -130,7 +134,7 @@ impl Sumeragi {
     /// Assumes this peer is a leader and starts the round with the given `genesis_topology`.
     pub async fn start_genesis_round(
         &mut self,
-        transactions: Vec<AcceptedTransaction>,
+        transactions: Vec<VersionedAcceptedTransaction>,
         genesis_topology: InitializedNetworkTopology,
     ) -> Result<()> {
         if transactions.is_empty() {
@@ -155,7 +159,7 @@ impl Sumeragi {
     }
 
     /// The leader of each round just uses the transactions they have at hand to create a block.
-    pub async fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Result<()> {
+    pub async fn round(&mut self, transactions: Vec<VersionedAcceptedTransaction>) -> Result<()> {
         if transactions.is_empty() {
             return Ok(());
         }
@@ -176,7 +180,7 @@ impl Sumeragi {
     /// Forwards transactions to the leader and waits for receipts.
     pub async fn forward_transactions_to_leader(
         &mut self,
-        transactions: &[AcceptedTransaction],
+        transactions: &[VersionedAcceptedTransaction],
     ) -> Result<()> {
         log::info!(
             "{:?} - Forwarding transactions to leader. Number of transactions to forward: {}",
@@ -261,7 +265,7 @@ impl Sumeragi {
     /// Gossip transactions to other peers.
     pub async fn gossip_transactions(
         &mut self,
-        transactions: &[AcceptedTransaction],
+        transactions: &[VersionedAcceptedTransaction],
     ) -> Result<()> {
         log::debug!(
             "{:?} - Gossiping transactions. Number of transactions to forward: {}",
@@ -385,7 +389,7 @@ impl Sumeragi {
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
     #[log]
-    pub async fn commit_block(&mut self, block: ValidBlock) {
+    pub async fn commit_block(&mut self, block: VersionedValidBlock) {
         let block_hash = block.hash();
         self.latest_block_hash = block_hash;
         self.invalidated_blocks_hashes.clear();
@@ -394,7 +398,7 @@ impl Sumeragi {
             .await
             .clear();
         self.transactions_awaiting_receipts.write().await.clear();
-        self.block_height = block.header.height;
+        self.block_height = block.header().height;
         for event in Vec::<Event>::from(&block.clone().commit()) {
             self.events_sender.send(event).await;
         }
@@ -449,10 +453,10 @@ impl Sumeragi {
     /// Returns current network topology or genesis specific one, if the `block` is a genesis block.
     pub fn network_topology_current_or_genesis(
         &self,
-        block: &ValidBlock,
+        block: &VersionedValidBlock,
     ) -> InitializedNetworkTopology {
-        if block.header.is_genesis() && self.block_height == 0 {
-            if let Some(genesis_topology) = block.header.genesis_topology.clone() {
+        if block.header().is_genesis() && self.block_height == 0 {
+            if let Some(genesis_topology) = block.header().genesis_topology.clone() {
                 log::info!("Using network topology from genesis block.");
                 genesis_topology
             } else {
@@ -746,12 +750,12 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Duration,
     /// Valid Block
-    pub block: ValidBlock,
+    pub block: VersionedValidBlock,
 }
 
 impl VotingBlock {
     /// Constructs new VotingBlock.
-    pub fn new(block: ValidBlock) -> VotingBlock {
+    pub fn new(block: VersionedValidBlock) -> VotingBlock {
         VotingBlock {
             voted_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -764,10 +768,9 @@ impl VotingBlock {
 /// Contains message structures for p2p communication during consensus.
 pub mod message {
     use crate::{
-        block::ValidBlock,
         sumeragi::{InitializedNetworkTopology, Role, Sumeragi, VotingBlock},
         torii::uri,
-        tx::AcceptedTransaction,
+        VersionedAcceptedTransaction, VersionedValidBlock,
     };
     use async_std::task;
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
@@ -851,7 +854,7 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct BlockCreated {
         /// The corresponding block.
-        pub block: ValidBlock,
+        pub block: VersionedValidBlock,
     }
 
     impl BlockCreated {
@@ -886,10 +889,10 @@ pub mod message {
                         && !self
                             .block
                             .has_committed_transactions(&*sumeragi.world_state_view.read().await)
-                        && sumeragi.latest_block_hash == self.block.header.previous_block_hash
+                        && sumeragi.latest_block_hash == self.block.header().previous_block_hash
                         && sumeragi.number_of_view_changes
-                            == self.block.header.number_of_view_changes
-                        && sumeragi.block_height + 1 == self.block.header.height
+                            == self.block.header().number_of_view_changes
+                        && sumeragi.block_height + 1 == self.block.header().height
                     {
                         let wsv = sumeragi.world_state_view.read().await;
                         if let Err(e) = Message::BlockSigned(
@@ -946,8 +949,8 @@ pub mod message {
         }
     }
 
-    impl From<ValidBlock> for BlockCreated {
-        fn from(block: ValidBlock) -> Self {
+    impl From<VersionedValidBlock> for BlockCreated {
+        fn from(block: VersionedValidBlock) -> Self {
             Self { block }
         }
     }
@@ -956,7 +959,7 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct BlockSigned {
         /// The corresponding block.
-        pub block: ValidBlock,
+        pub block: VersionedValidBlock,
     }
 
     impl BlockSigned {
@@ -969,7 +972,10 @@ pub mod message {
                     .votes_for_blocks
                     .entry(block_hash)
                     .or_insert_with(|| self.block.clone());
-                entry.signatures.append(&self.block.verified_signatures());
+                entry
+                    .as_mut_inner_v1()
+                    .signatures
+                    .append(&self.block.verified_signatures());
                 let valid_signatures = network_topology.filter_signatures_by_roles(
                     &[Role::ValidatingPeer, Role::Leader],
                     &entry.verified_signatures(),
@@ -985,7 +991,7 @@ pub mod message {
                     let mut signatures = Signatures::default();
                     signatures.append(&valid_signatures);
                     let mut block = entry.clone();
-                    block.signatures = signatures;
+                    block.as_mut_inner_v1().signatures = signatures;
                     let block = block.sign(&sumeragi.key_pair)?;
                     log::info!(
                         "{:?} - Block reached required number of votes. Block hash {}.",
@@ -1019,8 +1025,8 @@ pub mod message {
         }
     }
 
-    impl From<ValidBlock> for BlockSigned {
-        fn from(block: ValidBlock) -> Self {
+    impl From<VersionedValidBlock> for BlockSigned {
+        fn from(block: VersionedValidBlock) -> Self {
             Self { block }
         }
     }
@@ -1029,7 +1035,7 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct BlockCommitted {
         /// The corresponding block.
-        pub block: ValidBlock,
+        pub block: VersionedValidBlock,
     }
 
     impl BlockCommitted {
@@ -1045,19 +1051,19 @@ pub mod message {
                 .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
             if valid_signatures.len() >= network_topology.min_votes_for_commit() as usize
                 && proxy_tail_signatures.len() == 1
-                && sumeragi.latest_block_hash == self.block.header.previous_block_hash
+                && sumeragi.latest_block_hash == self.block.header().previous_block_hash
             {
                 let mut block = self.block.clone();
-                block.signatures.clear();
-                block.signatures.append(&valid_signatures);
+                block.as_mut_inner_v1().signatures.clear();
+                block.as_mut_inner_v1().signatures.append(&valid_signatures);
                 sumeragi.commit_block(block).await;
             }
             Ok(())
         }
     }
 
-    impl From<ValidBlock> for BlockCommitted {
-        fn from(block: ValidBlock) -> Self {
+    impl From<VersionedValidBlock> for BlockCommitted {
+        fn from(block: VersionedValidBlock) -> Self {
             Self { block }
         }
     }
@@ -1168,7 +1174,7 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct NoTransactionReceiptReceived {
         /// Transaction for which there was no `TransactionReceipt`.
-        pub transaction: AcceptedTransaction,
+        pub transaction: VersionedAcceptedTransaction,
         /// Signatures of the peers who voted for changing the leader.
         pub signatures: Signatures,
         /// The id of the leader, to determine that peer topologies are synchronized.
@@ -1182,7 +1188,7 @@ pub mod message {
     impl NoTransactionReceiptReceived {
         /// Constructs a new `NoTransactionReceiptReceived` message with no signatures.
         pub fn new(
-            transaction: &AcceptedTransaction,
+            transaction: &VersionedAcceptedTransaction,
             leader_id: PeerId,
             latest_block_hash: Hash,
             number_of_view_changes: u32,
@@ -1199,8 +1205,10 @@ pub mod message {
         /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
         pub fn sign(mut self, key_pair: &KeyPair) -> Result<NoTransactionReceiptReceived> {
-            let signature =
-                Signature::new(key_pair.clone(), &Vec::<u8>::from(self.transaction.clone()))?;
+            let signature = Signature::new(
+                key_pair.clone(),
+                &Vec::<u8>::from(self.transaction.as_inner_v1().clone()),
+            )?;
             self.signatures.add(signature);
             Ok(self)
         }
@@ -1208,7 +1216,7 @@ pub mod message {
         /// Signatures that are verified with the `transaction` bytes as `payload`.
         pub fn verified_signatures(&self) -> Vec<Signature> {
             self.signatures
-                .verified(&Vec::<u8>::from(self.transaction.clone()))
+                .verified(&Vec::<u8>::from(self.transaction.as_inner_v1().clone()))
         }
 
         fn has_same_state(&self, sumeragi: &Sumeragi) -> bool {
@@ -1286,14 +1294,17 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct TransactionForwarded {
         /// Transaction that is forwarded from a client by a peer to the leader
-        pub transaction: AcceptedTransaction,
+        pub transaction: VersionedAcceptedTransaction,
         /// `PeerId` of the peer that forwarded this transaction to a leader.
         pub peer: PeerId,
     }
 
     impl TransactionForwarded {
         /// Constructs `TransactionForwarded` message.
-        pub fn new(transaction: &AcceptedTransaction, peer: &PeerId) -> TransactionForwarded {
+        pub fn new(
+            transaction: &VersionedAcceptedTransaction,
+            peer: &PeerId,
+        ) -> TransactionForwarded {
             TransactionForwarded {
                 transaction: transaction.clone(),
                 peer: peer.clone(),
@@ -1340,7 +1351,7 @@ pub mod message {
     impl TransactionReceipt {
         /// Constructs a new receipt.
         pub fn new(
-            transaction: &AcceptedTransaction,
+            transaction: &VersionedAcceptedTransaction,
             key_pair: &KeyPair,
         ) -> Result<TransactionReceipt> {
             let transaction_hash = transaction.hash();
@@ -1937,7 +1948,7 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![AcceptedTransaction::from_transaction(
+            .round(vec![VersionedAcceptedTransaction::from_transaction(
                 Transaction::new(
                     vec![],
                     AccountId::new("root", "global"),
@@ -2069,7 +2080,7 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![AcceptedTransaction::from_transaction(
+            .round(vec![VersionedAcceptedTransaction::from_transaction(
                 Transaction::new(
                     vec![],
                     AccountId::new("root", "global"),
@@ -2233,7 +2244,7 @@ mod tests {
             .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
-            .round(vec![AcceptedTransaction::from_transaction(
+            .round(vec![VersionedAcceptedTransaction::from_transaction(
                 Transaction::new(
                     vec![],
                     AccountId::new("root", "global"),
@@ -2393,7 +2404,7 @@ mod tests {
             .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
-            .round(vec![AcceptedTransaction::from_transaction(
+            .round(vec![VersionedAcceptedTransaction::from_transaction(
                 Transaction::new(
                     vec![],
                     AccountId::new("root", "global"),
@@ -2513,7 +2524,7 @@ mod tests {
                     // Simulate leader producing empty blocks
                     if let Message::BlockCreated(block_created) = message {
                         let mut block_created = block_created.clone();
-                        block_created.block.transactions = Vec::new();
+                        block_created.block.as_mut_inner_v1().transactions = Vec::new();
                         let _result = Message::BlockCreated(block_created)
                             .handle(&mut *sumeragi)
                             .await;
@@ -2542,7 +2553,7 @@ mod tests {
         leader
             .write()
             .await
-            .round(vec![AcceptedTransaction::from_transaction(
+            .round(vec![VersionedAcceptedTransaction::from_transaction(
                 Transaction::new(
                     vec![],
                     AccountId::new("root", "global"),

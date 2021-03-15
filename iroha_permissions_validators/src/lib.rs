@@ -356,9 +356,9 @@ pub mod public_blockchain {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            assert!(
-                dbg!(BurnOnlyOwnedAssets.check_instruction(alice_id, burn.clone(), &wsv)).is_ok()
-            );
+            assert!(BurnOnlyOwnedAssets
+                .check_instruction(alice_id, burn.clone(), &wsv)
+                .is_ok());
             assert!(BurnOnlyOwnedAssets
                 .check_instruction(bob_id, burn, &wsv)
                 .is_err());

@@ -6,13 +6,93 @@ use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidato
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_error::{error, Result, WrapErr};
+use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use std::{
     cmp::min,
     time::{Duration, SystemTime},
 };
 
+declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2);
+
+impl VersionedAcceptedTransaction {
+    /// Same as [`as_v1`] but also does conversion
+    pub fn as_inner_v1(&self) -> &AcceptedTransaction {
+        match self {
+            VersionedAcceptedTransaction::V1(v1) => &v1.0,
+        }
+    }
+
+    /// Same as [`as_inner_v1`] but returns mutable reference
+    pub fn as_mut_inner_v1(&mut self) -> &mut AcceptedTransaction {
+        match self {
+            VersionedAcceptedTransaction::V1(v1) => &mut v1.0,
+        }
+    }
+
+    /// Same as [`into_v1`] but also does conversion
+    pub fn into_inner_v1(self) -> AcceptedTransaction {
+        match self {
+            VersionedAcceptedTransaction::V1(v1) => v1.0,
+        }
+    }
+
+    /// Accepts transaction
+    pub fn from_transaction(
+        transaction: Transaction,
+        max_instruction_number: usize,
+    ) -> Result<VersionedAcceptedTransaction> {
+        AcceptedTransaction::from_transaction(transaction, max_instruction_number).map(Into::into)
+    }
+
+    /// Calculate transaction `Hash`.
+    pub fn hash(&self) -> Hash {
+        self.as_inner_v1().hash()
+    }
+
+    /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
+    /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
+    pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
+        self.as_inner_v1().is_expired(transaction_time_to_live)
+    }
+
+    /// Move transaction lifecycle forward by checking an ability to apply instructions to the
+    /// `WorldStateView`.
+    ///
+    /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
+    pub fn validate(
+        self,
+        wsv: &WorldStateView,
+        permissions_validator: &PermissionsValidatorBox,
+        is_genesis: bool,
+    ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
+        self.into_inner_v1()
+            .validate(wsv, permissions_validator, is_genesis)
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
+    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
+        self.as_inner_v1().check_signature_condition(wsv)
+    }
+
+    /// Rejects transaction with the `rejection_reason`.
+    pub fn reject(
+        self,
+        rejection_reason: TransactionRejectionReason,
+    ) -> VersionedRejectedTransaction {
+        self.into_inner_v1().reject(rejection_reason).into()
+    }
+
+    /// Checks if this transaction has already been committed or rejected.
+    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        self.as_inner_v1().is_in_blockchain(wsv)
+    }
+}
+
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
+#[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct AcceptedTransaction {
     /// Payload of this transaction.
@@ -169,6 +249,14 @@ impl AcceptedTransaction {
     }
 }
 
+impl From<VersionedAcceptedTransaction> for VersionedTransaction {
+    fn from(tx: VersionedAcceptedTransaction) -> Self {
+        let tx: AcceptedTransaction = tx.into_inner_v1();
+        let tx: Transaction = tx.into();
+        tx.into()
+    }
+}
+
 impl From<AcceptedTransaction> for Transaction {
     fn from(transaction: AcceptedTransaction) -> Self {
         Transaction {
@@ -178,7 +266,48 @@ impl From<AcceptedTransaction> for Transaction {
     }
 }
 
+declare_versioned_with_scale!(VersionedValidTransaction 1..2);
+
+impl VersionedValidTransaction {
+    /// Same as [`as_v1`] but also does conversion
+    pub fn as_inner_v1(&self) -> &ValidTransaction {
+        match self {
+            Self::V1(v1) => &v1.0,
+        }
+    }
+
+    /// Same as [`as_inner_v1`] but returns mutable reference
+    pub fn as_mut_inner_v1(&mut self) -> &mut ValidTransaction {
+        match self {
+            Self::V1(v1) => &mut v1.0,
+        }
+    }
+
+    /// Same as [`into_v1`] but also does conversion
+    pub fn into_inner_v1(self) -> ValidTransaction {
+        match self {
+            Self::V1(v1) => v1.0,
+        }
+    }
+
+    /// Apply instructions to the `WorldStateView`.
+    pub fn proceed(&self, wsv: &mut WorldStateView) -> Result<()> {
+        self.as_inner_v1().proceed(wsv)
+    }
+
+    /// Calculate transaction `Hash`.
+    pub fn hash(&self) -> Hash {
+        self.as_inner_v1().hash()
+    }
+
+    /// Checks if this transaction has already been committed or rejected.
+    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        self.as_inner_v1().is_in_blockchain(wsv)
+    }
+}
+
 /// `ValidTransaction` represents trustfull Transaction state.
+#[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidTransaction {
     payload: Payload,
@@ -210,6 +339,14 @@ impl ValidTransaction {
     }
 }
 
+impl From<VersionedValidTransaction> for VersionedAcceptedTransaction {
+    fn from(tx: VersionedValidTransaction) -> Self {
+        let tx: ValidTransaction = tx.into_inner_v1();
+        let tx: AcceptedTransaction = tx.into();
+        tx.into()
+    }
+}
+
 impl From<ValidTransaction> for AcceptedTransaction {
     fn from(transaction: ValidTransaction) -> Self {
         AcceptedTransaction {
@@ -219,7 +356,43 @@ impl From<ValidTransaction> for AcceptedTransaction {
     }
 }
 
+declare_versioned_with_scale!(VersionedRejectedTransaction 1..2);
+
+impl VersionedRejectedTransaction {
+    /// The same as `as_v1` but also runs into on it
+    pub fn as_inner_v1(&self) -> &RejectedTransaction {
+        match self {
+            Self::V1(v1) => &v1.0,
+        }
+    }
+
+    /// The same as `as_v1` but also runs into on it
+    pub fn as_mut_inner_v1(&mut self) -> &mut RejectedTransaction {
+        match self {
+            Self::V1(v1) => &mut v1.0,
+        }
+    }
+
+    /// The same as `as_v1` but also runs into on it
+    pub fn into_inner_v1(self) -> RejectedTransaction {
+        match self {
+            Self::V1(v1) => v1.0,
+        }
+    }
+
+    /// Calculate transaction `Hash`.
+    pub fn hash(&self) -> Hash {
+        self.as_inner_v1().hash()
+    }
+
+    /// Checks if this transaction has already been committed or rejected.
+    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        self.as_inner_v1().is_in_blockchain(wsv)
+    }
+}
+
 /// `RejectedTransaction` represents transaction rejected by some validator at some stage of the pipeline.
+#[version_with_scale(n = 1, versioned = "VersionedRejectedTransaction")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct RejectedTransaction {
     payload: Payload,
@@ -238,6 +411,14 @@ impl RejectedTransaction {
     /// Checks if this transaction has already been committed or rejected.
     pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
         world_state_view.has_transaction(self.hash())
+    }
+}
+
+impl From<VersionedRejectedTransaction> for VersionedAcceptedTransaction {
+    fn from(tx: VersionedRejectedTransaction) -> Self {
+        let tx: RejectedTransaction = tx.into_inner_v1();
+        let tx: AcceptedTransaction = tx.into();
+        tx.into()
     }
 }
 

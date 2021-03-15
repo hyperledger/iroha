@@ -32,6 +32,5 @@ pub fn main() {
             let message: Message2 = message.into();
             message.handle();
         }
-        _ => panic!("Unsupported version."),
     }
 }

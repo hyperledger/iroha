@@ -116,7 +116,7 @@ fn chain_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)
         .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction]);
+    let block = PendingBlock::new(vec![transaction.into()]);
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
     criterion.bench_function("chain_block", |b| {
@@ -136,7 +136,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)
         .expect("Failed to accept transaction.");
     let world_state_view = build_test_wsv(&keys);
-    let block = PendingBlock::new(vec![transaction])
+    let block = PendingBlock::new(vec![transaction.into()])
         .chain_first()
         .validate(&world_state_view, &AllowAll.into());
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
@@ -175,7 +175,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)
         .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction]).chain_first();
+    let block = PendingBlock::new(vec![transaction.into()]).chain_first();
     criterion.bench_function("validate_block", |b| {
         b.iter(|| block.clone().validate(&world_state_view, &AllowAll.into()));
     });
