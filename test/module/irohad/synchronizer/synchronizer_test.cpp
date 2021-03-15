@@ -65,6 +65,31 @@ static constexpr shared_model::interface::types::HeightType kInitTopBlockHeight{
 
 class SynchronizerTest : public ::testing::Test {
  public:
+  void checkNoSynchronize( ConsensusGate::GateObject &&obj) {
+    auto synchro_wrapper =
+        subscribeEventAsync<SynchronizationEvent,
+            iroha::EventTypes::kOnSynchronization>([&](auto const &) {});
+
+    iroha::utils::WaitForSingleObject operation_complete;
+    auto operation_complete_wrapper =
+        subscribeEventAsync<bool, iroha::EventTypes::kOnTestOperationComplete>(
+            [&](auto const &) { operation_complete.set(); });
+
+    subscribeEventSync<ConsensusGate::GateObject, iroha::EventTypes::kOnOutcome>(
+        [&](auto const &) {
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnTestOperationComplete, false);
+        },
+        [&]() {
+          getSubscription()->notify(
+              EventTypes::kOnOutcome,
+              std::move(obj));
+        });
+
+    operation_complete.wait(std::chrono::minutes(10ull));
+    ASSERT_TRUE(operation_complete_wrapper->get());
+    ASSERT_FALSE(synchro_wrapper->get());
+  }
   void SetUp() override {
     chain_validator = std::make_shared<MockChainValidator>();
     auto command_executor = std::make_unique<MockCommandExecutor>();
@@ -622,20 +647,10 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
       .Times(number_of_failures)
       .WillRepeatedly(Return(false));
 
-  auto wrapper = subscribeEventSync<SynchronizationEvent,
-      iroha::EventTypes::kOnSynchronization>(
-      [&](auto const &) {
-      },
-      [&](){
-        getSubscription()->notify(
-            EventTypes::kOnOutcome,
-            ConsensusGate::GateObject(
-                consensus::VoteOther(
-                    consensus::Round{kHeight, 1}, ledger_state, public_keys, hash)
-            ));
-      });
-
-  ASSERT_TRUE(wrapper->get());
+  checkNoSynchronize(ConsensusGate::GateObject(
+      consensus::VoteOther(
+          consensus::Round{kHeight, 1}, ledger_state, public_keys, hash)
+  ));
 }
 
 /**
@@ -836,20 +851,10 @@ TEST_F(SynchronizerTest, CommitFailureVoteSameBlock) {
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
-  auto wrapper = subscribeEventSync<SynchronizationEvent,
-      iroha::EventTypes::kOnSynchronization>(
-      [&](auto const &) {
-      },
-      [&](){
-        getSubscription()->notify(
-            EventTypes::kOnOutcome,
-            ConsensusGate::GateObject(
-                consensus::PairValid(
-                    consensus::Round{kHeight, 1}, ledger_state, commit_message)
-            ));
-      });
-
-  ASSERT_TRUE(wrapper->get());
+  checkNoSynchronize(ConsensusGate::GateObject(
+      consensus::PairValid(
+          consensus::Round{kHeight, 1}, ledger_state, commit_message)
+  ));
 }
 
 /**
