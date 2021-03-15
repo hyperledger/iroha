@@ -196,9 +196,7 @@ impl Client {
                 let pending_transactions: PendingTransactions =
                     VersionedPendingTransactions::decode_versioned(&response.body())?
                         .as_v1()
-                        .ok_or_else(|| {
-                            Error::msg("Expected pending transaction message version 1.")
-                        })?
+                        .ok_or_else(|| error!("Expected pending transaction message version 1."))?
                         .clone()
                         .into();
                 let transaction = pending_transactions

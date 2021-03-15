@@ -364,7 +364,7 @@ pub mod account {
     use serde::{Deserialize, Serialize};
     //TODO: get rid of it?
     use iroha_crypto::prelude::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Error, Result};
     use parity_scale_codec::{Decode, Encode};
     use std::{collections::BTreeMap, fmt, iter::FromIterator};
 
@@ -590,7 +590,7 @@ pub mod account {
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('@').collect();
             if vector.len() != 2 {
-                return Err(Error::msg("Id should have format `name@domain_name`"));
+                return Err(error!("Id should have format `name@domain_name`"));
             }
             Ok(Id {
                 name: String::from(vector[0]),
@@ -617,7 +617,7 @@ pub mod asset {
 
     use crate::{account::prelude::*, Bytes, Identifiable, Name, Value};
     use iroha_derive::Io;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Error, Result};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
     use std::{
@@ -848,7 +848,7 @@ pub mod asset {
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('#').collect();
             if vector.len() != 2 {
-                return Err(Error::msg(
+                return Err(error!(
                     "Asset definition ID should have format `name#domain_name`.",
                 ));
             }
@@ -1070,7 +1070,7 @@ pub mod transaction {
     use crate::{account::Account, isi::Instruction, Identifiable};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Result};
     use iroha_version::{declare_versioned_with_scale, version_with_scale};
     use parity_scale_codec::{Decode, Encode};
     use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
@@ -1150,7 +1150,7 @@ pub mod transaction {
                 .sum::<usize>()
                 > max_instruction_number
             {
-                return Err(Error::msg("Too many instructions in payload"));
+                return Err(error!("Too many instructions in payload"));
             }
             Ok(())
         }

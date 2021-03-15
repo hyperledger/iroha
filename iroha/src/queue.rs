@@ -1,7 +1,7 @@
 use self::config::QueueConfiguration;
 use crate::prelude::*;
 use iroha_data_model::prelude::*;
-use iroha_error::{Error, Result};
+use iroha_error::{error, Result};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
@@ -48,7 +48,7 @@ impl Queue {
             let _result = self.pending_tx_by_hash.insert(tx.hash(), tx);
             Ok(())
         } else {
-            Err(Error::msg("The queue is full."))
+            Err(error!("The queue is full."))
         }
     }
 

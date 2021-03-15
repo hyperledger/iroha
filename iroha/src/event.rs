@@ -8,7 +8,7 @@ use async_std::{
 };
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};
-use iroha_error::{Error, Result, WrapErr};
+use iroha_error::{error, Result, WrapErr};
 use iroha_http_server::web_socket::{WebSocketMessage, WebSocketStream};
 use iroha_version::prelude::*;
 use std::{fmt::Debug, time::Duration};
@@ -34,19 +34,19 @@ impl Consumer {
         if let WebSocketMessage::Text(message) = future::timeout(TIMEOUT, stream.next())
             .await
             .wrap_err("Read message timeout")?
-            .ok_or_else(|| Error::msg("Failed to read message: no message"))?
+            .ok_or_else(|| error!("Failed to read message: no message"))?
             .wrap_err("Web Socket failure")?
         {
             let request: SubscriptionRequest =
                 VersionedSubscriptionRequest::from_versioned_json_str(&message)?
                     .as_v1()
-                    .ok_or_else(|| Error::msg("Expected subscription request version 1."))?
+                    .ok_or_else(|| error!("Expected subscription request version 1."))?
                     .clone()
                     .into();
             let SubscriptionRequest(filter) = request;
             Ok(Consumer { stream, filter })
         } else {
-            Err(Error::msg("Unexepcted message type"))
+            Err(error!("Unexepcted message type"))
         }
     }
 
@@ -63,7 +63,7 @@ impl Consumer {
             if let WebSocketMessage::Text(receipt) = future::timeout(TIMEOUT, self.stream.next())
                 .await
                 .wrap_err("Failed to read receipt")?
-                .ok_or_else(|| Error::msg("Failed to read receipt: no receipt"))?
+                .ok_or_else(|| error!("Failed to read receipt: no receipt"))?
                 .wrap_err("Web Socket failure")?
             {
                 let _receipt = VersionedEventReceived::from_versioned_json_str(&receipt)
@@ -71,7 +71,7 @@ impl Consumer {
                         format!("Unexpected message, waited for receipt got: {}", receipt)
                     })?;
             } else {
-                return Err(Error::msg("Unexepcted message type"));
+                return Err(error!("Unexepcted message type"));
             }
         }
         Ok(self)

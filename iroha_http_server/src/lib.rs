@@ -86,7 +86,7 @@ pub mod http {
     use async_trait::async_trait;
     use httparse::{Request as HttpParseRequest, Status};
     use iroha_derive::FromVariant;
-    use iroha_error::derive::Error;
+    use iroha_error::{derive::Error, error};
     use route_recognizer::Router;
     use std::{
         collections::BTreeMap,

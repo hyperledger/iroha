@@ -13,7 +13,7 @@ use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
-use iroha_error::{error, Error, Result};
+use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -134,7 +134,7 @@ impl Sumeragi {
         genesis_topology: InitializedNetworkTopology,
     ) -> Result<()> {
         if transactions.is_empty() {
-            Err(Error::msg("Genesis transactions set is empty."))
+            Err(error!("Genesis transactions set is empty."))
         } else if genesis_topology.leader() != &self.peer_id {
             Err(error!(
                 "Incorrect network topology this peer should be {:?} but is {:?}",
