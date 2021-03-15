@@ -15,6 +15,7 @@
 namespace iroha {
   enum SubscriptionEngineHandlers {
     kYac = 0,
+    kMetrics,
     //---------------
     kTotalCount
   };

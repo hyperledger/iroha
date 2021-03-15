@@ -52,7 +52,7 @@ namespace iroha {
     void SynchronizerImpl::processOutcome(consensus::GateObject object) {
       log_->info("processing consensus outcome");
 
-      auto process_reject = [this](auto outcome_type, const auto &msg) {
+      auto process_reject = [](auto outcome_type, const auto &msg) {
         assert(msg.ledger_state->top_block_info.height + 1
                == msg.round.block_round);
         getSubscription()->notify(
@@ -214,7 +214,7 @@ namespace iroha {
           msg.public_keys);
 
       commit_result.match(
-          [this, &msg](auto &value) {
+          [&msg](auto &value) {
             auto &ledger_state = value.value;
             assert(ledger_state);
             const auto new_height = ledger_state->top_block_info.height;

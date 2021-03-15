@@ -90,6 +90,17 @@ namespace iroha::subscription {
     }
 
     template <typename Dispatcher::Tid kTid>
+    void subscribe(const typename Parent::EventType &key) {
+      return subscribe<kTid>(0,key);
+    }
+
+    template <typename Dispatcher::Tid kTid>
+    void subscribe(const typename Parent::EventType &key, CallbackFnType &&f) {
+      setCallback(std::move(f));
+      return subscribe<kTid>(0,key);
+    }
+
+    template <typename Dispatcher::Tid kTid>
     void subscribe(SubscriptionSetId id,
                    const typename Parent::EventType &key) {
       std::lock_guard lock(subscriptions_cs_);

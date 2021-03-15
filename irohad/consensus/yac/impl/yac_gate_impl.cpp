@@ -75,7 +75,7 @@ namespace iroha {
             });
 
         outcome_subscription_->setCallback(
-            [delay_func = std::move(delay_func), this](
+            [delay_func = std::move(delay_func)](
                 auto, auto &, auto key, Answer message) {
               assert(EventTypes::kOnOutcomeFromYac == key);
               auto delay = delay_func(

@@ -8,9 +8,29 @@
 
 #include <string>
 #include <memory>
+#include <optional>
+#include <thread>
 #include <prometheus/registry.h>
+#include <prometheus/exposer.h>
 
-std::shared_ptr<prometheus::Registry>
-    maintenance_metrics_init(std::string const& listen_addr);
+//struct MetricsRunner : std::thread {
+////  metrics_runner(std::thread&&t):t_(t){};
+//  using std::thread::thread;  // Does not inherit move ctor?
+//  MetricsRunner(MetricsRunner&&m)noexcept
+//      : std::thread(std::move(m))
+//      ,
+//  {}
+//  ~MetricsRunner(){ stop(); join(); }
+//  void stop(){ proceed_.clear(); };
+// private:
+////  std::thread t_;
+//  std::atomic_flag proceed_ {true};
+//};
+struct Metrics {
+  std::shared_ptr<prometheus::Registry> registry;
+  std::shared_ptr<prometheus::Exposer> exposer;
+//  MetricsRunner runner;
+};
+std::optional<Metrics> maintenance_metrics_init(std::string const& listen_addr);
 
 #endif //IROHA_MAINTENANCE_METRICS_HPP

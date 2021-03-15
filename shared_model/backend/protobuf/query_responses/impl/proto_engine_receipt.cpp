@@ -33,6 +33,7 @@ EngineReceipt::EngineReceipt(const TransportType &proto)
                     shared_model::interface::types::EvmAddressHexString>(
                     proto.contract_address())
               : std::nullopt) {
+  //warning: 'offsetof' within non-standard-layout type 'shared_model::proto::EngineReceipt' is conditionally-supported [-Winvalid-offsetof]
   static_assert(offsetof(EngineReceipt, response_data_)
                     < offsetof(EngineReceipt, call_result_),
                 "Check ctor");
