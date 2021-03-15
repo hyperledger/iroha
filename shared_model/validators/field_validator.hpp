@@ -45,7 +45,7 @@ namespace shared_model {
      public:
       // todo igor-egorov 05.04.2018 IR-439 Remove ValidatorsConfig from
       // FieldValidator
-      FieldValidator(std::shared_ptr<ValidatorsConfig> config = nullptr,
+      FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                      time_t future_gap = kDefaultFutureGap,
                      TimeFunction time_provider = [] {
                        return iroha::time::now();
@@ -74,9 +74,6 @@ namespace shared_model {
 
       std::optional<ValidationError> validatePeerAddress(
           const interface::types::AddressType &address) const;
-
-      std::optional<ValidationError> validatePort(
-          const interface::types::AddressType &) const;
 
       std::optional<ValidationError> validateRoleId(
           const interface::types::RoleIdType &role_id) const;

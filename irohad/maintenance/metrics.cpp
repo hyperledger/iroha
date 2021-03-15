@@ -23,20 +23,18 @@
 #include <future>
 #include <regex>
 
-#include "validators/field_validator.hpp"
-
 using namespace iroha;
-
 
 std::optional<Metrics> maintenance_metrics_init(std::string const& listen_addr)
 {
   using namespace prometheus;
 
-  shared_model::validation::FieldValidator validator;
+  static const std::regex full_matcher("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]):[0-9]+$");
+  static const std::regex port_matcher("^:?([0-9]{1,5})$");
   std::string listen_addr_port;
-  if(not validator.validatePeerAddress(listen_addr)) {
+  if(std::regex_match(listen_addr,full_matcher)) {
     listen_addr_port = listen_addr;
-  } else if(not validator.validatePort(listen_addr)) {
+  } else if(std::regex_match(listen_addr,port_matcher)) {
     listen_addr_port = "127.0.0.1";
     if (listen_addr[0] != ':')
       listen_addr_port += ":";
