@@ -88,13 +88,9 @@ namespace iroha {
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;
 
-        using OutcomeSubscription = subscription::
-            SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, Answer>;
+        using OutcomeSubscription = BaseSubscriber<bool, Answer>;
         using BlockCreatorSubscription =
-            subscription::SubscriberImpl<EventTypes,
-                                         SubscriptionDispatcher,
-                                         bool,
-                                         simulator::BlockCreatorEvent>;
+            BaseSubscriber<bool, simulator::BlockCreatorEvent>;
 
         std::shared_ptr<OutcomeSubscription> outcome_subscription_;
         std::shared_ptr<OutcomeSubscription> delayed_outcome_subscription_;

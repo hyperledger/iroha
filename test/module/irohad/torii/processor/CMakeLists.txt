@@ -10,6 +10,7 @@ target_link_libraries(transaction_processor_test
     processors
     shared_model_stateless_validation
     test_logger
+    subscription
     )
 
 # Testing of query processor
@@ -19,4 +20,5 @@ target_link_libraries(query_processor_test
     shared_model_default_builders
     shared_model_cryptography
     test_logger
+    subscription
     )

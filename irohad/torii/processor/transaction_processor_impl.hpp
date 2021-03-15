@@ -38,8 +38,6 @@ namespace iroha {
           std::shared_ptr<iroha::torii::StatusBus> status_bus,
           std::shared_ptr<shared_model::interface::TxStatusFactory>
               status_factory,
-          /*rxcpp::observable<
-              std::shared_ptr<const shared_model::interface::Block>> commits,*/
           logger::LoggerPtr log);
 
       void batchHandle(
@@ -69,22 +67,13 @@ namespace iroha {
       logger::LoggerPtr log_;
 
       using VerifiedProposalSubscription =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       simulator::VerifiedProposalCreatorEvent>;
-      using BlockSubscription = subscription::SubscriberImpl<
-          EventTypes,
-          SubscriptionDispatcher,
-          bool,
-          std::shared_ptr<const shared_model::interface::Block>>;
+          BaseSubscriber<bool, simulator::VerifiedProposalCreatorEvent>;
+      using BlockSubscription =
+          BaseSubscriber<bool,
+                         std::shared_ptr<const shared_model::interface::Block>>;
       using MSTStateUpdateSubscription =
-          subscription::SubscriberImpl<EventTypes,
-                                       SubscriptionDispatcher,
-                                       bool,
-                                       std::shared_ptr<MstState>>;
-      using MSTBatchesSubscription = subscription::
-          SubscriberImpl<EventTypes, SubscriptionDispatcher, bool, DataType>;
+          BaseSubscriber<bool, std::shared_ptr<MstState>>;
+      using MSTBatchesSubscription = BaseSubscriber<bool, DataType>;
 
       std::shared_ptr<VerifiedProposalSubscription>
           verified_proposal_subscription_;

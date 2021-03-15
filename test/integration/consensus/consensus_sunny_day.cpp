@@ -129,38 +129,24 @@ class ConsensusSunnyDayTest : public ::testing::Test {
  * @then commit is achieved
  */
 TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
-  auto wrapper = make_test_subscriber<CallExact>(
-      yac->onOutcome()
-          .timeout(std::chrono::milliseconds(delay_after),
-                   rxcpp::observe_on_new_thread())
-          .take(1)
-          .as_blocking(),
-      1);
-
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
+  auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
+      iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &val) {
+        std::cout << "^_^ COMMITTED!!!" << std::endl;
+      },
+      [&](){
+        YacHash my_hash(initial_round, "proposal_hash", "block_hash");
+        my_hash.block_signature =
+            createSig(shared_model::interface::types::PublicKeyHexStringView{
+                my_peer->pubkey()});
+        auto order = ClusterOrdering::create(default_peers);
+        ASSERT_TRUE(order);
 
-  // Wait for other peers to start
-  std::this_thread::sleep_for(std::chrono::milliseconds(delay_before));
+        yac->vote(my_hash, *order);
+      });
 
-  YacHash my_hash(initial_round, "proposal_hash", "block_hash");
-  my_hash.block_signature =
-      createSig(shared_model::interface::types::PublicKeyHexStringView{
-          my_peer->pubkey()});
-  auto order = ClusterOrdering::create(default_peers);
-  ASSERT_TRUE(order);
-
-  yac->vote(my_hash, *order);
-
-  wrapper.subscribe([](auto) { std::cout << "^_^ COMMITTED!!!" << std::endl; },
-                    [](std::exception_ptr ep) {
-                      try {
-                        std::rethrow_exception(ep);
-                      } catch (const std::exception &e) {
-                        FAIL() << "Error waiting for outcome: " << e.what();
-                      }
-                    });
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(wrapper->get());
 }
 
 int main(int argc, char **argv) {

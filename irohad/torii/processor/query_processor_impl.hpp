@@ -51,11 +51,9 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::QueryResponseFactory>
           response_factory_;
 
-      using BlockSubscription = subscription::SubscriberImpl<
-          EventTypes,
-          SubscriptionDispatcher,
-          bool,
-          std::shared_ptr<const shared_model::interface::Block>>;
+      using BlockSubscription =
+          BaseSubscriber<bool,
+                         std::shared_ptr<const shared_model::interface::Block>>;
 
       std::shared_ptr<BlockSubscription> block_subscription_;
 

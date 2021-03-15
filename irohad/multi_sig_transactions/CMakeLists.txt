@@ -19,6 +19,7 @@ target_link_libraries(mst_processor
     rxcpp
     logger
     common
+    subscription
     )
 
 add_library(mst_hash

@@ -43,8 +43,6 @@ namespace iroha {
 
     static std::shared_ptr<MstStorageStateImpl> create(
         CompleterType const &completer,
-        /*rxcpp::observable<shared_model::interface::types::HashType>
-            finalized_txs,*/
         logger::LoggerPtr mst_state_logger,
         logger::LoggerPtr log);
 
@@ -101,10 +99,7 @@ namespace iroha {
     MstState own_state_;
 
     using FinalizedTxsSubscription =
-        subscription::SubscriberImpl<EventTypes,
-                                     SubscriptionDispatcher,
-                                     bool,
-                                     shared_model::interface::types::HashType>;
+        BaseSubscriber<bool, shared_model::interface::types::HashType>;
     std::shared_ptr<FinalizedTxsSubscription> finalized_txs_subscription_;
 
     logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState

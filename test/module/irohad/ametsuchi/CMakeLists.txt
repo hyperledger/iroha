@@ -11,6 +11,7 @@ target_link_libraries(ametsuchi_test
     flat_file_storage
     shared_model_stateless_validation
     test_logger
+    subscription
     )
 
 addtest(wsv_query_command_test wsv_query_command_test.cpp)
@@ -47,6 +48,7 @@ target_link_libraries(storage_init_test
     shared_model_proto_backend
     pg_connection_init
     test_logger
+    subscription
     )
 
 addtest(postgres_options_test postgres_options_test.cpp)

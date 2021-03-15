@@ -400,23 +400,26 @@ TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
       "=> insert block "
       "=> assert that inserted");
   ASSERT_TRUE(storage);
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe();
-  auto wsv = storage->getWsvQuery();
-  ASSERT_EQ(0, wsv->getPeers().value().size());
 
-  log->info("Try insert block");
+  auto wrapper = subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
+      iroha::EventTypes::kOnBlock>(
+      [&](auto const &) {
+      },
+      [&](){
+        auto wsv = storage->getWsvQuery();
+        ASSERT_EQ(0, wsv->getPeers().value().size());
 
-  auto inserted = storage->insertBlock(getBlock());
-  IROHA_ASSERT_RESULT_VALUE(inserted);
+        log->info("Try insert block");
 
-  log->info("Request ledger information");
+        auto inserted = storage->insertBlock(getBlock());
+        IROHA_ASSERT_RESULT_VALUE(inserted);
 
-  ASSERT_NE(0, wsv->getPeers().value().size());
+        log->info("Request ledger information");
 
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
+        ASSERT_NE(0, wsv->getPeers().value().size());
+      });
+
+  ASSERT_TRUE(wrapper->get());
 }
 
 /**
@@ -430,19 +433,19 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
   auto expected_block = getBlock();
 
   // create test subscriber to check if committed block is as expected
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe([&expected_block](const auto &block) {
-    ASSERT_EQ(*block, *expected_block);
-  });
+  auto wrapper = subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
+      iroha::EventTypes::kOnBlock>(
+      [&](auto const &block) {
+        ASSERT_EQ(*block, *expected_block);
+      },
+      [&](){
+        auto mutable_storage = createMutableStorage();
+        mutable_storage->apply(expected_block);
 
-  auto mutable_storage = createMutableStorage();
-  mutable_storage->apply(expected_block);
+        ASSERT_TRUE(val(storage->commit(std::move(mutable_storage))));
+      });
 
-  ASSERT_TRUE(val(storage->commit(std::move(mutable_storage))));
-
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
+  ASSERT_TRUE(wrapper->get());
 }
 
 class IdentityChainValidator : public iroha::validation::ChainValidator {
@@ -726,18 +729,18 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
 
   auto expected_block = createBlock({add_ast_tx}, 2, genesis_block->hash());
 
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe([&](const auto &block) {
-    ASSERT_EQ(*block, *expected_block);
-    validateAccountAsset(
-        sql_query, kSameDomainUserId, kAssetId, transferredAmount);
-  });
+  auto wrapper = subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
+      iroha::EventTypes::kOnBlock>(
+      [&](auto const &block) {
+        ASSERT_EQ(*block, *expected_block);
+        validateAccountAsset(
+            sql_query, kSameDomainUserId, kAssetId, transferredAmount);
+      },
+      [&](){
+        apply(storage, expected_block);
+      });
 
-  apply(storage, expected_block);
-
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
+  ASSERT_TRUE(wrapper->get());
 }
 
 class PreparedBlockTest : public AmetsuchiTest {

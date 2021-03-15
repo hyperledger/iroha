@@ -73,16 +73,9 @@ namespace iroha {
         prepareBlock_(wsv);
       }
 
-      rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() override {
-        return notifier.get_observable();
-      }
       CommitResult commit(std::unique_ptr<MutableStorage> storage) override {
         return doCommit(storage.get());
       }
-      rxcpp::subjects::subject<
-          std::shared_ptr<const shared_model::interface::Block>>
-          notifier;
     };
 
   }  // namespace ametsuchi

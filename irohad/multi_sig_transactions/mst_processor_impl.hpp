@@ -45,14 +45,6 @@ namespace iroha {
     auto propagateBatchImpl(const DataType &batch)
         -> decltype(propagateBatch(batch)) override;
 
-    // auto onStateUpdateImpl() const -> decltype(onStateUpdate()) override;
-
-    /*auto onPreparedBatchesImpl() const
-        -> decltype(onPreparedBatches()) override;*/
-
-    // auto onExpiredBatchesImpl() const -> decltype(onExpiredBatches())
-    // override;
-
     bool batchInStorageImpl(const DataType &batch) const override;
 
     // ------------------| MstTransportNotification override |------------------
@@ -93,19 +85,7 @@ namespace iroha {
     std::shared_ptr<PropagationStrategy> strategy_;
     std::shared_ptr<MstTimeProvider> time_provider_;
 
-    // rx subjects
-
-    /// use for share new states from other peers
-    // rxcpp::subjects::subject<std::shared_ptr<MstState>> state_subject_;
-
-    /// use for share completed batches
-    // rxcpp::subjects::subject<DataType> batches_subject_;
-
-    /// use for share expired batches
-    // rxcpp::subjects::subject<DataType> expired_subject_;
-
     /// use for tracking the propagation subscription
-
     rxcpp::composite_subscription propagation_subscriber_;
   };
 }  // namespace iroha
