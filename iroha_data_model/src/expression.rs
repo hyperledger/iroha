@@ -51,6 +51,14 @@ pub enum Expression {
     Add(Add),
     /// Subtract expression.
     Subtract(Subtract),
+    /// Multiply expression.
+    Multiply(Multiply),
+    /// Divide expression.
+    Divide(Divide),
+    /// Module expression.
+    Mod(Mod),
+    /// Raise to power expression.
+    RaiseTo(RaiseTo),
     /// Greater expression.
     Greater(Greater),
     /// Less expression.
@@ -104,6 +112,10 @@ impl Expression {
             ContainsAny(contains_any) => contains_any.len(),
             Where(where_expression) => where_expression.len(),
             ContextValue(context_value) => context_value.len(),
+            Multiply(multiply) => multiply.len(),
+            Divide(divide) => divide.len(),
+            Mod(modulus) => modulus.len(),
+            RaiseTo(raise_to) => raise_to.len(),
         }
     }
 }
@@ -140,6 +152,134 @@ impl ContextValue {
 impl From<ContextValue> for ExpressionBox {
     fn from(expression: ContextValue) -> Self {
         Expression::ContextValue(expression).into()
+    }
+}
+
+/// Evaluates to the multiplication of right and left expressions.
+/// Works only for `Value::U32`
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Multiply {
+    /// Left operand.
+    pub left: EvaluatesTo<u32>,
+    /// Right operand.
+    pub right: EvaluatesTo<u32>,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl Multiply {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
+    /// Constructs `Multiply` expression.
+    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+        Self {
+            left: left.into(),
+            right: right.into(),
+        }
+    }
+}
+
+impl From<Multiply> for ExpressionBox {
+    fn from(expression: Multiply) -> Self {
+        Expression::Multiply(expression).into()
+    }
+}
+
+/// Evaluates to the division of right and left expressions.
+/// Works only for `Value::U32`
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Divide {
+    /// Left operand.
+    pub left: EvaluatesTo<u32>,
+    /// Right operand.
+    pub right: EvaluatesTo<u32>,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl Divide {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
+    /// Constructs `Multiply` expression.
+    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+        Self {
+            left: left.into(),
+            right: right.into(),
+        }
+    }
+}
+
+impl From<Divide> for ExpressionBox {
+    fn from(expression: Divide) -> Self {
+        Expression::Divide(expression).into()
+    }
+}
+
+/// Evaluates to the modulus of right and left expressions.
+/// Works only for `Value::U32`
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Mod {
+    /// Left operand.
+    pub left: EvaluatesTo<u32>,
+    /// Right operand.
+    pub right: EvaluatesTo<u32>,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl Mod {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
+    /// Constructs `Mod` expression.
+    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+        Self {
+            left: left.into(),
+            right: right.into(),
+        }
+    }
+}
+
+impl From<Mod> for ExpressionBox {
+    fn from(expression: Mod) -> Self {
+        Expression::Mod(expression).into()
+    }
+}
+
+/// Evaluates to the right expression in power of left expressions.
+/// Works only for `Value::U32`
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RaiseTo {
+    /// Left operand.
+    pub left: EvaluatesTo<u32>,
+    /// Right operand.
+    pub right: EvaluatesTo<u32>,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl RaiseTo {
+    /// Number of underneath expressions.
+    pub fn len(&self) -> usize {
+        self.left.len() + self.right.len() + 1
+    }
+
+    /// Constructs `RaiseTo` expression.
+    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+        Self {
+            left: left.into(),
+            right: right.into(),
+        }
+    }
+}
+
+impl From<RaiseTo> for ExpressionBox {
+    fn from(expression: RaiseTo) -> Self {
+        Expression::RaiseTo(expression).into()
     }
 }
 
@@ -680,8 +820,8 @@ impl From<QueryBox> for ExpressionBox {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Add, And, Contains, ContainsAll, ContainsAny, Context, ContextValue, Equal, EvaluatesTo,
-        Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Not, Or, Subtract,
-        ValueName, Where, WhereBuilder,
+        Add, And, Contains, ContainsAll, ContainsAny, Context, ContextValue, Divide, Equal,
+        EvaluatesTo, Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Mod,
+        Multiply, Not, Or, RaiseTo, Subtract, ValueName, Where, WhereBuilder,
     };
 }
