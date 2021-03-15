@@ -225,10 +225,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
 
   // wait for the real peer to commit the blocks and check they are from the
   // valid branch
-  itf.getIrohaInstance()
-      .getIrohaInstance()
-      ->getStorage()
-      ->on_commit()
+  itf.getCommitObservable()
       .tap([&valid_block_storage](
                const std::shared_ptr<const shared_model::interface::Block>
                    &committed_block) {
@@ -282,10 +279,7 @@ TEST_F(FakePeerFixture, OnDemandOrderingProposalAfterValidCommandReceived) {
 
   // watch the proposal requests to fake peer
   constexpr std::chrono::seconds kCommitWaitingTime(20);
-  itf.getIrohaInstance()
-      .getIrohaInstance()
-      ->getStorage()
-      ->on_commit()
+  itf.getCommitObservable()
       .flat_map([](const auto &block) {
         std::vector<shared_model::interface::types::HashType> hashes;
         hashes.reserve(boost::size(block->transactions()));
