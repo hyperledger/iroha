@@ -39,9 +39,8 @@ impl Consumer {
         {
             let request: SubscriptionRequest =
                 VersionedSubscriptionRequest::from_versioned_json_str(&message)?
-                    .as_v1()
+                    .into_v1()
                     .ok_or_else(|| error!("Expected subscription request version 1."))?
-                    .clone()
                     .into();
             let SubscriptionRequest(filter) = request;
             Ok(Consumer { stream, filter })
