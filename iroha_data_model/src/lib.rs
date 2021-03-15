@@ -1292,6 +1292,56 @@ pub mod transaction {
         pub time_to_live_ms: u64,
     }
 
+    impl VersionedTransaction {
+        /// Same as [`as_v1`] but also does conversion
+        pub fn as_inner_v1(&self) -> &Transaction {
+            match self {
+                Self::V1(v1) => &v1.0,
+            }
+        }
+
+        /// Same as [`as_inner_v1`] but returns mutable reference
+        pub fn as_mut_inner_v1(&mut self) -> &mut Transaction {
+            match self {
+                Self::V1(v1) => &mut v1.0,
+            }
+        }
+
+        /// Same as [`into_v1`] but also does conversion
+        pub fn into_inner_v1(self) -> Transaction {
+            match self {
+                Self::V1(v1) => v1.0,
+            }
+        }
+
+        /// Default `Transaction` constructor.
+        pub fn new(
+            instructions: Vec<Instruction>,
+            account_id: <Account as Identifiable>::Id,
+            proposed_ttl_ms: u64,
+        ) -> VersionedTransaction {
+            Transaction::new(instructions, account_id, proposed_ttl_ms).into()
+        }
+
+        /// Calculate transaction `Hash`.
+        pub fn hash(&self) -> Hash {
+            self.as_inner_v1().hash()
+        }
+
+        /// Checks if number of instructions in payload exceeds maximum
+        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+            self.as_inner_v1()
+                .check_instruction_len(max_instruction_number)
+        }
+
+        /// Sign transaction with the provided key pair.
+        ///
+        /// Returns `Ok(Transaction)` if succeeded and `Err(String)` if failed.
+        pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
+            self.into_inner_v1().sign(key_pair).map(Into::into)
+        }
+    }
+
     impl Transaction {
         /// Default `Transaction` constructor.
         pub fn new(

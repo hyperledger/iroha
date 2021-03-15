@@ -91,6 +91,7 @@ pub mod http {
     use std::{
         collections::BTreeMap,
         convert::{From, TryFrom, TryInto},
+        error::Error as StdError,
         fmt::{self, Display},
     };
     use url::form_urlencoded;
@@ -410,19 +411,30 @@ pub mod http {
 
     impl<E, T> From<Result<T, E>> for HttpResponse
     where
-        E: HttpResponseError + Display,
+        E: StdError + HttpResponseError,
         T: TryInto<HttpResponse>,
-        T::Error: HttpResponseError + Display,
+        T::Error: StdError + HttpResponseError,
     {
         fn from(result: Result<T, E>) -> Self {
+            fn print_error(err: &(impl StdError + ?Sized)) {
+                log::error!("\t{}", err);
+                if let Some(err) = err.source() {
+                    print_error(err);
+                } else {
+                    log::error!("");
+                }
+            }
+
             match result.map(TryInto::try_into) {
                 Ok(Ok(ok)) => ok,
                 Ok(Err(err)) => {
-                    log::error!("Failed to handle request with error: {}", err);
+                    log::error!("Failed to handle request with error:");
+                    print_error(&err);
                     err.error_response()
                 }
                 Err(err) => {
-                    log::error!("Failed to handle request with error: {}", err);
+                    log::error!("Failed to handle request with error:");
+                    print_error(&err);
                     err.error_response()
                 }
             }

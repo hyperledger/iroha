@@ -3,7 +3,7 @@ use self::config::GenesisConfiguration;
 use crate::{
     sumeragi::{InitializedNetworkTopology, Sumeragi},
     torii::uri,
-    tx::AcceptedTransaction,
+    tx::VersionedAcceptedTransaction,
     Identifiable,
 };
 use async_std::{
@@ -25,7 +25,7 @@ const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 #[derive(Clone, Debug)]
 pub struct GenesisNetwork {
     /// transactions from GenesisBlock, any transaction is accepted
-    pub transactions: Vec<AcceptedTransaction>,
+    pub transactions: Vec<VersionedAcceptedTransaction>,
     /// Number of attempts to connect to peers, while waiting for them to submit genesis.
     pub wait_for_peers_retry_count: u64,
     /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
@@ -49,14 +49,14 @@ impl GenesisTransaction {
         &self,
         genesis_key_pair: &KeyPair,
         max_instruction_number: usize,
-    ) -> Result<AcceptedTransaction> {
+    ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
             self.isi.clone(),
             <Account as Identifiable>::Id::genesis_account(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(&genesis_key_pair)?;
-        AcceptedTransaction::from_transaction(transaction, max_instruction_number)
+        VersionedAcceptedTransaction::from_transaction(transaction, max_instruction_number)
     }
 }
 
