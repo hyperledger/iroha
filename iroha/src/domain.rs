@@ -1,7 +1,7 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
 use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::prelude::*;
-use iroha_error::{error, Error, Result};
+use iroha_error::{error, Result};
 
 /// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
@@ -19,7 +19,7 @@ pub mod isi {
             let account = self.object;
             let domain = world_state_view
                 .domain(&account.id.domain_name)
-                .ok_or_else(|| Error::msg("Failed to find domain."))?;
+                .ok_or_else(|| error!("Failed to find domain."))?;
             if domain.accounts.contains_key(&account.id) {
                 Err(error!(
                     "Domain already contains an account with an Id: {:?}",
@@ -42,7 +42,7 @@ pub mod isi {
             let account_id = self.object_id;
             let domain = world_state_view
                 .domain(&account_id.domain_name)
-                .ok_or_else(|| Error::msg("Failed to find domain."))?;
+                .ok_or_else(|| error!("Failed to find domain."))?;
             let _ = domain.accounts.remove(&account_id);
             Ok(world_state_view)
         }
@@ -58,7 +58,7 @@ pub mod isi {
             let asset_definition = self.object;
             let _ = world_state_view
                 .domain(&asset_definition.id.domain_name)
-                .ok_or_else(|| Error::msg("Failed to find domain."))?
+                .ok_or_else(|| error!("Failed to find domain."))?
                 .asset_definitions
                 .insert(
                     asset_definition.id.clone(),
@@ -81,7 +81,7 @@ pub mod isi {
             let asset_definition_id = self.object_id;
             let _ = world_state_view
                 .domain(&asset_definition_id.domain_name)
-                .ok_or_else(|| Error::msg("Failed to find domain."))?
+                .ok_or_else(|| error!("Failed to find domain."))?
                 .asset_definitions
                 .remove(&asset_definition_id);
             Ok(world_state_view)
@@ -111,7 +111,7 @@ pub mod query {
             Ok(world_state_view
                 .read_domain(&self.name)
                 .map(Clone::clone)
-                .ok_or_else(|| Error::msg("Failed to get a domain."))?
+                .ok_or_else(|| error!("Failed to get a domain."))?
                 .into())
         }
     }

@@ -96,7 +96,7 @@ impl FromStr for Algorithm {
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
             BLS_SMALL => Ok(Algorithm::BlsSmall),
-            _ => Err(Error::msg("The {} algorithm is not supported.")),
+            _ => Err(error!("The {} algorithm is not supported.")),
         }
     }
 }
@@ -191,7 +191,7 @@ impl KeyPair {
         }
         // TODO: Create an issue for ursa to impl Error for ursa::CryptoError
         //.wrap_err("Failed to generate key pair")?;
-        .map_err(|e| Error::msg(e.to_string()))?;
+        .map_err(|e| error!(e.to_string()))?;
         Ok(KeyPair {
             public_key: PublicKey {
                 digest_function: configuration.algorithm.to_string(),
@@ -259,7 +259,7 @@ impl TryFrom<&PublicKey> for Multihash {
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
             BLS_NORMAL => Ok(MultihashDigestFunction::Bls12381G1Pub),
             BLS_SMALL => Ok(MultihashDigestFunction::Bls12381G2Pub),
-            _ => Err(Error::msg("Digest function not implemented.")),
+            _ => Err(error!("Digest function not implemented.")),
         }
         .map(|digest_function| Multihash {
             digest_function,
@@ -372,7 +372,7 @@ impl Signature {
         };
         match result {
             Ok(true) => Ok(()),
-            _ => Err(Error::msg("Signature did not pass verification.")),
+            _ => Err(error!("Signature did not pass verification.")),
         }
     }
 }

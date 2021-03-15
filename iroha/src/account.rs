@@ -10,7 +10,7 @@ use iroha_data_model::prelude::*;
 pub mod isi {
     use super::*;
     use crate::isi::prelude::*;
-    use iroha_error::{error, Error, Result};
+    use iroha_error::{error, Result};
 
     impl Execute for Mint<Account, PublicKey> {
         fn execute(
@@ -22,7 +22,7 @@ pub mod isi {
             let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| Error::msg("Failed to find account."))?;
+                .ok_or_else(|| error!("Failed to find account."))?;
             account.signatories.push(public_key);
             Ok(world_state_view)
         }
@@ -37,7 +37,7 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| Error::msg("Failed to find account."))?;
+                .ok_or_else(|| error!("Failed to find account."))?;
             account.signature_check_condition = self.object;
             Ok(world_state_view)
         }
@@ -53,7 +53,7 @@ pub mod isi {
             let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| Error::msg("Failed to find account."))?;
+                .ok_or_else(|| error!("Failed to find account."))?;
             if let Some(index) = account
                 .signatories
                 .iter()
@@ -74,10 +74,10 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let source = world_state_view
                 .account(&self.source_id)
-                .ok_or_else(|| Error::msg("Failed to find accounts."))?
+                .ok_or_else(|| error!("Failed to find accounts."))?
                 .assets
                 .get_mut(&self.object.id)
-                .ok_or_else(|| Error::msg("Asset's component was not found."))?;
+                .ok_or_else(|| error!("Asset's component was not found."))?;
             let quantity_to_transfer = self.object.quantity;
             if source.quantity < quantity_to_transfer {
                 return Err(error!(
@@ -93,7 +93,7 @@ pub mod isi {
             };
             match world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| Error::msg("Failed to find destination account."))?
+                .ok_or_else(|| error!("Failed to find destination account."))?
                 .assets
                 .get_mut(&transferred_asset.id)
             {
@@ -103,7 +103,7 @@ pub mod isi {
                 None => {
                     let _ = world_state_view
                         .account(&self.destination_id)
-                        .ok_or_else(|| Error::msg("Failed to find destination account."))?
+                        .ok_or_else(|| error!("Failed to find destination account."))?
                         .assets
                         .insert(transferred_asset.id.clone(), transferred_asset);
                 }
@@ -117,7 +117,7 @@ pub mod isi {
 pub mod query {
     use super::*;
     use iroha_derive::*;
-    use iroha_error::{Error, Result};
+    use iroha_error::{error, Result};
 
     impl Query for FindAllAccounts {
         #[log]
@@ -136,7 +136,7 @@ pub mod query {
             Ok(world_state_view
                 .read_account(&self.id)
                 .map(Clone::clone)
-                .ok_or_else(|| Error::msg("Failed to get an account."))?
+                .ok_or_else(|| error!("Failed to get an account."))?
                 .into())
         }
     }

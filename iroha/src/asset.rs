@@ -10,7 +10,7 @@ use iroha_derive::log;
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
-    use iroha_error::{error, Error, Result};
+    use iroha_error::{error, Result};
 
     impl Execute for Mint<Asset, u32> {
         fn execute(
@@ -21,7 +21,7 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset."))?;
+                .ok_or_else(|| error!("Failed to find asset."))?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     asset.quantity += self.object;
@@ -44,7 +44,7 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset."))?;
+                .ok_or_else(|| error!("Failed to find asset."))?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     asset.big_quantity += self.object;
@@ -97,14 +97,14 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset."))?;
+                .ok_or_else(|| error!("Failed to find asset."))?;
             let asset = world_state_view
                 .asset(&self.destination_id)
-                .ok_or_else(|| Error::msg("Asset not found."))?;
+                .ok_or_else(|| error!("Asset not found."))?;
             asset.quantity = asset
                 .quantity
                 .checked_sub(self.object)
-                .ok_or_else(|| Error::msg("Not enough quantity to burn."))?;
+                .ok_or_else(|| error!("Not enough quantity to burn."))?;
             Ok(world_state_view)
         }
     }
@@ -118,14 +118,14 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset."))?;
+                .ok_or_else(|| error!("Failed to find asset."))?;
             let asset = world_state_view
                 .asset(&self.destination_id)
-                .ok_or_else(|| Error::msg("Asset not found."))?;
+                .ok_or_else(|| error!("Asset not found."))?;
             asset.big_quantity = asset
                 .big_quantity
                 .checked_sub(self.object)
-                .ok_or_else(|| Error::msg("Not enough big quantity to burn."))?;
+                .ok_or_else(|| error!("Not enough big quantity to burn."))?;
             Ok(world_state_view)
         }
     }
@@ -139,14 +139,14 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset definition."))?;
+                .ok_or_else(|| error!("Failed to find asset definition."))?;
             let asset = world_state_view
                 .asset(&self.destination_id)
-                .ok_or_else(|| Error::msg("Asset not found."))?;
+                .ok_or_else(|| error!("Asset not found."))?;
             let _ = asset
                 .store
                 .remove(&self.object)
-                .ok_or_else(|| Error::msg("Key not found."))?;
+                .ok_or_else(|| error!("Key not found."))?;
             Ok(world_state_view)
         }
     }
@@ -161,19 +161,19 @@ pub mod isi {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .asset_definition_entry(&self.source_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset."))?;
+                .ok_or_else(|| error!("Failed to find asset."))?;
             let _ = world_state_view
                 .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| Error::msg("Failed to find asset."))?;
+                .ok_or_else(|| error!("Failed to find asset."))?;
             match world_state_view.asset(&self.source_id) {
                 Some(asset) => {
                     if asset.quantity >= self.object {
                         asset.quantity -= self.object;
                     } else {
-                        return Err(Error::msg("Source asset is too small."));
+                        return Err(error!("Source asset is too small."));
                     }
                 }
-                None => return Err(Error::msg("Source asset not found.")),
+                None => return Err(error!("Source asset not found.")),
             }
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
