@@ -164,8 +164,7 @@ namespace iroha {
     void SynchronizerImpl::processNext(const consensus::PairValid &msg) {
       log_->info("at handleNext");
       const auto notify =
-          [this,
-           &msg](std::shared_ptr<const iroha::LedgerState> &&ledger_state) {
+          [&msg](std::shared_ptr<const iroha::LedgerState> &&ledger_state) {
             getSubscription()->notify(
                 EventTypes::kOnSynchronization,
                 SynchronizationEvent{SynchronizationOutcomeType::kCommit,
