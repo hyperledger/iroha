@@ -1,4 +1,4 @@
-use iroha_error::{Error, Result};
+use iroha_error::{error, Error, Result};
 
 /// Variable length unsigned int. [ref](https://github.com/multiformats/unsigned-varint)
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
@@ -18,7 +18,7 @@ macro_rules! try_into_uint(
                 fn try_into(self) -> Result<$ty> {
                     let VarUint { payload } = self;
                     if std::mem::size_of::<$ty>() * 8 < payload.len() * 7 {
-                        return Err(Error::msg(
+                        return Err(error!(
                             concat!("Number is too large for type ", stringify!($ty))
                         ));
                     }
@@ -80,13 +80,13 @@ impl VarUint {
             .iter()
             .enumerate()
             .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-            .ok_or_else(|| Error::msg("Last byte should be less than 128"))?
+            .ok_or_else(|| error!("Last byte should be less than 128"))?
             .0;
         let (payload, empty) = bytes.as_ref().split_at(idx + 1);
         let payload = payload.to_vec();
 
         match empty.is_empty() {
-            false => Err(Error::msg("Last byte shouldn't be followed by anything")),
+            false => Err(error!("Last byte shouldn't be followed by anything")),
             true => Ok(Self { payload }),
         }
     }

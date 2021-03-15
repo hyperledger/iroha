@@ -193,7 +193,10 @@ impl Error {
 ///
 #[macro_export]
 macro_rules! error(
+    ( $x:expr ) => {
+        iroha_error::Error::msg($x)
+    };
     ( $( $x:expr ),* $(,)* ) => {
         iroha_error::Error::msg(format!($($x,)*))
-    }
+    };
 );

@@ -279,8 +279,7 @@ fn impl_declare_versioned(
         quote! (
             impl iroha_version::scale::DecodeVersioned for #enum_name {
                 fn decode_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
-                    use iroha_version::error::Error;
-                    use iroha_version::{Version, UnsupportedVersion, RawVersioned};
+                    use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
                     use parity_scale_codec::Decode;
 
                     if let Some(version) = input.first() {
@@ -298,8 +297,7 @@ fn impl_declare_versioned(
 
             impl iroha_version::scale::EncodeVersioned for #enum_name {
                 fn encode_versioned(&self) -> iroha_version::error::Result<Vec<u8>> {
-                    use iroha_version::error::Error;
-                    use iroha_version::{UnsupportedVersion, RawVersioned};
+                    use iroha_version::{error::Error, UnsupportedVersion, RawVersioned};
                     use parity_scale_codec::Encode;
 
                     if let Self::UnsupportedVersion(unsupported_version) = self {
@@ -336,8 +334,7 @@ fn impl_declare_versioned(
         quote!(
             impl<'a> iroha_version::json::DeserializeVersionedJson<'a> for #enum_name {
                 fn from_versioned_json_str(input: &str) -> iroha_version::error::Result<Self> {
-                    use iroha_version::{Version, UnsupportedVersion, RawVersioned};
-                    use iroha_version::error::Error;
+                    use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
                     use serde_json::Value;
 
                     let json: Value = serde_json::from_str(input)?;
