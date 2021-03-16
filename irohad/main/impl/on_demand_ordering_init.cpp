@@ -45,7 +45,7 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
       on_initial_block_subscription_(iroha::SubscriberCreator<
           bool,
           std::shared_ptr<const shared_model::interface::Block>>::
-                                     create<EventTypes::kOnInitialBlock,
+                                     template create<EventTypes::kOnInitialBlock,
           SubscriptionEngineHandlers::kYac>(
           [&](auto &, auto committed_block) {
             processBlock(committed_block);
@@ -53,6 +53,14 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
       on_syncro_subscription_(std::make_shared<OnSyncronizationSubscription>(
           getSubscription()
               ->getEngine<EventTypes, synchronizer::SynchronizationEvent>())),
+      on_initial_syncro_subscription_(iroha::SubscriberCreator<
+          bool,
+          synchronizer::SynchronizationEvent>::
+                                      template create<EventTypes::kOnInitialSynchronization,
+          SubscriptionEngineHandlers::kYac>(
+          [&](auto &, auto event) {
+            processSynchroEvent(event);
+          })),
       log_(std::move(log)) {
   on_block_subscription_->setCallback(
       [this](auto,
@@ -66,114 +74,7 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
   on_syncro_subscription_->setCallback(
       [this](auto, auto &, auto key, synchronizer::SynchronizationEvent event) {
         assert(EventTypes::kOnSynchronization == key);
-
-        consensus::Round cr;
-        switch (event.sync_outcome) {
-          case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
-            log_->debug("Sync event on {}: commit.", event.round);
-            cr = ordering::nextCommitRound(event.round);
-            break;
-          case iroha::synchronizer::SynchronizationOutcomeType::kReject:
-            log_->debug("Sync event on {}: reject.", event.round);
-            cr = ordering::nextRejectRound(event.round);
-            break;
-          case iroha::synchronizer::SynchronizationOutcomeType::kNothing:
-            log_->debug("Sync event on {}: nothing.", event.round);
-            cr = ordering::nextRejectRound(event.round);
-            break;
-          default:
-            log_->error("unknown SynchronizationOutcomeType");
-            assert(false);
-        }
-        getSubscription()->notify(EventTypes::kOnRoundSwitch,
-                                  ordering::OnDemandOrderingGate::RoundSwitch{
-                                      std::move(cr), event.ledger_state});
-
-        auto &latest_commit = event;
-        auto &current_hashes = current_hashes_cache_;
-
-        iroha::consensus::Round current_round = latest_commit.round;
-        auto &current_peers = latest_commit.ledger_state->ledger_peers;
-
-        /// permutations for peers lists
-        std::array<std::vector<size_t>, kCount> permutations;
-
-        // generate permutation of peers list from corresponding round
-        // hash
-        auto generate_permutation = [&](auto round) {
-          auto &hash = std::get<round()>(current_hashes);
-          log_->debug("Using hash: {}", hash.toString());
-
-          auto prng =
-              iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
-          iroha::generatePermutation(
-              permutations[round()], std::move(prng), current_peers.size());
-        };
-
-        generate_permutation(RoundTypeConstant<kCurrentRound>{});
-        generate_permutation(RoundTypeConstant<kNextRound>{});
-        generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
-
-        using iroha::synchronizer::SynchronizationOutcomeType;
-        switch (latest_commit.sync_outcome) {
-          case SynchronizationOutcomeType::kCommit:
-            current_round = nextCommitRound(current_round);
-            break;
-          case SynchronizationOutcomeType::kReject:
-          case SynchronizationOutcomeType::kNothing:
-            current_round = nextRejectRound(current_round);
-            break;
-          default:
-            BOOST_ASSERT_MSG(false, "Unknown value");
-        }
-
-        auto getOsPeer = [&](auto block_round_advance, auto reject_round) {
-          auto &permutation = permutations[block_round_advance];
-          // since reject round can be greater than number of peers, wrap it
-          // with number of peers
-          auto &peer =
-              current_peers[permutation[reject_round % permutation.size()]];
-          log_->debug("For {}, using OS on peer: {}",
-                      iroha::consensus::Round{
-                          current_round.block_round + block_round_advance,
-                          reject_round},
-                      *peer);
-          return peer;
-        };
-
-        OnDemandConnectionManager::CurrentPeers peers;
-        /*
-         * See detailed description in
-         * irohad/ordering/impl/on_demand_connection_manager.cpp
-         *
-         *    0 1 2         0 1 2         0 1 2         0 1 2
-         *  0 o x v       0 o . .       0 o x .       0 o . .
-         *  1 . . .       1 x v .       1 v . .       1 x . .
-         *  2 . . .       2 . . .       2 . . .       2 v . .
-         * RejectReject  CommitReject  RejectCommit  CommitCommit
-         *
-         * o - current round, x - next round, v - target round
-         *
-         * v, round 0,2 - kRejectRejectConsumer
-         * v, round 1,1 - kCommitRejectConsumer
-         * v, round 1,0 - kRejectCommitConsumer
-         * v, round 2,0 - kCommitCommitConsumer
-         * o, round 0,0 - kIssuer
-         */
-        peers.peers.at(OnDemandConnectionManager::kRejectRejectConsumer) =
-            getOsPeer(kCurrentRound,
-                      currentRejectRoundConsumer(current_round.reject_round));
-        peers.peers.at(OnDemandConnectionManager::kRejectCommitConsumer) =
-            getOsPeer(kNextRound, kNextCommitRoundConsumer);
-        peers.peers.at(OnDemandConnectionManager::kCommitRejectConsumer) =
-            getOsPeer(kNextRound, kNextRejectRoundConsumer);
-        peers.peers.at(OnDemandConnectionManager::kCommitCommitConsumer) =
-            getOsPeer(kRoundAfterNext, kNextCommitRoundConsumer);
-        peers.peers.at(OnDemandConnectionManager::kIssuer) =
-            getOsPeer(kCurrentRound, current_round.reject_round);
-
-        getSubscription()->notify(EventTypes::kOnCurrentRoundPeers,
-                                  std::move(peers));
+        processSynchroEvent(event);
       });
 
   on_syncro_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
@@ -201,6 +102,116 @@ auto createNotificationFactory(
       std::make_unique<iroha::network::ClientFactoryImpl<
           transport::OnDemandOsClientGrpcFactory::Service>>(
           std::move(client_factory)));
+}
+
+void OnDemandOrderingInit::processSynchroEvent(synchronizer::SynchronizationEvent const &event) {
+  consensus::Round cr;
+  switch (event.sync_outcome) {
+    case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
+      log_->debug("Sync event on {}: commit.", event.round);
+      cr = ordering::nextCommitRound(event.round);
+      break;
+    case iroha::synchronizer::SynchronizationOutcomeType::kReject:
+      log_->debug("Sync event on {}: reject.", event.round);
+      cr = ordering::nextRejectRound(event.round);
+      break;
+    case iroha::synchronizer::SynchronizationOutcomeType::kNothing:
+      log_->debug("Sync event on {}: nothing.", event.round);
+      cr = ordering::nextRejectRound(event.round);
+      break;
+    default:
+      log_->error("unknown SynchronizationOutcomeType");
+      assert(false);
+  }
+  getSubscription()->notify(EventTypes::kOnRoundSwitch,
+                            ordering::OnDemandOrderingGate::RoundSwitch{
+                                std::move(cr), event.ledger_state});
+
+  auto &latest_commit = event;
+  auto &current_hashes = current_hashes_cache_;
+
+  iroha::consensus::Round current_round = latest_commit.round;
+  auto &current_peers = latest_commit.ledger_state->ledger_peers;
+
+  /// permutations for peers lists
+  std::array<std::vector<size_t>, kCount> permutations;
+
+  // generate permutation of peers list from corresponding round
+  // hash
+  auto generate_permutation = [&](auto round) {
+    auto &hash = std::get<round()>(current_hashes);
+    log_->debug("Using hash: {}", hash.toString());
+
+    auto prng =
+        iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
+    iroha::generatePermutation(
+        permutations[round()], std::move(prng), current_peers.size());
+  };
+
+  generate_permutation(RoundTypeConstant<kCurrentRound>{});
+  generate_permutation(RoundTypeConstant<kNextRound>{});
+  generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
+
+  using iroha::synchronizer::SynchronizationOutcomeType;
+  switch (latest_commit.sync_outcome) {
+    case SynchronizationOutcomeType::kCommit:
+      current_round = nextCommitRound(current_round);
+      break;
+    case SynchronizationOutcomeType::kReject:
+    case SynchronizationOutcomeType::kNothing:
+      current_round = nextRejectRound(current_round);
+      break;
+    default:
+      BOOST_ASSERT_MSG(false, "Unknown value");
+  }
+
+  auto getOsPeer = [&](auto block_round_advance, auto reject_round) {
+    auto &permutation = permutations[block_round_advance];
+    // since reject round can be greater than number of peers, wrap it
+    // with number of peers
+    auto &peer =
+        current_peers[permutation[reject_round % permutation.size()]];
+    log_->debug("For {}, using OS on peer: {}",
+                iroha::consensus::Round{
+                    current_round.block_round + block_round_advance,
+                    reject_round},
+                *peer);
+    return peer;
+  };
+
+  OnDemandConnectionManager::CurrentPeers peers;
+  /*
+   * See detailed description in
+   * irohad/ordering/impl/on_demand_connection_manager.cpp
+   *
+   *    0 1 2         0 1 2         0 1 2         0 1 2
+   *  0 o x v       0 o . .       0 o x .       0 o . .
+   *  1 . . .       1 x v .       1 v . .       1 x . .
+   *  2 . . .       2 . . .       2 . . .       2 v . .
+   * RejectReject  CommitReject  RejectCommit  CommitCommit
+   *
+   * o - current round, x - next round, v - target round
+   *
+   * v, round 0,2 - kRejectRejectConsumer
+   * v, round 1,1 - kCommitRejectConsumer
+   * v, round 1,0 - kRejectCommitConsumer
+   * v, round 2,0 - kCommitCommitConsumer
+   * o, round 0,0 - kIssuer
+   */
+  peers.peers.at(OnDemandConnectionManager::kRejectRejectConsumer) =
+      getOsPeer(kCurrentRound,
+                currentRejectRoundConsumer(current_round.reject_round));
+  peers.peers.at(OnDemandConnectionManager::kRejectCommitConsumer) =
+      getOsPeer(kNextRound, kNextCommitRoundConsumer);
+  peers.peers.at(OnDemandConnectionManager::kCommitRejectConsumer) =
+      getOsPeer(kNextRound, kNextRejectRoundConsumer);
+  peers.peers.at(OnDemandConnectionManager::kCommitCommitConsumer) =
+      getOsPeer(kRoundAfterNext, kNextCommitRoundConsumer);
+  peers.peers.at(OnDemandConnectionManager::kIssuer) =
+      getOsPeer(kCurrentRound, current_round.reject_round);
+
+  getSubscription()->notify(EventTypes::kOnCurrentRoundPeers,
+                            std::move(peers));
 }
 
 void OnDemandOrderingInit::processBlock(std::shared_ptr<shared_model::interface::Block const> const &block) {

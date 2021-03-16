@@ -1042,7 +1042,7 @@ Irohad::RunResult Irohad::run() {
         std::shared_ptr<const shared_model::interface::Block>(
             std::move(block)));
 
-    getSubscription()->notify(EventTypes::kOnSynchronization,
+    getSubscription()->notify(EventTypes::kOnInitialSynchronization,
                               synchronizer::SynchronizationEvent{
                                   SynchronizationOutcomeType::kCommit,
                                   {block_height, ordering::kFirstRejectRound},

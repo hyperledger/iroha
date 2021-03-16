@@ -118,6 +118,7 @@ namespace iroha {
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
       void processBlock(std::shared_ptr<shared_model::interface::Block const> const &block);
+      void processSynchroEvent(synchronizer::SynchronizationEvent const &event);
 
       // rxcpp::composite_subscription sync_event_notifier_lifetime_;
       // rxcpp::composite_subscription commit_notifier_lifetime_;
@@ -196,6 +197,7 @@ namespace iroha {
       std::shared_ptr<OnBlockSubscription> on_block_subscription_;
       std::shared_ptr<OnBlockSubscription> on_initial_block_subscription_;
       std::shared_ptr<OnSyncronizationSubscription> on_syncro_subscription_;
+      std::shared_ptr<OnSyncronizationSubscription> on_initial_syncro_subscription_;
 
      private:
       logger::LoggerPtr log_;

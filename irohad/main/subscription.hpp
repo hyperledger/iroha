@@ -22,6 +22,7 @@ namespace iroha {
   enum EventTypes {
     kOnOutcome = 0,
     kOnSynchronization,
+    kOnInitialSynchronization,
     kOnCurrentRoundPeers,
     kOnRoundSwitch,
     kOnProposal,
