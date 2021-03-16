@@ -283,35 +283,6 @@ namespace integration_framework {
                iroha::SubscriptionEngineHandlers::kYac>(
             [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
 
-          requested_proposals_ =
-              SubscriberCreatorType<iroha::network::OrderingEvent>::
-              create<iroha::EventTypes::kOnProposal,
-                  iroha::SubscriptionEngineHandlers::kYac>(
-                  [](auto &requested_proposals_subject,
-                     auto orderingEvent) {
-                    requested_proposals_subject.get_subscriber().on_next(orderingEvent);
-                  });
-
-          verified_proposals_ =
-              SubscriberCreatorType<iroha::simulator::VerifiedProposalCreatorEvent>::
-              create<iroha::EventTypes::kOnVerifiedProposal,
-                  iroha::SubscriptionEngineHandlers::kYac>(
-                  [](auto &verified_proposals_subject,
-                     auto verified_proposal_event) {
-                    verified_proposals_subject.get_subscriber().on_next(verified_proposal_event);
-                  });
-
-          committed_blocks_ =
-              iroha::SubscriberCreator<
-                  bool,
-                  std::shared_ptr<const shared_model::interface::Block>>::
-              create<iroha::EventTypes::kOnBlock,
-                  iroha::SubscriptionEngineHandlers::kYac>(
-                  [&](auto &,
-                      auto committed_block) {
-                    block_queue_->push(committed_block);
-                    log_->info("block commit");
-                  });
 
         }
 
@@ -469,6 +440,36 @@ namespace integration_framework {
 
   void IntegrationTestFramework::subscribeQueuesAndRun() {
     // subscribing for components
+    requested_proposals_ =
+        SubscriberCreatorType<iroha::network::OrderingEvent>::
+        create<iroha::EventTypes::kOnProposal,
+            iroha::SubscriptionEngineHandlers::kYac>(
+            [](auto &requested_proposals_subject,
+               auto orderingEvent) {
+              requested_proposals_subject.get_subscriber().on_next(orderingEvent);
+            });
+
+    verified_proposals_ =
+        SubscriberCreatorType<iroha::simulator::VerifiedProposalCreatorEvent>::
+        create<iroha::EventTypes::kOnVerifiedProposal,
+            iroha::SubscriptionEngineHandlers::kYac>(
+            [](auto &verified_proposals_subject,
+               auto verified_proposal_event) {
+              verified_proposals_subject.get_subscriber().on_next(verified_proposal_event);
+            });
+
+    committed_blocks_ =
+        iroha::SubscriberCreator<
+            bool,
+            std::shared_ptr<const shared_model::interface::Block>>::
+        create<iroha::EventTypes::kOnBlock,
+            iroha::SubscriptionEngineHandlers::kYac>(
+            [&](auto &,
+                auto committed_block) {
+              block_queue_->push(committed_block);
+              log_->info("block commit");
+            });
+
     rxcpp::observable<iroha::network::OrderingEvent> received_proposals =
         requested_proposals_->get().get_observable().filter(
             [](const auto &event) {
