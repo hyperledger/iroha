@@ -93,7 +93,7 @@ mod tests {
 
         if let QueryResult(Value::Vec(assets)) = query_result {
             if let Some(Value::Identifiable(IdentifiableBox::Asset(asset))) = assets.first() {
-                assert_eq!(account_has_quantity, asset.quantity);
+                assert_eq!(AssetValue::Quantity(account_has_quantity), asset.value);
                 return;
             }
         }

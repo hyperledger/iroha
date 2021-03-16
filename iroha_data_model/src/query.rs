@@ -44,6 +44,8 @@ pub enum QueryBox {
     FindAssetsByDomainNameAndAssetDefinitionId(Box<FindAssetsByDomainNameAndAssetDefinitionId>),
     /// `FindAssetQuantityById` variant.
     FindAssetQuantityById(Box<FindAssetQuantityById>),
+    /// `FindAssetQuantityById` variant.
+    FindAssetKeyValueByIdAndKey(Box<FindAssetKeyValueByIdAndKey>),
     /// `FindAllDomains` variant.
     FindAllDomains(Box<FindAllDomains>),
     /// `FindDomainByName` variant.
@@ -300,6 +302,16 @@ pub mod asset {
         pub id: AssetId,
     }
 
+    /// `FindAssetQuantityById` Iroha Query will get `AssetId` and key as input and find [`Value`]
+    /// of the key-value pair stored in this asset.
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+    pub struct FindAssetKeyValueByIdAndKey {
+        /// `Id` of an `Asset` acting as `Store`.
+        pub id: AssetId,
+        /// The key of the key-value pair stored in the asset.
+        pub key: Name,
+    }
+
     impl FindAllAssets {
         /// Default `FindAllAssets` constructor.
         pub fn new() -> Self {
@@ -347,13 +359,20 @@ pub mod asset {
         }
     }
 
+    impl FindAssetKeyValueByIdAndKey {
+        /// Default [`FindAssetKeyValueByIdAndKey`] constructor.
+        pub fn new(id: AssetId, key: Name) -> Self {
+            Self { id, key }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetQuantityById,
-            FindAssetsByAccountId, FindAssetsByAccountIdAndAssetDefinitionId,
-            FindAssetsByAssetDefinitionId, FindAssetsByDomainName,
-            FindAssetsByDomainNameAndAssetDefinitionId, FindAssetsByName,
+            FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetKeyValueByIdAndKey,
+            FindAssetQuantityById, FindAssetsByAccountId,
+            FindAssetsByAccountIdAndAssetDefinitionId, FindAssetsByAssetDefinitionId,
+            FindAssetsByDomainName, FindAssetsByDomainNameAndAssetDefinitionId, FindAssetsByName,
         };
     }
 }

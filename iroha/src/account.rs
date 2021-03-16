@@ -64,53 +64,6 @@ pub mod isi {
             Ok(world_state_view)
         }
     }
-
-    impl Execute for Transfer<Account, Asset, Account> {
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
-            let source = world_state_view
-                .account(&self.source_id)
-                .ok_or_else(|| error!("Failed to find accounts."))?
-                .assets
-                .get_mut(&self.object.id)
-                .ok_or_else(|| error!("Asset's component was not found."))?;
-            let quantity_to_transfer = self.object.quantity;
-            if source.quantity < quantity_to_transfer {
-                return Err(error!(
-                    "Not enough assets: {:?}, {:?}.",
-                    source, self.object
-                ));
-            }
-            source.quantity -= quantity_to_transfer;
-            let transferred_asset = {
-                let mut object = self.object.clone();
-                object.id.account_id = self.destination_id.clone();
-                object
-            };
-            match world_state_view
-                .account(&self.destination_id)
-                .ok_or_else(|| error!("Failed to find destination account."))?
-                .assets
-                .get_mut(&transferred_asset.id)
-            {
-                Some(destination) => {
-                    destination.quantity += quantity_to_transfer;
-                }
-                None => {
-                    let _ = world_state_view
-                        .account(&self.destination_id)
-                        .ok_or_else(|| error!("Failed to find destination account."))?
-                        .assets
-                        .insert(transferred_asset.id.clone(), transferred_asset);
-                }
-            }
-            Ok(world_state_view)
-        }
-    }
 }
 
 /// Query module provides `IrohaQuery` Account related implementations.

@@ -152,6 +152,7 @@ impl Query for QueryBox {
             QueryBox::FindDomainByName(query) => query.execute(world_state_view),
             QueryBox::FindAllPeers(query) => query.execute(world_state_view),
             QueryBox::FindAllParameters(query) => query.execute(world_state_view),
+            QueryBox::FindAssetKeyValueByIdAndKey(query) => query.execute(world_state_view),
         }
     }
 }
