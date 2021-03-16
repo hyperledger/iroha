@@ -68,20 +68,24 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
 
   // ------------------------ THEN -------------------------
   // check that ledger state contains the two peers
+  uint32_t counter = 0;
   itf_sync_events_observable
       .filter([prepared_height](const auto &sync_event) {
         return sync_event.ledger_state->top_block_info.height > prepared_height;
       })
-      .take(1)
+      .take(2)
       .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
       .as_blocking()
       .subscribe(
           [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
-            EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                        ::testing::UnorderedElementsAre(
-                            makePeerPointeeMatcher(itf_peer),
-                            makePeerPointeeMatcher(new_peer_address,
-                                                   new_peer_hex_pubkey)));
+            if (counter == 1) {
+              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                          ::testing::UnorderedElementsAre(
+                              makePeerPointeeMatcher(itf_peer),
+                              makePeerPointeeMatcher(new_peer_address,
+                                                     new_peer_hex_pubkey)));
+            }
+            ++counter;
           },
           [](std::exception_ptr ep) {
             try {
