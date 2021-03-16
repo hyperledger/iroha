@@ -15,6 +15,7 @@
 #include "module/irohad/ametsuchi/mock_storage.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace testing;
@@ -24,6 +25,7 @@ using namespace testing;
  */
 class TxPresenceCacheTest : public ::testing::Test {
  protected:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   void SetUp() override {
     mock_storage = std::make_shared<MockStorage>();
     mock_block_query = std::make_shared<MockBlockQuery>();

@@ -12,6 +12,7 @@
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "main/subscription.hpp"
 
 using ::testing::_;
 using ::testing::Invoke;
@@ -27,6 +28,7 @@ namespace iroha {
 
       class YacCryptoProviderTest : public ::testing::Test {
        public:
+        std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
         YacCryptoProviderTest()
             : keypair(shared_model::crypto::DefaultCryptoAlgorithmType::
                           generateKeypair()) {}

@@ -17,6 +17,7 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
+#include "main/subscription.hpp"
 
 auto log_ = getTestLogger("MstProcessorTest");
 
@@ -53,6 +54,7 @@ auto initObservers(std::shared_ptr<FairMstProcessor> mst_processor, iroha::utils
 class MstProcessorTest : public testing::Test {
  public:
   // --------------------------------| fields |---------------------------------
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
 
   /// propagation subject, useful for propagation control
   rxcpp::subjects::subject<PropagationStrategy::PropagationData>

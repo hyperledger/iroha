@@ -15,6 +15,7 @@
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "ordering_mock.grpc.pb.h"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -29,6 +30,7 @@ using ::testing::SetArgPointee;
 
 class OnDemandOsClientGrpcTest : public ::testing::Test {
  public:
+  std::shared_ptr<Subscription> se_ = getSubscription();
   using ProtoProposalTransportFactory =
       shared_model::proto::ProtoTransportFactory<
           shared_model::interface::Proposal,

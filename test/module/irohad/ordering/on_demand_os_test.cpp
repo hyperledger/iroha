@@ -20,6 +20,7 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -40,6 +41,7 @@ using MockProposalValidator = MockValidator<Proposal>;
 
 class OnDemandOsTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   std::shared_ptr<OnDemandOrderingService> os;
   const uint64_t transaction_limit = 20;
   const uint32_t proposal_limit = 5;

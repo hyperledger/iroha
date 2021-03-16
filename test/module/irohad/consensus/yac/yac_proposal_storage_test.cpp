@@ -15,6 +15,7 @@
 #include "logger/logger_manager.hpp"
 #include "module/irohad/consensus/yac/mock_yac_supermajority_checker.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha::consensus::yac;
 using namespace ::testing;
@@ -23,6 +24,7 @@ static logger::LoggerPtr log_ = getTestLogger("YacProposalStorage");
 
 class YacProposalStorageTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   const PeersNumberType number_of_peers = 7;
   const PeersNumberType supermajority = number_of_peers
       - (number_of_peers - 1)

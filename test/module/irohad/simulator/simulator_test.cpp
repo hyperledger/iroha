@@ -47,6 +47,7 @@ using wBlock = std::shared_ptr<shared_model::interface::Block>;
 
 class SimulatorTest : public ::testing::Test {
  public:
+  std::shared_ptr<Subscription> se_ = getSubscription();
   using CryptoSignerType = shared_model::crypto::MockAbstractCryptoModelSigner<
       shared_model::interface::Block>;
 

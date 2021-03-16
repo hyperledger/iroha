@@ -19,6 +19,7 @@
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/mock_yac_timer.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
+#include "main/subscription.hpp"
 
 // TODO mboldyrev 14.02.2019 IR-324 Use supermajority checker mock
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
@@ -30,6 +31,8 @@ namespace iroha {
 
       class YacTest : public ::testing::Test {
        public:
+        std::shared_ptr<Subscription> se_ = getSubscription();
+
         // ------|Network|------
         std::shared_ptr<MockYacNetwork> network;
         std::shared_ptr<MockYacCryptoProvider> crypto;

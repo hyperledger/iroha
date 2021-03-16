@@ -8,9 +8,11 @@
 #include "consensus/yac/cluster_order.hpp"
 
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
+#include "main/subscription.hpp"
 
 class ClusterOrderTest : public ::testing::Test {
  protected:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   void SetUp() override {
     p1 = iroha::consensus::yac::makePeer("1");
     p2 = iroha::consensus::yac::makePeer("2");

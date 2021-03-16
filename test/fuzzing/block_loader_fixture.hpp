@@ -23,6 +23,7 @@ using namespace testing;
 namespace fuzzing {
 
   struct BlockLoaderFixture {
+    std::shared_ptr<Subscription> se_ = getSubscription();
     std::shared_ptr<NiceMock<iroha::ametsuchi::MockBlockQuery>> storage_;
     std::shared_ptr<NiceMock<iroha::ametsuchi::MockBlockQueryFactory>>
         block_query_factory_;

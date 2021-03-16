@@ -8,8 +8,10 @@
 #include <gtest/gtest.h>
 #include "backend/plain/peer.hpp"
 #include "module/irohad/ametsuchi/mock_wsv_query.hpp"
+#include "main/subscription.hpp"
 
 class PeerQueryWSVTest : public ::testing::Test {
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   void SetUp() override {
     wsv_query_ = std::make_shared<iroha::ametsuchi::MockWsvQuery>();
     peer_query_ = std::make_unique<iroha::ametsuchi::PeerQueryWsv>(wsv_query_);

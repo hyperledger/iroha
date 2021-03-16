@@ -10,6 +10,7 @@
 #include "module/irohad/ametsuchi/mock_mutable_storage.hpp"
 #include "module/irohad/consensus/yac/mock_yac_supermajority_checker.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::validation;
@@ -27,6 +28,7 @@ using ::testing::SaveArg;
 
 class ChainValidationTest : public ::testing::Test {
  public:
+  std::shared_ptr<Subscription> se_ = getSubscription();
   void SetUp() override {
     validator = std::make_shared<ChainValidatorImpl>(
         supermajority_checker, getTestLogger("ChainValidator"));

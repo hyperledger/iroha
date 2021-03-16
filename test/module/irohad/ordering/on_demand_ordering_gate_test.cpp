@@ -44,6 +44,7 @@ using ::testing::UnorderedElementsAreArray;
 
 class OnDemandOrderingGateTest : public ::testing::Test {
  public:
+  std::shared_ptr<Subscription> se_ = getSubscription();
   void SetUp() override {
     ordering_service = std::make_shared<MockOnDemandOrderingService>();
     notification = new MockOdOsNotification();

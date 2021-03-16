@@ -22,4 +22,5 @@ target_link_libraries(chain_validator
     shared_model_interfaces
     logger
     supermajority_checker
+    subscription
     )

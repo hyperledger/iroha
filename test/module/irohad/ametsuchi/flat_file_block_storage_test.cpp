@@ -11,6 +11,7 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace boost::filesystem;
@@ -22,6 +23,7 @@ using ::testing::Return;
 
 class FlatFileBlockStorageTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   FlatFileBlockStorageTest() {
     ON_CALL(*block_, height()).WillByDefault(Return(height_));
   }

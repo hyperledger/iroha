@@ -24,12 +24,14 @@
 #include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "validators/field_validator.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace iroha::expected;
 
 class StorageInitTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   StorageInitTest() {
     pg_opt_without_dbname_ = integration_framework::getPostgresCredsOrDefault();
     pgopt_ = pg_opt_without_dbname_ + " dbname=" + dbname_;

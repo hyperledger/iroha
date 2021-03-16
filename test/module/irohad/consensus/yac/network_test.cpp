@@ -15,6 +15,7 @@
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "yac_mock.grpc.pb.h"
+#include "main/subscription.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -27,6 +28,7 @@ namespace iroha {
     namespace yac {
       class YacNetworkTest : public ::testing::Test {
        public:
+        std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
         static constexpr auto default_ip = "0.0.0.0";
         static constexpr auto default_address = "0.0.0.0:0";
 

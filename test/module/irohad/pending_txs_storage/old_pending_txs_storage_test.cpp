@@ -17,6 +17,7 @@ using namespace framework::test_subscriber;
 
 class OldPendingTxsStorageFixture : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   using Batch = shared_model::interface::TransactionBatch;
 
   /**

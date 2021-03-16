@@ -47,6 +47,7 @@ auto mk_local_peer(uint64_t num) {
 
 class ConsensusSunnyDayTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   std::shared_ptr<CleanupStrategy> cleanup_strategy;
   std::unique_ptr<grpc::Server> server;
   std::shared_ptr<NetworkImpl> network;
