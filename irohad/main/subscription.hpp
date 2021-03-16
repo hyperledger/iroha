@@ -30,6 +30,7 @@ namespace iroha {
     kOnOutcomeFromYac,
     kOnOutcomeDelayed,
     kOnBlock,
+    kOnInitialBlock,
     kOnBlockCreatorEvent,
     kOnFinalizedTxs,
     kOnApplyState,

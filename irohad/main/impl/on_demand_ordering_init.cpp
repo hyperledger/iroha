@@ -42,35 +42,25 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
               ->getEngine<
                   EventTypes,
                   std::shared_ptr<shared_model::interface::Block const>>())),
+      on_initial_block_subscription_(iroha::SubscriberCreator<
+          bool,
+          std::shared_ptr<const shared_model::interface::Block>>::
+                                     create<EventTypes::kOnInitialBlock,
+          SubscriptionEngineHandlers::kYac>(
+          [&](auto &, auto committed_block) {
+            processBlock(committed_block);
+          })),
       on_syncro_subscription_(std::make_shared<OnSyncronizationSubscription>(
           getSubscription()
               ->getEngine<EventTypes, synchronizer::SynchronizationEvent>())),
       log_(std::move(log)) {
   on_block_subscription_->setCallback(
       [this](auto,
-             HashesCache &cache,
+             auto &,
              auto key,
              std::shared_ptr<shared_model::interface::Block const> block) {
         assert(EventTypes::kOnBlock == key);
-        assert(block);
-
-        std::get<0>(cache) = std::move(std::get<1>(cache));
-        std::get<1>(cache) = std::move(std::get<2>(cache));
-        std::get<2>(cache) = block->hash();
-
-        log_->debug("Committed block handle: height {}.", block->height());
-        auto hashes =
-            std::make_shared<cache::OrderingGateCache::HashesSetType>();
-        for (shared_model::interface::Transaction const &tx :
-             block->transactions()) {
-          hashes->insert(tx.hash());
-        }
-        for (shared_model::crypto::Hash const &hash :
-             block->rejected_transactions_hashes()) {
-          hashes->insert(hash);
-        }
-        getSubscription()->notify(EventTypes::kOnProcessedHashes,
-                                  std::move(hashes));
+        processBlock(block);
       });
 
   on_syncro_subscription_->setCallback(
@@ -100,7 +90,7 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
                                       std::move(cr), event.ledger_state});
 
         auto &latest_commit = event;
-        auto &current_hashes = on_block_subscription_->get();
+        auto &current_hashes = current_hashes_cache_;
 
         iroha::consensus::Round current_round = latest_commit.round;
         auto &current_peers = latest_commit.ledger_state->ledger_peers;
@@ -213,6 +203,28 @@ auto createNotificationFactory(
           std::move(client_factory)));
 }
 
+void OnDemandOrderingInit::processBlock(std::shared_ptr<shared_model::interface::Block const> const &block) {
+  assert(block);
+
+    std::get<0>(current_hashes_cache_) = std::move(std::get<1>(current_hashes_cache_));
+    std::get<1>(current_hashes_cache_) = std::move(std::get<2>(current_hashes_cache_));
+    std::get<2>(current_hashes_cache_) = block->hash();
+
+  log_->debug("Committed block handle: height {}.", block->height());
+  auto hashes =
+      std::make_shared<cache::OrderingGateCache::HashesSetType>();
+  for (shared_model::interface::Transaction const &tx :
+      block->transactions()) {
+    hashes->insert(tx.hash());
+  }
+  for (shared_model::crypto::Hash const &hash :
+      block->rejected_transactions_hashes()) {
+    hashes->insert(hash);
+  }
+  getSubscription()->notify(EventTypes::kOnProcessedHashes,
+                            std::move(hashes));
+}
+
 auto OnDemandOrderingInit::createConnectionManager(
     std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
         async_call,
@@ -225,7 +237,7 @@ auto OnDemandOrderingInit::createConnectionManager(
   // hashes of two previous blocks are prepended
   const size_t kBeforePreviousTop = 0, kPreviousTop = 1;
 
-  auto &hashes = on_block_subscription_->get();
+  auto &hashes = current_hashes_cache_;
   std::get<1>(hashes) = initial_hashes.at(kBeforePreviousTop);
   std::get<2>(hashes) = initial_hashes.at(kPreviousTop);
 

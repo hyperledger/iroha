@@ -14,6 +14,7 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/subscription.hpp"
+#include "cryptography/hash.hpp"
 
 namespace google {
   namespace protobuf {
@@ -116,6 +117,8 @@ namespace iroha {
           std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
+      void processBlock(std::shared_ptr<shared_model::interface::Block const> const &block);
+
       // rxcpp::composite_subscription sync_event_notifier_lifetime_;
       // rxcpp::composite_subscription commit_notifier_lifetime_;
 
@@ -184,12 +187,14 @@ namespace iroha {
                                      shared_model::crypto::Hash,
                                      shared_model::crypto::Hash>;
       using OnBlockSubscription =
-          BaseSubscriber<HashesCache,
+          BaseSubscriber<bool,
                          std::shared_ptr<shared_model::interface::Block const>>;
       using OnSyncronizationSubscription =
           BaseSubscriber<bool, synchronizer::SynchronizationEvent>;
 
+      HashesCache current_hashes_cache_;
       std::shared_ptr<OnBlockSubscription> on_block_subscription_;
+      std::shared_ptr<OnBlockSubscription> on_initial_block_subscription_;
       std::shared_ptr<OnSyncronizationSubscription> on_syncro_subscription_;
 
      private:

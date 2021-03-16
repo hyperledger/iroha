@@ -1038,7 +1038,7 @@ Irohad::RunResult Irohad::run() {
     }
 
     getSubscription()->notify(
-        EventTypes::kOnBlock,
+        EventTypes::kOnInitialBlock,
         std::shared_ptr<const shared_model::interface::Block>(
             std::move(block)));
 
