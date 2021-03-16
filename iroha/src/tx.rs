@@ -156,7 +156,6 @@ impl AcceptedTransaction {
 
     /// Rejects transaction with the `rejection_reason`.
     pub fn reject(self, rejection_reason: TransactionRejectionReason) -> RejectedTransaction {
-        let rejection_reason = PipelineRejectionReason::Transaction(rejection_reason);
         RejectedTransaction {
             payload: self.payload,
             signatures: self.signatures,
@@ -226,7 +225,7 @@ pub struct RejectedTransaction {
     payload: Payload,
     signatures: Vec<Signature>,
     /// The reason for rejecting this tranaction during the validation pipeline.
-    pub rejection_reason: PipelineRejectionReason,
+    pub rejection_reason: TransactionRejectionReason,
 }
 
 impl RejectedTransaction {

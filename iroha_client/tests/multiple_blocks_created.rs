@@ -91,7 +91,7 @@ mod tests {
             if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
                 assets.first().expect("Asset should exist.")
             {
-                assert_eq!(account_has_quantity, asset.quantity);
+                assert_eq!(AssetValue::Quantity(account_has_quantity), asset.value);
             } else {
                 panic!("Wrong Query Result Type.")
             }

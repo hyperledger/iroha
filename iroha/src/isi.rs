@@ -32,6 +32,10 @@ impl Execute for Instruction {
             Pair(pair_box) => pair_box.execute(authority, world_state_view),
             Sequence(sequence) => sequence.execute(authority, world_state_view),
             Fail(fail_box) => fail_box.execute(authority, world_state_view),
+            SetKeyValue(set_key_value) => set_key_value.execute(authority, world_state_view),
+            RemoveKeyValue(remove_key_value) => {
+                remove_key_value.execute(authority, world_state_view)
+            }
         }
     }
 }
@@ -179,6 +183,45 @@ impl Execute for TransferBox {
                     },
                     _ => Err(error!("Unsupported instruction.")),
                 }
+            }
+            _ => Err(error!("Unsupported instruction.")),
+        }
+    }
+}
+
+impl Execute for SetKeyValueBox {
+    #[log]
+    fn execute(
+        self,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &WorldStateView,
+    ) -> Result<WorldStateView> {
+        let context = Context::new();
+        match self.object_id.evaluate(world_state_view, &context)? {
+            IdBox::AssetId(asset_id) => {
+                let key = self.key.evaluate(world_state_view, &context)?;
+                let value = self.value.evaluate(world_state_view, &context)?;
+                SetKeyValue::<Asset, String, Value>::new(asset_id, key, value)
+                    .execute(authority, world_state_view)
+            }
+            _ => Err(error!("Unsupported instruction.")),
+        }
+    }
+}
+
+impl Execute for RemoveKeyValueBox {
+    #[log]
+    fn execute(
+        self,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &WorldStateView,
+    ) -> Result<WorldStateView> {
+        let context = Context::new();
+        match self.object_id.evaluate(world_state_view, &context)? {
+            IdBox::AssetId(asset_id) => {
+                let key = self.key.evaluate(world_state_view, &context)?;
+                RemoveKeyValue::<Asset, String>::new(asset_id, key)
+                    .execute(authority, world_state_view)
             }
             _ => Err(error!("Unsupported instruction.")),
         }
