@@ -260,10 +260,11 @@ int main(int argc, char *argv[]) {
           log_manager);
     }
 
+    std::optional<Metrics> metrics;
     if(FLAGS_metrics_port.size()) {
-      maintenance_metrics_init(FLAGS_metrics_addr + ":" + FLAGS_metrics_port);
+      metrics = maintenance_metrics_init(FLAGS_metrics_addr + ":" + FLAGS_metrics_port);
     }else if(config.metrics_addr_port.size()){
-      maintenance_metrics_init(config.metrics_addr_port);
+      metrics = maintenance_metrics_init(config.metrics_addr_port);
     }
 
     daemon_status_notifier->notify(

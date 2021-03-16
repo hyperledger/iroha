@@ -58,14 +58,14 @@ std::optional<Metrics> maintenance_metrics_init(std::string const& listen_addr)
                                 //.Help("Total number of blocks in chain")
                                 //.Labels({{"label","a_metter"}})
                                 .Register(*registry);
-  auto&block_height_value = block_height_gauge.Add({{"value", "some"}});
+  auto&block_height_value = block_height_gauge.Add({});//{{"value", "some"}});
 
   auto&peers_number_gauge = BuildGauge()
       .Name("peers_number")
           //.Help("Total number peers to send transactions and request proposals")
           //.Labels({{"label","a_metter"}})
       .Register(*registry);
-  auto&peers_number_value = peers_number_gauge.Add({{"valueP", "any"}});
+  auto&peers_number_value = peers_number_gauge.Add({});//{{"valueP", "any"}});
 
   using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
   using BlockSubscriber = BaseSubscriber<bool,BlockPtr>;
