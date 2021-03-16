@@ -27,6 +27,10 @@ pub enum Instruction {
     Sequence(SequenceBox),
     /// `Fail` variant.
     Fail(FailBox),
+    /// `SetKeyValue` variant.
+    SetKeyValue(SetKeyValueBox),
+    /// `RemoveKeyValue` variant.
+    RemoveKeyValue(RemoveKeyValueBox),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -45,8 +49,30 @@ impl Instruction {
             Pair(pair_box) => pair_box.len(),
             Sequence(sequence) => sequence.len(),
             Fail(fail_box) => fail_box.len(),
+            SetKeyValue(set_key_value) => set_key_value.len(),
+            RemoveKeyValue(remove_key_value) => remove_key_value.len(),
         }
     }
+}
+
+/// Sized structure for all possible key value set instructions.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+pub struct SetKeyValueBox {
+    /// Where to set this key value.
+    pub object_id: EvaluatesTo<IdBox>,
+    /// Key string.
+    pub key: EvaluatesTo<String>,
+    /// Object to set as a value.
+    pub value: EvaluatesTo<Value>,
+}
+
+/// Sized structure for all possible key value pair remove instructions.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+pub struct RemoveKeyValueBox {
+    /// From where to remove this key value.
+    pub object_id: EvaluatesTo<IdBox>,
+    /// Key string.
+    pub key: EvaluatesTo<String>,
 }
 
 /// Sized structure for all possible Sets.
@@ -143,6 +169,35 @@ where
     pub object: O,
 }
 
+/// Generic instruction to set key value at the object.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct SetKeyValue<O, K, V>
+where
+    O: Identifiable,
+    K: ValueMarker,
+    V: ValueMarker,
+{
+    /// Where to set key value.
+    pub object_id: O::Id,
+    /// Key.
+    pub key: K,
+    /// Value.
+    pub value: V,
+}
+
+/// Generic instruction to remove key value at the object.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct RemoveKeyValue<O, K>
+where
+    O: Identifiable,
+    K: ValueMarker,
+{
+    /// From where to remove key value.
+    pub object_id: O::Id,
+    /// Key of the pair to remove.
+    pub key: K,
+}
+
 /// Generic instruction for a registration of an object to the identifiable destination.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Register<O>
@@ -201,6 +256,33 @@ where
     pub object: O,
     /// Destination object `Id`.
     pub destination_id: D::Id,
+}
+
+impl<O, K, V> SetKeyValue<O, K, V>
+where
+    O: Identifiable,
+    K: ValueMarker,
+    V: ValueMarker,
+{
+    /// Default [`SetKeyValue`] constructor.
+    pub fn new(object_id: O::Id, key: K, value: V) -> Self {
+        Self {
+            object_id,
+            key,
+            value,
+        }
+    }
+}
+
+impl<O, K> RemoveKeyValue<O, K>
+where
+    O: Identifiable,
+    K: ValueMarker,
+{
+    /// Default [`RemoveKeyValue`] constructor.
+    pub fn new(object_id: O::Id, key: K) -> Self {
+        Self { object_id, key }
+    }
 }
 
 impl<O> Set<O>
@@ -273,6 +355,50 @@ where
             source_id,
             object,
             destination_id,
+        }
+    }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl SetKeyValueBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.object_id.len() + self.key.len() + self.value.len() + 1
+    }
+
+    /// Default [`SetKeyValueBox`] constructor.
+    pub fn new<
+        I: Into<EvaluatesTo<IdBox>>,
+        K: Into<EvaluatesTo<String>>,
+        V: Into<EvaluatesTo<Value>>,
+    >(
+        object_id: I,
+        key: K,
+        value: V,
+    ) -> Self {
+        Self {
+            object_id: object_id.into(),
+            key: key.into(),
+            value: value.into(),
+        }
+    }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl RemoveKeyValueBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        self.object_id.len() + self.key.len() + 1
+    }
+
+    /// Default [`RemoveKeyValueBox`] constructor.
+    pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<String>>>(
+        object_id: I,
+        key: K,
+    ) -> Self {
+        Self {
+            object_id: object_id.into(),
+            key: key.into(),
         }
     }
 }
@@ -530,6 +656,7 @@ mod tests {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, FailBox, If as IfInstruction, Instruction, Mint, MintBox, Pair, Register,
-        RegisterBox, SequenceBox, Transfer, TransferBox, Unregister, UnregisterBox,
+        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, SequenceBox, SetKeyValue, SetKeyValueBox,
+        Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }

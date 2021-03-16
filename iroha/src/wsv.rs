@@ -158,6 +158,23 @@ impl WorldStateView {
         self.account(&id.account_id)?.assets.get_mut(id)
     }
 
+    /// Get `Asset` with an ability to modify it.
+    /// If no asset is present - create it. Similar to Entry API.
+    ///
+    /// Returns `None` if no corresponding account was found.
+    pub fn asset_or_insert<V: Into<AssetValue>>(
+        &mut self,
+        id: &<Asset as Identifiable>::Id,
+        default_value: V,
+    ) -> Option<&mut Asset> {
+        Some(
+            self.account(&id.account_id)?
+                .assets
+                .entry(id.clone())
+                .or_insert_with(|| Asset::new(id.clone(), default_value)),
+        )
+    }
+
     /// Add new `Asset` entity.
     pub fn add_asset(&mut self, asset: Asset) {
         let _ = self

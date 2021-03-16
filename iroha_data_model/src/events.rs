@@ -278,6 +278,8 @@ pub mod pipeline {
                 Sequence(_) => "sequence",
                 Transfer(_) => "transfer",
                 Unregister(_) => "unregister",
+                SetKeyValue(_) => "set key-value pair",
+                RemoveKeyValue(_) => "remove key-value pair",
             };
             write!(
                 f,
@@ -344,13 +346,13 @@ pub mod pipeline {
         UnexpectedGenesisAccountSignature,
     }
 
-    /// The reason for rejecting transaction.
+    /// The reason for rejecting pipeline entity such as transaction or block.
     #[derive(
         Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, FromVariant, Error,
     )]
     pub enum RejectionReason {
         /// The reason for rejecting the block.
-        #[error("Transaction was rejected because of block")]
+        #[error("Block was rejected")]
         Block(#[source] BlockRejectionReason),
         /// The reason for rejecting transaction.
         #[error("Transaction was rejected")]

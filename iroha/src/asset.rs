@@ -24,7 +24,10 @@ pub mod isi {
                 .ok_or_else(|| error!("Failed to find asset."))?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
-                    asset.quantity += self.object;
+                    let quantity: &mut u32 = asset.try_as_mut()?;
+                    *quantity = quantity
+                        .checked_add(self.object)
+                        .ok_or_else(|| error!("Overflow occured."))?;
                 }
                 None => world_state_view.add_asset(Asset::with_quantity(
                     self.destination_id.clone(),
@@ -47,7 +50,10 @@ pub mod isi {
                 .ok_or_else(|| error!("Failed to find asset."))?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
-                    asset.big_quantity += self.object;
+                    let quantity: &mut u128 = asset.try_as_mut()?;
+                    *quantity = quantity
+                        .checked_add(self.object)
+                        .ok_or_else(|| error!("Overflow occured."))?;
                 }
                 None => world_state_view.add_asset(Asset::with_big_quantity(
                     self.destination_id.clone(),
@@ -58,7 +64,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Asset, (String, Bytes)> {
+    impl Execute for SetKeyValue<Asset, String, Value> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -66,22 +72,22 @@ pub mod isi {
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.object_id.definition_id)
                 .ok_or_else(|| {
                     error!(
                         "Failed to find asset definition. {:?}",
-                        &self.destination_id.definition_id
+                        &self.object_id.definition_id
                     )
                 })?;
-            match world_state_view.asset(&self.destination_id) {
+            match world_state_view.asset(&self.object_id) {
                 Some(asset) => {
-                    let _ = asset
-                        .store
-                        .insert(self.object.0.clone(), self.object.1.clone());
+                    let store: &mut Metadata = asset.try_as_mut()?;
+                    let _ = store.insert(self.key, self.value);
                 }
                 None => world_state_view.add_asset(Asset::with_parameter(
-                    self.destination_id.clone(),
-                    self.object.clone(),
+                    self.object_id,
+                    self.key,
+                    self.value,
                 )),
             }
             Ok(world_state_view)
@@ -101,8 +107,8 @@ pub mod isi {
             let asset = world_state_view
                 .asset(&self.destination_id)
                 .ok_or_else(|| error!("Asset not found."))?;
-            asset.quantity = asset
-                .quantity
+            let quantity: &mut u32 = asset.try_as_mut()?;
+            *quantity = quantity
                 .checked_sub(self.object)
                 .ok_or_else(|| error!("Not enough quantity to burn."))?;
             Ok(world_state_view)
@@ -122,15 +128,15 @@ pub mod isi {
             let asset = world_state_view
                 .asset(&self.destination_id)
                 .ok_or_else(|| error!("Asset not found."))?;
-            asset.big_quantity = asset
-                .big_quantity
+            let quantity: &mut u128 = asset.try_as_mut()?;
+            *quantity = quantity
                 .checked_sub(self.object)
-                .ok_or_else(|| error!("Not enough big quantity to burn."))?;
+                .ok_or_else(|| error!("Not enough quantity to burn."))?;
             Ok(world_state_view)
         }
     }
 
-    impl Execute for Burn<Asset, Name> {
+    impl Execute for RemoveKeyValue<Asset, String> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -138,14 +144,14 @@ pub mod isi {
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
+                .asset_definition_entry(&self.object_id.definition_id)
                 .ok_or_else(|| error!("Failed to find asset definition."))?;
             let asset = world_state_view
-                .asset(&self.destination_id)
+                .asset(&self.object_id)
                 .ok_or_else(|| error!("Asset not found."))?;
-            let _ = asset
-                .store
-                .remove(&self.object)
+            let store: &mut Metadata = asset.try_as_mut()?;
+            let _ = store
+                .remove(&self.key)
                 .ok_or_else(|| error!("Key not found."))?;
             Ok(world_state_view)
         }
@@ -159,31 +165,30 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
+            if self.destination_id.definition_id != self.source_id.definition_id {
+                return Err(error!(
+                    "Can not transfer asset between different asset types."
+                ));
+            }
             let _ = world_state_view
                 .asset_definition_entry(&self.source_id.definition_id)
                 .ok_or_else(|| error!("Failed to find asset."))?;
-            let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
-            match world_state_view.asset(&self.source_id) {
-                Some(asset) => {
-                    if asset.quantity >= self.object {
-                        asset.quantity -= self.object;
-                    } else {
-                        return Err(error!("Source asset is too small."));
-                    }
-                }
-                None => return Err(error!("Source asset not found.")),
-            }
-            match world_state_view.asset(&self.destination_id) {
-                Some(asset) => {
-                    asset.quantity += self.object;
-                }
-                None => world_state_view.add_asset(Asset::with_quantity(
-                    self.destination_id.clone(),
-                    self.object,
-                )),
-            }
+            let source_asset = world_state_view
+                .asset(&self.source_id)
+                .ok_or_else(|| error!("Source asset not found."))?;
+            let quantity: &mut u32 = source_asset.try_as_mut()?;
+            *quantity = quantity
+                .checked_sub(self.object)
+                .ok_or_else(|| error!("Source account doesn not enough asset quantity."))?;
+            let destitantion_asset = world_state_view
+                .asset_or_insert(&self.destination_id, 0u32)
+                .ok_or_else(|| {
+                    error!("Destination asset not found and failed to initialize new one.")
+                })?;
+            let quantity: &mut u32 = destitantion_asset.try_as_mut()?;
+            *quantity = quantity
+                .checked_add(self.object)
+                .ok_or_else(|| error!("Destination asset overflowed."))?;
             Ok(world_state_view)
         }
     }
@@ -317,9 +322,36 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
                 .read_asset(&self.id)
-                .map(|asset| asset.quantity)
+                .map(|asset| {
+                    let quantity: Result<u32> = asset.try_as_ref().map(Clone::clone);
+                    quantity
+                })
+                .transpose()?
                 .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &self.id))?
                 .into())
+        }
+    }
+
+    impl Query for FindAssetKeyValueByIdAndKey {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            Ok(world_state_view
+                .read_asset(&self.id)
+                .map(|asset| {
+                    let store: Result<&Metadata> = asset.try_as_ref();
+                    store.and_then(|store| {
+                        store
+                            .get(&self.key)
+                            .map(|value| value.to_owned())
+                            .ok_or_else(|| {
+                                error!("Key {} not found in asset {}", self.key, self.id)
+                            })
+                    })
+                })
+                .transpose()?
+                .ok_or_else(|| {
+                    error!("Failed to get an asset with identification: {}.", &self.id)
+                })?)
         }
     }
 }

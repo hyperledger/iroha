@@ -365,7 +365,7 @@ impl From<&CommittedBlock> for Vec<Event> {
                     .map(|transaction| {
                         PipelineEvent::new(
                             PipelineEntityType::Transaction,
-                            PipelineStatus::Rejected(transaction.rejection_reason.clone()),
+                            PipelineStatus::Rejected(transaction.rejection_reason.clone().into()),
                             transaction.hash(),
                         )
                         .into()
