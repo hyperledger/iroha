@@ -105,7 +105,8 @@ mod tests {
                     .iter()
                     .filter(|asset| {
                         if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                            asset.quantity == quantity && asset.id.account_id == account2_id
+                            asset.value == AssetValue::Quantity(quantity)
+                                && asset.id.account_id == account2_id
                         } else {
                             false
                         }

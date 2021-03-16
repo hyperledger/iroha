@@ -197,7 +197,9 @@ mod asset_steps {
                         if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
                             asset
                         {
-                            total_quantity += asset.quantity;
+                            if let AssetValue::Quantity(quantity) = asset.value {
+                                total_quantity += quantity;
+                            }
                         }
                     });
                     assert_eq!(asset_quantity, total_quantity);

@@ -73,7 +73,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
             .next()
             .expect("Asset should exist.");
 
-        assert_eq!(quantity, asset.quantity);
+        assert_eq!(AssetValue::Quantity(quantity), asset.value);
     } else {
         panic!("Wrong Query Result Type.");
     }

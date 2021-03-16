@@ -35,6 +35,7 @@ impl RecursivePermissionsValidator {
     }
 }
 
+// TODO: Add permissions for `SetKeyValue` and `RemoveKeyValue`.
 impl PermissionsValidator for RecursivePermissionsValidator {
     fn check_instruction(
         &self,
@@ -47,6 +48,8 @@ impl PermissionsValidator for RecursivePermissionsValidator {
             | Instruction::Unregister(_)
             | Instruction::Mint(_)
             | Instruction::Burn(_)
+            | Instruction::SetKeyValue(_)
+            | Instruction::RemoveKeyValue(_)
             | Instruction::Transfer(_)
             | Instruction::Fail(_) => self
                 .validator
