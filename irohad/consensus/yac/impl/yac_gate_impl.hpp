@@ -53,9 +53,6 @@ namespace iroha {
         void vote(const simulator::BlockCreatorEvent &event) override;
         void initialize();
 
-        // rxcpp::observable<GateObject> onOutcome() override;
-        // rxcpp::observable<consensus::FreezedRound> onFreezedRound() override;
-
         void stop() override;
 
        private:
@@ -69,10 +66,6 @@ namespace iroha {
         void handleReject(const RejectMessage &msg);
         void handleFuture(const FutureMessage &msg);
 
-        // rxcpp::observable<GateObject> handleCommit(const CommitMessage &msg);
-        // rxcpp::observable<GateObject> handleReject(const RejectMessage &msg);
-        // rxcpp::observable<GateObject> handleFuture(const FutureMessage &msg);
-
         logger::LoggerPtr log_;
 
         boost::optional<std::shared_ptr<shared_model::interface::Block>>
@@ -81,7 +74,6 @@ namespace iroha {
         boost::optional<ClusterOrdering> alternative_order_;
         std::shared_ptr<const LedgerState> current_ledger_state_;
 
-        // rxcpp::observable<GateObject> published_events_;
         std::shared_ptr<YacPeerOrderer> orderer_;
         std::shared_ptr<YacHashProvider> hash_provider_;
         std::shared_ptr<simulator::BlockCreator> block_creator_;

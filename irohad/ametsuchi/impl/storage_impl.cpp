@@ -424,11 +424,6 @@ namespace iroha {
       return boost::make_optional(std::move(setting_query_ptr));
     }
 
-    /*rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-    StorageImpl::on_commit() {
-      return notifier_.get_observable();
-    }*/
-
     void StorageImpl::prepareBlock(std::unique_ptr<TemporaryWsv> wsv) {
       auto &wsv_impl = static_cast<TemporaryWsvImpl &>(*wsv);
       if (not prepared_blocks_enabled_) {

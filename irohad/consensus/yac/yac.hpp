@@ -122,7 +122,7 @@ namespace iroha {
         // ------|One round|------
         ClusterOrdering cluster_order_;
         boost::optional<ClusterOrdering> alternative_order_;
-        utils::ReadWriteObject<Round> round_;
+        Round round_;
 
         // ------|Fields|------
         YacVoteStorage vote_storage_;

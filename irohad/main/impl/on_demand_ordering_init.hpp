@@ -117,11 +117,17 @@ namespace iroha {
           std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
+      /**
+       * Processing new block event.
+       * @param block data
+       */
       void processBlock(std::shared_ptr<shared_model::interface::Block const> const &block);
-      void processSynchroEvent(synchronizer::SynchronizationEvent const &event);
 
-      // rxcpp::composite_subscription sync_event_notifier_lifetime_;
-      // rxcpp::composite_subscription commit_notifier_lifetime_;
+      /**
+       * Processing new synchronization event.
+       * @param event data
+       */
+      void processSynchroEvent(synchronizer::SynchronizationEvent const &event);
 
      public:
       /// Constructor.
@@ -176,13 +182,6 @@ namespace iroha {
 
       /// gRPC service for ordering service
       std::shared_ptr<grpc::Service> service;
-
-      /// commit notifier from peer communication service
-      /*rxcpp::subjects::subject<synchronizer::SynchronizationEvent>
-          sync_event_notifier;*/
-      /*rxcpp::subjects::subject<
-          std::shared_ptr<shared_model::interface::Block const>>
-          commit_notifier;*/
 
       using HashesCache = std::tuple<shared_model::crypto::Hash,
                                      shared_model::crypto::Hash,
