@@ -13,6 +13,7 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/make_peer_pointee_matcher.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
+#include "main/subscription.hpp"
 
 template <size_t N>
 void checkBlockHasNTxs(
@@ -24,6 +25,7 @@ class FakePeerFixture : public AcceptanceFixture {
  public:
   using FakePeer = integration_framework::fake_peer::FakePeer;
 
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   std::unique_ptr<integration_framework::IntegrationTestFramework> itf_;
 
   /**

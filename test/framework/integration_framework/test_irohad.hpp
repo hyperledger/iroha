@@ -10,6 +10,7 @@
 #include "framework/test_client_factory.hpp"
 #include "main/application.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 
 namespace integration_framework {
   /**
@@ -91,6 +92,7 @@ namespace integration_framework {
     }
 
    private:
+    std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
     logger::LoggerPtr log_;
   };
 }  // namespace integration_framework

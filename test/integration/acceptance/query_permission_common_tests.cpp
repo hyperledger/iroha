@@ -119,8 +119,6 @@ TYPED_TEST(QueryPermissionFixture, AnothersFromSameDomainWithoutAnyPermission) {
       this->impl_.makeQuery(
           *this, kUserId, kSameDomainUserId, kSameDomainUserKeypair),
       getQueryStatefullyInvalidChecker());
-
-  __builtin_trap();
 }
 
 /**
