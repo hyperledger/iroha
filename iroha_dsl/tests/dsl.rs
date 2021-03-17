@@ -7,6 +7,7 @@ use std::{thread, time::Duration};
 use test_network::Peer as TestPeer;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 const GENESIS_PATH: &str = "tests/genesis.json";
 
@@ -98,9 +99,13 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
 fn find_rate_and_make_exchange_isi_should_succeed() {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+    configuration
+        .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+        .expect("Failed to load trusted peers.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi_configuration.trusted_peers.peers =
+        std::iter::once(peer.id.clone()).collect();
 
     let pipeline_time =
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());

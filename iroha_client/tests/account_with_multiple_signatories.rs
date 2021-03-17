@@ -19,7 +19,8 @@ mod tests {
         let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
         configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
         let peer = TestPeer::new()?;
-        configuration.sumeragi_configuration.trusted_peers = iter::once(peer.id.clone()).collect();
+        configuration.sumeragi_configuration.trusted_peers.peers =
+            iter::once(peer.id.clone()).collect();
 
         let pipeline_time = std::time::Duration::from_millis(
             configuration.sumeragi_configuration.pipeline_time_ms(),

@@ -1,8 +1,11 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
-    block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
-    kura::config::KuraConfiguration, queue::config::QueueConfiguration,
-    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
+    block_sync::config::BlockSyncConfiguration,
+    genesis::config::GenesisConfiguration,
+    kura::config::KuraConfiguration,
+    queue::config::QueueConfiguration,
+    sumeragi::config::{SumeragiConfiguration, TrustedPeers},
+    torii::config::ToriiConfiguration,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
@@ -93,6 +96,12 @@ impl Configuration {
         Ok(())
     }
 
+    /// Load trusted peers variables from a json *pretty* formatted file.
+    pub fn load_trusted_peers_from_path<P: AsRef<Path> + Debug>(&mut self, path: P) -> Result<()> {
+        self.sumeragi_configuration.trusted_peers = TrustedPeers::from_path(&path)?;
+        Ok(())
+    }
+
     /// Add genesis block path to config
     pub fn add_genesis_block_path(&mut self, path: &str) {
         self.genesis_configuration.genesis_block_path = Some(path.to_string());
@@ -110,11 +119,32 @@ mod tests {
     use std::collections::BTreeSet;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 
     #[test]
     fn parse_example_json() -> Result<()> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .wrap_err("Failed to read configuration from example config")?;
+        assert_eq!(
+            "127.0.0.1:1337",
+            configuration.torii_configuration.torii_p2p_url
+        );
+        assert_eq!(1000, configuration.sumeragi_configuration.block_time_ms);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_example_trusted_peers_json() -> Result<(), String> {
+        let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+            .map_err(|e| format!("Failed to read configuration from example config: {}", e))?;
+        configuration
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .map_err(|e| {
+                format!(
+                    "Failed to read trusted peers parameters from example config: {}",
+                    e
+                )
+            })?;
         let public_key = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(
@@ -142,14 +172,10 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        assert_eq!(
-            "127.0.0.1:1337",
-            configuration.torii_configuration.torii_p2p_url
-        );
         assert_eq!(1000, configuration.sumeragi_configuration.block_time_ms);
         assert_eq!(
             expected_trusted_peers,
-            configuration.sumeragi_configuration.trusted_peers
+            configuration.sumeragi_configuration.trusted_peers.peers
         );
         Ok(())
     }
