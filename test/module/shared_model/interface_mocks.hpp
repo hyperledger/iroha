@@ -194,7 +194,7 @@ inline auto makePeer(
     shared_model::interface::types::PublicKeyHexStringView pub_key,
     const std::optional<shared_model::interface::types::TLSCertificateType>
         &tls_certificate = std::nullopt) {
-  auto peer = std::make_unique<MockPeer>();
+  auto peer = std::make_shared<MockPeer>();
   EXPECT_CALL(*peer, address())
       .WillRepeatedly(testing::ReturnRefOfCopy(std::string{address}));
   EXPECT_CALL(*peer, pubkey())

@@ -50,7 +50,7 @@ TEST_F(ClusterOrderTest, BadClusterOrderCreation) {
 TEST_F(ClusterOrderTest, ClusterOrderOnNext) {
   auto order = iroha::consensus::yac::ClusterOrdering::create(peers_list);
   ASSERT_TRUE(order);
-  ASSERT_EQ("1", order->currentLeader().address());
-  ASSERT_EQ("2", order->switchToNext().currentLeader().address());
-  ASSERT_EQ("1", order->switchToNext().currentLeader().address());
+  ASSERT_EQ("1", order->currentLeader()->address());
+  ASSERT_EQ("2", order->switchToNext().currentLeader()->address());
+  ASSERT_EQ("1", order->switchToNext().currentLeader()->address());
 }
