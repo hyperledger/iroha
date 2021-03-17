@@ -18,8 +18,7 @@ using namespace iroha::ordering::transport;
 
 OnDemandOsClientGrpc::OnDemandOsClientGrpc(
     std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub,
-    std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
+    std::shared_ptr<network::AsyncGrpcClient> async_call,
     std::shared_ptr<TransportFactoryType> proposal_factory,
     std::function<TimepointType()> time_provider,
     std::chrono::milliseconds proposal_request_timeout,
@@ -43,9 +42,11 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
 
   log_->debug("Propagating: '{}'", request.DebugString());
 
-  async_call_->Call([&](auto context, auto cq) {
-    return stub_->AsyncSendBatches(context, request, cq);
-  });
+  async_call_->Call(
+      [&](auto context, auto cq) {
+        return stub_->AsyncSendBatches(context, request, cq);
+      },
+      std::function<void(grpc::Status &, google::protobuf::Empty &)>{});
 }
 
 boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
@@ -79,8 +80,7 @@ OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
 }
 
 OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
-    std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
+    std::shared_ptr<network::AsyncGrpcClient> async_call,
     std::shared_ptr<TransportFactoryType> proposal_factory,
     std::function<OnDemandOsClientGrpc::TimepointType()> time_provider,
     OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,

@@ -458,9 +458,8 @@ Irohad::RunResult Irohad::initValidators() {
  * Initializing network client
  */
 Irohad::RunResult Irohad::initNetworkClient() {
-  async_call_ =
-      std::make_shared<network::AsyncGrpcClient<google::protobuf::Empty>>(
-          log_manager_->getChild("AsyncNetworkClient")->getLogger());
+  async_call_ = std::make_shared<network::AsyncGrpcClient>(
+      log_manager_->getChild("AsyncNetworkClient")->getLogger());
   return {};
 }
 

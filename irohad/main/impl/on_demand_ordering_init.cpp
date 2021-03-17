@@ -45,8 +45,7 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
  * gRPC backend. \see initOrderingGate for parameters
  */
 auto createNotificationFactory(
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
+    std::shared_ptr<iroha::network::AsyncGrpcClient> async_call,
     std::shared_ptr<OnDemandOrderingInit::TransportFactoryType>
         proposal_transport_factory,
     std::chrono::milliseconds delay,
@@ -64,8 +63,7 @@ auto createNotificationFactory(
 }
 
 auto OnDemandOrderingInit::createConnectionManager(
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
+    std::shared_ptr<iroha::network::AsyncGrpcClient> async_call,
     std::shared_ptr<TransportFactoryType> proposal_transport_factory,
     std::chrono::milliseconds delay,
     std::vector<shared_model::interface::types::HashType> initial_hashes,
@@ -302,8 +300,7 @@ OnDemandOrderingInit::initOrderingGate(
         batch_parser,
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory,
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
+    std::shared_ptr<iroha::network::AsyncGrpcClient> async_call,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<TransportFactoryType> proposal_transport_factory,

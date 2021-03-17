@@ -35,8 +35,7 @@ namespace iroha {
         using ClientFactory = iroha::network::ClientFactory<Service>;
 
         explicit NetworkImpl(
-            std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-                async_call,
+            std::shared_ptr<network::AsyncGrpcClient> async_call,
             std::unique_ptr<iroha::network::ClientFactory<
                 ::iroha::consensus::yac::proto::Yac>> client_factory,
             logger::LoggerPtr log);
@@ -68,8 +67,7 @@ namespace iroha {
         /**
          * Rpc call to provide an ability to perform call grpc endpoints
          */
-        std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-            async_call_;
+        std::shared_ptr<network::AsyncGrpcClient> async_call_;
 
         /**
          * Yac stub creator

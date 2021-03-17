@@ -43,8 +43,8 @@ class TransportTest : public ::testing::Test {
  public:
   TransportTest() : my_key_(makeKey()) {}
   void SetUp() override {
-    async_call_ = std::make_shared<AsyncGrpcClient<google::protobuf::Empty>>(
-        getTestLogger("AsyncClient"));
+    async_call_ =
+        std::make_shared<AsyncGrpcClient>(getTestLogger("AsyncClient"));
     parser_ = std::make_shared<TransactionBatchParserImpl>();
     batch_validator_ =
         std::make_shared<shared_model::validation::DefaultBatchValidator>(
@@ -97,7 +97,7 @@ class TransportTest : public ::testing::Test {
   iroha::network::MockClientFactory<MstTransportGrpc::Service>
       *mock_client_factory_{
           new iroha::network::MockClientFactory<MstTransportGrpc::Service>()};
-  std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call_;
+  std::shared_ptr<AsyncGrpcClient> async_call_;
   std::shared_ptr<TransactionBatchParserImpl> parser_;
   std::shared_ptr<shared_model::validation::AbstractValidator<
       shared_model::interface::TransactionBatch>>

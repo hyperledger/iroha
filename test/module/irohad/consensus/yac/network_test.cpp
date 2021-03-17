@@ -43,8 +43,7 @@ namespace iroha {
 
         void SetUp() override {
           notifications = std::make_shared<MockYacNetworkNotifications>();
-          async_call = std::make_shared<
-              network::AsyncGrpcClient<google::protobuf::Empty>>(
+          async_call = std::make_shared<network::AsyncGrpcClient>(
               getTestLogger("AsyncCall"));
           mock_client_factory_ =
               new iroha::network::MockClientFactory<NetworkImpl::Service>();
@@ -70,8 +69,7 @@ namespace iroha {
         iroha::network::MockClientFactory<NetworkImpl::Service>
             *mock_client_factory_;
         std::shared_ptr<MockYacNetworkNotifications> notifications;
-        std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-            async_call;
+        std::shared_ptr<network::AsyncGrpcClient> async_call;
         std::shared_ptr<NetworkImpl> network;
         std::shared_ptr<shared_model::interface::Peer> peer;
         VoteMessage message;

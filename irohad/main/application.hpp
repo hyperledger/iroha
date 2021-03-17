@@ -288,8 +288,7 @@ class Irohad {
   std::shared_ptr<iroha::validation::ChainValidator> chain_validator;
 
   // async call
-  std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-      async_call_;
+  std::shared_ptr<iroha::network::AsyncGrpcClient> async_call_;
 
   // transaction batch factory
   std::shared_ptr<shared_model::interface::TransactionBatchFactory>

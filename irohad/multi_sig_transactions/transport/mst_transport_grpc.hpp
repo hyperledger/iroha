@@ -40,8 +40,7 @@ namespace iroha {
       using MstClientFactory = ClientFactory<Service>;
 
       MstTransportGrpc(
-          std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-              async_call,
+          std::shared_ptr<network::AsyncGrpcClient> async_call,
           std::shared_ptr<TransportFactoryType> transaction_factory,
           std::shared_ptr<shared_model::interface::TransactionBatchParser>
               batch_parser,
@@ -75,8 +74,7 @@ namespace iroha {
 
      private:
       std::weak_ptr<MstTransportNotification> subscriber_;
-      std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-          async_call_;
+      std::shared_ptr<network::AsyncGrpcClient> async_call_;
       std::shared_ptr<TransportFactoryType> transaction_factory_;
       std::shared_ptr<shared_model::interface::TransactionBatchParser>
           batch_parser_;
@@ -98,7 +96,7 @@ namespace iroha {
         MstState const &state,
         shared_model::interface::types::PublicKeyHexStringView sender_key,
         transport::MstTransportGrpc::StubInterface &client_stub,
-        AsyncGrpcClient<google::protobuf::Empty> &async_call,
+        AsyncGrpcClient &async_call,
         std::function<void(grpc::Status &, google::protobuf::Empty &)>
             on_response = {});
 

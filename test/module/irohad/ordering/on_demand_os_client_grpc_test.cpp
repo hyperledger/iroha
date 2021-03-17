@@ -46,8 +46,7 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
     auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();
     stub = ustub.get();
     async_call =
-        std::make_shared<network::AsyncGrpcClient<google::protobuf::Empty>>(
-            getTestLogger("AsyncCall"));
+        std::make_shared<network::AsyncGrpcClient>(getTestLogger("AsyncCall"));
     auto validator = std::make_unique<MockProposalValidator>();
     proposal_validator = validator.get();
     auto proto_validator = std::make_unique<MockProtoProposalValidator>();
@@ -64,7 +63,7 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   }
 
   proto::MockOnDemandOrderingStub *stub;
-  std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>> async_call;
+  std::shared_ptr<network::AsyncGrpcClient> async_call;
   OnDemandOsClientGrpc::TimepointType timepoint;
   std::chrono::milliseconds timeout{1};
   std::shared_ptr<OnDemandOsClientGrpc> client;

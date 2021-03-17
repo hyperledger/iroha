@@ -32,8 +32,7 @@ namespace fuzzing {
     std::shared_ptr<MstTransportGrpc> mst_transport_grpc_;
 
     MstFixture() {
-      auto async_call_ = std::make_shared<
-          iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
+      auto async_call_ = std::make_shared<iroha::network::AsyncGrpcClient>(
           logger::getDummyLoggerPtr());
       // TODO luckychess 25.12.2018 Component initialisation reuse
       // IR-1886, IR-142

@@ -96,9 +96,7 @@ namespace iroha {
           std::shared_ptr<consensus::ConsensusResultCache>
               consensus_result_cache,
           std::chrono::milliseconds vote_delay_milliseconds,
-          std::shared_ptr<
-              iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-              async_call,
+          std::shared_ptr<iroha::network::AsyncGrpcClient> async_call,
           ConsistencyModel consistency_model,
           const logger::LoggerManagerTreePtr &consensus_log_manager,
           std::chrono::milliseconds delay,

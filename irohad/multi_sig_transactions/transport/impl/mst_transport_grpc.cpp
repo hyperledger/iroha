@@ -31,7 +31,7 @@ using namespace iroha::network;
 using shared_model::interface::types::PublicKeyHexStringView;
 
 MstTransportGrpc::MstTransportGrpc(
-    std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call,
+    std::shared_ptr<AsyncGrpcClient> async_call,
     std::shared_ptr<TransportFactoryType> transaction_factory,
     std::shared_ptr<shared_model::interface::TransactionBatchParser>
         batch_parser,
@@ -139,9 +139,8 @@ rxcpp::observable<bool> MstTransportGrpc::sendState(
              to = std::move(to),
              providing_state,
              my_key = my_key_,
-             async_call_ = std::weak_ptr<
-                 network::AsyncGrpcClient<google::protobuf::Empty>>(
-                 async_call_)](auto s) {
+             async_call_ =
+                 std::weak_ptr<network::AsyncGrpcClient>(async_call_)](auto s) {
               auto log = log_.lock();
               auto async_call = async_call_.lock();
 
@@ -168,7 +167,7 @@ void iroha::network::sendStateAsync(
     MstState const &state,
     PublicKeyHexStringView sender_key,
     transport::MstTransportGrpc::StubInterface &client_stub,
-    AsyncGrpcClient<google::protobuf::Empty> &async_call,
+    AsyncGrpcClient &async_call,
     std::function<void(grpc::Status &, google::protobuf::Empty &)>
         on_response) {
   transport::MstState proto_state;

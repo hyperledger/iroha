@@ -23,8 +23,7 @@ namespace iroha {
       // ----------| Public API |----------
 
       NetworkImpl::NetworkImpl(
-          std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-              async_call,
+          std::shared_ptr<network::AsyncGrpcClient> async_call,
           std::unique_ptr<ClientFactory> client_factory,
           logger::LoggerPtr log)
           : async_call_(async_call),
@@ -66,7 +65,9 @@ namespace iroha {
                       auto context, auto cq) {
                     log->info(log_sending_msg);
                     return client->AsyncSendState(context, request, cq);
-                  });
+                  },
+                  std::function<void(grpc::Status &,
+                                     google::protobuf::Empty &)>{});
             },
             [&](const auto &error) {
               log_->error("Could not send state to {}: {}", to, error.error);

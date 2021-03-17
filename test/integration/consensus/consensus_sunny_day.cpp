@@ -73,8 +73,7 @@ class ConsensusSunnyDayTest : public ::testing::Test {
   void SetUp() override {
     cleanup_strategy =
         std::make_shared<iroha::consensus::yac::BufferedCleanupStrategy>();
-    auto async_call = std::make_shared<
-        iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
+    auto async_call = std::make_shared<iroha::network::AsyncGrpcClient>(
         getTestLogger("AsyncCall"));
     network = std::make_shared<NetworkImpl>(
         async_call,

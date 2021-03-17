@@ -21,7 +21,6 @@ namespace iroha {
      * Asynchronous gRPC client which does no processing of server responses
      * @tparam Response type of server response
      */
-    template <typename Response>
     class AsyncGrpcClient {
      public:
       explicit AsyncGrpcClient(logger::LoggerPtr log)
@@ -39,9 +38,7 @@ namespace iroha {
           if (not call->status.ok()) {
             log_->warn("RPC failed: {}", call->status.error_message());
           }
-          if (call->on_response) {
-            call->on_response(call->status, call->reply);
-          }
+          call->onResponse();
           delete call;
         }
       }
@@ -56,20 +53,33 @@ namespace iroha {
       grpc::CompletionQueue cq_;
       std::thread thread_;
 
-      /**
-       * State and data information of gRPC call
-       */
       struct AsyncClientCall {
-        Response reply;
-
         grpc::ClientContext context;
 
         grpc::Status status;
+
+        virtual void onResponse() = 0;
+
+        virtual ~AsyncClientCall() = default;
+      };
+
+      /**
+       * State and data information of gRPC call
+       */
+      template <typename Response>
+      struct AsyncClientCallImpl : AsyncClientCall {
+        Response reply;
 
         std::unique_ptr<grpc::ClientAsyncResponseReaderInterface<Response>>
             response_reader;
 
         std::function<void(grpc::Status &, Response &)> on_response;
+
+        void onResponse() override {
+          if (on_response) {
+            on_response(status, reply);
+          }
+        }
       };
 
       /**
@@ -77,11 +87,10 @@ namespace iroha {
        * @tparam lambda which must return unique pointer to
        * ClientAsyncResponseReader<Response> object
        */
-      template <typename F>
-      void Call(
-          F &&lambda,
-          std::function<void(grpc::Status &, Response &)> on_response = {}) {
-        auto call = new AsyncClientCall;
+      template <typename F, typename Response>
+      void Call(F &&lambda,
+                std::function<void(grpc::Status &, Response &)> on_response) {
+        auto call = new AsyncClientCallImpl<Response>;
         call->on_response = std::move(on_response);
         call->response_reader = lambda(&call->context, &cq_);
         call->response_reader->Finish(&call->reply, &call->status, call);

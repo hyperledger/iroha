@@ -209,8 +209,7 @@ namespace integration_framework {
       using OsTransport = iroha::ordering::OrderingServiceTransportGrpc;
       using OgTransport = iroha::ordering::OrderingGateTransportGrpc;
       using OdOsTransport = iroha::ordering::transport::OnDemandOsServerGrpc;
-      using AsyncCall =
-          iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
+      using AsyncCall = iroha::network::AsyncGrpcClient;
 
       /// Ensure the initialize() method was called.
       void ensureInitialized();

@@ -40,7 +40,6 @@ namespace shared_model {
 namespace iroha {
   namespace network {
     class GenericClientFactory;
-    template <typename Response>
     class AsyncGrpcClient;
     class OrderingGate;
   }  // namespace network
@@ -81,8 +80,7 @@ namespace iroha {
        * parameters
        */
       auto createConnectionManager(
-          std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-              async_call,
+          std::shared_ptr<network::AsyncGrpcClient> async_call,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::chrono::milliseconds delay,
           std::vector<shared_model::interface::types::HashType> initial_hashes,
@@ -159,8 +157,7 @@ namespace iroha {
               batch_parser,
           std::shared_ptr<shared_model::interface::TransactionBatchFactory>
               transaction_batch_factory,
-          std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-              async_call,
+          std::shared_ptr<network::AsyncGrpcClient> async_call,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,

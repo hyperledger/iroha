@@ -36,8 +36,7 @@ namespace fuzzing {
     std::shared_ptr<iroha::consensus::yac::CleanupStrategy> cleanup_strategy_;
     const shared_model::crypto::Keypair keypair_;
     std::shared_ptr<iroha::consensus::yac::YacNetworkNotifications> yac_;
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call_;
+    std::shared_ptr<iroha::network::AsyncGrpcClient> async_call_;
     std::shared_ptr<iroha::consensus::yac::NetworkImpl> network_;
     iroha::consensus::Round initial_round_;
 
@@ -47,8 +46,7 @@ namespace fuzzing {
                             iroha::consensus::yac::BufferedCleanupStrategy>()),
           keypair_(shared_model::crypto::DefaultCryptoAlgorithmType::
                        generateKeypair()),
-          async_call_(std::make_shared<
-                      iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
+          async_call_(std::make_shared<iroha::network::AsyncGrpcClient>(
               logger::getDummyLoggerPtr())),
           initial_round_{1, 1} {
       network_ = std::make_shared<iroha::consensus::yac::NetworkImpl>(
