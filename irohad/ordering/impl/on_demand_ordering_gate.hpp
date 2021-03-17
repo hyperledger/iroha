@@ -35,6 +35,8 @@ namespace iroha {
      */
     class OnDemandOrderingGate : public network::OrderingGate {
      public:
+      using ProposalType = transport::OdOsNotification::ProposalType;
+
       struct RoundSwitch {
         consensus::Round next_round;
         std::shared_ptr<const LedgerState> ledger_state;
@@ -96,21 +98,30 @@ namespace iroha {
       /// max number of transactions passed to one ordering service
       size_t transaction_limit_;
       std::shared_ptr<OnDemandOrderingService> ordering_service_;
-      std::unique_ptr<transport::OdOsNotification> network_client_;
+      std::shared_ptr<transport::OdOsNotification> network_client_;
       // rxcpp::composite_subscription processed_tx_hashes_subscription_;
       // rxcpp::composite_subscription round_switch_subscription_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
+
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
 
-      using RoundSwitchSubscriberType = BaseSubscriber<bool, RoundSwitch>;
-      using ProcessedHashesSubscriberType = BaseSubscriber<
+      std::shared_ptr<BaseSubscriber<
           bool,
-          std::shared_ptr<cache::OrderingGateCache::HashesSetType>>;
-
-      std::shared_ptr<ProcessedHashesSubscriberType>
+          std::shared_ptr<cache::OrderingGateCache::HashesSetType>>>
           processed_hashes_subscription_;
-      std::shared_ptr<RoundSwitchSubscriberType> round_switch_subscription_;
+
+      std::shared_ptr<BaseSubscriber<bool, RoundSwitch>>
+          round_switch_subscription_;
+
+      std::shared_ptr<BaseSubscriber<bool, RoundSwitch>>
+          need_proposal_subscription_;
+
+      std::shared_ptr<
+          BaseSubscriber<bool,
+                         boost::optional<std::shared_ptr<const ProposalType>>,
+                         RoundSwitch>>
+          new_proposal_subscription_;
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};

@@ -15,6 +15,7 @@
 namespace iroha {
   enum SubscriptionEngineHandlers {
     kYac = 0,
+    kRequestProposal,
     //---------------
     kTotalCount
   };
@@ -35,6 +36,8 @@ namespace iroha {
     kOnBlockCreatorEvent,
     kOnFinalizedTxs,
     kOnApplyState,
+    kOnNeedProposal,
+    kOnNewProposal,
 
     // MST
     kOnStateUpdate,
