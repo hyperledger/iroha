@@ -234,11 +234,10 @@ namespace iroha {
 
         auto &cluster_order = getCurrentOrder();
 
-        const auto &current_leader = cluster_order.currentLeader();
-
-        log_->info("Vote {} to peer {}", vote, current_leader);
-
-        propagateStateDirectly(current_leader, {vote});
+        if (auto current_leader = cluster_order.currentLeader()) {
+          log_->info("Vote {} to peer {}", vote, *current_leader);
+          propagateStateDirectly(*current_leader, {vote});
+        }
         cluster_order.switchToNext();
         lock.unlock();
 

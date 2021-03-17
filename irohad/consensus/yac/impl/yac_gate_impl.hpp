@@ -51,6 +51,7 @@ namespace iroha {
                 delay_func =
                     ConsensusOutcomeDelay(std::chrono::milliseconds(0)));
         void vote(const simulator::BlockCreatorEvent &event) override;
+        void initialize();
 
         // rxcpp::observable<GateObject> onOutcome() override;
         // rxcpp::observable<consensus::FreezedRound> onFreezedRound() override;
@@ -88,13 +89,11 @@ namespace iroha {
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;
 
-        using OutcomeSubscription = BaseSubscriber<bool, Answer>;
-        using BlockCreatorSubscription =
-            BaseSubscriber<bool, simulator::BlockCreatorEvent>;
-
-        std::shared_ptr<OutcomeSubscription> outcome_subscription_;
-        std::shared_ptr<OutcomeSubscription> delayed_outcome_subscription_;
-        std::shared_ptr<BlockCreatorSubscription> block_creator_subscription_;
+        std::shared_ptr<BaseSubscriber<bool, Answer>> outcome_subscription_;
+        std::shared_ptr<BaseSubscriber<bool, Answer>> delayed_outcome_subscription_;
+        std::shared_ptr<BaseSubscriber<bool, simulator::BlockCreatorEvent>> block_creator_subscription_;
+        std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
+            delay_func_;
       };
 
     }  // namespace yac

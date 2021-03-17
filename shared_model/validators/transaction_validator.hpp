@@ -69,7 +69,7 @@ namespace shared_model {
       std::optional<ValidationError> operator()(
           const interface::AddPeer &add_peer) const {
         return aggregateErrors(
-            "AddPeer", {}, {validator_.validatePeer(add_peer.peer())});
+            "AddPeer", {}, {validator_.validatePeer(*add_peer.peer())});
       }
 
       std::optional<ValidationError> operator()(

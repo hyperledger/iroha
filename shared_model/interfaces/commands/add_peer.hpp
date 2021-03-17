@@ -23,7 +23,7 @@ namespace shared_model {
        * Return peer to be added by the command.
        * @return Peer
        */
-      virtual const interface::Peer &peer() const = 0;
+      virtual std::shared_ptr<const interface::Peer> peer() const = 0;
 
       std::string toString() const override;
 

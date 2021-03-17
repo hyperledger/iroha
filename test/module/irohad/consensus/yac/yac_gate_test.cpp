@@ -142,6 +142,7 @@ class YacGateTest : public ::testing::Test {
                                          block_creator,
                                          block_cache,
                                          getTestLogger("YacGateImpl"));
+    gate->initialize();
   }
 
   iroha::consensus::Round round{2, 1};
