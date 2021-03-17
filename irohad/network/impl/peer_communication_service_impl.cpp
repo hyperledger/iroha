@@ -32,19 +32,5 @@ namespace iroha {
       ordering_gate_->propagateBatch(batch);
     }
 
-    /*    rxcpp::observable<OrderingEvent>
-       PeerCommunicationServiceImpl::onProposal() const { return
-       ordering_gate_->onProposal();
-        }*/
-
-    /*rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
-    PeerCommunicationServiceImpl::onVerifiedProposal() const {
-      return proposal_creator_->onVerifiedProposal();
-    }*/
-
-    /*rxcpp::observable<synchronizer::SynchronizationEvent>
-    PeerCommunicationServiceImpl::onSynchronization() const {
-      return synchronizer_->on_commit_chain();
-    }*/
   }  // namespace network
 }  // namespace iroha
