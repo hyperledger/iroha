@@ -19,7 +19,8 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi_configuration.trusted_peers.peers =
+        std::iter::once(peer.id.clone()).collect();
     let pipeline_time =
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 

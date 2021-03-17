@@ -81,7 +81,7 @@ impl Sumeragi {
         Ok(Self {
             key_pair: configuration.key_pair.clone(),
             network_topology: NetworkTopology::new(
-                &configuration.trusted_peers,
+                &configuration.trusted_peers.peers,
                 None,
                 configuration.max_faulty_peers,
             )
@@ -1640,7 +1640,7 @@ pub mod config {
     use iroha_data_model::prelude::*;
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::{collections::BTreeSet, env};
+    use std::{collections::BTreeSet, env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
     const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
     const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
@@ -1668,8 +1668,8 @@ pub mod config {
         #[serde(default = "default_block_time_ms")]
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
-        #[serde(default)]
-        pub trusted_peers: BTreeSet<PeerId>,
+        #[serde(default = "default_empty_trusted_peers")]
+        pub trusted_peers: TrustedPeers,
         /// Maximum amount of peers to fail and do not compromise the consensus.
         #[serde(default = "default_max_faulty_peers")]
         pub max_faulty_peers: u32,
@@ -1697,7 +1697,7 @@ pub mod config {
                     .wrap_err("Failed to parse Block Build Time")?;
             }
             if let Ok(trusted_peers) = env::var(TRUSTED_PEERS) {
-                self.trusted_peers = serde_json::from_str(&trusted_peers)
+                self.trusted_peers.peers = serde_json::from_str(&trusted_peers)
                     .wrap_err("Failed to parse Trusted Peers")?;
             }
             if let Ok(max_faulty_peers) = env::var(MAX_FAULTY_PEERS) {
@@ -1720,7 +1720,7 @@ pub mod config {
 
         /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
         pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
-            self.trusted_peers = trusted_peers.into_iter().collect();
+            self.trusted_peers.peers = trusted_peers.into_iter().collect();
         }
 
         /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
@@ -1731,6 +1731,29 @@ pub mod config {
         /// Time estimation from receiving a transaction to storing it in a block on all peers.
         pub const fn pipeline_time_ms(&self) -> u64 {
             self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
+        }
+    }
+
+    /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
+    /// and list of `TRUSTED_PEERS`.
+    #[derive(Clone, Debug, Deserialize)]
+    #[serde(rename_all = "UPPERCASE")]
+    pub struct TrustedPeers {
+        /// Optional list of predefined trusted peers.
+        #[serde(default)]
+        pub peers: BTreeSet<PeerId>,
+    }
+
+    impl TrustedPeers {
+        /// Load trusted peers variables from a json *pretty* formatted file.
+        pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<TrustedPeers> {
+            let file = File::open(path).wrap_err("Failed to open a file")?;
+            let reader = BufReader::new(file);
+            let trusted_peers: BTreeSet<PeerId> = serde_json::from_reader(reader)
+                .wrap_err("Failed to deserialize json from reader")?;
+            Ok(TrustedPeers {
+                peers: trusted_peers,
+            })
         }
     }
 
@@ -1760,6 +1783,12 @@ pub mod config {
     const fn default_n_topology_shifts_before_reshuffle() -> u32 {
         DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE
     }
+
+    fn default_empty_trusted_peers() -> TrustedPeers {
+        TrustedPeers {
+            peers: BTreeSet::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1778,6 +1807,7 @@ mod tests {
     #[cfg(feature = "network-mock")]
     mod network {
         pub const CONFIG_PATH: &str = "config.json";
+        pub const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
         pub const BLOCK_TIME_MS: u64 = 1000;
         pub const COMMIT_TIME_MS: u64 = 1000;
         pub const TX_RECEIPT_TIME_MS: u64 = 200;
@@ -1939,6 +1969,9 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        config
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
@@ -2063,6 +2096,9 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        config
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
@@ -2212,6 +2248,9 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        config
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
@@ -2375,6 +2414,9 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        config
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
@@ -2535,6 +2577,9 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        config
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
