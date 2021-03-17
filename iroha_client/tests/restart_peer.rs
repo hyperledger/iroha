@@ -21,7 +21,8 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi_configuration.trusted_peers.peers =
+        std::iter::once(peer.id.clone()).collect();
 
     let pipeline_time =
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());

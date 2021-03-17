@@ -78,7 +78,7 @@ impl Network {
 
         let mut configuration =
             default_configuration.unwrap_or(Configuration::from_path(CONFIGURATION_PATH)?);
-        configuration.sumeragi_configuration.trusted_peers = peers
+        configuration.sumeragi_configuration.trusted_peers.peers = peers
             .iter()
             .chain(std::iter::once(&genesis))
             .map(|peer| peer.id.clone())

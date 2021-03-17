@@ -9,6 +9,7 @@ mod tests {
     use std::thread;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
     const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
 
@@ -38,6 +39,9 @@ mod tests {
         // Given
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        configuration
+            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
+            .expect("Failed to load trusted peers.");
         configuration
             .queue_configuration
             .maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;

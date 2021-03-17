@@ -71,7 +71,7 @@ mod tests {
         thread::sleep(pipeline_time * 2);
 
         let peer = TestPeer::new().expect("Failed to create new peer");
-        configuration.sumeragi_configuration.trusted_peers = network.ids().collect();
+        configuration.sumeragi_configuration.trusted_peers.peers = network.ids().collect();
 
         peer.start_with_config(configuration);
 

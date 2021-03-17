@@ -131,7 +131,7 @@ impl Iroha {
         let (events_sender, events_receiver) = sync::channel(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(World::with(
             init::domains(config),
-            config.sumeragi_configuration.trusted_peers.clone(),
+            config.sumeragi_configuration.trusted_peers.peers.clone(),
         ))));
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
             &config.queue_configuration,
