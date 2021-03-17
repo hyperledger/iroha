@@ -20,7 +20,8 @@ fn query_requests(criterion: &mut Criterion) {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi_configuration.trusted_peers.peers =
+        std::iter::once(peer.id.clone()).collect();
 
     peer.start_with_config(configuration);
     thread::sleep(std::time::Duration::from_millis(50));
@@ -99,7 +100,8 @@ fn instruction_submits(criterion: &mut Criterion) {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi_configuration.trusted_peers.peers =
+        std::iter::once(peer.id.clone()).collect();
 
     peer.start_with_config(configuration);
     thread::sleep(std::time::Duration::from_millis(50));

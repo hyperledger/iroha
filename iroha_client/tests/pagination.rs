@@ -17,7 +17,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi_configuration.trusted_peers.peers =
+        std::iter::once(peer.id.clone()).collect();
 
     let pipeline_time =
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
