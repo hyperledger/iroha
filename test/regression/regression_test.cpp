@@ -22,6 +22,7 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "main/subscription.hpp"
 
 using namespace common_constants;
 using shared_model::interface::permissions::Role;
@@ -35,6 +36,8 @@ static logger::LoggerPtr log_ = getTestLogger("RegressionTest");
  * @then following ITF instantiation should not cause any errors
  */
 TEST(RegressionTest, SequentialInitialization) {
+  auto subscription_engine = iroha::getSubscription();
+
   auto tx = shared_model::proto::TransactionBuilder()
                 .createdTime(iroha::time::now())
                 .creatorAccountId(kAdminId)
@@ -90,6 +93,8 @@ TEST(RegressionTest, SequentialInitialization) {
  * @then another ITF instance can restore WSV from blockstore
  */
 TEST(RegressionTest, StateRecovery) {
+  auto subscription_engine = iroha::getSubscription();
+
   auto userKeypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
   auto tx =
@@ -155,6 +160,8 @@ TEST(RegressionTest, StateRecovery) {
  * @then another ITF instance fails to start up
  */
 TEST(RegressionTest, PoisonedBlock) {
+  auto subscription_engine = iroha::getSubscription();
+
   auto time_now = iroha::time::now();
   auto tx1 = shared_model::proto::TransactionBuilder()
                  .createdTime(time_now)
@@ -236,6 +243,8 @@ TEST(RegressionTest, PoisonedBlock) {
  * @then no errors are caused as the result
  */
 TEST(RegressionTest, DoubleCallOfDone) {
+  auto subscription_engine = iroha::getSubscription();
+
   integration_framework::IntegrationTestFramework itf(1);
   itf.setInitialState(kAdminKeypair).done();
   itf.done();
@@ -247,6 +256,8 @@ TEST(RegressionTest, DoubleCallOfDone) {
  * @then no exceptions are risen
  */
 TEST(RegressionTest, DestructionOfNonInitializedItf) {
+  auto subscription_engine = iroha::getSubscription();
+
   integration_framework::IntegrationTestFramework itf(
       1, {}, iroha::StartupWsvDataPolicy::kDrop, true);
 }
