@@ -20,6 +20,8 @@ pub enum QueryBox {
     FindAllAccounts(Box<FindAllAccounts>),
     /// `FindAccountById` variant.
     FindAccountById(Box<FindAccountById>),
+    /// `FindAccountKeyValueByIdAndKey` variant.
+    FindAccountKeyValueByIdAndKey(Box<FindAccountKeyValueByIdAndKey>),
     /// `FindAccountsByName` variant.
     FindAccountsByName(Box<FindAccountsByName>),
     /// `FindAccountsByDomainName` variant.
@@ -147,21 +149,31 @@ pub mod account {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
-    /// `FindAllAccounts` Iroha Query will find all `Account`s presented in Iroha `Peer`.
+    /// `FindAllAccounts` Iroha Query will find all `Account`s presented.
     #[derive(
         Default, Copy, Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq,
     )]
     pub struct FindAllAccounts {}
 
-    /// `FindAccountById` Iroha Query will find an `Account` by it's identification in Iroha `Peer`.
+    /// `FindAccountById` Iroha Query will find an `Account` by it's identification.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountById {
         /// `Id` of an account to find.
         pub id: AccountId,
     }
 
+    /// `FindAccountById` Iroha Query will find a [`Value`] of the key-value metadata pair
+    /// in the specified account.
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+    pub struct FindAccountKeyValueByIdAndKey {
+        /// `Id` of an account to find.
+        pub id: AccountId,
+        /// Key of the specific key-value in the Account's metadata.
+        pub key: String,
+    }
+
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
-    /// find all `Account`s with this name in Iroha `Peer`.
+    /// find all `Account`s with this name.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountsByName {
         /// `name` of accounts to find.
@@ -169,7 +181,7 @@ pub mod account {
     }
 
     /// `FindAccountsByDomainName` Iroha Query will get `Domain`s name as input and
-    /// find all `Account`s under this `Domain` in Iroha `Peer`.
+    /// find all `Account`s under this `Domain`.
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountsByDomainName {
         /// `domain_name` under which accounts should be found.
@@ -190,6 +202,13 @@ pub mod account {
         }
     }
 
+    impl FindAccountKeyValueByIdAndKey {
+        /// Default `FindAccountById` constructor.
+        pub fn new(id: AccountId, key: String) -> Self {
+            FindAccountKeyValueByIdAndKey { id, key }
+        }
+    }
+
     impl FindAccountsByName {
         /// Default `FindAccountsByName` constructor.
         pub fn new(name: Name) -> Self {
@@ -207,7 +226,8 @@ pub mod account {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAccountById, FindAccountsByDomainName, FindAccountsByName, FindAllAccounts,
+            FindAccountById, FindAccountKeyValueByIdAndKey, FindAccountsByDomainName,
+            FindAccountsByName, FindAllAccounts,
         };
     }
 }
