@@ -26,7 +26,9 @@ namespace iroha {
 
   namespace simulator {
 
-    class Simulator : public VerifiedProposalCreator, public BlockCreator {
+    class Simulator : public VerifiedProposalCreator,
+                      public BlockCreator,
+                      public std::enable_shared_from_this<Simulator> {
      public:
       using CryptoSignerType = shared_model::crypto::AbstractCryptoModelSigner<
           shared_model::interface::Block>;
@@ -44,6 +46,7 @@ namespace iroha {
           logger::LoggerPtr log);
 
       ~Simulator() = default;
+      void initialize();
 
       std::shared_ptr<validation::VerifiedProposalAndErrors> processProposal(
           const shared_model::interface::Proposal &proposal) override;

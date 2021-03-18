@@ -70,6 +70,7 @@ class SimulatorTest : public ::testing::Test {
                                             crypto_signer,
                                             std::move(block_factory),
                                             getTestLogger("Simulator"));
+    simulator->initialize();
   }
 
   std::shared_ptr<MockStatefulValidator> validator;

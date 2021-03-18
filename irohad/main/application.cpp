@@ -651,6 +651,7 @@ Irohad::RunResult Irohad::initSimulator() {
         crypto_signer_,
         std::move(block_factory),
         log_manager_->getChild("Simulator")->getLogger());
+    simulator->initialize();
 
     log_->info("[Init] => init simulator");
     return {};

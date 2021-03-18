@@ -29,34 +29,45 @@ namespace iroha {
           ametsuchi_factory_(std::move(factory)),
           crypto_signer_(std::move(crypto_signer)),
           block_factory_(std::move(block_factory)),
-          log_(std::move(log)),
-          on_proposal_subscription_(
-              SubscriberCreator<bool, network::OrderingEvent>::create<
-                  EventTypes::kOnProposal,
-                  SubscriptionEngineHandlers::kYac>([](auto &, auto event) {
-                if (event.proposal) {
-                  auto validated_proposal_and_errors =
-                      this->processProposal(*getProposalUnsafe(event));
+          log_(std::move(log)) {}
 
-                  getSubscription()->notify(EventTypes::kOnVerifiedProposal,
-                                            VerifiedProposalCreatorEvent{
-                                                validated_proposal_and_errors,
-                                                event.round,
-                                                event.ledger_state});
-                } else {
-                  getSubscription()->notify(
-                      EventTypes::kOnVerifiedProposal,
-                      VerifiedProposalCreatorEvent{
-                          boost::none, event.round, event.ledger_state});
-                }
-              })),
-          on_verified_proposal_subscription_(
-              SubscriberCreator<bool, VerifiedProposalCreatorEvent>::create<
-                  EventTypes::kOnVerifiedProposal,
-                  SubscriptionEngineHandlers::kYac>([](auto &, auto event) {
+    void Simulator::initialize() {
+      on_proposal_subscription_ =
+          SubscriberCreator<bool, network::OrderingEvent>::
+              create<EventTypes::kOnProposal, SubscriptionEngineHandlers::kYac>(
+                  [wptr(weak_from_this())](auto &, auto event) {
+                    auto ptr = wptr.lock();
+                    if (!ptr)
+                      return;
+                    if (event.proposal) {
+                      auto validated_proposal_and_errors =
+                          ptr->processProposal(*getProposalUnsafe(event));
+
+                      getSubscription()->notify(
+                          EventTypes::kOnVerifiedProposal,
+                          VerifiedProposalCreatorEvent{
+                              validated_proposal_and_errors,
+                              event.round,
+                              event.ledger_state});
+                    } else {
+                      getSubscription()->notify(
+                          EventTypes::kOnVerifiedProposal,
+                          VerifiedProposalCreatorEvent{
+                              boost::none, event.round, event.ledger_state});
+                    }
+                  });
+      on_verified_proposal_subscription_ =
+          SubscriberCreator<bool, VerifiedProposalCreatorEvent>::create<
+              EventTypes::kOnVerifiedProposal,
+              SubscriptionEngineHandlers::kYac>(
+              [wptr(weak_from_this())](auto &, auto event) {
+                auto ptr = wptr.lock();
+                if (!ptr)
+                  return;
+
                 if (event.verified_proposal_result) {
                   auto proposal_and_errors = getVerifiedProposalUnsafe(event);
-                  auto block = this->processVerifiedProposal(
+                  auto block = ptr->processVerifiedProposal(
                       proposal_and_errors, event.ledger_state->top_block_info);
                   if (block) {
                     getSubscription()->notify(
@@ -73,7 +84,8 @@ namespace iroha {
                       BlockCreatorEvent{
                           boost::none, event.round, event.ledger_state});
                 }
-              })) {}
+              });
+    }
 
     std::shared_ptr<validation::VerifiedProposalAndErrors>
     Simulator::processProposal(
