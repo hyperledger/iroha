@@ -134,7 +134,7 @@ namespace iroha::subscription {
         auto wsub = std::get<2>(*it_sub);
         auto id = std::get<1>(*it_sub);
 
-        if (auto sub = wsub.lock()) {
+        if (!wsub.expired()) {
           dispatcher_->addDelayed(std::get<0>(*it_sub),
                                   timeout,
                                   [wsub(std::move(wsub)),
