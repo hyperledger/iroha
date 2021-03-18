@@ -20,16 +20,16 @@ class SubscriptionTest : public ::testing::Test {
     return std::make_shared<Manager>();
   }
 
-  template<uint32_t Tid, uint32_t Event, typename EventData, typename ObjectType, typename Manager, typename F>
+  template<uint32_t Tid, uint64_t Event, typename EventData, typename ObjectType, typename Manager, typename F>
   auto createSubscriber(std::shared_ptr<Manager> const &manager, ObjectType &&initial, F &&f) {
     using Dispatcher = typename Manager::Dispatcher;
     using Subscriber = subscription::
-        SubscriberImpl<uint32_t, Dispatcher, ObjectType, EventData>;
+        SubscriberImpl<uint64_t, Dispatcher, ObjectType, EventData>;
 
     auto subscriber = std::make_shared<Subscriber>(
-        manager->template getEngine<uint32_t, EventData>(), std::move(initial));
+        manager->template getEngine<uint64_t, EventData>(), std::move(initial));
 
-    subscriber->setCallback([f(std::forward<F>(f))](auto, ObjectType &obj, auto key, EventData data) mutable {
+    subscriber->setCallback([f(std::forward<F>(f))](auto, ObjectType &obj, uint64_t key, EventData data) mutable {
       ASSERT_EQ(key, Event);
       std::forward<F>(f)(obj, std::move(data));
     });
@@ -210,7 +210,7 @@ TEST_F(SubscriptionTest, PingPongExecutionTest) {
   [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 0ul, uint32_t, uint32_t>(
       manager, 0ul, [&](uint32_t &obj, uint32_t value) {
         obj = value;
-        manager->notify<uint32_t, uint32_t>(1ul, value + 7ul);
+        manager->notify<uint64_t, uint32_t>(1ul, value + 7ul);
       });
   [[maybe_unused]] auto subscriber_1 = createSubscriber<1ul, 1ul, uint32_t, uint32_t>(
       manager, 0ul, [&](uint32_t &obj, uint32_t value) {
@@ -218,10 +218,10 @@ TEST_F(SubscriptionTest, PingPongExecutionTest) {
         if (value > 40ul)
           complete.set();
         else
-          manager->notify<uint32_t, uint32_t>(0ul, (value << 1ul));
+          manager->notify<uint64_t, uint32_t>(0ul, (value << 1ul));
       });
 
-  manager->notify<uint32_t, uint32_t>(0ul, 0ul);
+  manager->notify<uint64_t, uint32_t>(0ul, 0ul);
   ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
   ASSERT_EQ(subscriber_0->get(), 42ul);
   ASSERT_EQ(subscriber_1->get(), 49ul);
