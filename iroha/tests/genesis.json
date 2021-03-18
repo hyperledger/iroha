@@ -31,7 +31,8 @@
                     "signatories": [
                       "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
                     ],
-                    "permissions": []
+                    "permissions": [],
+                    "metadata": {}
                   }
                 }
               }

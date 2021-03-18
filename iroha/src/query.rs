@@ -153,6 +153,74 @@ impl Query for QueryBox {
             QueryBox::FindAllPeers(query) => query.execute(world_state_view),
             QueryBox::FindAllParameters(query) => query.execute(world_state_view),
             QueryBox::FindAssetKeyValueByIdAndKey(query) => query.execute(world_state_view),
+            QueryBox::FindAccountKeyValueByIdAndKey(query) => query.execute(world_state_view),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iroha_crypto::KeyPair;
+    use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
+    use iroha_error::error;
+
+    fn world_with_test_domains() -> Result<World> {
+        let mut domains = DomainsMap::new();
+        let mut domain = Domain::new("wonderland");
+        let account_id = AccountId::new("alice", "wonderland");
+        let mut account = Account::new(account_id.clone());
+        let key_pair = KeyPair::generate()?;
+        account.signatories.push(key_pair.public_key);
+        let _ = domain.accounts.insert(account_id.clone(), account);
+        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let _ = domain.asset_definitions.insert(
+            asset_definition_id.clone(),
+            AssetDefinitionEntry::new(AssetDefinition::new(asset_definition_id), account_id),
+        );
+        let _ = domains.insert("wonderland".to_string(), domain);
+        Ok(World::with(domains, PeersIds::new()))
+    }
+
+    #[test]
+    fn asset_store() -> Result<()> {
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::new("alice", "wonderland");
+        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let asset_id = AssetId::new(asset_definition_id, account_id);
+        let mut store = Metadata::new();
+        let _ = store.insert(
+            "Bytes".to_string(),
+            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+        );
+        wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)));
+        let bytes =
+            FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_string()).execute(&wsv)?;
+        assert_eq!(
+            bytes,
+            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn account_metadata() -> Result<()> {
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::new("alice", "wonderland");
+        let _ = wsv
+            .account(&account_id)
+            .ok_or_else(|| error!("Failed to find account."))?
+            .metadata
+            .insert(
+                "Bytes".to_string(),
+                Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+            );
+        let bytes =
+            FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_string()).execute(&wsv)?;
+        assert_eq!(
+            bytes,
+            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
+        );
+        Ok(())
     }
 }
