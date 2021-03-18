@@ -181,7 +181,7 @@ pub mod isi {
                 .checked_sub(self.object)
                 .ok_or_else(|| error!("Source account doesn not enough asset quantity."))?;
             let destitantion_asset = world_state_view
-                .asset_or_insert(&self.destination_id, 0u32)
+                .asset_or_insert(&self.destination_id, 0_u32)
                 .ok_or_else(|| {
                     error!("Destination asset not found and failed to initialize new one.")
                 })?;
@@ -340,12 +340,9 @@ pub mod query {
                 .map(|asset| {
                     let store: Result<&Metadata> = asset.try_as_ref();
                     store.and_then(|store| {
-                        store
-                            .get(&self.key)
-                            .map(|value| value.to_owned())
-                            .ok_or_else(|| {
-                                error!("Key {} not found in asset {}", self.key, self.id)
-                            })
+                        store.get(&self.key).map(ToOwned::to_owned).ok_or_else(|| {
+                            error!("Key {} not found in asset {}", self.key, self.id)
+                        })
                     })
                 })
                 .transpose()?

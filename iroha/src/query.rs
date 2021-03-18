@@ -28,6 +28,7 @@ pub struct VerifiedQueryRequest {
 }
 
 /// This trait should be implemented for all Iroha Queries.
+#[allow(clippy::missing_errors_doc)]
 pub trait Query {
     /// Execute query on the `WorldStateView`.
     ///

@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::items_after_statements, clippy::wildcard_imports)]
+
     use iroha_version::{
         error::{Error, Result},
         json::*,
@@ -53,11 +55,11 @@ mod tests {
             VersionedMessage::from_versioned_json_str(&json).map_err(|e| e.to_string())?;
         match decoded_message {
             VersionedMessage::V1(message) => {
-                let _message: Message = message.into();
+                let _: Message = message.into();
                 Ok(())
             }
             VersionedMessage::V2(message) => {
-                let _message: Message2 = message.into();
+                let _: Message2 = message.into();
                 Err("Should have been message v1.".to_owned())
             }
         }

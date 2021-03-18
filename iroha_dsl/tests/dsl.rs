@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_lines)]
+
 use iroha::config::Configuration;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_dsl::prelude::*;
@@ -50,7 +52,7 @@ fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
                 "dex",
                 "exchange",
             ))),
-            10u32,
+            10_u32,
         )),
         FailBox::new("rate is less or equal to value"),
     );
@@ -64,7 +66,7 @@ struct FindRateAndCheckItGreaterThanValue {
 
 impl FindRateAndCheckItGreaterThanValue {
     pub fn new(from_currency: &str, to_currency: &str, value: u32) -> Self {
-        FindRateAndCheckItGreaterThanValue {
+        Self {
             from_currency: from_currency.to_string(),
             to_currency: to_currency.to_string(),
             value,

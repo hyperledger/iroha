@@ -57,17 +57,31 @@ fn main() {
         .parse()
         .expect("Failed to parse algorithm.");
     let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm.clone());
-    let keypair = if let Some(seed) = seed_option {
-        KeyPair::generate_with_configuration(key_gen_configuration.use_seed(seed.as_bytes().into()))
-    } else if let Some(private_key) = private_key_option {
-        KeyPair::generate_with_configuration(key_gen_configuration.use_private_key(PrivateKey {
-            digest_function: algorithm.to_string(),
-            payload: hex::decode(private_key).expect("Failed to decode private key."),
-        }))
-    } else {
-        KeyPair::generate_with_configuration(key_gen_configuration)
-    }
-    .expect("Failed to generate keypair.");
+    let keypair = seed_option
+        .map_or_else(
+            || {
+                private_key_option.map_or_else(
+                    || KeyPair::generate_with_configuration(key_gen_configuration.clone()),
+                    |private_key| {
+                        KeyPair::generate_with_configuration(
+                            key_gen_configuration.clone().use_private_key(PrivateKey {
+                                digest_function: algorithm.to_string(),
+                                payload: hex::decode(private_key)
+                                    .expect("Failed to decode private key."),
+                            }),
+                        )
+                    },
+                )
+            },
+            |seed| {
+                KeyPair::generate_with_configuration(
+                    key_gen_configuration
+                        .clone()
+                        .use_seed(seed.as_bytes().into()),
+                )
+            },
+        )
+        .expect("Failed to generate keypair.");
     if matches.is_present("json") {
         println!(
             "{}",

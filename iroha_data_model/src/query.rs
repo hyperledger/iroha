@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
 /// Sized container for all possible Queries.
+#[allow(clippy::pub_enum_variant_names)]
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
 pub enum QueryBox {
     /// `FindAllAccounts` variant.
@@ -93,7 +94,8 @@ pub struct QueryResult(pub Value);
 #[cfg(feature = "http_error")]
 impl Into<HttpResponse> for &QueryResult {
     fn into(self) -> HttpResponse {
-        HttpResponse::ok(Default::default(), self.into())
+        use std::collections::BTreeMap;
+        HttpResponse::ok(BTreeMap::default(), self.into())
     }
 }
 #[cfg(feature = "http_error")]
@@ -124,6 +126,9 @@ impl QueryRequest {
     }
 
     /// Consumes self and returns a signed `QueryReuest`.
+    ///
+    /// # Errors
+    /// Fails if signature creation fails
     pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest> {
         Ok(SignedQueryRequest {
             timestamp_ms: self.timestamp_ms,
@@ -190,14 +195,14 @@ pub mod account {
 
     impl FindAllAccounts {
         /// Default `FindAllAccounts` constructor.
-        pub fn new() -> Self {
+        pub const fn new() -> Self {
             FindAllAccounts {}
         }
     }
 
     impl FindAccountById {
         /// Default `FindAccountById` constructor.
-        pub fn new(id: AccountId) -> Self {
+        pub const fn new(id: AccountId) -> Self {
             FindAccountById { id }
         }
     }
@@ -211,14 +216,14 @@ pub mod account {
 
     impl FindAccountsByName {
         /// Default `FindAccountsByName` constructor.
-        pub fn new(name: Name) -> Self {
+        pub const fn new(name: Name) -> Self {
             FindAccountsByName { name }
         }
     }
 
     impl FindAccountsByDomainName {
         /// Default `FindAccountsByDomainName` constructor.
-        pub fn new(domain_name: Name) -> Self {
+        pub const fn new(domain_name: Name) -> Self {
             FindAccountsByDomainName { domain_name }
         }
     }
@@ -334,28 +339,28 @@ pub mod asset {
 
     impl FindAllAssets {
         /// Default `FindAllAssets` constructor.
-        pub fn new() -> Self {
+        pub const fn new() -> Self {
             FindAllAssets {}
         }
     }
 
     impl FindAllAssetsDefinitions {
         /// Default `FindAllAssetsDefinitions` constructor.
-        pub fn new() -> Self {
+        pub const fn new() -> Self {
             FindAllAssetsDefinitions {}
         }
     }
 
     impl FindAssetsByAccountId {
         /// Default `FindAssetsByAccountId` constructor.
-        pub fn new(account_id: AccountId) -> Self {
+        pub const fn new(account_id: AccountId) -> Self {
             FindAssetsByAccountId { account_id }
         }
     }
 
     impl FindAssetsByAssetDefinitionId {
         /// Default `FindAssetsByAssetDefinitionId` constructor.
-        pub fn new(asset_definition_id: AssetDefinitionId) -> Self {
+        pub const fn new(asset_definition_id: AssetDefinitionId) -> Self {
             FindAssetsByAssetDefinitionId {
                 asset_definition_id,
             }
@@ -364,7 +369,7 @@ pub mod asset {
 
     impl FindAssetsByAccountIdAndAssetDefinitionId {
         /// Default `FindAssetsByAccountIdAndAssetDefinitionId` constructor.
-        pub fn new(account_id: AccountId, asset_definition_id: AssetDefinitionId) -> Self {
+        pub const fn new(account_id: AccountId, asset_definition_id: AssetDefinitionId) -> Self {
             FindAssetsByAccountIdAndAssetDefinitionId {
                 account_id,
                 asset_definition_id,
@@ -374,14 +379,14 @@ pub mod asset {
 
     impl FindAssetQuantityById {
         /// Default `FindAssetQuantityById` constructor.
-        pub fn new(id: AssetId) -> Self {
+        pub const fn new(id: AssetId) -> Self {
             FindAssetQuantityById { id }
         }
     }
 
     impl FindAssetKeyValueByIdAndKey {
         /// Default [`FindAssetKeyValueByIdAndKey`] constructor.
-        pub fn new(id: AssetId, key: Name) -> Self {
+        pub const fn new(id: AssetId, key: Name) -> Self {
             Self { id, key }
         }
     }
@@ -420,14 +425,14 @@ pub mod domain {
 
     impl FindAllDomains {
         /// Default `FindAllDomains` constructor.
-        pub fn new() -> Self {
+        pub const fn new() -> Self {
             FindAllDomains {}
         }
     }
 
     impl FindDomainByName {
         /// Default `FindDomainByName` constructor.
-        pub fn new(name: Name) -> Self {
+        pub const fn new(name: Name) -> Self {
             FindDomainByName { name }
         }
     }
@@ -459,14 +464,14 @@ pub mod peer {
 
     impl FindAllPeers {
         ///Default `FindAllPeers` constructor.
-        pub fn new() -> Self {
+        pub const fn new() -> Self {
             FindAllPeers {}
         }
     }
 
     impl FindAllParameters {
         /// Default `FindAllParameters` constructor.
-        pub fn new() -> Self {
+        pub const fn new() -> Self {
             FindAllParameters {}
         }
     }

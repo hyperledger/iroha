@@ -1,5 +1,11 @@
 //! Expressions to use inside of ISIs.
 
+#![allow(
+    clippy::default_trait_access,
+    clippy::len_without_is_empty,
+    clippy::unused_self
+)]
+
 use super::{query::QueryBox, Value, ValueBox};
 use iroha_derive::FromVariant;
 use iroha_error::{error, Result};
@@ -36,7 +42,6 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl<V: TryFrom<Value>> EvaluatesTo<V> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -89,7 +94,6 @@ pub enum Expression {
     ContextValue(ContextValue),
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Expression {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -134,7 +138,6 @@ pub struct ContextValue {
     pub value_name: String,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl ContextValue {
     /// Number of underneath expressions.
     pub const fn len(&self) -> usize {
@@ -165,7 +168,6 @@ pub struct Multiply {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Multiply {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -197,7 +199,6 @@ pub struct Divide {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Divide {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -229,7 +230,6 @@ pub struct Mod {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Mod {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -261,7 +261,6 @@ pub struct RaiseTo {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl RaiseTo {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -293,7 +292,6 @@ pub struct Add {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Add {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -325,7 +323,6 @@ pub struct Subtract {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Subtract {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -357,7 +354,6 @@ pub struct Greater {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Greater {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -389,7 +385,6 @@ pub struct Less {
     pub right: EvaluatesTo<u32>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Less {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -419,7 +414,6 @@ pub struct Not {
     pub expression: EvaluatesTo<bool>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Not {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -449,7 +443,6 @@ pub struct And {
     pub right: EvaluatesTo<bool>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl And {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -480,7 +473,6 @@ pub struct Or {
     pub right: EvaluatesTo<bool>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Or {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -541,6 +533,9 @@ impl IfBuilder {
     }
 
     /// Returns [`If`] expression, if all the fields are filled.
+    ///
+    /// # Errors
+    /// Fails if some of fields are not filled.
     pub fn build(self) -> Result<If> {
         if let (Some(then_expression), Some(else_expression)) =
             (self.then_expression, self.else_expression)
@@ -564,7 +559,6 @@ pub struct If {
     pub else_expression: EvaluatesTo<Value>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl If {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -605,7 +599,6 @@ pub struct Contains {
     pub element: EvaluatesTo<Value>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Contains {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -640,7 +633,6 @@ pub struct ContainsAll {
     pub elements: EvaluatesTo<Vec<Value>>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl ContainsAll {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -675,7 +667,6 @@ pub struct ContainsAny {
     pub elements: EvaluatesTo<Vec<Value>>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl ContainsAny {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -709,7 +700,6 @@ pub struct Equal {
     pub right: EvaluatesTo<Value>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Equal {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -778,7 +768,6 @@ pub struct Where {
     pub values: BTreeMap<ValueName, EvaluatesTo<Value>>,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Where {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
@@ -803,7 +792,6 @@ impl From<Where> for ExpressionBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl QueryBox {
     /// Number of underneath expressions.
     pub const fn len(&self) -> usize {

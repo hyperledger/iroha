@@ -1,5 +1,5 @@
 //! Events for streaming API.
-#![allow(unused_results)]
+#![allow(unused_results, clippy::unused_self)]
 
 use iroha_derive::FromVariant;
 use iroha_version::prelude::*;
@@ -51,7 +51,7 @@ impl EventFilter {
                 _ => false,
             },
             Event::Data(event) => match self {
-                EventFilter::Data(filter) => filter.apply(event),
+                EventFilter::Data(filter) => filter.apply(*event),
                 _ => false,
             },
         }
@@ -126,7 +126,7 @@ pub mod data {
 
     impl EventFilter {
         /// Apply filter to event.
-        pub fn apply(&self, _event: &Event) -> bool {
+        pub const fn apply(self, _event: Event) -> bool {
             false
         }
     }
@@ -165,7 +165,7 @@ pub mod pipeline {
 
     impl EventFilter {
         /// Do not filter at all.
-        pub fn identity() -> EventFilter {
+        pub const fn identity() -> EventFilter {
             EventFilter {
                 entity: None,
                 hash: None,
@@ -173,7 +173,7 @@ pub mod pipeline {
         }
 
         /// Filter by enitity.
-        pub fn by_entity(entity: EntityType) -> EventFilter {
+        pub const fn by_entity(entity: EntityType) -> EventFilter {
             EventFilter {
                 entity: Some(entity),
                 hash: None,
@@ -181,7 +181,7 @@ pub mod pipeline {
         }
 
         /// Filter by hash.
-        pub fn by_hash(hash: Hash) -> EventFilter {
+        pub const fn by_hash(hash: Hash) -> EventFilter {
             EventFilter {
                 hash: Some(hash),
                 entity: None,
@@ -189,7 +189,7 @@ pub mod pipeline {
         }
 
         /// Filter by entity and hash.
-        pub fn by_entity_and_hash(entity: EntityType, hash: Hash) -> EventFilter {
+        pub const fn by_entity_and_hash(entity: EntityType, hash: Hash) -> EventFilter {
             EventFilter {
                 entity: Some(entity),
                 hash: Some(hash),
@@ -198,16 +198,10 @@ pub mod pipeline {
 
         /// Apply filter to event.
         pub fn apply(&self, event: &Event) -> bool {
-            let entity_check = if let Some(entity) = self.entity {
-                entity == event.entity_type
-            } else {
-                true
-            };
-            let hash_check = if let Some(hash) = self.hash {
-                hash == event.hash
-            } else {
-                true
-            };
+            let entity_check = self
+                .entity
+                .map_or(true, |entity| entity == event.entity_type);
+            let hash_check = self.hash.map_or(true, |hash| hash == event.hash);
             entity_check && hash_check
         }
     }
@@ -372,7 +366,7 @@ pub mod pipeline {
 
     impl Event {
         /// Constructs pipeline event.
-        pub fn new(entity_type: EntityType, status: Status, hash: Hash) -> Self {
+        pub const fn new(entity_type: EntityType, status: Status, hash: Hash) -> Self {
             Event {
                 entity_type,
                 status,
@@ -415,24 +409,24 @@ pub mod pipeline {
                 Event {
                     entity_type: EntityType::Transaction,
                     status: Status::Validating,
-                    hash: Hash([0u8; 32]),
+                    hash: Hash([0_u8; 32]),
                 },
                 Event {
                     entity_type: EntityType::Transaction,
                     status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
                         reason: "Some reason".to_string(),
                     }))),
-                    hash: Hash([0u8; 32]),
+                    hash: Hash([0_u8; 32]),
                 },
                 Event {
                     entity_type: EntityType::Transaction,
                     status: Status::Committed,
-                    hash: Hash([2u8; 32]),
+                    hash: Hash([2_u8; 32]),
                 },
                 Event {
                     entity_type: EntityType::Block,
                     status: Status::Committed,
-                    hash: Hash([2u8; 32]),
+                    hash: Hash([2_u8; 32]),
                 },
             ];
             assert_eq!(
@@ -440,48 +434,48 @@ pub mod pipeline {
                     Event {
                         entity_type: EntityType::Transaction,
                         status: Status::Validating,
-                        hash: Hash([0u8; 32]),
+                        hash: Hash([0_u8; 32]),
                     },
                     Event {
                         entity_type: EntityType::Transaction,
                         status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
                             reason: "Some reason".to_string(),
                         }))),
-                        hash: Hash([0u8; 32]),
+                        hash: Hash([0_u8; 32]),
                     },
                 ],
                 events
                     .iter()
                     .cloned()
-                    .filter(|event| EventFilter::by_hash(Hash([0u8; 32])).apply(&event))
+                    .filter(|event| EventFilter::by_hash(Hash([0_u8; 32])).apply(event))
                     .collect::<Vec<Event>>()
             );
             assert_eq!(
                 vec![Event {
                     entity_type: EntityType::Block,
                     status: Status::Committed,
-                    hash: Hash([2u8; 32]),
+                    hash: Hash([2_u8; 32]),
                 }],
                 events
                     .iter()
                     .cloned()
-                    .filter(|event| EventFilter::by_entity(EntityType::Block).apply(&event))
+                    .filter(|event| EventFilter::by_entity(EntityType::Block).apply(event))
                     .collect::<Vec<Event>>()
             );
             assert_eq!(
                 vec![Event {
                     entity_type: EntityType::Transaction,
                     status: Status::Committed,
-                    hash: Hash([2u8; 32]),
+                    hash: Hash([2_u8; 32]),
                 }],
                 events
                     .iter()
                     .cloned()
                     .filter(|event| EventFilter::by_entity_and_hash(
                         EntityType::Transaction,
-                        Hash([2u8; 32])
+                        Hash([2_u8; 32])
                     )
-                    .apply(&event))
+                    .apply(event))
                     .collect::<Vec<Event>>()
             );
             assert_eq!(
@@ -489,7 +483,7 @@ pub mod pipeline {
                 events
                     .iter()
                     .cloned()
-                    .filter(|event| EventFilter::identity().apply(&event))
+                    .filter(|event| EventFilter::identity().apply(event))
                     .collect::<Vec<Event>>()
             )
         }

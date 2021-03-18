@@ -30,6 +30,9 @@ pub struct Consumer {
 
 impl Consumer {
     /// Constructs `Consumer`, which consumes `Event`s and forwards it through the `stream`.
+    ///
+    /// # Errors
+    /// Can fail due to timeout or without message at websocket or during decoding request
     pub async fn new(mut stream: WebSocketStream) -> Result<Self> {
         if let WebSocketMessage::Text(message) = future::timeout(TIMEOUT, stream.next())
             .await
@@ -50,6 +53,9 @@ impl Consumer {
     }
 
     /// Forwards the `event` over the `stream` if it matches the `filter`.
+    ///
+    /// # Errors
+    /// Can fail due to timeout or sending event. Also receiving might fail
     pub async fn consume(mut self, event: &Event) -> Result<Self> {
         if self.filter.apply(event) {
             let event = VersionedEvent::from(event.clone())
@@ -70,7 +76,7 @@ impl Consumer {
                         format!("Unexpected message, waited for receipt got: {}", receipt)
                     })?;
             } else {
-                return Err(error!("Unexepcted message type"));
+                return Err(error!("Unexpected message type"));
             }
         }
         Ok(self)

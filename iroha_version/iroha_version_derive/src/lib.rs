@@ -1,3 +1,12 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
 extern crate proc_macro;
 
 use crate::proc_macro::TokenStream;
@@ -83,21 +92,21 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn declare_versioned(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(args, true, true)
+    impl_declare_versioned(&args, true, true)
 }
 
 /// See [`declare_versioned`] for more information.
 #[proc_macro]
 pub fn declare_versioned_with_scale(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(args, true, false)
+    impl_declare_versioned(&args, true, false)
 }
 
 /// See [`declare_versioned`] for more information.
 #[proc_macro]
 pub fn declare_versioned_with_json(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(args, false, true)
+    impl_declare_versioned(&args, false, true)
 }
 
 fn impl_version(
@@ -271,50 +280,122 @@ impl Parse for DeclareVersionedArgs {
     }
 }
 
+fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
+    quote! (
+        impl iroha_version::scale::DecodeVersioned for #enum_name {
+            fn decode_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
+                use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
+                use parity_scale_codec::Decode;
+
+                if let Some(version) = input.first() {
+                    if Self::supported_versions().contains(version) {
+                        let mut input = input.clone();
+                        Ok(Self::decode(&mut input)?)
+                    } else {
+                        Err(Error::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
+                    }
+                } else {
+                    Err(Error::NotVersioned)
+                }
+            }
+        }
+
+        impl iroha_version::scale::EncodeVersioned for #enum_name {
+            fn encode_versioned(&self) -> iroha_version::error::Result<Vec<u8>> {
+                use iroha_version::{error::Error, UnsupportedVersion, RawVersioned};
+                use parity_scale_codec::Encode;
+
+                Ok(self.encode())
+            }
+        }
+    )
+}
+
+fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenStream {
+    quote!(
+        impl<'a> iroha_version::json::DeserializeVersioned<'a> for #enum_name {
+            fn from_versioned_json_str(input: &str) -> iroha_version::error::Result<Self> {
+                use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
+                use serde_json::Value;
+
+                let json: Value = serde_json::from_str(input)?;
+                if let Value::Object(map) = json {
+                    if let Some(Value::String(version_number)) = map.get(#version_field_name) {
+                        let version: u8 = version_number.parse()?;
+                        if Self::supported_versions().contains(&version) {
+                            Ok(serde_json::from_str(input)?)
+                        } else {
+                            Err(Error::UnsupportedVersion(
+                                UnsupportedVersion::new(version, RawVersioned::Json(input.to_owned()))
+                            ))
+                        }
+                    } else {
+                        Err(Error::NotVersioned)
+                    }
+                } else {
+                    Err(Error::ExpectedJson)
+                }
+            }
+        }
+
+        impl iroha_version::json::SerializeVersioned for #enum_name {
+            fn to_versioned_json_str(&self) -> iroha_version::error::Result<String> {
+                use iroha_version::RawVersioned;
+                use iroha_version::error::Error;
+
+                Ok(serde_json::to_string(self)?)
+            }
+        }
+    )
+}
+
+fn impl_as_from(args: &DeclareVersionedArgs) -> proc_macro2::TokenStream {
+    let version_idents = args.version_idents();
+    let version_struct_idents = args.version_struct_idents();
+    let version_method_idents_as = args.version_method_idents_as();
+    let version_method_idents_into = args.version_method_idents_into();
+    let enum_name = &args.enum_name;
+    quote!(
+        impl #enum_name {
+            #(
+            /// Returns Some(ref _) if this container has this version. None otherwise.
+            pub fn #version_method_idents_as (&self) -> Option<& #version_struct_idents> {
+                use #enum_name::*;
+
+                match self {
+                    #version_idents (content) => Some(content),
+                    _ => None
+                }
+            }
+            )*
+            #(
+            /// Returns Some(_) if this container has this version. None otherwise.
+            pub fn #version_method_idents_into (self) -> Option<#version_struct_idents> {
+                use #enum_name::*;
+
+                match self {
+                    #version_idents (content) => Some(content),
+                    _ => None
+                }
+            }
+            )*
+        }
+    )
+}
+
 fn impl_declare_versioned(
-    args: DeclareVersionedArgs,
+    args: &DeclareVersionedArgs,
     with_scale: bool,
     with_json: bool,
 ) -> TokenStream {
     let version_idents = args.version_idents();
     let version_struct_idents = args.version_struct_idents();
     let version_numbers = args.version_numbers();
-    let version_method_idents_as = args.version_method_idents_as();
-    let version_method_idents_into = args.version_method_idents_into();
     let range_end = args.range.end;
     let range_start = args.range.start;
-    let enum_name = args.enum_name;
+    let enum_name = &args.enum_name;
     let scale_impl = if with_scale {
-        quote! (
-            impl iroha_version::scale::DecodeVersioned for #enum_name {
-                fn decode_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
-                    use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
-                    use parity_scale_codec::Decode;
-
-                    if let Some(version) = input.first() {
-                        if Self::supported_versions().contains(version) {
-                            let mut input = input.clone();
-                            Ok(Self::decode(&mut input)?)
-                        } else {
-                            Err(Error::UnsupportedVersion(
-                                UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))
-                            ))
-                        }
-                    } else {
-                        Err(Error::NotVersioned)
-                    }
-                }
-            }
-
-            impl iroha_version::scale::EncodeVersioned for #enum_name {
-                fn encode_versioned(&self) -> iroha_version::error::Result<Vec<u8>> {
-                    use iroha_version::{error::Error, UnsupportedVersion, RawVersioned};
-                    use parity_scale_codec::Encode;
-
-                    Ok(self.encode())
-                }
-            }
-        )
+        impl_decode_versioned(enum_name)
     } else {
         quote!()
     };
@@ -335,41 +416,7 @@ fn impl_declare_versioned(
         .collect();
     let version_field_name = VERSION_FIELD_NAME;
     let json_impl = if with_json {
-        quote!(
-            impl<'a> iroha_version::json::DeserializeVersionedJson<'a> for #enum_name {
-                fn from_versioned_json_str(input: &str) -> iroha_version::error::Result<Self> {
-                    use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
-                    use serde_json::Value;
-
-                    let json: Value = serde_json::from_str(input)?;
-                    if let Value::Object(map) = json {
-                        if let Some(Value::String(version_number)) = map.get(#version_field_name) {
-                            let version: u8 = version_number.parse()?;
-                            if Self::supported_versions().contains(&version) {
-                                Ok(serde_json::from_str(input)?)
-                            } else {
-                                Err(Error::UnsupportedVersion(
-                                    UnsupportedVersion::new(version, RawVersioned::Json(input.to_string()))
-                                ))
-                            }
-                        } else {
-                            Err(Error::NotVersioned)
-                        }
-                    } else {
-                        Err(Error::ExpectedJson)
-                    }
-                }
-            }
-
-            impl iroha_version::json::SerializeVersionedJson for #enum_name {
-                fn to_versioned_json_str(&self) -> iroha_version::error::Result<String> {
-                    use iroha_version::RawVersioned;
-                    use iroha_version::error::Error;
-
-                    Ok(serde_json::to_string(self)?)
-                }
-            }
-        )
+        impl_json(enum_name, version_field_name)
     } else {
         quote!()
     };
@@ -395,6 +442,7 @@ fn impl_declare_versioned(
             }
         })
         .collect();
+    let impl_as_from = impl_as_from(args);
     quote!(
         /// Autogenerated versioned container.
         #json_enum_attribute
@@ -420,30 +468,7 @@ fn impl_declare_versioned(
             }
         }
 
-        impl #enum_name {
-            #(
-            /// Returns Some(ref _) if this container has this version. None otherwise.
-            pub fn #version_method_idents_as (&self) -> Option<& #version_struct_idents> {
-                use #enum_name::*;
-
-                match self {
-                    #version_idents (content) => Some(content),
-                    _ => None,
-                }
-            }
-            )*
-            #(
-            /// Returns Some(_) if this container has this version. None otherwise.
-            pub fn #version_method_idents_into (self) -> Option<#version_struct_idents> {
-                use #enum_name::*;
-
-                match self {
-                    #version_idents (content) => Some(content),
-                    _ => None,
-                }
-            }
-            )*
-        }
+        #impl_as_from
 
         #scale_impl
 

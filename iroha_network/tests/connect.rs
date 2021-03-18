@@ -22,7 +22,7 @@ mod tests {
         let network = Network::new("127.0.0.1:8888");
         let mut actual_changes = Vec::new();
         let connection = network
-            .connect(&[0u8, 10])
+            .connect(&[0_u8, 10])
             .await
             .expect("Failed to connect.");
 
@@ -40,7 +40,7 @@ mod tests {
                 .await
                 .wrap_err("Failed to write message")?;
             stream.flush().await.wrap_err("Failed to flush")?;
-            let mut receipt = [0u8; 4];
+            let mut receipt = [0_u8; 4];
             stream
                 .read(&mut receipt)
                 .await

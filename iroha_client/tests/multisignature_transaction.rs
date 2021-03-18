@@ -14,6 +14,7 @@ mod tests {
     const N_PEERS: usize = 4;
     const MAX_FAULTS: u32 = 1;
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn multisignature_transactions_should_wait_for_all_signatures() {

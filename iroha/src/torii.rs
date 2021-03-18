@@ -172,6 +172,9 @@ impl Torii {
     }
 
     /// To handle incoming requests `Torii` should be started first.
+    ///
+    /// # Errors
+    /// Can fail due to listening to network or if http server fails
     pub async fn start(&mut self) -> iroha_error::Result<()> {
         let state = self.create_state();
         let connections = state.consumers.clone();
@@ -519,6 +522,9 @@ pub mod config {
     impl ToriiConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
+        ///
+        /// # Errors
+        /// Can fail if parsing numbers from env fails
         pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(torii_api_url) = env::var(TORII_API_URL) {
                 self.torii_api_url = torii_api_url;
@@ -549,17 +555,19 @@ pub mod config {
         DEFAULT_TORII_API_URL.to_string()
     }
 
-    fn default_torii_max_transaction_size() -> usize {
+    const fn default_torii_max_transaction_size() -> usize {
         DEFAULT_TORII_MAX_TRANSACTION_SIZE
     }
 
-    fn default_torii_max_instruction_number() -> usize {
+    const fn default_torii_max_instruction_number() -> usize {
         DEFAULT_TORII_MAX_INSTRUCTION_NUMBER
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::default_trait_access)]
+
     use super::*;
     use crate::config::Configuration;
     use async_std::{future, sync};

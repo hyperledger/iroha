@@ -27,7 +27,7 @@ impl Logger {
     }
 
     /// Default values were taken from the `pretty_env_logger` [source code](https://github.com/seanmonstar/pretty-env-logger/blob/master/src/lib.rs).
-    fn color(&self, level: &Level) -> u8 {
+    fn color(level: Level) -> u8 {
         match level {
             Level::Error => RED,
             Level::Warn => YELLOW,
@@ -52,7 +52,7 @@ impl Log for Logger {
                 record.args()
             );
             if self.terminal_color_enabled {
-                println!("\x1b[{}m{}\x1b[0m", self.color(&record.level()), log_entry);
+                println!("\x1b[{}m{}\x1b[0m", Self::color(record.level()), log_entry);
             } else {
                 println!("{}", log_entry);
             }
@@ -65,6 +65,9 @@ impl Log for Logger {
 /// Initializes `Logger` with given `LoggerConfiguration`.
 /// After the initialization `log` macros will print with the use of this `Logger`.
 /// For more information see [log crate](https://docs.rs/log/0.4.8/log/).
+///
+/// # Errors
+/// Returns error from log crate
 pub fn init(configuration: &config::LoggerConfiguration) -> Result<(), SetLoggerError> {
     let mut logger_set = LOGGER_SET.write().expect("Failed to acquire lock.");
     if !*logger_set {
@@ -104,6 +107,11 @@ pub mod config {
     impl LoggerConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
+        ///
+        /// # Errors
+        /// Will fail if fails to decode:
+        /// * max log level from `MAX_LOG_LEVEL` env variable
+        /// * Bool from `TERMINAL_COLOR_ENABLED` env variable
         pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(max_log_level) = env::var(MAX_LOG_LEVEL) {
                 self.max_log_level = serde_json::from_str(&max_log_level)

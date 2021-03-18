@@ -1,3 +1,10 @@
+#![allow(
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
+
 use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
 use cucumber_rust::{Cucumber, World as CucumberWorld};
@@ -65,7 +72,7 @@ mod iroha_steps {
                         .kura_block_store_path(temp_dir.path());
                     configuration.torii_configuration.torii_p2p_url =
                         format!("127.0.0.1:{}", iroha_port);
-                    let iroha = Iroha::new(configuration.clone(), AllowAll.into());
+                    let iroha = Iroha::new(&configuration, AllowAll.into());
                     iroha.start().await.expect("Failed to start Iroha.");
                     loop {
                         thread::sleep(IROHA_WORLD_SLEEP_TIME);
@@ -108,8 +115,8 @@ mod asset_steps {
                                 IdentifiableBox::AssetDefinition(
                                     AssetDefinition::new(
                                         AssetDefinitionId::new(
-                                            &asset_definition_name,
-                                            &asset_definition_domain,
+                                            asset_definition_name,
+                                            asset_definition_domain,
                                         )
                                     )
                                     .into()
@@ -138,8 +145,8 @@ mod asset_steps {
                             Value::U32(asset_quantity),
                             IdBox::AssetId(AssetId::new(
                                 AssetDefinitionId::new(
-                                    &asset_definition_name,
-                                    &asset_definition_domain,
+                                    asset_definition_name,
+                                    asset_definition_domain,
                                 ),
                                 AccountId::new(account_name, account_domain)),
                             )
@@ -160,8 +167,8 @@ mod asset_steps {
                 let account_name = matches[3].trim();
                 let account_domain = matches[4].trim();
                 let request = client::asset::by_account_id_and_definition_id(
-                    AccountId::new(&account_name, &account_domain),
-                    AssetDefinitionId::new(&asset_definition_name, &asset_definition_domain),
+                    AccountId::new(account_name, account_domain),
+                    AssetDefinitionId::new(asset_definition_name, asset_definition_domain),
                 );
                 let query_result =
                     world.client.request(&request)
@@ -184,8 +191,8 @@ mod asset_steps {
                 let asset_definition_name = matches[4].trim();
                 let asset_definition_domain = matches[5].trim();
                 let request = client::asset::by_account_id_and_definition_id(
-                    AccountId::new(&account_name, &account_domain),
-                    AssetDefinitionId::new(&asset_definition_name, &asset_definition_domain),
+                    AccountId::new(account_name, account_domain),
+                    AssetDefinitionId::new(asset_definition_name, asset_definition_domain),
                 );
                 let query_result =
                     world.client.request(&request)
@@ -232,7 +239,7 @@ mod account_steps {
                         &account_name, &domain_name
                         );
                     let register_account = RegisterBox::new(
-                         IdentifiableBox::Account(Account::new(AccountId::new(&account_name, &domain_name)).into()),
+                         IdentifiableBox::Account(Account::new(AccountId::new(account_name, domain_name)).into()),
                     );
                     world.client.submit(register_account.into())
                         .expect("Failed to register an account.");
@@ -260,12 +267,12 @@ mod account_steps {
                                 Value::U32(quantity),
                                 IdBox::AssetId(AssetId::new(
                                     AssetDefinitionId::new(
-                                        &asset_definition_name,
-                                        &asset_definition_domain
+                                        asset_definition_name,
+                                        asset_definition_domain
                                     ),
                                     AccountId::new(
-                                        &account_name,
-                                        &account_domain_name
+                                        account_name,
+                                        account_domain_name
                                     ))
                                 )
                             ).into()
@@ -283,7 +290,7 @@ mod account_steps {
                     let domain_name = matches[2].trim();
                     println!("Checking account with id: {}@{}", account_name, domain_name);
                     let request =
-                        client::account::by_id(AccountId::new(&account_name, &domain_name));
+                        client::account::by_id(AccountId::new(account_name, domain_name));
                     let query_result =
                         world.client.request(&request)
                         .expect("Failed to execute request.");
@@ -485,8 +492,8 @@ mod query_steps {
                                         {
                                             asset_definition.id
                                                 == AssetDefinitionId::new(
-                                                    &asset_definition_name,
-                                                    &asset_definition_domain,
+                                                    asset_definition_name,
+                                                    asset_definition_domain,
                                                 )
                                         } else {
                                             false
@@ -525,8 +532,8 @@ mod query_steps {
                                         {
                                             asset.id.definition_id
                                                 == AssetDefinitionId::new(
-                                                    &asset_definition_name,
-                                                    &asset_definition_domain,
+                                                    asset_definition_name,
+                                                    asset_definition_domain,
                                                 )
                                         } else {
                                             false
@@ -853,6 +860,7 @@ mod peer_steps {
     }
 }
 
+#[allow(clippy::future_not_send)]
 #[async_std::main]
 async fn main() {
     let runner = Cucumber::<IrohaWorld>::new()

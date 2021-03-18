@@ -23,8 +23,8 @@ impl<M: Display> Display for MessageError<M> {
 impl<M: Display + Debug + 'static> StdError for MessageError<M> {}
 
 impl<D> MessageError<D> {
-    /// Constructor for MessageError
-    pub fn new(msg: D) -> Self {
+    /// Constructor for `MessageError`
+    pub const fn new(msg: D) -> Self {
         Self { msg }
     }
 }

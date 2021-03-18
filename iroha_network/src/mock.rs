@@ -1,3 +1,5 @@
+#![allow(clippy::missing_errors_doc)]
+
 use async_std::{
     io::{Read, Write},
     prelude::*,
@@ -19,7 +21,7 @@ static mut ENDPOINTS: Vec<(String, Sender<RequestStream>)> = Vec::new();
 
 fn find_sender(server_url: &str) -> Sender<RequestStream> {
     unsafe {
-        for tuple in ENDPOINTS.iter() {
+        for tuple in &ENDPOINTS {
             if tuple.0 == server_url {
                 return tuple.1.clone();
             }
@@ -118,6 +120,7 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
+    #[allow(clippy::future_not_send)]
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
@@ -136,6 +139,7 @@ impl Network {
     /// Helper function to call inside `listen_async` `handler` function to parse and send response.
     /// The `handler` specified here will need to generate `Response` from `Request`.
     /// See `listen_async` for the description of the `state`.
+    #[allow(clippy::future_not_send)]
     pub async fn handle_message_async<H, F, S>(
         state: State<S>,
         mut stream: Box<dyn AsyncStream>,
@@ -145,7 +149,7 @@ impl Network {
         H: FnMut(State<S>, Request) -> F,
         F: Future<Output = Result<Response>>,
     {
-        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut buffer = [0_u8; BUFFER_SIZE];
         let read_size = stream
             .read(&mut buffer)
             .await
@@ -170,9 +174,9 @@ impl Request {
     ///
     /// # Arguments
     ///
-    /// * uri_path - corresponds to [URI syntax](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier)
+    /// * `uri_path` - corresponds to [URI syntax](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier)
     /// `path` part (e.g. "/instructions")
-    /// * payload - the message in bytes
+    /// * `payload` - the message in bytes
     ///
     /// # Examples
     /// ```
@@ -229,7 +233,7 @@ pub enum Response {
 }
 
 impl Response {
-    pub fn empty_ok() -> Self {
+    pub const fn empty_ok() -> Self {
         Response::Ok(Vec::new())
     }
 }
