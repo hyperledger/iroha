@@ -479,9 +479,9 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_3) {
 
 /**
  * @given subscription engine
- * @when 2 subscribers are present
- * @and the first make unsubscribe from events he wasn't been subscribed
- * @then his handler must called, because he is still subscribed
+ * @when subscriber is present subscribed by a notification type 1
+ * @and this notification takes place
+ * @then his handler must called
  */
 TEST_F(SubscriptionTest, Notify) {
   auto dispatcher = createDispatcher();
@@ -493,6 +493,77 @@ TEST_F(SubscriptionTest, Notify) {
 
   subscriber->subscribe<1ull>(event_id);
   EXPECT_CALL(*subscriber, on_notify(0ull, event_id, std::string(test_data)))
+      .Times(1);
+  engine->notify(event_id, test_data);
+}
+
+/**
+ * @given subscription engine
+ * @when subscriber is present subscribed by a notification type 1
+ * @and this notification takes place with delay
+ * @then his handler must be called
+ */
+TEST_F(SubscriptionTest, NotifyDelayed) {
+  auto dispatcher = createDispatcher();
+  auto engine = createTestEngine(dispatcher);
+  auto subscriber = createMockSubscriber(engine);
+
+  std::string test_data("test_data");
+  uint32_t event_id = 10ul;
+
+  subscriber->subscribe<1ull>(event_id);
+  EXPECT_CALL(*subscriber, on_notify(0ull, event_id, std::string(test_data)))
+      .Times(1);
+  engine->notifyDelayed(std::chrono::microseconds(10ull), event_id, test_data);
+}
+
+/**
+ * @given subscription engine
+ * @when subscribers are present subscribed by a notification type 1 and 2
+ * @and this notification 1 takes place
+ * @then only 1 subscriber must be executed
+ */
+TEST_F(SubscriptionTest, Notify_1) {
+  auto dispatcher = createDispatcher();
+  auto engine = createTestEngine(dispatcher);
+  auto subscriber1 = createMockSubscriber(engine);
+  auto subscriber2 = createMockSubscriber(engine);
+
+  std::string test_data("test_data");
+  uint32_t event_id = 10ul;
+  uint32_t event_id_fake = 11ul;
+
+  subscriber1->subscribe<1ull>(event_id);
+  subscriber2->subscribe<1ull>(event_id_fake);
+
+  EXPECT_CALL(*subscriber1, on_notify(0ull, event_id, std::string(test_data)))
+      .Times(1);
+  EXPECT_CALL(*subscriber2, on_notify(0ull, event_id_fake, std::string(test_data)))
+      .Times(0);
+  engine->notify(event_id, test_data);
+}
+
+/**
+ * @given subscription engine
+ * @when subscribers are present subscribed by a same notification
+ * @and this notification takes place
+ * @then both of the subscribers must be executed
+ */
+TEST_F(SubscriptionTest, Notify_2) {
+  auto dispatcher = createDispatcher();
+  auto engine = createTestEngine(dispatcher);
+  auto subscriber1 = createMockSubscriber(engine);
+  auto subscriber2 = createMockSubscriber(engine);
+
+  std::string test_data("test_data");
+  uint32_t event_id = 10ul;
+
+  subscriber1->subscribe<1ull>(event_id);
+  subscriber2->subscribe<1ull>(event_id);
+
+  EXPECT_CALL(*subscriber1, on_notify(0ull, event_id, std::string(test_data)))
+      .Times(1);
+  EXPECT_CALL(*subscriber2, on_notify(0ull, event_id, std::string(test_data)))
       .Times(1);
   engine->notify(event_id, test_data);
 }
