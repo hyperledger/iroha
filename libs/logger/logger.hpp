@@ -12,19 +12,34 @@
 #include <numeric>  // for std::accumulate
 #include <string>
 
-/// Allows to log objects, which have toString() method without calling it, e.g.
-/// log.info("{}", myObject)
-template <typename StreamType, typename T>
-auto operator<<(StreamType &os, const T &object)
-    -> decltype(os << object.toString()) {
-  return os << object.toString();
-}
-
+#include <fmt/core.h>
 #include <fmt/format.h>
-#include <fmt/ostream.h>
 // Windows includes transitively included by format.h define interface as
 // struct, leading to compilation issues
 #undef interface
+
+namespace fmt {
+  /// Allows to log objects, which have toString() method without calling it,
+  /// e.g. log.info("{}", myObject)
+  template <typename T>
+  struct formatter<
+      T,
+      std::enable_if_t<
+          std::is_same<std::decay_t<decltype(std::declval<T>().toString())>,
+                       std::string>::value,
+          char>> {
+    // The following functions are not defined intentionally.
+    template <typename ParseContext>
+    auto parse(ParseContext &ctx) -> decltype(ctx.begin()) {
+      return ctx.begin();
+    }
+
+    template <typename FormatContext>
+    auto format(const T &val, FormatContext &ctx) -> decltype(ctx.out()) {
+      return format_to(ctx.out(), "{}", val.toString());
+    }
+  };
+}  // namespace fmt
 
 namespace logger {
 

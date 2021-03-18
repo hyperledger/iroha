@@ -6,6 +6,8 @@
 #ifndef MAIN_SERVER_RUNNER_HPP
 #define MAIN_SERVER_RUNNER_HPP
 
+#include <condition_variable>
+
 #include <grpc++/grpc++.h>
 #include <grpc++/impl/codegen/service_type.h>
 #include "common/result.hpp"

@@ -5,6 +5,7 @@
 
 #include "consensus/yac/impl/peer_orderer_impl.hpp"
 
+#include <algorithm>
 #include <random>
 
 #include "common/bind.hpp"
