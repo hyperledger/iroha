@@ -9,7 +9,6 @@
 #include "consensus/yac/timer.hpp"
 
 #include <atomic>
-
 #include <gmock/gmock.h>
 
 namespace iroha {
@@ -44,48 +43,6 @@ namespace iroha {
 
    public:
     MockSubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
-
-    /*template <typename EventKey, typename... Args>
-    auto getEngine() {
-      using EngineType =
-          SubscriptionEngine<EventKey,
-                             Dispatcher,
-                             Subscriber<EventKey, Dispatcher, Args...>>;
-      constexpr auto engineId = getSubscriptionType<Args...>();
-      std::lock_guard lock(engines_cs_);
-      if (auto it = engines_.find(engineId); it != engines_.end()) {
-        return std::reinterpret_pointer_cast<EngineType>(it->second);
-      }
-      auto obj = std::make_shared<EngineType>(dispatcher_);
-      engines_[engineId] = std::reinterpret_pointer_cast<void>(obj);
-      return obj;
-    }*/
-
-    /*template <typename EventKey, typename... Args>
-    void notify(const EventKey &key, Args const &... args) {
-      notifyDelayed(std::chrono::microseconds(0ull), key, args...);
-    }*/
-
-    /*template <typename EventKey, typename... Args>
-    void notifyDelayed(std::chrono::microseconds timeout,
-                       const EventKey &key,
-                       Args const &... args) {
-      using EngineType =
-          SubscriptionEngine<EventKey,
-                             Dispatcher,
-                             Subscriber<EventKey, Dispatcher, Args...>>;
-      constexpr auto engineId = getSubscriptionType<Args...>();
-      std::shared_ptr<EngineType> engine;
-      {
-        std::lock_guard lock(engines_cs_);
-        if (auto it = engines_.find(engineId); it != engines_.end())
-          engine = std::reinterpret_pointer_cast<EngineType>(it->second);
-        else
-          return;
-      }
-      if (engine)
-        engine->notifyDelayed(timeout, key, args...);
-    }*/
 
     DispatcherPtr dispatcher() const {
       return dispatcher_;

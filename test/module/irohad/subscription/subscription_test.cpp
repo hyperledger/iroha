@@ -8,13 +8,12 @@
 #include <gtest/gtest.h>
 #include <vector>
 
+#include "module/irohad/subscription/subscription_mocks.hpp"
+
 using namespace iroha;
 
 class SubscriptionTest : public ::testing::Test {
  public:
-  void SetUp() override {
-  }
-
   template<uint32_t ThreadsCount>
   auto createSubscriptionManager() {
     using Manager = subscription::SubscriptionManager<ThreadsCount>;
@@ -37,6 +36,22 @@ class SubscriptionTest : public ::testing::Test {
     subscriber->template subscribe<Tid>(0, Event);
 
     return subscriber;
+  }
+
+  using MockDispatcher = subscription::MockDispatcher;
+  using MockSubscriber = subscription::MockSubscriber<uint32_t, MockDispatcher, std::string>;
+  using TestEngine     = subscription::SubscriptionEngine<uint32_t, MockDispatcher, subscription::Subscriber<uint32_t, MockDispatcher, std::string>>;
+
+  auto createMockSubscriber(std::shared_ptr<TestEngine> const &engine) {
+    return std::make_shared<MockSubscriber>(engine);
+  }
+
+  auto createTestEngine(std::shared_ptr<MockDispatcher> const &dispatcher) {
+    return std::make_shared<TestEngine>(dispatcher);
+  }
+
+  auto createDispatcher() {
+    return std::make_shared<MockDispatcher>();
   }
 };
 
@@ -306,14 +321,14 @@ TEST_F(SubscriptionTest, RotationExecutionTest_3) {
         ++counter;
       });
 
-  manager->notifyDelayed(std::chrono::milliseconds(10ull), 0ul, std::string("E"));
-  manager->notifyDelayed(std::chrono::milliseconds(3ull), 0ul, std::string("C"));
-  manager->notifyDelayed(std::chrono::milliseconds(5ull), 0ul, std::string("D"));
+  manager->notifyDelayed(std::chrono::milliseconds(100ull), 0ul, std::string("E"));
+  manager->notifyDelayed(std::chrono::milliseconds(30ull), 0ul, std::string("C"));
+  manager->notifyDelayed(std::chrono::milliseconds(50ull), 0ul, std::string("D"));
   manager->notify(0ul, std::string("A"));
   manager->notify(0ul, std::string("B"));
 
   while (counter.load(std::memory_order_relaxed) < 5)
-    std::this_thread::sleep_for(std::chrono::milliseconds(1ull));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10ull));
 
   ASSERT_EQ(result, "ABCDE");
 }
@@ -351,6 +366,7 @@ TEST_F(SubscriptionTest, StarExecutionTest) {
   [[maybe_unused]] auto subscriber_4 = createSubscriber<4ul, 4ul, std::string>(
       manager, false, [&](auto, auto value) {
         result += value;
+        std::cout << "4" << std::endl;
         complete.set();
       });
 
@@ -459,4 +475,24 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_3) {
   manager->notify(1ul, false);
   ASSERT_TRUE(complete.wait(std::chrono::seconds(10ull)));
   ASSERT_TRUE(flag.test_and_set());
+}
+
+/**
+ * @given subscription engine
+ * @when 2 subscribers are present
+ * @and the first make unsubscribe from events he wasn't been subscribed
+ * @then his handler must called, because he is still subscribed
+ */
+TEST_F(SubscriptionTest, Notify) {
+  auto dispatcher = createDispatcher();
+  auto engine = createTestEngine(dispatcher);
+  auto subscriber = createMockSubscriber(engine);
+
+  std::string test_data("test_data");
+  uint32_t event_id = 10ul;
+
+  subscriber->subscribe<1ull>(event_id);
+  EXPECT_CALL(*subscriber, on_notify(0ull, event_id, std::string(test_data)))
+      .Times(1);
+  engine->notify(event_id, test_data);
 }
