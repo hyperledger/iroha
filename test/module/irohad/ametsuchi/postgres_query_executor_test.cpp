@@ -1453,14 +1453,14 @@ namespace iroha {
           makeFirstRecordId(makeAccountId(2), makeKey(2)), 2);
     }
 
-    INSTANTIATE_TEST_CASE_P(
+    INSTANTIATE_TEST_SUITE_P(
         AllVariants,
         GetAccountDetailPagedExecutorTestParametric,
         ::testing::Values(
             GetAccountDetailPagedExecutorTestVariant::kAllDetails,
             GetAccountDetailPagedExecutorTestVariant::kDetailsByWriter,
             GetAccountDetailPagedExecutorTestVariant::kDetailsByKey,
-            GetAccountDetailPagedExecutorTestVariant::kSingleDetail), );
+            GetAccountDetailPagedExecutorTestVariant::kSingleDetail));
 
     // --------------| GetBlock tests |---------------------------->8 ----------
 

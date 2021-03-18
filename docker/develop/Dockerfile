@@ -83,7 +83,9 @@ RUN set -e; \
 
 # python bindings dependencies
 RUN set -e; \
+    pip install setuptools wheel; \
     pip install grpcio_tools pysha3; \
+    pip3 install setuptools wheel; \
     pip3 install grpcio_tools pysha3
 
 # install lcov

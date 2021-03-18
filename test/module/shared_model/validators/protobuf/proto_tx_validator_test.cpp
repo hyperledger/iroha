@@ -139,7 +139,7 @@ TEST_P(ValidProtoTxValidatorTest, ValidTxsTest) {
                                    << tx.DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ValidProtoTxs,
     ValidProtoTxValidatorTest,
     ::testing::Values(
@@ -150,7 +150,7 @@ INSTANTIATE_TEST_CASE_P(
         generateAddPeerTransaction(valid_pubkey),
         generateCreateRoleTransaction(valid_role_permission),
         generateGrantPermissionTransaction(valid_grantable_permission),
-        generateRevokePermissionTransaction(valid_grantable_permission)), );
+        generateRevokePermissionTransaction(valid_grantable_permission)));
 
 // invalid transaction tests
 
@@ -170,7 +170,7 @@ TEST_P(InvalidProtoTxValidatorTest, InvalidTxssTest) {
   ASSERT_TRUE(answer.hasErrors()) << tx.DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InvalidProtoTxs,
     InvalidProtoTxValidatorTest,
     ::testing::Values(
@@ -181,4 +181,4 @@ INSTANTIATE_TEST_CASE_P(
         generateAddPeerTransaction(invalid_pubkey),
         generateCreateRoleTransaction(invalid_role_permission),
         generateGrantPermissionTransaction(invalid_grantable_permission),
-        generateRevokePermissionTransaction(invalid_grantable_permission)), );
+        generateRevokePermissionTransaction(invalid_grantable_permission)));

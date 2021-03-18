@@ -80,11 +80,11 @@ TEST_P(ValidProtoPaginationQueryValidatorTest, ValidPaginationQuery) {
                                    << answer.reason();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ProtoPaginationQueryTest,
     ValidProtoPaginationQueryValidatorTest,
     ::testing::Values(generateGetAccountAssetTransactionsQuery(valid_tx_hash),
-                      generateGetAccountTransactionsQuery(valid_tx_hash)), );
+                      generateGetAccountTransactionsQuery(valid_tx_hash)));
 
 // invalid pagination query tests
 
@@ -97,8 +97,8 @@ TEST_P(InvalidProtoPaginationQueryTest, InvalidPaginationQuery) {
   ASSERT_TRUE(answer.hasErrors()) << GetParam().DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InvalidProtoPaginationQueryTest,
     InvalidProtoPaginationQueryTest,
     ::testing::Values(generateGetAccountAssetTransactionsQuery(invalid_tx_hash),
-                      generateGetAccountTransactionsQuery(invalid_tx_hash)), );
+                      generateGetAccountTransactionsQuery(invalid_tx_hash)));

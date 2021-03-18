@@ -13,6 +13,12 @@ mark_as_advanced(postgres_INCLUDE_DIR)
 find_library(pq_LIBRARY NAMES pq libpq)
 mark_as_advanced(pq_LIBRARY)
 
+find_library(pgcommon_LIBRARY NAMES pgcommon libpgcommon)
+mark_as_advanced(pgcommon_LIBRARY)
+
+find_library(pgport_LIBRARY NAMES pgport libpgport)
+mark_as_advanced(pgport_LIBRARY)
+
 # Debug library has 'd' suffix on Windows
 if (MSVC)
   find_library(pqd_LIBRARY NAMES pqd libpqd)
@@ -79,6 +85,18 @@ if (VCPKG_TOOLCHAIN)
       INTERFACE_LINK_LIBRARIES OpenSSL::SSL
       )
 endif ()
+if(pgcommon_LIBRARY)
+  target_link_libraries(pq
+      INTERFACE
+      ${pgcommon_LIBRARY}
+      )
+endif()
+if(pgport_LIBRARY)
+  target_link_libraries(pq
+      INTERFACE
+      ${pgport_LIBRARY}
+      )
+endif()
 
 if(ENABLE_LIBS_PACKAGING)
   add_install_step_for_lib(${pq_LIBRARY})
