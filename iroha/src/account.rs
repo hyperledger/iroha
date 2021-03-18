@@ -64,6 +64,39 @@ pub mod isi {
             Ok(world_state_view)
         }
     }
+
+    impl Execute for SetKeyValue<Account, String, Value> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &WorldStateView,
+        ) -> Result<WorldStateView> {
+            let mut world_state_view = world_state_view.clone();
+            let account = world_state_view
+                .account(&self.object_id)
+                .ok_or_else(|| error!("Failed to find account."))?;
+            let _ = account.metadata.insert(self.key, self.value);
+            Ok(world_state_view)
+        }
+    }
+
+    impl Execute for RemoveKeyValue<Account, String> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &WorldStateView,
+        ) -> Result<WorldStateView> {
+            let mut world_state_view = world_state_view.clone();
+            let account = world_state_view
+                .account(&self.object_id)
+                .ok_or_else(|| error!("Failed to find account."))?;
+            let _ = account
+                .metadata
+                .remove(&self.key)
+                .ok_or_else(|| error!("Key not found."))?;
+            Ok(world_state_view)
+        }
+    }
 }
 
 /// Query module provides `IrohaQuery` Account related implementations.
@@ -115,6 +148,19 @@ pub mod query {
                 .filter(|account| account.id.domain_name == self.domain_name)
                 .cloned()
                 .collect())
+        }
+    }
+
+    impl Query for FindAccountKeyValueByIdAndKey {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            world_state_view
+                .read_account(&self.id)
+                .ok_or_else(|| error!("Failed to get an account."))?
+                .metadata
+                .get(&self.key)
+                .map(Clone::clone)
+                .ok_or_else(|| error!("No metadata entry with this key."))
         }
     }
 }

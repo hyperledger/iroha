@@ -204,6 +204,12 @@ impl Execute for SetKeyValueBox {
                 SetKeyValue::<Asset, String, Value>::new(asset_id, key, value)
                     .execute(authority, world_state_view)
             }
+            IdBox::AccountId(account_id) => {
+                let key = self.key.evaluate(world_state_view, &context)?;
+                let value = self.value.evaluate(world_state_view, &context)?;
+                SetKeyValue::<Account, String, Value>::new(account_id, key, value)
+                    .execute(authority, world_state_view)
+            }
             _ => Err(error!("Unsupported instruction.")),
         }
     }
@@ -221,6 +227,11 @@ impl Execute for RemoveKeyValueBox {
             IdBox::AssetId(asset_id) => {
                 let key = self.key.evaluate(world_state_view, &context)?;
                 RemoveKeyValue::<Asset, String>::new(asset_id, key)
+                    .execute(authority, world_state_view)
+            }
+            IdBox::AccountId(account_id) => {
+                let key = self.key.evaluate(world_state_view, &context)?;
+                RemoveKeyValue::<Account, String>::new(account_id, key)
                     .execute(authority, world_state_view)
             }
             _ => Err(error!("Unsupported instruction.")),
@@ -293,4 +304,85 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
     pub use super::Execute;
     pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, world::isi::*};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iroha_crypto::KeyPair;
+    use iroha_data_model::{domain::DomainsMap, peer::PeersIds, TryAsRef};
+
+    fn world_with_test_domains() -> Result<World> {
+        let mut domains = DomainsMap::new();
+        let mut domain = Domain::new("wonderland");
+        let account_id = AccountId::new("alice", "wonderland");
+        let mut account = Account::new(account_id.clone());
+        let key_pair = KeyPair::generate()?;
+        account.signatories.push(key_pair.public_key);
+        let _ = domain.accounts.insert(account_id.clone(), account);
+        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let _ = domain.asset_definitions.insert(
+            asset_definition_id.clone(),
+            AssetDefinitionEntry::new(AssetDefinition::new(asset_definition_id), account_id),
+        );
+        let _ = domains.insert("wonderland".to_string(), domain);
+        Ok(World::with(domains, PeersIds::new()))
+    }
+
+    #[test]
+    fn asset_store() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::new("alice", "wonderland");
+        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+        let wsv = SetKeyValueBox::new(
+            IdBox::from(asset_id.clone()),
+            "Bytes".to_string(),
+            vec![1u32, 2u32, 3u32],
+        )
+        .execute(account_id.clone(), &wsv)?;
+        let asset_store: &Metadata = wsv
+            .read_account(&account_id)
+            .ok_or_else(|| error!("Failed to find account."))?
+            .assets
+            .get(&asset_id)
+            .ok_or_else(|| error!("Failed to find asset."))?
+            .try_as_ref()?;
+        let bytes = asset_store.get("Bytes");
+        assert_eq!(
+            bytes,
+            Some(&Value::Vec(vec![
+                Value::U32(1),
+                Value::U32(2),
+                Value::U32(3)
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn account_metadata() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::new("alice", "wonderland");
+        let wsv = SetKeyValueBox::new(
+            IdBox::from(account_id.clone()),
+            "Bytes".to_string(),
+            vec![1u32, 2u32, 3u32],
+        )
+        .execute(account_id.clone(), &wsv)?;
+        let bytes = wsv
+            .read_account(&account_id)
+            .ok_or_else(|| error!("Failed to find account."))?
+            .metadata
+            .get("Bytes");
+        assert_eq!(
+            bytes,
+            Some(&Value::Vec(vec![
+                Value::U32(1),
+                Value::U32(2),
+                Value::U32(3)
+            ]))
+        );
+        Ok(())
+    }
 }

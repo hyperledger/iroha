@@ -394,7 +394,7 @@ pub mod account {
         domain::GENESIS_DOMAIN_NAME,
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         permissions::PermissionRaw,
-        Identifiable, Name, PublicKey, Value,
+        Identifiable, Metadata, Name, PublicKey, Value,
     };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
@@ -484,6 +484,8 @@ pub mod account {
         #[serde(default)]
         #[codec(skip)]
         pub signature_check_condition: SignatureCheckCondition,
+        /// Metadata of this account as a key-value store.
+        pub metadata: Metadata,
     }
 
     impl PartialOrd for Account {
@@ -537,6 +539,7 @@ pub mod account {
                 signatories: Signatories::new(),
                 permissions: Permissions::new(),
                 signature_check_condition: Default::default(),
+                metadata: Default::default(),
             }
         }
 
@@ -550,6 +553,7 @@ pub mod account {
                 signatories,
                 permissions: Permissions::new(),
                 signature_check_condition: Default::default(),
+                metadata: Metadata::default(),
             }
         }
 
@@ -693,6 +697,16 @@ pub mod asset {
     impl Ord for AssetDefinitionEntry {
         fn cmp(&self, other: &Self) -> Ordering {
             self.definition.cmp(&other.definition)
+        }
+    }
+
+    impl AssetDefinitionEntry {
+        /// Constructor.
+        pub fn new(definition: AssetDefinition, registered_by: AccountId) -> AssetDefinitionEntry {
+            AssetDefinitionEntry {
+                definition,
+                registered_by,
+            }
         }
     }
 
