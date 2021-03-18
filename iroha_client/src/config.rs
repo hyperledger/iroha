@@ -59,6 +59,9 @@ impl Configuration {
 
     /// Load environment variables and replace predefined parameters with these variables
     /// values.
+    ///
+    /// # Errors
+    /// Fails if parsing environment fails
     pub fn load_environment(&mut self) -> Result<()> {
         self.logger_configuration
             .load_environment()
@@ -101,14 +104,14 @@ fn default_torii_api_url() -> String {
     DEFAULT_TORII_API_URL.to_string()
 }
 
-fn default_transaction_time_to_live_ms() -> u64 {
+const fn default_transaction_time_to_live_ms() -> u64 {
     DEFAULT_TRANSACTION_TIME_TO_LIVE_MS
 }
 
-fn default_transaction_status_timeout_ms() -> u64 {
+const fn default_transaction_status_timeout_ms() -> u64 {
     DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS
 }
 
-fn default_max_instruction_number() -> usize {
+const fn default_max_instruction_number() -> usize {
     DEFAULT_MAX_INSTRUCTION_NUMBER
 }

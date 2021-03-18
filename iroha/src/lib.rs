@@ -15,7 +15,18 @@
     unsafe_code,
     unused_import_braces,
     unused_results,
-    variant_size_differences
+    variant_size_differences,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery
+)]
+#![allow(
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
 )]
 
 pub mod account;
@@ -109,7 +120,7 @@ pub struct Iroha {
 
 impl Iroha {
     /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
-    pub fn new(config: Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
+    pub fn new(config: &Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         log::info!("Configuration: {:?}", config);
         let (transactions_sender, transactions_receiver) = sync::channel(100);
@@ -119,7 +130,7 @@ impl Iroha {
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(World::with(
-            init::domains(&config),
+            init::domains(config),
             config.sumeragi_configuration.trusted_peers.clone(),
         ))));
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
@@ -142,7 +153,7 @@ impl Iroha {
             transactions_sender,
             sumeragi_message_sender,
             block_sync_message_sender,
-            System::new(&config),
+            System::new(config),
             queue.clone(),
             sumeragi.clone(),
             (events_sender, events_receiver),
@@ -184,7 +195,10 @@ impl Iroha {
 
     /// To make `Iroha` peer work it should be started first. After that moment it will listen for
     /// incoming requests and messages.
-    #[allow(clippy::eval_order_dependence)]
+    ///
+    /// # Errors
+    /// Can fail if initing kura fails
+    #[allow(clippy::eval_order_dependence, clippy::too_many_lines)]
     pub async fn start(&self) -> Result<()> {
         log::info!("Starting Iroha.");
         //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
@@ -232,7 +246,7 @@ impl Iroha {
                         .await
                         .round(transactions)
                         .await
-                        .expect("Round failed.");
+                        .expect("Round failed")
                 }
                 task::sleep(TX_RETRIEVAL_INTERVAL).await;
             }

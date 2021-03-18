@@ -16,7 +16,18 @@
     unsafe_code,
     unused_import_braces,
     unused_results,
-    variant_size_differences
+    variant_size_differences,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery
+)]
+#![allow(
+    clippy::enum_glob_use,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::use_self,
+    clippy::wildcard_imports
 )]
 
 pub mod events;
@@ -41,6 +52,7 @@ pub type Bytes = Vec<u8>;
 /// Collection of parameters by their names.
 pub type Metadata = BTreeMap<Name, Value>;
 
+#[allow(clippy::missing_errors_doc)]
 /// Similar to [`std::convert::AsMut`] but indicating that this reference conversion can fail.
 pub trait TryAsMut<T> {
     /// The type returned in the event of a conversion error.
@@ -50,6 +62,7 @@ pub trait TryAsMut<T> {
     fn try_as_mut(&mut self) -> Result<&mut T, Self::Error>;
 }
 
+#[allow(clippy::missing_errors_doc)]
 /// Similar to [`std::convert::AsRef`] but indicating that this reference conversion can fail.
 pub trait TryAsRef<T> {
     /// The type returned in the event of a conversion error.
@@ -275,7 +288,7 @@ impl From<IdBox> for Value {
 
 impl<V: Into<Value>> From<Vec<V>> for Value {
     fn from(values: Vec<V>) -> Value {
-        Value::Vec(values.into_iter().map(|value| value.into()).collect())
+        Value::Vec(values.into_iter().map(Into::into).collect())
     }
 }
 
@@ -285,9 +298,10 @@ impl From<PublicKey> for Value {
     }
 }
 
+#[allow(clippy::fallible_impl_from)]
 impl From<u128> for Value {
     fn from(_: u128) -> Value {
-        unimplemented!()
+        todo!()
     }
 }
 
@@ -297,9 +311,10 @@ impl From<String> for Value {
     }
 }
 
+#[allow(clippy::fallible_impl_from)]
 impl From<(String, Vec<u8>)> for Value {
     fn from(_: (String, Vec<u8>)) -> Value {
-        unimplemented!()
+        todo!()
     }
 }
 
@@ -388,6 +403,7 @@ pub mod permissions {
 
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
+    #![allow(clippy::default_trait_access)]
 
     use crate::{
         asset::AssetsMap,
@@ -427,7 +443,7 @@ pub mod account {
 
     impl GenesisAccount {
         /// Returns `GenesisAccount` instance.
-        pub fn new(public_key: PublicKey) -> Self {
+        pub const fn new(public_key: PublicKey) -> Self {
             GenesisAccount { public_key }
         }
     }
@@ -444,7 +460,7 @@ pub mod account {
 
     impl SignatureCheckCondition {
         /// Gets reference to the raw `ExpressionBox`.
-        pub fn as_expression(&self) -> &ExpressionBox {
+        pub const fn as_expression(&self) -> &ExpressionBox {
             let Self(condition) = self;
             &condition.expression
         }
@@ -731,7 +747,7 @@ pub mod asset {
 
     impl Asset {
         /// Returns the asset type as a string.
-        pub fn type_string(&self) -> &'static str {
+        pub const fn type_string(&self) -> &'static str {
             self.value.type_string()
         }
     }
@@ -751,7 +767,7 @@ pub mod asset {
 
     impl AssetValue {
         /// Returns the asset type as a string.
-        pub fn type_string(&self) -> &'static str {
+        pub const fn type_string(&self) -> &'static str {
             match self {
                 AssetValue::Quantity(_) => QUANTITY_ASSET_TYPE,
                 AssetValue::BigQuantity(_) => BIG_QUANTITY_ASSET_TYPE,
@@ -894,7 +910,7 @@ pub mod asset {
 
     impl AssetDefinition {
         /// Default `AssetDefinition` constructor.
-        pub fn new(id: DefinitionId) -> Self {
+        pub const fn new(id: DefinitionId) -> Self {
             AssetDefinition { id }
         }
     }
@@ -966,7 +982,7 @@ pub mod asset {
 
         /// `Id` constructor used to easily create an `Id` from an `AssetDefinitionId` and
         /// an `AccountId`.
-        pub fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
+        pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
             Id {
                 definition_id,
                 account_id,
@@ -1102,7 +1118,7 @@ pub mod domain {
 
     impl GenesisDomain {
         /// Returns `GenesisDomain`.
-        pub fn new(genesis_account_public_key: PublicKey) -> Self {
+        pub const fn new(genesis_account_public_key: PublicKey) -> Self {
             GenesisDomain {
                 genesis_account_public_key,
             }
@@ -1118,7 +1134,7 @@ pub mod domain {
                     GenesisAccount::new(domain.genesis_account_public_key).into(),
                 ))
                 .collect(),
-                asset_definitions: Default::default(),
+                asset_definitions: BTreeMap::default(),
             }
         }
     }
@@ -1216,7 +1232,7 @@ pub mod peer {
 
     impl Peer {
         /// Default `Peer` constructor.
-        pub fn new(id: Id) -> Self {
+        pub const fn new(id: Id) -> Self {
             Peer { id }
         }
     }
@@ -1272,6 +1288,7 @@ pub mod transaction {
     use {
         iroha_http_server::http::HttpResponse,
         iroha_version::{error::Error as VersionError, scale::EncodeVersioned},
+        std::collections::BTreeMap,
     };
 
     /// Maximum number of instructions and expressions per transaction
@@ -1308,7 +1325,7 @@ pub mod transaction {
 
     impl VersionedTransaction {
         /// Same as [`as_v1`] but also does conversion
-        pub fn as_inner_v1(&self) -> &Transaction {
+        pub const fn as_inner_v1(&self) -> &Transaction {
             match self {
                 Self::V1(v1) => &v1.0,
             }
@@ -1322,6 +1339,7 @@ pub mod transaction {
         }
 
         /// Same as [`into_v1`] but also does conversion
+        #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> Transaction {
             match self {
                 Self::V1(v1) => v1.0,
@@ -1343,6 +1361,9 @@ pub mod transaction {
         }
 
         /// Checks if number of instructions in payload exceeds maximum
+        ///
+        /// # Errors
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
             self.as_inner_v1()
                 .check_instruction_len(max_instruction_number)
@@ -1350,7 +1371,8 @@ pub mod transaction {
 
         /// Sign transaction with the provided key pair.
         ///
-        /// Returns `Ok(Transaction)` if succeeded and `Err(String)` if failed.
+        /// # Errors
+        /// Fails if signature creation fails
         pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
             self.into_inner_v1().sign(key_pair).map(Into::into)
         }
@@ -1363,6 +1385,7 @@ pub mod transaction {
             account_id: <Account as Identifiable>::Id,
             proposed_ttl_ms: u64,
         ) -> Transaction {
+            #[allow(clippy::cast_possible_truncation)]
             Transaction {
                 payload: Payload {
                     instructions,
@@ -1384,6 +1407,9 @@ pub mod transaction {
         }
 
         /// Checks if number of instructions in payload exceeds maximum
+        ///
+        /// # Errors
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
             if self
                 .payload
@@ -1400,7 +1426,8 @@ pub mod transaction {
 
         /// Sign transaction with the provided key pair.
         ///
-        /// Returns `Ok(Transaction)` if succeeded and `Err(String)` if failed.
+        /// # Errors
+        /// Fails if signature creation fails
         pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction> {
             let mut signatures = self.signatures.clone();
             signatures.push(Signature::new(key_pair.clone(), self.hash().as_ref())?);
@@ -1427,7 +1454,7 @@ pub mod transaction {
         type Error = VersionError;
         fn try_into(self) -> Result<HttpResponse, Self::Error> {
             self.encode_versioned()
-                .map(|pending| HttpResponse::ok(Default::default(), pending))
+                .map(|pending| HttpResponse::ok(BTreeMap::default(), pending))
         }
     }
 
@@ -1500,10 +1527,12 @@ pub mod pagination {
             if let Some(limit) = self.pagination.limit.as_mut() {
                 if *limit == 0 {
                     return None;
-                } else {
-                    *limit -= 1
                 }
+                *limit -= 1
             }
+
+            #[allow(clippy::option_if_let_else)]
+            // Required because of E0524. 2 closures with unique refs to self
             if let Some(start) = self.pagination.start.take() {
                 self.iter.nth(start)
             } else {
@@ -1523,7 +1552,7 @@ pub mod pagination {
 
     impl Pagination {
         /// Constructs [`Pagination`].
-        pub fn new(start: Option<usize>, limit: Option<usize>) -> Pagination {
+        pub const fn new(start: Option<usize>, limit: Option<usize>) -> Pagination {
             Pagination { start, limit }
         }
     }

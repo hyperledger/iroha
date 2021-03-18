@@ -1,5 +1,7 @@
 //! This library contains basic Iroha Special Instructions.
 
+#![allow(clippy::len_without_is_empty, clippy::unused_self)]
+
 use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, ValueMarker};
 use iroha_derive::FromVariant;
 use parity_scale_codec::{Decode, Encode};
@@ -33,7 +35,6 @@ pub enum Instruction {
     RemoveKeyValue(RemoveKeyValueBox),
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Instruction {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -359,7 +360,6 @@ where
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl SetKeyValueBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -384,7 +384,6 @@ impl SetKeyValueBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl RemoveKeyValueBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -403,7 +402,6 @@ impl RemoveKeyValueBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl RegisterBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -418,7 +416,6 @@ impl RegisterBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl UnregisterBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -433,7 +430,6 @@ impl UnregisterBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl MintBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -452,7 +448,6 @@ impl MintBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl BurnBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -471,7 +466,6 @@ impl BurnBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl TransferBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -496,7 +490,6 @@ impl TransferBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Pair {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -515,7 +508,6 @@ impl Pair {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl SequenceBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -532,11 +524,10 @@ impl SequenceBox {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl If {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
-        let otherwise = self.otherwise.as_ref().map(Instruction::len).unwrap_or(0);
+        let otherwise = self.otherwise.as_ref().map_or(0, Instruction::len);
         self.condition.len() + self.then.len() + otherwise + 1
     }
 
@@ -566,7 +557,6 @@ impl If {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl FailBox {
     /// Calculates number of underneath instructions and expressions
     pub const fn len(&self) -> usize {
@@ -606,7 +596,7 @@ mod tests {
 
     fn fail() -> Instruction {
         FailBox {
-            message: Default::default(),
+            message: String::default(),
         }
         .into()
     }
@@ -623,7 +613,7 @@ mod tests {
     fn len_if_one_branch() {
         let instructions = vec![if_instruction(
             ContextValue {
-                value_name: Default::default(),
+                value_name: String::default(),
             },
             fail(),
             None,
@@ -639,7 +629,7 @@ mod tests {
             fail(),
             if_instruction(
                 ContextValue {
-                    value_name: Default::default(),
+                    value_name: String::default(),
                 },
                 fail(),
                 Some(fail()),

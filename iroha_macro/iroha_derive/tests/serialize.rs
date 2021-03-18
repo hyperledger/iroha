@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use iroha_derive::*;
+    use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use std::{collections::BTreeMap, convert::TryFrom};
 

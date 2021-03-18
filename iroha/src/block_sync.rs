@@ -67,16 +67,18 @@ impl BlockSynchronizer {
                 task::sleep(gossip_period).await;
                 let message =
                     Message::LatestBlock(kura.read().await.latest_block_hash(), peer_id.clone());
-                let _ = futures::future::join_all(
-                    sumeragi
-                        .read()
-                        .await
-                        .network_topology
-                        .sorted_peers()
-                        .iter()
-                        .map(|peer| message.clone().send_to(peer)),
-                )
-                .await;
+                drop(
+                    futures::future::join_all(
+                        sumeragi
+                            .read()
+                            .await
+                            .network_topology
+                            .sorted_peers()
+                            .iter()
+                            .map(|peer| message.clone().send_to(peer)),
+                    )
+                    .await,
+                );
             }
         });
     }
@@ -184,26 +186,24 @@ pub mod message {
                         return;
                     }
 
-                    match block_sync.kura.read().await.blocks_after(*hash) {
-                        Some(blocks) => {
-                            if let Some(blocks_batch) =
-                                blocks.chunks(block_sync.batch_size as usize).next()
+                    if let Some(blocks) = block_sync.kura.read().await.blocks_after(*hash) {
+                        #[allow(clippy::cast_possible_truncation)]
+                        if let Some(blocks_batch) =
+                            blocks.chunks(block_sync.batch_size as usize).next()
+                        {
+                            if let Err(err) = Message::ShareBlocks(
+                                blocks_batch.to_vec(),
+                                block_sync.peer_id.clone(),
+                            )
+                            .send_to(peer)
+                            .await
                             {
-                                if let Err(err) = Message::ShareBlocks(
-                                    blocks_batch.to_vec(),
-                                    block_sync.peer_id.clone(),
-                                )
-                                .send_to(peer)
-                                .await
-                                {
-                                    log::error!("Failed to send blocks: {:?}", err)
-                                }
+                                log::error!("Failed to send blocks: {:?}", err)
                             }
                         }
-                        None => log::error!(
-                            "Error: there are no blocks after the requested block hash."
-                        ),
-                    };
+                    } else {
+                        log::error!("Error: there are no blocks after the requested block hash.")
+                    }
                 }
                 Message::ShareBlocks(blocks, peer_id) => {
                     if let State::Idle = block_sync.state.clone() {
@@ -261,6 +261,9 @@ pub mod config {
     impl BlockSyncConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
+        ///
+        /// # Errors
+        /// Can fail deserializing values from json
         pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(batch_size) = env::var(BATCH_SIZE) {
                 self.batch_size =
@@ -274,11 +277,11 @@ pub mod config {
         }
     }
 
-    fn default_batch_size() -> u64 {
+    const fn default_batch_size() -> u64 {
         DEFAULT_BATCH_SIZE
     }
 
-    fn default_gossip_period() -> u64 {
+    const fn default_gossip_period() -> u64 {
         DEFAULT_GOSSIP_PERIOD_MS
     }
 }

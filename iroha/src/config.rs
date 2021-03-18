@@ -62,6 +62,10 @@ impl Configuration {
     }
 
     /// Load environment variables and replace existing parameters with these variables values.
+    ///
+    /// # Errors
+    /// Fail if some configuration loading fails
+    /// Can fail during decoding key pair
     pub fn load_environment(&mut self) -> Result<()> {
         self.torii_configuration.load_environment()?;
         self.kura_configuration.load_environment()?;

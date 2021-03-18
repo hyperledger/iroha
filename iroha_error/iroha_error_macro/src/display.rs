@@ -7,20 +7,21 @@ fn get_attr_str(attrs: &[syn::Attribute]) -> Option<syn::LitStr> {
     attrs
         .iter()
         .filter(|attr| attr.path.is_ident("error"))
-        .filter_map(|attr| match attr.parse_meta().ok()? {
-            syn::Meta::List(syn::MetaList { ref nested, .. }) if nested.len() == 1 => {
-                Some(nested[0].clone())
+        .find_map(|attr| {
+            let nested_meta = match attr.parse_meta().ok()? {
+                syn::Meta::List(syn::MetaList { ref nested, .. }) if nested.len() == 1 => {
+                    nested[0].clone()
+                }
+                syn::Meta::List(list) => {
+                    abort!(list, "error attribute should have only 1 argument string")
+                }
+                _ => abort!(attr, "Only function like attributes supported"),
+            };
+            match nested_meta {
+                syn::NestedMeta::Lit(syn::Lit::Str(s)) => Some(s),
+                _ => abort!(nested_meta, "Argument for error attribute should be string"),
             }
-            syn::Meta::List(list) => {
-                abort!(list, "error attribute should have only 1 argument string")
-            }
-            _ => abort!(attr, "Only function like attributes supported"),
         })
-        .map(|nested_meta| match nested_meta {
-            syn::NestedMeta::Lit(syn::Lit::Str(s)) => s,
-            _ => abort!(nested_meta, "Argument for error attribute should be string"),
-        })
-        .next()
 }
 
 pub fn impl_fmt(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {

@@ -1,4 +1,16 @@
 //! HTTP/1.1 server library with WebSocket support heavily inspired by [tide](https://crates.io/crates/tide).
+
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::doc_markdown,
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
+
 //TODO: do we need TLS/SSL?
 use async_std::{
     net::{TcpListener, TcpStream},
@@ -34,6 +46,10 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         }
     }
 
+    /// Starts server at `address`
+    ///
+    /// # Errors
+    /// Fails if accepting one of client fails
     pub async fn start(&self, address: &str) -> iroha_error::Result<()> {
         let listener = TcpListener::bind(address).await?;
         while let Some(stream) = listener.incoming().next().await {
@@ -41,7 +57,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
             let router = self.router.clone();
             let state = self.state.clone();
             task::spawn(async move {
-                let mut buffer = [0u8; BUFFER_SIZE];
+                let mut buffer = [0_u8; BUFFER_SIZE];
                 let read_size = stream
                     .peek(&mut buffer)
                     .await
@@ -81,6 +97,8 @@ pub enum Endpoint<State> {
 }
 
 pub mod http {
+    #![allow(clippy::module_name_repetitions)]
+
     use super::{web_socket::WEB_SOCKET_UPGRADE, Endpoint};
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
@@ -290,7 +308,7 @@ pub mod http {
                 if let Some(WEB_SOCKET_UPGRADE) = self
                     .headers
                     .get(&UPGRADE_HEADER.to_lowercase())
-                    .map(|bytes| bytes.as_slice())
+                    .map(Vec::as_slice)
                 {
                     if let Endpoint::WebSocket(handler) = endpoint {
                         match async_tungstenite::accept_async(stream.clone()).await {
@@ -369,7 +387,7 @@ pub mod http {
         fn try_from(bytes: &[u8]) -> Result<Self, Error> {
             let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
             let mut request = httparse::Request::new(&mut headers);
-            if let Status::Complete(header_size) = request.parse(&bytes)? {
+            if let Status::Complete(header_size) = request.parse(bytes)? {
                 let mut request: HttpRequest = request.try_into()?;
                 //TODO: Deal with chunked messages which do not have Content-Length header
                 //They instead have Transfer-Encoding: `Chunked` https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
@@ -536,19 +554,22 @@ pub mod http {
     }
 
     fn strip_query_params(path: &str) -> (&str, QueryParams) {
-        if let Some(query_start) = path.find('?') {
-            let (path, query) = path.split_at(query_start);
-            let query_params: QueryParams = form_urlencoded::parse(query[1..].as_bytes())
-                .map(|(key, value)| (key.to_string(), value.to_string()))
-                .collect();
-            (path, query_params)
-        } else {
-            (path, QueryParams::new())
-        }
+        path.find('?').map_or_else(
+            || (path, QueryParams::new()),
+            |query_start| {
+                let (path, query) = path.split_at(query_start);
+                let query_params: QueryParams = form_urlencoded::parse(query[1..].as_bytes())
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect();
+                (path, query_params)
+            },
+        )
     }
 }
 
 pub mod web_socket {
+    #![allow(clippy::module_name_repetitions)]
+
     use super::http::{PathParams, QueryParams};
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
@@ -608,7 +629,7 @@ async fn wrapper_handler<State, Path, Query, Req, Fut, F>(
 ) -> http::HttpResponse
 where
     State: Clone + Send + Sync + 'static,
-    Fut: Future<Output = http::HttpResponse>,
+    Fut: Future<Output = http::HttpResponse> + Send,
     F: Send + Sync + 'static + Fn(State, Path, Query, Req) -> Fut,
     Path: TryFrom<http::PathParams> + Send + Sync + 'static,
     Path::Error: http::HttpResponseError,

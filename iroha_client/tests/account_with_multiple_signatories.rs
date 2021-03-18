@@ -69,7 +69,7 @@ mod tests {
         if let QueryResult(Value::Vec(assets)) = query_result {
             let asset = assets
                 .iter()
-                .filter_map(|asset| {
+                .find_map(|asset| {
                     if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
                         if asset.id.definition_id == asset_definition_id {
                             return Some(asset);
@@ -77,7 +77,6 @@ mod tests {
                     }
                     None
                 })
-                .next()
                 .expect("Asset should exist.");
 
             assert_eq!(AssetValue::Quantity(quantity), asset.value);

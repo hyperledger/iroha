@@ -1,4 +1,6 @@
-use criterion::*;
+#![allow(clippy::cast_precision_loss)]
+
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
     client::{asset, Client},

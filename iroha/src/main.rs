@@ -7,6 +7,7 @@ const CONFIGURATION_PATH: &str = "config.json";
 const GENESIS: &str = "genesis";
 
 #[async_std::main]
+#[allow(clippy::non_ascii_literal)]
 async fn main() -> Result<()> {
     println!("Hyperledgerいろは2にようこそ！");
     // TODO Add more information about iroha2
@@ -31,7 +32,7 @@ async fn main() -> Result<()> {
         configuration.add_genesis_block_path(genesis_path);
     }
 
-    Iroha::new(configuration, AllowAll.into()).start().await?;
+    Iroha::new(&configuration, AllowAll.into()).start().await?;
     loop {
         thread::sleep(Duration::from_secs(10));
     }

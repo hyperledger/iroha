@@ -8,6 +8,7 @@ use std::iter;
 pub type DenialReason = String;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
+#[allow(clippy::missing_errors_doc)]
 pub trait PermissionsValidator {
     /// Checks if the `authority` is allowed to perform `instruction` given the current state of `wsv`.
     fn check_instruction(
