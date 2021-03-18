@@ -34,15 +34,15 @@ namespace iroha {
                   ->getEngine<EventTypes,
                               std::shared_ptr<
                                   const shared_model::interface::Block>>())),
-          log_{std::move(log)} {
-    }
+          log_{std::move(log)} {}
 
-    void QueryProcessorImpl::initialize(){
+    void QueryProcessorImpl::initialize() {
       block_subscription_->setCallback(
-          [wptr(weak_from_this())](auto,
-                 auto,
-                 auto key,
-                 std::shared_ptr<const shared_model::interface::Block> block) {
+          [wptr(weak_from_this())](
+              auto,
+              auto,
+              auto key,
+              std::shared_ptr<const shared_model::interface::Block> block) {
             assert(EventTypes::kOnBlock == key);
             if (auto ptr = wptr.lock()) {
               auto block_response =

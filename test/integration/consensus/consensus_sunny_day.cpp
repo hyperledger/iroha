@@ -132,11 +132,9 @@ class ConsensusSunnyDayTest : public ::testing::Test {
 TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
-      [&](auto const &val) {
-        std::cout << "^_^ COMMITTED!!!" << std::endl;
-      },
-      [&](){
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &val) { std::cout << "^_^ COMMITTED!!!" << std::endl; },
+      [&]() {
         YacHash my_hash(initial_round, "proposal_hash", "block_hash");
         my_hash.block_signature =
             createSig(shared_model::interface::types::PublicKeyHexStringView{

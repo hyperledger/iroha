@@ -7,8 +7,8 @@
 
 #include <gtest/gtest.h>
 #include "backend/plain/peer.hpp"
-#include "module/irohad/ametsuchi/mock_wsv_query.hpp"
 #include "main/subscription.hpp"
+#include "module/irohad/ametsuchi/mock_wsv_query.hpp"
 
 class PeerQueryWSVTest : public ::testing::Test {
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();

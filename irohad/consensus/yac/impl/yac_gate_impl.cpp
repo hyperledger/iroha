@@ -56,8 +56,7 @@ namespace iroha {
             block_creator_(std::move(block_creator)),
             consensus_result_cache_(std::move(consensus_result_cache)),
             hash_gate_(std::move(hash_gate)),
-            delay_func_(std::move(delay_func)) {
-      }
+            delay_func_(std::move(delay_func)) {}
 
       void YacGateImpl::initialize() {
         block_creator_subscription_ =

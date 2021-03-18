@@ -12,10 +12,10 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/validators/validators.hpp"
-#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;

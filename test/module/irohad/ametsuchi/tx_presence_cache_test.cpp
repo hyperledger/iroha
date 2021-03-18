@@ -11,11 +11,11 @@
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_storage.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/interface_mocks.hpp"
-#include "main/subscription.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace testing;

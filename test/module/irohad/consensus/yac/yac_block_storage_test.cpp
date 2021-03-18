@@ -12,8 +12,8 @@
 #include "logger/logger.hpp"
 
 #include "framework/test_logger.hpp"
-#include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "main/subscription.hpp"
+#include "module/irohad/consensus/yac/yac_test_util.hpp"
 
 using namespace iroha::consensus::yac;
 

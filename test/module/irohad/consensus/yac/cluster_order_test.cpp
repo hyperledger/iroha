@@ -7,8 +7,8 @@
 
 #include "consensus/yac/cluster_order.hpp"
 
-#include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "main/subscription.hpp"
+#include "module/irohad/consensus/yac/yac_test_util.hpp"
 
 class ClusterOrderTest : public ::testing::Test {
  protected:

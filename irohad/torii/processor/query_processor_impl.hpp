@@ -20,7 +20,9 @@ namespace iroha {
     /**
      * QueryProcessorImpl provides implementation of QueryProcessor
      */
-    class QueryProcessorImpl : public QueryProcessor, public std::enable_shared_from_this<QueryProcessorImpl> {
+    class QueryProcessorImpl
+        : public QueryProcessor,
+          public std::enable_shared_from_this<QueryProcessorImpl> {
      public:
       QueryProcessorImpl(
           std::shared_ptr<ametsuchi::Storage> storage,

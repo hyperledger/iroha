@@ -10,12 +10,12 @@
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "yac_mock.grpc.pb.h"
-#include "main/subscription.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;

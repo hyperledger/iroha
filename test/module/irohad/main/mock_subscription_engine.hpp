@@ -8,8 +8,8 @@
 
 #include "consensus/yac/timer.hpp"
 
-#include <atomic>
 #include <gmock/gmock.h>
+#include <atomic>
 
 namespace iroha {
 

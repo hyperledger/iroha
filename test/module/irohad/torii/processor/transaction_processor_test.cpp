@@ -274,14 +274,12 @@ TEST_F(TransactionProcessorTest, TransactionProcessorVerifiedProposalTest) {
           TestProposalBuilder().transactions(txs).build());
 
   subscribeEventSync<simulator::VerifiedProposalCreatorEvent,
-      iroha::EventTypes::kOnVerifiedProposal>(
-      [&](auto const &) {
-      },
-      [&](){
-        getSubscription()->notify(
-            EventTypes::kOnVerifiedProposal,
-            simulator::VerifiedProposalCreatorEvent{
-                validation_result, round, ledger_state});
+                     iroha::EventTypes::kOnVerifiedProposal>(
+      [&](auto const &) {},
+      [&]() {
+        getSubscription()->notify(EventTypes::kOnVerifiedProposal,
+                                  simulator::VerifiedProposalCreatorEvent{
+                                      validation_result, round, ledger_state});
       });
 
   SCOPED_TRACE("Stateful Valid status verification");
@@ -325,27 +323,25 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnCommitTest) {
 
   // empty transactions errors - all txs are valid
   subscribeEventSync<simulator::VerifiedProposalCreatorEvent,
-      iroha::EventTypes::kOnVerifiedProposal>(
-      [&](auto const &) {
-      },
-      [&](){
-        getSubscription()->notify(
-            EventTypes::kOnVerifiedProposal,
-            simulator::VerifiedProposalCreatorEvent{
-                validation_result, round, ledger_state});
+                     iroha::EventTypes::kOnVerifiedProposal>(
+      [&](auto const &) {},
+      [&]() {
+        getSubscription()->notify(EventTypes::kOnVerifiedProposal,
+                                  simulator::VerifiedProposalCreatorEvent{
+                                      validation_result, round, ledger_state});
       });
 
   auto block = TestBlockBuilder().transactions(txs).build();
 
   // 2. Create block and notify transaction processor about it
   subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
-      iroha::EventTypes::kOnBlock>(
-      [&](auto const &) {
-      },
-      [&](){
+                     iroha::EventTypes::kOnBlock>(
+      [&](auto const &) {},
+      [&]() {
         getSubscription()->notify(
             EventTypes::kOnBlock,
-            std::shared_ptr<const shared_model::interface::Block>(clone(block)));
+            std::shared_ptr<const shared_model::interface::Block>(
+                clone(block)));
       });
 
   SCOPED_TRACE("Committed status verification");
@@ -410,14 +406,12 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
   }
 
   subscribeEventSync<simulator::VerifiedProposalCreatorEvent,
-      iroha::EventTypes::kOnVerifiedProposal>(
-      [&](auto const &) {
-      },
-      [&](){
-        getSubscription()->notify(
-            EventTypes::kOnVerifiedProposal,
-            simulator::VerifiedProposalCreatorEvent{
-                validation_result, round, ledger_state});
+                     iroha::EventTypes::kOnVerifiedProposal>(
+      [&](auto const &) {},
+      [&]() {
+        getSubscription()->notify(EventTypes::kOnVerifiedProposal,
+                                  simulator::VerifiedProposalCreatorEvent{
+                                      validation_result, round, ledger_state});
       });
 
   {
@@ -436,13 +430,13 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
                    .build();
 
   subscribeEventSync<std::shared_ptr<const shared_model::interface::Block>,
-      iroha::EventTypes::kOnBlock>(
-      [&](auto const &) {
-      },
-      [&](){
+                     iroha::EventTypes::kOnBlock>(
+      [&](auto const &) {},
+      [&]() {
         getSubscription()->notify(
             EventTypes::kOnBlock,
-            std::shared_ptr<const shared_model::interface::Block>(clone(block)));
+            std::shared_ptr<const shared_model::interface::Block>(
+                clone(block)));
       });
 
   {

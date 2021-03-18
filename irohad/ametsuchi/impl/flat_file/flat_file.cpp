@@ -20,8 +20,8 @@
 #include "logger/logger.hpp"
 
 #ifdef _WIN32
-#include <windows.h>
 #include <fileapi.h>
+#include <windows.h>
 #endif
 
 using namespace iroha::ametsuchi;

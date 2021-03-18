@@ -25,7 +25,7 @@ namespace shared_model {
 
      private:
       const iroha::protocol::AddPeer &add_peer_;
-      std::shared_ptr<proto::Peer>  peer_;
+      std::shared_ptr<proto::Peer> peer_;
     };
   }  // namespace proto
 }  // namespace shared_model

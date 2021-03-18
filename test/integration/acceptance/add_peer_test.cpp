@@ -77,11 +77,11 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
       .as_blocking()
       .subscribe(
           [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
-              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                          ::testing::UnorderedElementsAre(
-                              makePeerPointeeMatcher(itf_peer),
-                              makePeerPointeeMatcher(new_peer_address,
-                                                     new_peer_hex_pubkey)));
+            EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                        ::testing::UnorderedElementsAre(
+                            makePeerPointeeMatcher(itf_peer),
+                            makePeerPointeeMatcher(new_peer_address,
+                                                   new_peer_hex_pubkey)));
           },
           [](std::exception_ptr ep) {
             try {

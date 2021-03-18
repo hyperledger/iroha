@@ -13,6 +13,7 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
@@ -20,7 +21,6 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "ordering/impl/on_demand_common.hpp"
-#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;

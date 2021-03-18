@@ -21,8 +21,8 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
-#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "main/subscription.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace common_constants;
 using shared_model::interface::permissions::Role;

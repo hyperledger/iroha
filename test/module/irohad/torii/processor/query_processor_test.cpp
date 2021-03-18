@@ -197,7 +197,8 @@ TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
   for (int i = 0; i < block_number; i++) {
     getSubscription()->notify(
         EventTypes::kOnBlock,
-        std::shared_ptr<const shared_model::interface::Block>(clone(TestBlockBuilder().build())));
+        std::shared_ptr<const shared_model::interface::Block>(
+            clone(TestBlockBuilder().build())));
   }
   ASSERT_TRUE(wrapper.validate());
 }
@@ -263,10 +264,11 @@ TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
   for (int i = 0; i < block_number; i++) {
     getSubscription()->notify(
         EventTypes::kOnBlock,
-        std::shared_ptr<const shared_model::interface::Block>(clone(TestBlockBuilder()
-                                                                        .height(1)
-                                                                        .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
-                                                                        .build())));
+        std::shared_ptr<const shared_model::interface::Block>(clone(
+            TestBlockBuilder()
+                .height(1)
+                .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
+                .build())));
   }
   ASSERT_TRUE(wrapper.validate());
 }

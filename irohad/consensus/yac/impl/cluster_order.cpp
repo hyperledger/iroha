@@ -48,7 +48,8 @@ namespace iroha {
           : order_(order) {}
 
       // TODO :  24/03/2018 x3medima17: make it const, IR-1164
-      std::shared_ptr<shared_model::interface::Peer const> ClusterOrdering::currentLeader() {
+      std::shared_ptr<shared_model::interface::Peer const>
+      ClusterOrdering::currentLeader() {
         if (index_ >= order_.size()) {
           index_ = 0;
         }

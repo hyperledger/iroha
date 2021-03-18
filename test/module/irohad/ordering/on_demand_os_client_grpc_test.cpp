@@ -13,9 +13,9 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "ordering_mock.grpc.pb.h"
-#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;

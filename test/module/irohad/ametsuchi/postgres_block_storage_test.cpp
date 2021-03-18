@@ -16,11 +16,11 @@
 #include "generator/generator.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
-#include "main/subscription.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace shared_model::validation;

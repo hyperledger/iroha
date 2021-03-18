@@ -322,8 +322,8 @@ namespace iroha {
      */
     TEST_F(RemovePeer, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddPeer(another_peer), true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddPeer(another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
@@ -345,8 +345,8 @@ namespace iroha {
      * @then peer is not removed
      */
     TEST_F(RemovePeer, NoPerms) {
-      CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddPeer(another_peer), true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddPeer(another_peer), true));
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(kPublicKey));
 
@@ -403,8 +403,8 @@ namespace iroha {
      */
     TEST_F(RemovePeer, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddPeer(another_peer), true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddPeer(another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));

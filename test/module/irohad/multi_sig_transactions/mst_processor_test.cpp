@@ -11,13 +11,13 @@
 #include "framework/test_subscriber.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/multi_sig_transactions/mock_mst_transport.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
-#include "main/subscription.hpp"
 
 auto log_ = getTestLogger("MstProcessorTest");
 
@@ -36,18 +36,17 @@ static const PublicKeyHexStringView kPublicKey2{"second public key"sv};
 /*
  * Initialize observables of mst processor
  */
-auto initObservers(std::shared_ptr<FairMstProcessor> mst_processor, iroha::utils::WaitForSingleObject &operation_complete) {
+auto initObservers(std::shared_ptr<FairMstProcessor> mst_processor,
+                   iroha::utils::WaitForSingleObject &operation_complete) {
   auto obs = std::make_tuple(
       subscribeEventAsync<std::shared_ptr<MstState>,
-          EventTypes::kOnStateUpdate>([](auto const &) {}),
+                          EventTypes::kOnStateUpdate>([](auto const &) {}),
       subscribeEventAsync<DataType, EventTypes::kOnPreparedBatches>(
           [](auto const &) {}),
       subscribeEventAsync<DataType, EventTypes::kOnExpiredBatches>(
           [](auto const &) {}),
       subscribeEventAsync<bool, EventTypes::kOnTestOperationComplete>(
-          [&](auto const &) {
-            operation_complete.set();
-          }));
+          [&](auto const &) { operation_complete.set(); }));
   return obs;
 }
 
@@ -78,7 +77,7 @@ class MstProcessorTest : public testing::Test {
   PublicKeyHexStringView yet_another_peer_key_hex{"yet_another_pubkey"sv};
 
  protected:
-  template<typename F>
+  template <typename F>
   auto executeProcessorOperation(F &&f) {
     iroha::utils::WaitForSingleObject complete;
     auto observers = initObservers(mst_processor, complete);
@@ -91,10 +90,9 @@ class MstProcessorTest : public testing::Test {
 
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
-    storage = MstStorageStateImpl::create(
-        std::make_shared<TestCompleter>(),
-        getTestLogger("MstState"),
-        getTestLogger("MstStorage"));
+    storage = MstStorageStateImpl::create(std::make_shared<TestCompleter>(),
+                                          getTestLogger("MstState"),
+                                          getTestLogger("MstStorage"));
 
     propagation_strategy = std::make_shared<MockPropagationStrategy>();
     EXPECT_CALL(*propagation_strategy, emitter())
@@ -117,7 +115,7 @@ class MstProcessorTest : public testing::Test {
  * Make sure that observables in the valid state
  */
 template <typename T>
-void check(T &t, uint32_t const (& counts)[3]) {
+void check(T &t, uint32_t const (&counts)[3]) {
   ASSERT_TRUE(std::get<0>(t)->get() == counts[0]);
   ASSERT_TRUE(std::get<1>(t)->get() == counts[1]);
   ASSERT_TRUE(std::get<2>(t)->get() == counts[2]);
@@ -262,7 +260,8 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
                                              std::make_shared<TestCompleter>());
     transported_state += addSignaturesFromKeyPairs(
         makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-    mst_processor->onNewState(another_peer_key_hex, std::move(transported_state));
+    mst_processor->onNewState(another_peer_key_hex,
+                              std::move(transported_state));
   });
   check(observers, {0, 1, 0});
 }

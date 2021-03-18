@@ -7,8 +7,8 @@
 #include <rxcpp/rx-lite.hpp>
 #include "datetime/time.hpp"
 #include "framework/crypto_literals.hpp"
-#include "framework/test_subscriber.hpp"
 #include "framework/test_logger.hpp"
+#include "framework/test_subscriber.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
@@ -95,11 +95,11 @@ TEST_F(OldPendingTxsStorageFixture, InsertionTest) {
 
   auto storage = iroha::PendingTransactionStorageImpl::create();
   subscribeEventSync<std::shared_ptr<iroha::MstState>,
-      iroha::EventTypes::kOnStateUpdate>(
-      [&](auto const &) {
-      },
-      [&](){
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate, state);
+                     iroha::EventTypes::kOnStateUpdate>(
+      [&](auto const &) {},
+      [&]() {
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate,
+                                         state);
       });
 
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
@@ -139,13 +139,13 @@ TEST_F(OldPendingTxsStorageFixture, SignaturesUpdate) {
 
   auto storage = iroha::PendingTransactionStorageImpl::create();
   for (auto &state : {state1, state2})
-  subscribeEventSync<std::shared_ptr<iroha::MstState>,
-      iroha::EventTypes::kOnStateUpdate>(
-      [&](auto const &) {
-      },
-      [&](){
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate, state);
-      });
+    subscribeEventSync<std::shared_ptr<iroha::MstState>,
+                       iroha::EventTypes::kOnStateUpdate>(
+        [&](auto const &) {},
+        [&]() {
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate,
+                                           state);
+        });
 
   auto pending = storage->getPendingTransactions("alice@iroha");
   ASSERT_EQ(pending.size(), 1);
@@ -180,13 +180,13 @@ TEST_F(OldPendingTxsStorageFixture, SeveralBatches) {
   *state += batch3;
 
   auto storage = iroha::PendingTransactionStorageImpl::create();
-    subscribeEventSync<std::shared_ptr<iroha::MstState>,
-        iroha::EventTypes::kOnStateUpdate>(
-        [&](auto const &) {
-        },
-        [&](){
-          iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate, state);
-        });
+  subscribeEventSync<std::shared_ptr<iroha::MstState>,
+                     iroha::EventTypes::kOnStateUpdate>(
+      [&](auto const &) {},
+      [&]() {
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate,
+                                         state);
+      });
 
   auto alice_pending = storage->getPendingTransactions("alice@iroha");
   ASSERT_EQ(alice_pending.size(), 4);
@@ -222,11 +222,11 @@ TEST_F(OldPendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
   auto storage = iroha::PendingTransactionStorageImpl::create();
   for (auto &state : {state1, state2})
     subscribeEventSync<std::shared_ptr<iroha::MstState>,
-        iroha::EventTypes::kOnStateUpdate>(
-        [&](auto const &) {
-        },
-        [&](){
-          iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate, state);
+                       iroha::EventTypes::kOnStateUpdate>(
+        [&](auto const &) {},
+        [&]() {
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate,
+                                           state);
         });
 
   auto alice_pending = storage->getPendingTransactions("alice@iroha");
@@ -255,26 +255,24 @@ TEST_F(OldPendingTxsStorageFixture, PreparedBatch) {
 
   rxcpp::subjects::subject<decltype(batch)> prepared_batches_subject;
   auto storage = iroha::PendingTransactionStorageImpl::create();
-    subscribeEventSync<std::shared_ptr<iroha::MstState>,
-        iroha::EventTypes::kOnStateUpdate>(
-        [&](auto const &) {
-        },
-        [&](){
-          iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate, state);
-        });
-
+  subscribeEventSync<std::shared_ptr<iroha::MstState>,
+                     iroha::EventTypes::kOnStateUpdate>(
+      [&](auto const &) {},
+      [&]() {
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate,
+                                         state);
+      });
 
   batch = addSignatures(batch,
                         0,
                         makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey),
                         makeSignature("3"_hex_sig, "pub_key_3"_hex_pubkey));
 
-  subscribeEventSync<iroha::DataType,
-      iroha::EventTypes::kOnPreparedBatches>(
-      [&](auto const &) {
-      },
-      [&](){
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnPreparedBatches, batch);
+  subscribeEventSync<iroha::DataType, iroha::EventTypes::kOnPreparedBatches>(
+      [&](auto const &) {},
+      [&]() {
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnPreparedBatches,
+                                         batch);
       });
 
   auto pending = storage->getPendingTransactions("alice@iroha");
@@ -299,21 +297,19 @@ TEST_F(OldPendingTxsStorageFixture, ExpiredBatch) {
 
   rxcpp::subjects::subject<decltype(batch)> expired_batches_subject;
   auto storage = iroha::PendingTransactionStorageImpl::create();
-    subscribeEventSync<std::shared_ptr<iroha::MstState>,
-        iroha::EventTypes::kOnStateUpdate>(
-        [&](auto const &) {
-        },
-        [&](){
-          iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate, state);
-        });
+  subscribeEventSync<std::shared_ptr<iroha::MstState>,
+                     iroha::EventTypes::kOnStateUpdate>(
+      [&](auto const &) {},
+      [&]() {
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnStateUpdate,
+                                         state);
+      });
 
-
-  subscribeEventSync<iroha::DataType,
-      iroha::EventTypes::kOnExpiredBatches>(
-      [&](auto const &) {
-      },
-      [&](){
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnExpiredBatches, batch);
+  subscribeEventSync<iroha::DataType, iroha::EventTypes::kOnExpiredBatches>(
+      [&](auto const &) {},
+      [&]() {
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnExpiredBatches,
+                                         batch);
       });
 
   auto pending = storage->getPendingTransactions("alice@iroha");

@@ -47,9 +47,7 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
     }
 
     manager = std::make_shared<OnDemandConnectionManager>(
-        factory,
-        cpeers,
-        getTestLogger("OsConnectionManager"));
+        factory, cpeers, getTestLogger("OsConnectionManager"));
   }
 
   OnDemandConnectionManager::CurrentPeers cpeers;

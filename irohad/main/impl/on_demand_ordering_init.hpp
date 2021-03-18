@@ -10,11 +10,11 @@
 #include <vector>
 
 #include <rxcpp/rx-lite.hpp>
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/subscription.hpp"
-#include "cryptography/hash.hpp"
 
 namespace google {
   namespace protobuf {
@@ -121,7 +121,8 @@ namespace iroha {
        * Processing new block event.
        * @param block data
        */
-      void processBlock(std::shared_ptr<shared_model::interface::Block const> const &block);
+      void processBlock(
+          std::shared_ptr<shared_model::interface::Block const> const &block);
 
       /**
        * Processing new synchronization event.
@@ -196,7 +197,8 @@ namespace iroha {
       std::shared_ptr<OnBlockSubscription> on_block_subscription_;
       std::shared_ptr<OnBlockSubscription> on_initial_block_subscription_;
       std::shared_ptr<OnSyncronizationSubscription> on_syncro_subscription_;
-      std::shared_ptr<OnSyncronizationSubscription> on_initial_syncro_subscription_;
+      std::shared_ptr<OnSyncronizationSubscription>
+          on_initial_syncro_subscription_;
 
      private:
       logger::LoggerPtr log_;

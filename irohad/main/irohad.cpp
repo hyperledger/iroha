@@ -246,13 +246,12 @@ int main(int argc, char *argv[]) {
     }
 
     if (config.utility_service) {
-      initUtilityService(
-          config.utility_service.value(),
-          [] {
-            exit_requested.set_value();
-            std::lock_guard<std::mutex>{shutdown_wait_mutex};
-          },
-          log_manager);
+      initUtilityService(config.utility_service.value(),
+                         [] {
+                           exit_requested.set_value();
+                           std::lock_guard<std::mutex>{shutdown_wait_mutex};
+                         },
+                         log_manager);
     }
 
     daemon_status_notifier->notify(

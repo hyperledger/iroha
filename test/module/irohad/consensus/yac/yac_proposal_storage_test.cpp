@@ -13,9 +13,9 @@
 
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/consensus/yac/mock_yac_supermajority_checker.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
-#include "main/subscription.hpp"
 
 using namespace iroha::consensus::yac;
 using namespace ::testing;

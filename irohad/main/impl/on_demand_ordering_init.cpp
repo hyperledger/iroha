@@ -42,25 +42,23 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
               ->getEngine<
                   EventTypes,
                   std::shared_ptr<shared_model::interface::Block const>>())),
-      on_initial_block_subscription_(iroha::SubscriberCreator<
-          bool,
-          std::shared_ptr<const shared_model::interface::Block>>::
-                                     template create<EventTypes::kOnInitialBlock,
-          SubscriptionEngineHandlers::kYac>(
-          [&](auto &, auto committed_block) {
-            processBlock(committed_block);
-          })),
+      on_initial_block_subscription_(
+          iroha::SubscriberCreator<
+              bool,
+              std::shared_ptr<const shared_model::interface::Block>>::
+              template create<EventTypes::kOnInitialBlock,
+                              SubscriptionEngineHandlers::kYac>(
+                  [&](auto &, auto committed_block) {
+                    processBlock(committed_block);
+                  })),
       on_syncro_subscription_(std::make_shared<OnSyncronizationSubscription>(
           getSubscription()
               ->getEngine<EventTypes, synchronizer::SynchronizationEvent>())),
-      on_initial_syncro_subscription_(iroha::SubscriberCreator<
-          bool,
-          synchronizer::SynchronizationEvent>::
-                                      template create<EventTypes::kOnInitialSynchronization,
-          SubscriptionEngineHandlers::kYac>(
-          [&](auto &, auto event) {
-            processSynchroEvent(event);
-          })),
+      on_initial_syncro_subscription_(
+          iroha::SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+              template create<EventTypes::kOnInitialSynchronization,
+                              SubscriptionEngineHandlers::kYac>(
+                  [&](auto &, auto event) { processSynchroEvent(event); })),
       log_(std::move(log)) {
   on_block_subscription_->setCallback(
       [this](auto,
@@ -104,7 +102,8 @@ auto createNotificationFactory(
           std::move(client_factory)));
 }
 
-void OnDemandOrderingInit::processSynchroEvent(synchronizer::SynchronizationEvent const &event) {
+void OnDemandOrderingInit::processSynchroEvent(
+    synchronizer::SynchronizationEvent const &event) {
   consensus::Round cr;
   switch (event.sync_outcome) {
     case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
@@ -142,8 +141,7 @@ void OnDemandOrderingInit::processSynchroEvent(synchronizer::SynchronizationEven
     auto &hash = std::get<round()>(current_hashes);
     log_->debug("Using hash: {}", hash.toString());
 
-    auto prng =
-        iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
+    auto prng = iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
     iroha::generatePermutation(
         permutations[round()], std::move(prng), current_peers.size());
   };
@@ -169,13 +167,12 @@ void OnDemandOrderingInit::processSynchroEvent(synchronizer::SynchronizationEven
     auto &permutation = permutations[block_round_advance];
     // since reject round can be greater than number of peers, wrap it
     // with number of peers
-    auto &peer =
-        current_peers[permutation[reject_round % permutation.size()]];
-    log_->debug("For {}, using OS on peer: {}",
-                iroha::consensus::Round{
-                    current_round.block_round + block_round_advance,
-                    reject_round},
-                *peer);
+    auto &peer = current_peers[permutation[reject_round % permutation.size()]];
+    log_->debug(
+        "For {}, using OS on peer: {}",
+        iroha::consensus::Round{current_round.block_round + block_round_advance,
+                                reject_round},
+        *peer);
     return peer;
   };
 
@@ -198,9 +195,8 @@ void OnDemandOrderingInit::processSynchroEvent(synchronizer::SynchronizationEven
    * v, round 2,0 - kCommitCommitConsumer
    * o, round 0,0 - kIssuer
    */
-  peers.peers.at(OnDemandConnectionManager::kRejectRejectConsumer) =
-      getOsPeer(kCurrentRound,
-                currentRejectRoundConsumer(current_round.reject_round));
+  peers.peers.at(OnDemandConnectionManager::kRejectRejectConsumer) = getOsPeer(
+      kCurrentRound, currentRejectRoundConsumer(current_round.reject_round));
   peers.peers.at(OnDemandConnectionManager::kRejectCommitConsumer) =
       getOsPeer(kNextRound, kNextCommitRoundConsumer);
   peers.peers.at(OnDemandConnectionManager::kCommitRejectConsumer) =
@@ -210,30 +206,29 @@ void OnDemandOrderingInit::processSynchroEvent(synchronizer::SynchronizationEven
   peers.peers.at(OnDemandConnectionManager::kIssuer) =
       getOsPeer(kCurrentRound, current_round.reject_round);
 
-  getSubscription()->notify(EventTypes::kOnCurrentRoundPeers,
-                            std::move(peers));
+  getSubscription()->notify(EventTypes::kOnCurrentRoundPeers, std::move(peers));
 }
 
-void OnDemandOrderingInit::processBlock(std::shared_ptr<shared_model::interface::Block const> const &block) {
+void OnDemandOrderingInit::processBlock(
+    std::shared_ptr<shared_model::interface::Block const> const &block) {
   assert(block);
 
-    std::get<0>(current_hashes_cache_) = std::move(std::get<1>(current_hashes_cache_));
-    std::get<1>(current_hashes_cache_) = std::move(std::get<2>(current_hashes_cache_));
-    std::get<2>(current_hashes_cache_) = block->hash();
+  std::get<0>(current_hashes_cache_) =
+      std::move(std::get<1>(current_hashes_cache_));
+  std::get<1>(current_hashes_cache_) =
+      std::move(std::get<2>(current_hashes_cache_));
+  std::get<2>(current_hashes_cache_) = block->hash();
 
   log_->debug("Committed block handle: height {}.", block->height());
-  auto hashes =
-      std::make_shared<cache::OrderingGateCache::HashesSetType>();
-  for (shared_model::interface::Transaction const &tx :
-      block->transactions()) {
+  auto hashes = std::make_shared<cache::OrderingGateCache::HashesSetType>();
+  for (shared_model::interface::Transaction const &tx : block->transactions()) {
     hashes->insert(tx.hash());
   }
   for (shared_model::crypto::Hash const &hash :
-      block->rejected_transactions_hashes()) {
+       block->rejected_transactions_hashes()) {
     hashes->insert(hash);
   }
-  getSubscription()->notify(EventTypes::kOnProcessedHashes,
-                            std::move(hashes));
+  getSubscription()->notify(EventTypes::kOnProcessedHashes, std::move(hashes));
 }
 
 auto OnDemandOrderingInit::createConnectionManager(

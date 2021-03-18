@@ -82,8 +82,10 @@ namespace iroha {
         std::shared_ptr<HashGate> hash_gate_;
 
         std::shared_ptr<BaseSubscriber<bool, Answer>> outcome_subscription_;
-        std::shared_ptr<BaseSubscriber<bool, Answer>> delayed_outcome_subscription_;
-        std::shared_ptr<BaseSubscriber<bool, simulator::BlockCreatorEvent>> block_creator_subscription_;
+        std::shared_ptr<BaseSubscriber<bool, Answer>>
+            delayed_outcome_subscription_;
+        std::shared_ptr<BaseSubscriber<bool, simulator::BlockCreatorEvent>>
+            block_creator_subscription_;
         std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
             delay_func_;
       };

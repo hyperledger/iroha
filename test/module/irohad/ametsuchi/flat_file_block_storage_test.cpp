@@ -10,8 +10,8 @@
 #include <boost/filesystem.hpp>
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
-#include "module/shared_model/interface_mocks.hpp"
 #include "main/subscription.hpp"
+#include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace boost::filesystem;

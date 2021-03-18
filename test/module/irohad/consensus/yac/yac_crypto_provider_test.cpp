@@ -10,9 +10,9 @@
 #include "consensus/yac/outcome_messages.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
-#include "main/subscription.hpp"
 
 using ::testing::_;
 using ::testing::Invoke;

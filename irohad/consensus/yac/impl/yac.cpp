@@ -100,7 +100,7 @@ namespace iroha {
         std::unique_lock<std::mutex> lock(mutex_);
         cluster_order_ = order;
         alternative_order_ = std::move(alternative_order);
-        round_= hash.vote_round;
+        round_ = hash.vote_round;
         lock.unlock();
         auto vote = crypto_->getVote(hash);
         // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
@@ -208,11 +208,10 @@ namespace iroha {
           return;
         }
 
-
         if (apply_state_subscription_->get().sharedAccess(
-            [&](auto const &closed_round) {
-              return (closed_round >= round_);
-            })) {
+                [&](auto const &closed_round) {
+                  return (closed_round >= round_);
+                })) {
           return;
         }
 

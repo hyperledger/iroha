@@ -20,9 +20,7 @@ class StorageTest : public testing::Test {
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
     storage = MstStorageStateImpl::create(
-        completer_,
-        getTestLogger("MstState"),
-        getTestLogger("MstStorage"));
+        completer_, getTestLogger("MstState"), getTestLogger("MstStorage"));
     fillOwnState();
   }
 

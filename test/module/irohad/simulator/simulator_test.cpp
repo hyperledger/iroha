@@ -150,9 +150,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   auto ordering_event =
       OrderingEvent{proposal, consensus::Round{}, ledger_state};
 
-
   auto proposal_wrapper = subscribeEventAsync<VerifiedProposalCreatorEvent,
-      EventTypes::kOnVerifiedProposal>(
+                                              EventTypes::kOnVerifiedProposal>(
       [&](auto const &event) {
         auto verification_result = getVerifiedProposalUnsafe(event);
         auto verified_proposal = verification_result->verified_proposal;
@@ -163,18 +162,19 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
                   ordering_event.ledger_state->ledger_peers);
       });
 
-  auto block_wrapper = subscribeEventSync<BlockCreatorEvent,
-      EventTypes::kOnBlockCreatorEvent>(
-      [proposal, ordering_event](auto const &event) {
-        auto block = getBlockUnsafe(event);
-        EXPECT_EQ(block->height(), proposal->height());
-        EXPECT_EQ(block->transactions(), proposal->transactions());
-        EXPECT_EQ(event.ledger_state->ledger_peers,
-                  ordering_event.ledger_state->ledger_peers);
-      },
-      [&](){
-        iroha::getSubscription()->notify(EventTypes::kOnProposal, ordering_event);
-      });
+  auto block_wrapper =
+      subscribeEventSync<BlockCreatorEvent, EventTypes::kOnBlockCreatorEvent>(
+          [proposal, ordering_event](auto const &event) {
+            auto block = getBlockUnsafe(event);
+            EXPECT_EQ(block->height(), proposal->height());
+            EXPECT_EQ(block->transactions(), proposal->transactions());
+            EXPECT_EQ(event.ledger_state->ledger_peers,
+                      ordering_event.ledger_state->ledger_peers);
+          },
+          [&]() {
+            iroha::getSubscription()->notify(EventTypes::kOnProposal,
+                                             ordering_event);
+          });
 
   EXPECT_TRUE(proposal_wrapper->get());
   EXPECT_TRUE(block_wrapper->get());

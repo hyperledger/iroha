@@ -30,7 +30,7 @@ namespace iroha::subscription {
     }
 
     MOCK_METHOD3_T(on_notify,
-                 void(SubscriptionSetId, const EventKey &, Argument &&));
+                   void(SubscriptionSetId, const EventKey &, Argument &&));
   };
 
   class MockDispatcher {
@@ -41,20 +41,19 @@ namespace iroha::subscription {
     MockDispatcher() = default;
 
     template <Tid kId>
-    static constexpr void checkTid() {
-    }
+    static constexpr void checkTid() {}
 
     template <typename F>
-    void add(Tid , F &&f) {
+    void add(Tid, F &&f) {
       std::forward<F>(f)();
     }
 
     template <typename F>
-    void addDelayed(Tid , std::chrono::microseconds , F &&f) {
+    void addDelayed(Tid, std::chrono::microseconds, F &&f) {
       std::forward<F>(f)();
     }
   };
 
-}  // namespace iroha
+}  // namespace iroha::subscription
 
 #endif  // IROHA_SUBSCRIPTION_MOCKS_HPP

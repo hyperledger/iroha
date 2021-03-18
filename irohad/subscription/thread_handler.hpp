@@ -81,7 +81,7 @@ namespace iroha::subscription {
         auto const &first = tasks_.front();
         if (first.timepoint > before) {
           return std::chrono::duration_cast<std::chrono::microseconds>(
-                     first.timepoint - before);
+              first.timepoint - before);
         }
         return std::chrono::microseconds(0ull);
       }

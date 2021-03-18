@@ -12,8 +12,8 @@
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
-#include "utils/query_error_response_visitor.hpp"
 #include "main/subscription.hpp"
+#include "utils/query_error_response_visitor.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;

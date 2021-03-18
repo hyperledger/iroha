@@ -66,7 +66,8 @@ namespace iroha {
 
       logger::LoggerPtr log_;
 
-      std::shared_ptr<BaseSubscriber<bool, network::OrderingEvent>> on_proposal_subscription_;
+      std::shared_ptr<BaseSubscriber<bool, network::OrderingEvent>>
+          on_proposal_subscription_;
       std::shared_ptr<BaseSubscriber<bool, VerifiedProposalCreatorEvent>>
           on_verified_proposal_subscription_;
     };

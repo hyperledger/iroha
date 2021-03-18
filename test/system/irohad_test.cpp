@@ -109,7 +109,7 @@ class IrohadTest : public AcceptanceFixture {
     db_name_ = integration_framework::getRandomDbName();
     pgopts_ = "dbname=" + db_name_ + " "
         + integration_framework::getPostgresCredsFromEnv().value_or(
-            doc[config_members::PgOpt].GetString());
+              doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
@@ -255,10 +255,10 @@ class IrohadTest : public AcceptanceFixture {
 
     auto client = enable_tls
         ? iroha::network::createSecureClient<torii::CommandSyncClient::Service>(
-            kAddress, port, root_ca_, boost::none, getChannelParams())
+              kAddress, port, root_ca_, boost::none, getChannelParams())
         : iroha::network::createInsecureClient<
-            torii::CommandSyncClient::Service>(
-            kAddress, port, getChannelParams());
+              torii::CommandSyncClient::Service>(
+              kAddress, port, getChannelParams());
 
     return torii::CommandSyncClient(
         std::move(client),
