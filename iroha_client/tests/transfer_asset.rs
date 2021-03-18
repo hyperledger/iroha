@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::shadow_unrelated)]
+
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},

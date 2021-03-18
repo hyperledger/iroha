@@ -67,6 +67,7 @@ impl<D: Display, E: StdError + 'static> StdError for WrappedError<D, E> {
 }
 
 /// Trait for wrapping result with some message
+#[allow(clippy::missing_errors_doc)]
 pub trait WrapErr<T, E> {
     /// Wraps error with message
     fn wrap_err(self, msg: impl Display + Send + Sync + 'static) -> Result<T>;

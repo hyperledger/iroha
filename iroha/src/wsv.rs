@@ -46,7 +46,7 @@ impl WorldStateView {
     }
 
     /// Get `World` without an ability to modify it.
-    pub fn read_world(&self) -> &World {
+    pub const fn read_world(&self) -> &World {
         &self.world
     }
 

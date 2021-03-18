@@ -1,3 +1,13 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
+
 #[cfg(feature = "mock")]
 pub mod mock;
 
@@ -50,11 +60,17 @@ impl Network {
     }
 
     /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
+    ///
+    /// # Errors
+    /// Fails if initing connection or sending tcp packets or receiving fails
     pub async fn send_request(&self, request: Request) -> Result<Response> {
         Network::send_request_to(&self.server_url, request).await
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
+    ///
+    /// # Errors
+    /// Fails if initing connection or sending tcp packets or receiving fails
     #[log("TRACE")]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
         async_std::io::timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
@@ -62,7 +78,7 @@ impl Network {
             let payload: Vec<u8> = request.into();
             stream.write_all(&payload).await?;
             stream.flush().await?;
-            let mut buffer = vec![0u8; BUFFER_SIZE];
+            let mut buffer = vec![0_u8; BUFFER_SIZE];
             let read_size = stream.read(&mut buffer).await?;
             Ok(Response::try_from(buffer[..read_size].to_vec()))
         })
@@ -76,6 +92,10 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
+    ///
+    /// # Errors
+    /// Can fail during accepting connection or handling incoming message
+    #[allow(clippy::future_not_send)]
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
@@ -91,6 +111,10 @@ impl Network {
     /// Helper function to call inside `listen` `handler` function to parse and send response.
     /// The `handler` specified here will need to generate `Response` from `Request`.
     /// See `listen_async` for the description of the `state`.
+    ///
+    /// # Errors
+    /// Fails if reading or writing to stream fails. Also can fail during request decoding
+    #[allow(clippy::future_not_send)]
     pub async fn handle_message_async<H, F, S>(
         state: State<S>,
         mut stream: Box<dyn AsyncStream>,
@@ -100,7 +124,7 @@ impl Network {
         H: FnMut(State<S>, Request) -> F,
         F: Future<Output = Result<Response>>,
     {
-        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut buffer = [0_u8; BUFFER_SIZE];
         let read_size = stream
             .read(&mut buffer)
             .await
@@ -113,6 +137,10 @@ impl Network {
         Ok(())
     }
 
+    /// Connects to network
+    ///
+    /// # Errors
+    /// Fails if initing connection or sending tcp packets or receiving fails
     pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection> {
         Connection::connect(&self.server_url, REQUEST_TIMEOUT_MILLIS, initial_message)
     }
@@ -153,7 +181,7 @@ impl Iterator for Connection {
     type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut buffer = [0_u8; BUFFER_SIZE];
         loop {
             match self.tcp_stream.read(&mut buffer) {
                 Ok(read_size) => {
@@ -172,10 +200,9 @@ impl Iterator for Connection {
                 Err(e) => {
                     if ErrorKind::WouldBlock == e.kind() {
                         continue;
-                    } else {
-                        eprintln!("Read data from stream failed: {}", e);
-                        return None;
                     }
+                    eprintln!("Read data from stream failed: {}", e);
+                    return None;
                 }
             }
         }
@@ -193,9 +220,9 @@ impl Request {
     ///
     /// # Arguments
     ///
-    /// * uri_path - corresponds to [URI syntax](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier)
+    /// * `uri_path` - corresponds to [URI syntax](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier)
     /// `path` part (e.g. "/metrics")
-    /// * payload - the message in bytes
+    /// * `payload` - the message in bytes
     ///
     /// # Examples
     /// ```
@@ -252,10 +279,12 @@ pub enum Response {
 }
 
 impl Response {
-    pub fn empty_ok() -> Self {
+    pub const fn empty_ok() -> Self {
         Response::Ok(Vec::new())
     }
 
+    /// # Errors
+    /// If it is internal server error when we fail
     pub fn into_result(self) -> Result<Vec<u8>> {
         match self {
             Response::Ok(bytes) => Ok(bytes),
@@ -309,10 +338,12 @@ mod tests {
 
     #[async_std::test]
     async fn single_threaded_async() {
+        #[allow(clippy::future_not_send)]
         async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response> {
             Ok(Response::Ok(b"pong".to_vec()))
         }
 
+        #[allow(clippy::future_not_send)]
         async fn handle_connection<S>(state: State<S>, stream: Box<dyn AsyncStream>) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
         }
@@ -326,17 +357,14 @@ mod tests {
             .expect("Failed to send request to.")
         {
             Response::Ok(payload) => assert_eq!(payload, b"pong"),
-            _ => panic!("Response should be ok."),
+            Response::InternalError => panic!("Response should be ok."),
         }
     }
 
     #[async_std::test]
     async fn single_threaded_async_stateful() {
-        let counter: State<usize> = Arc::new(RwLock::new(0));
-
         async fn handle_request(state: State<usize>, _request: Request) -> Result<Response> {
-            let mut data = state.write().await;
-            *data += 1;
+            *state.write().await += 1;
             Ok(Response::Ok(b"pong".to_vec()))
         }
         async fn handle_connection(
@@ -345,6 +373,8 @@ mod tests {
         ) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
         }
+
+        let counter: State<usize> = Arc::new(RwLock::new(0));
         let counter_move = counter.clone();
         task::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
@@ -355,7 +385,7 @@ mod tests {
             .expect("Failed to send request to.")
         {
             Response::Ok(payload) => assert_eq!(payload, b"pong"),
-            _ => panic!("Response should be ok."),
+            Response::InternalError => panic!("Response should be ok."),
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
         task::spawn(async move {

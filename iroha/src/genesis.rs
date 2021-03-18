@@ -1,4 +1,4 @@
-//! This module contains execution Genesis Block logic, and GenesisBlock definition.
+//! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
 use self::config::GenesisConfiguration;
 use crate::{
     sumeragi::{InitializedNetworkTopology, Sumeragi},
@@ -21,10 +21,10 @@ use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 
-/// GenesisNetwork contains initial transactions and genesis setup related parameters.
+/// `GenesisNetwork` contains initial transactions and genesis setup related parameters.
 #[derive(Clone, Debug)]
 pub struct GenesisNetwork {
-    /// transactions from GenesisBlock, any transaction is accepted
+    /// transactions from `GenesisBlock`, any transaction is accepted
     pub transactions: Vec<VersionedAcceptedTransaction>,
     /// Number of attempts to connect to peers, while waiting for them to submit genesis.
     pub wait_for_peers_retry_count: u64,
@@ -37,14 +37,14 @@ struct RawGenesisBlock {
     pub transactions: Vec<GenesisTransaction>,
 }
 
-/// GenesisTransaction is a transaction for inisialize settings.
+/// `GenesisTransaction` is a transaction for inisialize settings.
 #[derive(Clone, Deserialize, Debug)]
 struct GenesisTransaction {
     isi: Vec<Instruction>,
 }
 
 impl GenesisTransaction {
-    /// Convert GenesisTransaction into AcceptedTransaction with signature
+    /// Convert `GenesisTransaction` into `AcceptedTransaction` with signature
     pub fn sign_and_accept(
         &self,
         genesis_key_pair: &KeyPair,
@@ -55,13 +55,16 @@ impl GenesisTransaction {
             <Account as Identifiable>::Id::genesis_account(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
-        .sign(&genesis_key_pair)?;
+        .sign(genesis_key_pair)?;
         VersionedAcceptedTransaction::from_transaction(transaction, max_instruction_number)
     }
 }
 
 impl GenesisNetwork {
     /// Construct `GenesisNetwork` from configuration.
+    ///
+    /// # Errors
+    /// Fail if genesis block loading fails
     pub fn from_configuration(
         genesis_config: &GenesisConfiguration,
         max_instructions_number: usize,
@@ -97,6 +100,9 @@ impl GenesisNetwork {
     }
 
     /// Submits genesis transactions.
+    ///
+    /// # Errors
+    /// Returns error if waiting for peers or genesis round itself fails
     pub async fn submit_transactions(&self, sumeragi: Arc<RwLock<Sumeragi>>) -> Result<()> {
         let genesis_topology = {
             let sumeragi = sumeragi.read().await;
@@ -185,11 +191,11 @@ impl GenesisNetwork {
                 };
                 log::info!("Waiting for active peers finished.");
                 return Ok(genesis_topology);
-            } else {
-                let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;
-                log::info!("Retrying to connect in {} ms.", reconnect_in_ms);
-                task::sleep(Duration::from_millis(reconnect_in_ms)).await;
             }
+
+            let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;
+            log::info!("Retrying to connect in {} ms.", reconnect_in_ms);
+            task::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
         Err(error!("Waiting for peers failed."))
     }
@@ -230,6 +236,9 @@ pub mod config {
     impl GenesisConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
+        ///
+        /// # Errors
+        /// Can fail during decoding genesis keypair from env
         pub fn load_environment(&mut self) -> Result<()> {
             if let Ok(genesis_account_public_key) = env::var(GENESIS_ACCOUNT_PUBLIC_KEY) {
                 self.genesis_account_public_key =
@@ -245,11 +254,11 @@ pub mod config {
         }
     }
 
-    fn default_wait_for_peers_retry_count() -> u64 {
+    const fn default_wait_for_peers_retry_count() -> u64 {
         DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT
     }
 
-    fn default_wait_for_peers_retry_period_ms() -> u64 {
+    const fn default_wait_for_peers_retry_period_ms() -> u64 {
         DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS
     }
 }
@@ -268,7 +277,7 @@ mod tests {
                 genesis_account_public_key: genesis_key_pair.public_key,
                 genesis_account_private_key: Some(genesis_key_pair.private_key),
                 genesis_block_path: Some(GENESIS_BLOCK_PATH.to_string()),
-                ..Default::default()
+                ..GenesisConfiguration::default()
             },
             4096,
         )?;

@@ -10,14 +10,14 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         MerkleTree {
             root_node: Node::Empty,
         }
     }
 
     /// Builds a Merkle Tree from an array of `Hash` values values. For example of `Block` and `Transaction` hashes.
-    pub fn build(self, hashes: impl IntoIterator<Item = Hash>) -> Self {
+    pub fn build(hashes: impl IntoIterator<Item = Hash>) -> Self {
         let mut hashes: Vec<Hash> = hashes.into_iter().collect();
         hashes.sort_unstable();
         let mut nodes: VecDeque<Node> =
@@ -26,11 +26,11 @@ impl MerkleTree {
             nodes.push_back(Node::Empty);
         }
         while nodes.len() > 1 {
-            if let Some(node1) = nodes.pop_front() {
+            if let Some(node_a) = nodes.pop_front() {
                 let pop_front = nodes.pop_front();
                 nodes.push_back(match pop_front {
-                    Some(node2) => Node::from_nodes(node1, node2),
-                    None => Node::from_node(node1),
+                    Some(node_b) => Node::from_nodes(node_a, node_b),
+                    None => Node::from_node(node_a),
                 });
             }
         }
@@ -40,7 +40,7 @@ impl MerkleTree {
     }
 
     /// Return the `Hash` of the root node.
-    pub fn root_hash(&self) -> Hash {
+    pub const fn root_hash(&self) -> Hash {
         self.root_node.hash()
     }
 }
@@ -83,10 +83,9 @@ impl Node {
         }
     }
 
-    fn hash(&self) -> Hash {
+    const fn hash(&self) -> Hash {
         match &self {
-            Self::Subtree { hash, .. } => *hash,
-            Self::Leaf { hash } => *hash,
+            Self::Subtree { hash, .. } | Self::Leaf { hash } => *hash,
             Self::Empty => Hash([0; 32]),
         }
     }
@@ -180,35 +179,35 @@ mod tests {
 
     #[test]
     fn four_hashes_should_built_seven_nodes() {
-        let hash = Hash([1u8; 32]);
+        let hash = Hash([1_u8; 32]);
         let hashes = vec![hash, hash, hash, hash];
-        let merkle_tree = MerkleTree::new().build(hashes);
+        let merkle_tree = MerkleTree::build(hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 
     #[test]
     fn three_hashes_should_built_seven_nodes() {
-        let hash = Hash([1u8; 32]);
+        let hash = Hash([1_u8; 32]);
         let hashes = vec![hash, hash, hash];
-        let merkle_tree = MerkleTree::new().build(hashes);
+        let merkle_tree = MerkleTree::build(hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 
     #[test]
     fn same_root_hash_for_same_hashes() {
         let merkle_tree_1 =
-            MerkleTree::new().build(vec![Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
+            MerkleTree::build(vec![Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([3_u8; 32])]);
         let merkle_tree_2 =
-            MerkleTree::new().build(vec![Hash([2u8; 32]), Hash([1u8; 32]), Hash([3u8; 32])]);
+            MerkleTree::build(vec![Hash([2_u8; 32]), Hash([1_u8; 32]), Hash([3_u8; 32])]);
         assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 
     #[test]
     fn different_root_hash_for_different_hashes() {
         let merkle_tree_1 =
-            MerkleTree::new().build(vec![Hash([1u8; 32]), Hash([2u8; 32]), Hash([3u8; 32])]);
+            MerkleTree::build(vec![Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([3_u8; 32])]);
         let merkle_tree_2 =
-            MerkleTree::new().build(vec![Hash([1u8; 32]), Hash([4u8; 32]), Hash([5u8; 32])]);
+            MerkleTree::build(vec![Hash([1_u8; 32]), Hash([4_u8; 32]), Hash([5_u8; 32])]);
         assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 }

@@ -1,7 +1,22 @@
 //! Module for starting peers and networks. Used only for tests
 
 // Some tests don't use some of the functions
-#![allow(dead_code)]
+#![warn(
+    missing_docs,
+    private_doc_tests,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery
+)]
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
 
 use async_std::task;
 use iroha::{
@@ -128,7 +143,7 @@ impl Peer {
         }
     }
 
-    /// Starts peer with config, permissions and temp_directory
+    /// Starts peer with config, permissions and temporary directory
     pub fn start_with_config_permissions_dir(
         &self,
         configuration: Configuration,
@@ -140,7 +155,7 @@ impl Peer {
             .kura_configuration
             .kura_block_store_path(temp_dir.path());
         let join_handle = task::spawn(async move {
-            let iroha = Iroha::new(configuration, permissions.into());
+            let iroha = Iroha::new(&configuration, permissions.into());
             iroha.start().await.expect("Failed to start Iroha.");
             //Prevents temp_dir from clean up untill the end of the tests.
             loop {
@@ -166,7 +181,7 @@ impl Peer {
                 .kura_configuration
                 .kura_block_store_path(temp_dir.path());
 
-            let iroha = Iroha::new(configuration, permissions.into());
+            let iroha = Iroha::new(&configuration, permissions.into());
             iroha.start().await.expect("Failed to start Iroha.");
             //Prevents temp_dir from clean up untill the end of the tests.
             loop {

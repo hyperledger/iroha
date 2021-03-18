@@ -23,6 +23,9 @@ impl System {
     }
 
     /// Scrape current system metrics.
+    ///
+    /// # Errors
+    ///
     pub fn scrape_metrics(&self) -> Result<Metrics> {
         let mut metrics = Metrics::new(&self.configuration);
         metrics.calculate()?;
@@ -54,11 +57,14 @@ impl Metrics {
     pub fn new(configuration: &Configuration) -> Self {
         Metrics {
             disk: disk::Disk::new(&configuration.kura_configuration),
-            ..Default::default()
+            ..Metrics::default()
         }
     }
 
     /// Update current `Metrics` state with new data.
+    ///
+    /// # Errors
+    /// Can fail during cpu and memory usage calculations
     pub fn calculate(&mut self) -> Result<()> {
         self.disk.calculate()?;
         task::block_on(async {
@@ -86,7 +92,7 @@ mod disk {
         pub fn new(configuration: &KuraConfiguration) -> Self {
             Disk {
                 block_storage_path: configuration.kura_block_store_path.clone(),
-                ..Default::default()
+                ..Disk::default()
             }
         }
 
@@ -142,6 +148,10 @@ mod cpu {
             Load::default()
         }
 
+        /// Calculates cpu usage
+        ///
+        /// # Errors
+        /// Can fail during computing metrics
         pub async fn calculate(&mut self) -> Result<()> {
             self.frequency = format!("{:?}", cpu::frequency().await);
             self.stats = format!("{:?}", cpu::stats().await);
@@ -168,6 +178,10 @@ mod memory {
             Memory::default()
         }
 
+        /// Calculates memory usage
+        ///
+        /// # Errors
+        /// Can fail during computing memory metrics
         pub async fn calculate(&mut self) -> Result<()> {
             self.memory = format!("{:?}", memory::memory().await);
             self.swap = format!("{:?}", memory::swap().await);

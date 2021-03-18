@@ -9,6 +9,7 @@ use iroha_error::{error, Error, Result};
 use std::convert::TryFrom;
 
 /// Calculate the result of the expression without mutating the state.
+#[allow(clippy::missing_errors_doc)]
 pub trait Evaluate {
     /// The resulting type of the expression.
     type Value;
@@ -78,7 +79,7 @@ impl Evaluate for ContextValue {
         context
             .get(&self.value_name)
             .ok_or_else(|| error!("Value with name {} not found in context", self.value_name))
-            .map(|value| value.to_owned())
+            .map(ToOwned::to_owned)
     }
 }
 
@@ -366,8 +367,8 @@ mod tests {
         let manager_signatory = Value::PublicKey(key_pair_manager.public_key);
         let manager_signatory_set = Value::Vec(vec![manager_signatory.clone()]);
         let condition: ExpressionBox = IfBuilder::condition(And::new(
-            Greater::new(ContextValue::new("usd_quantity"), 500u32),
-            Less::new(ContextValue::new("usd_quantity"), 1000u32),
+            Greater::new(ContextValue::new("usd_quantity"), 500_u32),
+            Less::new(ContextValue::new("usd_quantity"), 1000_u32),
         ))
         .then_expression(Or::new(
             ContainsAll::new(
@@ -427,7 +428,7 @@ mod tests {
     fn where_expression() -> Result<()> {
         assert_eq!(
             WhereBuilder::evaluate(ContextValue::new("test_value"))
-                .with_value("test_value".to_string(), Add::new(2u32, 3u32))
+                .with_value("test_value".to_string(), Add::new(2_u32, 3_u32))
                 .build()
                 .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
             Value::U32(5)
@@ -438,11 +439,11 @@ mod tests {
     #[test]
     fn nested_where_expression() -> Result<()> {
         let expression = WhereBuilder::evaluate(ContextValue::new("a"))
-            .with_value("a".to_string(), 2u32)
+            .with_value("a".to_string(), 2_u32)
             .build();
         let outer_expression: ExpressionBox =
             WhereBuilder::evaluate(Add::new(expression, ContextValue::new("b")))
-                .with_value("b".to_string(), 4u32)
+                .with_value("b".to_string(), 4_u32)
                 .build()
                 .into();
         assert_eq!(
@@ -455,16 +456,16 @@ mod tests {
     #[test]
     fn if_condition_builder_builds_only_with_both_branches() {
         let _ = IfBuilder::condition(true)
-            .then_expression(1u32)
+            .then_expression(1_u32)
             .build()
             .expect_err("Builder should fail if a branch is missing");
         let _ = IfBuilder::condition(true)
-            .else_expression(2u32)
+            .else_expression(2_u32)
             .build()
             .expect_err("Builder should fail if a branch is missing");
         let _ = IfBuilder::condition(true)
-            .then_expression(1u32)
-            .else_expression(2u32)
+            .then_expression(1_u32)
+            .else_expression(2_u32)
             .build()
             .expect("Builder should build if both branches are present.");
     }
@@ -473,11 +474,11 @@ mod tests {
     fn if_condition_branches_correctly() -> Result<()> {
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
-            IfExpression::new(true, 1u32, 2u32).evaluate(&wsv, &Context::new())?,
+            IfExpression::new(true, 1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(1)
         );
         assert_eq!(
-            IfExpression::new(false, 1u32, 2u32).evaluate(&wsv, &Context::new())?,
+            IfExpression::new(false, 1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(2)
         );
         Ok(())
@@ -485,7 +486,7 @@ mod tests {
 
     #[test]
     fn wrong_operand_types_are_caught() {
-        fn assert_eval<V, E>(inst: E, err_msg: &str, ends_with: &str)
+        fn assert_eval<V, E>(inst: &E, err_msg: &str, ends_with: &str)
         where
             V: std::fmt::Debug,
             E: Evaluate<Value = V> + std::fmt::Debug,
@@ -498,37 +499,37 @@ mod tests {
         }
 
         assert_eval(
-            Add::new(10u32, true),
+            &Add::new(10_u32, true),
             "Should not be possible to add int and bool.",
             "is not U32.",
         );
         assert_eval(
-            Subtract::new(10u32, true),
+            &Subtract::new(10_u32, true),
             "Should not be possible to subtract int and bool.",
             "is not U32.",
         );
         assert_eval(
-            And::new(1u32, Vec::<Value>::new()),
+            &And::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply logical and to int and vec.",
             "is not bool.",
         );
         assert_eval(
-            Or::new(1u32, Vec::<Value>::new()),
+            &Or::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply logical or to int and vec.",
             "is not bool.",
         );
         assert_eval(
-            Greater::new(1u32, Vec::<Value>::new()),
+            &Greater::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply greater sign to int and vec.",
             "is not U32.",
         );
         assert_eval(
-            Less::new(1u32, Vec::<Value>::new()),
+            &Less::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply greater sign to int and vec.",
             "is not U32.",
         );
         assert_eval(
-            IfExpression::new(1u32, 2u32, 3u32),
+            &IfExpression::new(1_u32, 2_u32, 3_u32),
             "If condition should be bool",
             "is not bool.",
         );
@@ -538,53 +539,53 @@ mod tests {
     fn operations_are_correctly_calculated() -> Result<()> {
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
-            Add::new(1u32, 2u32).evaluate(&wsv, &Context::new())?,
+            Add::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(3)
         );
         assert_eq!(
-            Subtract::new(7u32, 2u32).evaluate(&wsv, &Context::new())?,
+            Subtract::new(7_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(5)
         );
         assert_eq!(
-            Greater::new(1u32, 2u32).evaluate(&wsv, &Context::new())?,
+            Greater::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         assert_eq!(
-            Greater::new(2u32, 1u32).evaluate(&wsv, &Context::new())?,
+            Greater::new(2_u32, 1_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            Less::new(1u32, 2u32).evaluate(&wsv, &Context::new())?,
+            Less::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            Less::new(2u32, 1u32).evaluate(&wsv, &Context::new())?,
+            Less::new(2_u32, 1_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         assert_eq!(
-            Equal::new(1u32, 2u32).evaluate(&wsv, &Context::new())?,
+            Equal::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         assert_eq!(
-            Equal::new(vec![1u32, 3u32, 5u32], vec![1u32, 3u32, 5u32])
+            Equal::new(vec![1_u32, 3_u32, 5_u32], vec![1_u32, 3_u32, 5_u32])
                 .evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            Contains::new(vec![1u32, 3u32, 5u32], 3u32).evaluate(&wsv, &Context::new())?,
+            Contains::new(vec![1_u32, 3_u32, 5_u32], 3_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            Contains::new(vec![1u32, 3u32, 5u32], 7u32).evaluate(&wsv, &Context::new())?,
+            Contains::new(vec![1_u32, 3_u32, 5_u32], 7_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         assert_eq!(
-            ContainsAll::new(vec![1u32, 3u32, 5u32], vec![1u32, 5u32])
+            ContainsAll::new(vec![1_u32, 3_u32, 5_u32], vec![1_u32, 5_u32])
                 .evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            ContainsAll::new(vec![1u32, 3u32, 5u32], vec![1u32, 5u32, 7u32])
+            ContainsAll::new(vec![1_u32, 3_u32, 5_u32], vec![1_u32, 5_u32, 7_u32])
                 .evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
@@ -593,7 +594,7 @@ mod tests {
 
     #[test]
     fn serde_serialization_works() {
-        let expression: ExpressionBox = Add::new(1u32, Subtract::new(7u32, 4u32)).into();
+        let expression: ExpressionBox = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
         let serialized_expression =
             serde_json::to_string(&expression).expect("Failed to serialize.");
         let deserialized_expression: ExpressionBox =
@@ -611,7 +612,7 @@ mod tests {
 
     #[test]
     fn scale_codec_serialization_works() {
-        let expression: ExpressionBox = Add::new(1u32, Subtract::new(7u32, 4u32)).into();
+        let expression: ExpressionBox = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
         let serialized_expression: Vec<u8> = expression.encode();
         let deserialized_expression = ExpressionBox::decode(&mut serialized_expression.as_slice())
             .expect("Failed to decode.");

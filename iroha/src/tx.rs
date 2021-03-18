@@ -15,9 +15,10 @@ use std::{
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2);
 
+#[allow(clippy::missing_errors_doc)]
 impl VersionedAcceptedTransaction {
     /// Same as [`as_v1`] but also does conversion
-    pub fn as_inner_v1(&self) -> &AcceptedTransaction {
+    pub const fn as_inner_v1(&self) -> &AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => &v1.0,
         }
@@ -31,6 +32,7 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Same as [`into_v1`] but also does conversion
+    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1.0,
@@ -103,6 +105,9 @@ pub struct AcceptedTransaction {
 
 impl AcceptedTransaction {
     /// Accepts transaction
+    ///
+    /// # Errors
+    /// Can fail if verification of some signature fails
     pub fn from_transaction(
         transaction: Transaction,
         max_instruction_number: usize,
@@ -155,20 +160,21 @@ impl AcceptedTransaction {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
-        let _ = self
-            .signatures
-            .iter()
-            .map(|signature| {
-                signature
-                    .verify(self.hash().as_ref())
-                    .map_err(|reason| SignatureVerificationFail {
-                        signature: signature.clone(),
-                        // TODO: Should here also be iroha_error::Error?
-                        reason: reason.to_string(),
+        drop(
+            self.signatures
+                .iter()
+                .map(|signature| {
+                    signature.verify(self.hash().as_ref()).map_err(|reason| {
+                        SignatureVerificationFail {
+                            signature: signature.clone(),
+                            // TODO: Should here also be iroha_error::Error?
+                            reason: reason.to_string(),
+                        }
                     })
-            })
-            .collect::<Result<Vec<()>, _>>()
-            .map_err(TransactionRejectionReason::SignatureVerification)?;
+                })
+                .collect::<Result<Vec<()>, _>>()
+                .map_err(TransactionRejectionReason::SignatureVerification)?,
+        );
 
         let option_reason = match self.check_signature_condition(world_state_view) {
             Ok(true) => None,
@@ -196,7 +202,7 @@ impl AcceptedTransaction {
 
             if !is_genesis {
                 permissions_validator
-                    .check_instruction(account_id.clone(), instruction.clone(), &world_state_view)
+                    .check_instruction(account_id.clone(), instruction.clone(), world_state_view)
                     .map_err(|reason| NotPermittedFail { reason })
                     .map_err(TransactionRejectionReason::NotPermitted)?;
             }
@@ -208,7 +214,11 @@ impl AcceptedTransaction {
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
     /// `WorldStateView`.
     ///
-    /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
+    /// # Errors
+    /// Can fail if:
+    /// - signature verification fails
+    /// - instruction execution fails
+    /// - permission check fails
     pub fn validate(
         self,
         world_state_view: &WorldStateView,
@@ -225,6 +235,9 @@ impl AcceptedTransaction {
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
+    ///
+    /// # Errors
+    /// Can fail if signature conditionon account fails or if account is not found
     pub fn check_signature_condition(&self, world_state_view: &WorldStateView) -> Result<bool> {
         let account_id = self.payload.account_id.clone();
         world_state_view
@@ -235,6 +248,7 @@ impl AcceptedTransaction {
     }
 
     /// Rejects transaction with the `rejection_reason`.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn reject(self, rejection_reason: TransactionRejectionReason) -> RejectedTransaction {
         RejectedTransaction {
             payload: self.payload,
@@ -268,9 +282,10 @@ impl From<AcceptedTransaction> for Transaction {
 
 declare_versioned_with_scale!(VersionedValidTransaction 1..2);
 
+#[allow(clippy::missing_errors_doc)]
 impl VersionedValidTransaction {
     /// Same as [`as_v1`] but also does conversion
-    pub fn as_inner_v1(&self) -> &ValidTransaction {
+    pub const fn as_inner_v1(&self) -> &ValidTransaction {
         match self {
             Self::V1(v1) => &v1.0,
         }
@@ -284,6 +299,7 @@ impl VersionedValidTransaction {
     }
 
     /// Same as [`into_v1`] but also does conversion
+    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> ValidTransaction {
         match self {
             Self::V1(v1) => v1.0,
@@ -316,6 +332,9 @@ pub struct ValidTransaction {
 
 impl ValidTransaction {
     /// Apply instructions to the `WorldStateView`.
+    ///
+    /// # Errors
+    /// Can fail if execution of instructions fail
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<()> {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
@@ -358,9 +377,10 @@ impl From<ValidTransaction> for AcceptedTransaction {
 
 declare_versioned_with_scale!(VersionedRejectedTransaction 1..2);
 
+#[allow(clippy::missing_errors_doc)]
 impl VersionedRejectedTransaction {
     /// The same as `as_v1` but also runs into on it
-    pub fn as_inner_v1(&self) -> &RejectedTransaction {
+    pub const fn as_inner_v1(&self) -> &RejectedTransaction {
         match self {
             Self::V1(v1) => &v1.0,
         }
@@ -374,9 +394,10 @@ impl VersionedRejectedTransaction {
     }
 
     /// The same as `as_v1` but also runs into on it
+    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> RejectedTransaction {
         match self {
-            Self::V1(v1) => v1.0,
+            Self::V1(v1) => v1.into(),
         }
     }
 
@@ -433,6 +454,8 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::default_trait_access)]
+
     use super::*;
     use crate::{config::Configuration, init, permissions::AllowAll};
     use iroha_data_model::{
@@ -460,7 +483,7 @@ mod tests {
         );
         let tx_hash = tx.hash();
 
-        let signed_tx = tx.sign(&key_pair).expect("Failed to sign.");
+        let signed_tx = tx.sign(key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
         let accepted_tx =
             AcceptedTransaction::from_transaction(signed_tx, 4096).expect("Failed to accept.");

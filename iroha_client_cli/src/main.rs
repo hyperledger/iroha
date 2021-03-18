@@ -1,3 +1,12 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
+
 use clap::{App, Arg};
 use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration};
@@ -41,16 +50,16 @@ fn main() {
     println!("Value for config: {}", configuration_path);
     let configuration =
         Configuration::from_path(configuration_path).expect("Failed to load configuration");
-    if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
+    if let Some(matches) = matches.subcommand_matches(DOMAIN) {
         domain::process(matches, &configuration);
     }
-    if let Some(ref matches) = matches.subcommand_matches(ACCOUNT) {
+    if let Some(matches) = matches.subcommand_matches(ACCOUNT) {
         account::process(matches, &configuration);
     }
-    if let Some(ref matches) = matches.subcommand_matches(ASSET) {
+    if let Some(matches) = matches.subcommand_matches(ASSET) {
         asset::process(matches, &configuration);
     }
-    if let Some(ref matches) = matches.subcommand_matches(EVENTS) {
+    if let Some(matches) = matches.subcommand_matches(EVENTS) {
         events::process(matches, &configuration);
     }
 }
@@ -152,7 +161,7 @@ mod domain {
     }
 
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        if let Some(ref matches) = matches.subcommand_matches(ADD) {
+        if let Some(matches) = matches.subcommand_matches(ADD) {
             if let Some(domain_name) = matches.value_of(DOMAIN_NAME) {
                 println!("Adding a new Domain with a name: {}", domain_name);
                 create_domain(domain_name, configuration);
@@ -235,7 +244,7 @@ mod account {
     }
 
     fn process_create_account(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
+        if let Some(matches) = matches.subcommand_matches(REGISTER) {
             if let Some(account_name) = matches.value_of(ACCOUNT_NAME) {
                 println!("Creating account with a name: {}", account_name);
                 if let Some(domain_name) = matches.value_of(ACCOUNT_DOMAIN_NAME) {
@@ -253,8 +262,8 @@ mod account {
         matches: &ArgMatches<'_>,
         configuration: &Configuration,
     ) {
-        if let Some(ref matches) = matches.subcommand_matches(SET) {
-            if let Some(ref matches) = matches.subcommand_matches(ACCOUNT_SIGNATURE_CONDITION) {
+        if let Some(matches) = matches.subcommand_matches(SET) {
+            if let Some(matches) = matches.subcommand_matches(ACCOUNT_SIGNATURE_CONDITION) {
                 if let Some(file) = matches.value_of(ACCOUNT_SIGNATURE_CONDITION_FILE) {
                     println!("Setting account signature condition from file: {}", file);
                     set_account_signature_condition(file, configuration);
@@ -363,7 +372,7 @@ mod asset {
     }
 
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
+        if let Some(matches) = matches.subcommand_matches(REGISTER) {
             if let Some(asset_name) = matches.value_of(ASSET_NAME) {
                 println!("Registering asset defintion with a name: {}", asset_name);
                 if let Some(domain_name) = matches.value_of(ASSET_DOMAIN_NAME) {
@@ -375,7 +384,7 @@ mod asset {
                 }
             }
         }
-        if let Some(ref matches) = matches.subcommand_matches(MINT) {
+        if let Some(matches) = matches.subcommand_matches(MINT) {
             if let Some(asset_id) = matches.value_of(ASSET_ID) {
                 println!("Minting asset with an identification: {}", asset_id);
                 if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {
@@ -390,7 +399,7 @@ mod asset {
                 }
             }
         }
-        if let Some(ref matches) = matches.subcommand_matches(TRANSFER) {
+        if let Some(matches) = matches.subcommand_matches(TRANSFER) {
             if let Some(asset_id) = matches.value_of(ASSET_ID) {
                 println!("Transfer asset with an identification: {}", asset_id);
                 if let Some(account1_id) = matches.value_of(SOURCE_ACCOUNT_ID) {
@@ -417,7 +426,7 @@ mod asset {
                 }
             }
         }
-        if let Some(ref matches) = matches.subcommand_matches(GET) {
+        if let Some(matches) = matches.subcommand_matches(GET) {
             if let Some(asset_id) = matches.value_of(ASSET_ID) {
                 println!("Getting asset with an identification: {}", asset_id);
                 if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {

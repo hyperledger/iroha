@@ -6,6 +6,7 @@ use iroha_derive::log;
 use iroha_error::{error, Result};
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
+#[allow(clippy::missing_errors_doc)]
 pub trait Execute {
     /// Apply actions to `world_state_view` on behalf of `authority`.
     fn execute(
@@ -248,11 +249,12 @@ impl Execute for If {
     ) -> Result<WorldStateView> {
         let context = Context::new();
         if self.condition.evaluate(world_state_view, &context)? {
-            self.then.execute(authority, &world_state_view)
-        } else if let Some(otherwise) = self.otherwise {
-            otherwise.execute(authority, world_state_view)
+            self.then.execute(authority, world_state_view)
         } else {
-            Ok(world_state_view.clone())
+            self.otherwise.map_or_else(
+                || Ok(world_state_view.clone()),
+                |otherwise| otherwise.execute(authority, world_state_view),
+            )
         }
     }
 }
