@@ -2,6 +2,22 @@
 //!
 //! For usage examples see [`iroha_version_derive::declare_versioned`].
 
+#![warn(
+    missing_docs,
+    private_doc_tests,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery
+)]
+#![allow(
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
+
 #[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
 #[cfg(feature = "scale")]
@@ -10,6 +26,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
+/// Module which contains error and result for versioning
 pub mod error {
     use super::UnsupportedVersion;
     use iroha_derive::FromVariant;
@@ -17,22 +34,31 @@ pub mod error {
     #[cfg(feature = "http_error")]
     use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
 
+    /// Versioning errors
     #[derive(Error, Debug, FromVariant)]
     pub enum Error {
+        /// This is not a versioned object. No version information found.
         #[error("This is not a versioned object. No version information found.")]
         NotVersioned,
+        /// Can not encode unsupported version from json to scale.
         #[error("Can not encode unsupported version from json to scale.")]
         UnsupportedJsonEncode,
+        /// Expected json object.
         #[error("Expected json object.")]
         ExpectedJson,
+        /// Can not encode unsupported version from scale to json
         #[error("Can not encode unsupported version from scale to json.")]
         UnsupportedScaleEncode,
+        /// Problem with serialization/deserialization of json
         #[error("Problem with serialization/deserialization of json.")]
-        SerdeError(#[source] serde_json::Error),
+        Serde(#[source] serde_json::Error),
+        /// Problem with serialization/deserialization of parity scale.
         #[error("Problem with serialization/deserialization of parity scale.")]
-        ParityScaleError(#[source] parity_scale_codec::Error),
+        ParityScale(#[source] parity_scale_codec::Error),
+        /// Problem with parsing integers.
         #[error("Problem with parsing integers.")]
         ParseInt(#[source] std::num::ParseIntError),
+        /// Version of input is unsupported
         #[error("Version of input is unsupported")]
         UnsupportedVersion(UnsupportedVersion),
     }
@@ -47,6 +73,7 @@ pub mod error {
         }
     }
 
+    /// Result type for versioning
     pub type Result<T, E = Error> = std::result::Result<T, E>;
 }
 
@@ -77,7 +104,8 @@ pub struct UnsupportedVersion {
 
 impl UnsupportedVersion {
     /// Constructs [`UnsupportedVersion`].
-    pub fn new(version: u8, raw: RawVersioned) -> Self {
+    #[must_use]
+    pub const fn new(version: u8, raw: RawVersioned) -> Self {
         Self { version, raw }
     }
 }
@@ -103,11 +131,15 @@ pub mod scale {
     /// `Decode` versioned analog.
     pub trait DecodeVersioned: Decode + Version {
         /// Use this function for versioned objects instead of `decode`.
+        ///
+        /// # Errors
+        /// Will return error if version is unsupported or if input won't have enough bytes for decoding.
         fn decode_versioned(input: &[u8]) -> Result<Self>;
     }
 
     /// `Encode` versioned analog.
     pub trait EncodeVersioned: Encode + Version {
+        #[allow(clippy::missing_errors_doc)]
         /// Use this function for versioned objects instead of `encode`.
         fn encode_versioned(&self) -> Result<Vec<u8>>;
     }
@@ -121,14 +153,23 @@ pub mod json {
     use serde::{Deserialize, Serialize};
 
     /// `Serialize` versioned analog, specifically for JSON.
-    pub trait DeserializeVersionedJson<'a>: Deserialize<'a> + Version {
+    pub trait DeserializeVersioned<'a>: Deserialize<'a> + Version {
         /// Use this function for versioned objects instead of `serde_json::from_str`.
+        ///
+        /// # Errors
+        /// Return error if:
+        /// * serde fails to decode json
+        /// * if json is not an object
+        /// * if json is has no version field
         fn from_versioned_json_str(input: &str) -> Result<Self>;
     }
 
     /// `Deserialize` versioned analog, specifically for JSON.
-    pub trait SerializeVersionedJson: Serialize + Version {
+    pub trait SerializeVersioned: Serialize + Version {
         /// Use this function for versioned objects instead of `serde_json::to_string`.
+        ///
+        /// # Errors
+        /// Return error if serde fails to decode json
         fn to_versioned_json_str(&self) -> Result<String>;
     }
 }

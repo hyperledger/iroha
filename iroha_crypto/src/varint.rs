@@ -73,7 +73,7 @@ macro_rules! from_uint(
 from_uint!(u8, u16, u32, u64, u128);
 
 impl VarUint {
-    /// Default constructor for VarUint number
+    /// Default constructor for [`VarUint`] number
     pub fn new(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let idx = bytes
             .as_ref()
@@ -85,9 +85,10 @@ impl VarUint {
         let (payload, empty) = bytes.as_ref().split_at(idx + 1);
         let payload = payload.to_vec();
 
-        match empty.is_empty() {
-            false => Err(error!("Last byte shouldn't be followed by anything")),
-            true => Ok(Self { payload }),
+        if empty.is_empty() {
+            Ok(Self { payload })
+        } else {
+            Err(error!("Last byte shouldn't be followed by anything"))
         }
     }
 }
@@ -99,25 +100,25 @@ mod tests {
 
     #[test]
     fn test_basic_into() {
-        let n = 16384u64;
+        let n = 16384_u64;
         let varuint: VarUint = n.into();
         let vec: Vec<_> = varuint.into();
-        let should_be = vec![0b1000_0000, 0b1000_0000, 0b00000001];
+        let should_be = vec![0b1000_0000, 0b1000_0000, 0b0000_0001];
         assert_eq!(vec, should_be);
     }
 
     #[test]
     fn test_basic_from() {
-        let n_should: u64 = VarUint::new([0b1000_0000, 0b1000_0000, 0b00000001])
+        let n_should: u64 = VarUint::new([0b1000_0000, 0b1000_0000, 0b0000_0001])
             .unwrap()
             .try_into()
             .unwrap();
-        assert_eq!(16384u64, n_should);
+        assert_eq!(16384_u64, n_should);
     }
 
     #[test]
     fn test_basic_into_from() {
-        let n = 16384u64;
+        let n = 16384_u64;
         let varuint: VarUint = n.into();
         let n_new: u64 = varuint.try_into().unwrap();
         assert_eq!(n, n_new);

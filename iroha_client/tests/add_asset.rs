@@ -62,7 +62,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     if let QueryResult(Value::Vec(assets)) = query_result {
         let asset = assets
             .iter()
-            .filter_map(|asset| {
+            .find_map(|asset| {
                 if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
                     if asset.id.definition_id == asset_definition_id {
                         return Some(asset);
@@ -70,7 +70,6 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
                 }
                 None
             })
-            .next()
             .expect("Asset should exist.");
 
         assert_eq!(AssetValue::Quantity(quantity), asset.value);

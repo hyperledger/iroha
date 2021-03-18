@@ -1,3 +1,13 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::doc_markdown,
+    clippy::use_self,
+    clippy::implicit_return,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use,
+    clippy::wildcard_imports
+)]
 extern crate proc_macro;
 
 use crate::proc_macro::TokenStream;
@@ -21,16 +31,13 @@ pub fn log(attr: TokenStream, item: TokenStream) -> TokenStream {
             args.len()
         ))
     }
-    let log_level = args
-        .first()
-        .map(|nested_meta| {
-            if let NestedMeta::Lit(Lit::Str(lit_str)) = nested_meta {
-                Level::from_str(&lit_str.value()).expect("Failed to parse log level.")
-            } else {
-                abort!(nested_meta, "Invalid argument. String expected.")
-            }
-        })
-        .unwrap_or(Level::Debug);
+    let log_level = args.first().map_or(Level::Debug, |nested_meta| {
+        if let NestedMeta::Lit(Lit::Str(lit_str)) = nested_meta {
+            Level::from_str(&lit_str.value()).expect("Failed to parse log level.")
+        } else {
+            abort!(nested_meta, "Invalid argument. String expected.")
+        }
+    });
     let log_level = format!("{}", log_level);
     let ItemFn {
         attrs,
@@ -67,6 +74,7 @@ pub fn log(attr: TokenStream, item: TokenStream) -> TokenStream {
     let arguments = quote!(#(#param_names)*);
     let ident_str = ident.to_string();
     quote!(
+		#[allow(clippy::used_underscore_binding)]
         #(#attrs) *
         #vis #constness #unsafety #asyncness #abi fn #ident<#gen_params>(#params) #return_type
         #where_clause
@@ -120,8 +128,8 @@ fn param_names(pat: Pat) -> Box<dyn Iterator<Item = Ident>> {
                 .into_iter()
                 .flat_map(|FieldPat { pat, .. }| param_names(*pat)),
         ),
-        Pat::Tuple(PatTuple { elems, .. }) => Box::new(elems.into_iter().flat_map(param_names)),
-        Pat::TupleStruct(PatTupleStruct {
+        Pat::Tuple(PatTuple { elems, .. })
+        | Pat::TupleStruct(PatTupleStruct {
             pat: PatTuple { elems, .. },
             ..
         }) => Box::new(elems.into_iter().flat_map(param_names)),
@@ -229,7 +237,7 @@ fn from_variant(
                     .iter()
                     .map(|segment| {
                         let mut segment = segment.clone();
-                        segment.arguments = Default::default();
+                        segment.arguments = syn::PathArguments::default();
                         segment
                     })
                     .collect::<syn::punctuated::Punctuated<_, syn::token::Colon2>>();
@@ -271,12 +279,11 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
                     .first()
                     .expect("Won't fail as we have more than  one argument for variant")
                     .ty;
-                return Some((&variant.ident, variant_type));
+                return Some(from_variant(name, &variant.ident, variant_type));
             }
         }
         None
-    })
-    .map(|(ident, ty)| from_variant(name, ident, ty));
+    });
 
     let gen = quote! {
         #(#froms)*

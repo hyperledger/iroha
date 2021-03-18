@@ -66,7 +66,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     if let QueryResult(Value::Vec(assets)) = query_result {
         let asset = assets
             .iter()
-            .filter_map(|asset| {
+            .find_map(|asset| {
                 if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
                     if asset.id.definition_id == asset_definition_id {
                         return Some(asset);
@@ -74,7 +74,6 @@ fn restarted_peer_should_have_the_same_asset_amount() {
                 }
                 None
             })
-            .next()
             .expect("Asset should exist.");
 
         assert_eq!(AssetValue::Quantity(quantity), asset.value);
@@ -94,7 +93,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     if let QueryResult(Value::Vec(assets)) = query_result {
         let asset = assets
             .iter()
-            .filter_map(|asset| {
+            .find_map(|asset| {
                 if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
                     if asset.id.definition_id == asset_definition_id {
                         return Some(asset);
@@ -102,7 +101,6 @@ fn restarted_peer_should_have_the_same_asset_amount() {
                 }
                 None
             })
-            .next()
             .expect("Asset should exist.");
 
         assert_eq!(AssetValue::Quantity(quantity), asset.value);

@@ -55,7 +55,7 @@ impl Kura {
     /// After constructing `Kura` it should be initialized to be ready to work with it.
     pub async fn init(&mut self) -> Result<()> {
         let blocks = self.block_store.read_all().await;
-        self.merkle_tree = MerkleTree::new().build(blocks.iter().map(|block| block.hash()));
+        self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedValidBlock::hash));
         self.blocks = blocks;
         Ok(())
     }
@@ -73,7 +73,7 @@ impl Kura {
             }
             Err(error) => {
                 let blocks = self.block_store.read_all().await;
-                self.merkle_tree = MerkleTree::new().build(blocks.iter().map(|block| block.hash()));
+                self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedValidBlock::hash));
                 Err(error)
             }
         }
@@ -83,16 +83,12 @@ impl Kura {
         // Should we return Result here?
         self.blocks
             .last()
-            .map(|block| block.hash())
-            .unwrap_or(Hash([0u8; 32]))
+            .map_or(Hash([0_u8; 32]), VersionedValidBlock::hash)
     }
 
     pub fn height(&self) -> u64 {
         // Should we return Result here?
-        self.blocks
-            .last()
-            .map(|block| block.header().height)
-            .unwrap_or(0)
+        self.blocks.last().map_or(0, |block| block.header().height)
     }
 
     pub fn blocks_after(&self, hash: Hash) -> Option<&[VersionedValidBlock]> {
@@ -167,6 +163,7 @@ impl BlockStore {
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.wrap_err("No file found.")?;
         let metadata = metadata(&path).await.wrap_err("Unable to read metadata.")?;
+        #[allow(clippy::cast_possible_truncation)]
         let mut buffer = vec![0; metadata.len() as usize];
         let _ = file.read(&mut buffer).await.wrap_err("Buffer overflow.")?;
         VersionedValidBlock::decode_versioned(&buffer).wrap_err("Failed to read block from store.")
@@ -237,6 +234,8 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::cast_possible_truncation)]
+
     use super::*;
     use async_std::sync;
     use iroha_crypto::KeyPair;
@@ -293,7 +292,7 @@ mod tests {
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
             .expect("Failed to sign blocks.");
-        for height in 1..(n + 1) {
+        for height in 1..=n {
             let hash = block_store
                 .write(&block)
                 .await

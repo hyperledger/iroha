@@ -1,4 +1,9 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::enum_glob_use
+)]
 
 pub mod multihash;
 mod varint;
@@ -112,6 +117,7 @@ impl Display for Algorithm {
     }
 }
 
+#[derive(Clone)]
 pub enum KeyGenOption {
     UseSeed(Vec<u8>),
     FromPrivateKey(PrivateKey),
@@ -137,7 +143,7 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct KeyGenConfiguration {
     pub key_gen_option: Option<KeyGenOption>,
     pub algorithm: Algorithm,
@@ -171,13 +177,17 @@ pub struct KeyPair {
 
 impl KeyPair {
     /// Generates a pair of Public and Private key with `Algorithm::default()` selected as generation algorithm.
-    /// Returns `Err(String)` with error message if failed.
+    ///
+    /// # Errors
+    /// Fails if decoding fails
     pub fn generate() -> Result<Self> {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
 
     /// Generates a pair of Public and Private key with the corresponding `KeyGenConfiguration`.
-    /// Returns `Err(String)` with error message if failed.
+    ///
+    /// # Errors
+    /// Fails if decoding fails
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self> {
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option
@@ -340,6 +350,9 @@ pub struct Signature {
 
 impl Signature {
     /// Creates new `Signature` by signing payload via `private_key`.
+    ///
+    /// # Errors
+    /// Fails if decoding digest of key pair fails
     pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature> {
         let private_key = UrsaPrivateKey(key_pair.private_key.payload.to_vec());
         let algorithm: Algorithm = key_pair.public_key.digest_function.parse()?;
@@ -357,6 +370,9 @@ impl Signature {
     }
 
     /// Verify `message` using signed data and `public_key`.
+    ///
+    /// # Errors
+    /// Fails if decoding digest of key pair fails or if message didn't pass verification
     pub fn verify(&self, message: &[u8]) -> Result<()> {
         let public_key = UrsaPublicKey(self.public_key.payload.to_vec());
         let algorithm: Algorithm = self.public_key.digest_function.parse()?;
@@ -429,8 +445,8 @@ impl Signatures {
     pub fn verified(&self, payload: &[u8]) -> Vec<Signature> {
         self.signatures
             .iter()
-            .filter(|&(_, signature)| signature.verify(payload).is_ok())
             .map(|(_, signature)| signature)
+            .filter(|signature| signature.verify(payload).is_ok())
             .cloned()
             .collect()
     }

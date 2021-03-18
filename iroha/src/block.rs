@@ -1,6 +1,8 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
+#![allow(clippy::module_name_repetitions)]
+
 use crate::{
     merkle::MerkleTree,
     permissions::PermissionsValidatorBox,
@@ -58,8 +60,8 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 height: height + 1,
                 previous_block_hash,
-                transactions_merkle_root_hash: Hash([0u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
+                transactions_merkle_root_hash: Hash([0_u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
                 number_of_view_changes,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
@@ -68,6 +70,7 @@ impl PendingBlock {
     }
 
     /// Create a new blockchain with current block as a first block.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn chain_first_with_genesis_topology(
         self,
         genesis_topology: InitializedNetworkTopology,
@@ -77,9 +80,9 @@ impl PendingBlock {
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
-                previous_block_hash: Hash([0u8; 32]),
-                transactions_merkle_root_hash: Hash([0u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
+                previous_block_hash: Hash([0_u8; 32]),
+                transactions_merkle_root_hash: Hash([0_u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
@@ -88,15 +91,16 @@ impl PendingBlock {
     }
 
     /// Create a new blockchain with current block as a first block.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn chain_first(self) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
-                previous_block_hash: Hash([0u8; 32]),
-                transactions_merkle_root_hash: Hash([0u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
+                previous_block_hash: Hash([0_u8; 32]),
+                transactions_merkle_root_hash: Hash([0_u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
@@ -144,7 +148,7 @@ impl BlockHeader {
     }
 
     /// Checks if it's a header of a genesis block.
-    pub fn is_genesis(&self) -> bool {
+    pub const fn is_genesis(&self) -> bool {
         self.height == 1
     }
 }
@@ -175,16 +179,14 @@ impl ChainedBlock {
             }
         }
         let mut header = self.header;
-        header.transactions_merkle_root_hash = MerkleTree::new()
-            .build(transactions.iter().map(|transaction| transaction.hash()))
-            .root_hash();
-        header.rejected_transactions_merkle_root_hash = MerkleTree::new()
-            .build(
-                rejected_transactions
-                    .iter()
-                    .map(|transaction| transaction.hash()),
-            )
-            .root_hash();
+        header.transactions_merkle_root_hash =
+            MerkleTree::build(transactions.iter().map(VersionedValidTransaction::hash)).root_hash();
+        header.rejected_transactions_merkle_root_hash = MerkleTree::build(
+            rejected_transactions
+                .iter()
+                .map(VersionedRejectedTransaction::hash),
+        )
+        .root_hash();
         ValidBlock {
             header,
             rejected_transactions,
@@ -202,9 +204,10 @@ impl ChainedBlock {
 
 declare_versioned_with_scale!(VersionedValidBlock 1..2);
 
+#[allow(clippy::missing_errors_doc)]
 impl VersionedValidBlock {
     /// Same as [`as_v1`] but also does conversion
-    pub fn as_inner_v1(&self) -> &ValidBlock {
+    pub const fn as_inner_v1(&self) -> &ValidBlock {
         match self {
             Self::V1(v1) => &v1.0,
         }
@@ -218,6 +221,7 @@ impl VersionedValidBlock {
     }
 
     /// Same as [`into_v1`] but also does conversion
+    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> ValidBlock {
         match self {
             Self::V1(v1) => v1.0,
@@ -225,7 +229,7 @@ impl VersionedValidBlock {
     }
 
     /// Returns header of valid block
-    pub fn header(&self) -> &BlockHeader {
+    pub const fn header(&self) -> &BlockHeader {
         &self.as_inner_v1().header
     }
 
@@ -288,6 +292,7 @@ pub struct ValidBlock {
 impl ValidBlock {
     /// Commit block to the store.
     //TODO: pass block store and block sender as parameters?
+    #[allow(clippy::missing_const_for_fn)]
     pub fn commit(self) -> CommittedBlock {
         CommittedBlock {
             header: self.header,
@@ -325,6 +330,9 @@ impl ValidBlock {
     }
 
     /// Sign this block and get `ValidBlock`.
+    ///
+    /// # Errors
+    /// Fails if generating signature fails
     pub fn sign(mut self, key_pair: &KeyPair) -> Result<ValidBlock> {
         let signature = Signature::new(key_pair.clone(), self.hash().as_ref())?;
         self.signatures.add(signature);
@@ -403,7 +411,7 @@ declare_versioned_with_scale!(VersionedCommittedBlock 1..2);
 
 impl VersionedCommittedBlock {
     /// Same as [`as_v1`] but also does conversion
-    pub fn as_inner_v1(&self) -> &CommittedBlock {
+    pub const fn as_inner_v1(&self) -> &CommittedBlock {
         match self {
             Self::V1(v1) => &v1.0,
         }
@@ -419,7 +427,7 @@ impl VersionedCommittedBlock {
     /// Same as [`into_v1`] but also does conversion
     pub fn into_inner_v1(self) -> CommittedBlock {
         match self {
-            Self::V1(v1) => v1.0,
+            Self::V1(v1) => v1.into(),
         }
     }
 
@@ -530,9 +538,9 @@ mod tests {
             header: BlockHeader {
                 timestamp: 0,
                 height: 0,
-                previous_block_hash: Hash([0u8; 32]),
-                transactions_merkle_root_hash: Hash([0u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0u8; 32]),
+                previous_block_hash: Hash([0_u8; 32]),
+                transactions_merkle_root_hash: Hash([0_u8; 32]),
+                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
                 number_of_view_changes: 0,
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,

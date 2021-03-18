@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
 
-    use iroha_derive::*;
+    use iroha_derive::log;
 
     fn init_logger() {
         iroha_logger::init(&iroha_logger::config::LoggerConfiguration {

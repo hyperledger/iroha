@@ -45,6 +45,9 @@ impl Client {
     }
 
     /// Builds transaction out of supplied instructions.
+    ///
+    /// # Errors
+    /// Fails if signing transaction fails
     pub fn build_transaction(&self, instructions: Vec<Instruction>) -> Result<Transaction> {
         Transaction::new(
             instructions,
@@ -54,12 +57,19 @@ impl Client {
         .sign(&self.key_pair)
     }
 
+    /// Signs transaction
+    ///
+    /// # Errors
+    /// Fails if generating signature fails
     pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction> {
         transaction.sign(&self.key_pair)
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
     #[log]
     pub fn submit(&mut self, instruction: Instruction) -> Result<Hash> {
         self.submit_all(vec![instruction])
@@ -67,12 +77,18 @@ impl Client {
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
         self.submit_transaction(self.build_transaction(instructions)?)
     }
 
     /// Submit a prebuilt transaction.
     /// Returns submitted transaction's hash or error string.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash> {
         transaction.check_instruction_len(self.max_instruction_number)?;
         let hash = transaction.hash();
@@ -95,12 +111,18 @@ impl Client {
 
     /// Submits and waits until the transaction is either rejected or committed.
     /// Returns rejection reason if transaction was rejected.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(&mut self, instruction: Instruction) -> Result<Hash> {
         self.submit_all_blocking(vec![instruction])
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
     /// Returns rejection reason if transaction was rejected.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
@@ -134,6 +156,9 @@ impl Client {
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
     #[log]
     pub fn request_with_pagination(
         &mut self,
@@ -158,12 +183,18 @@ impl Client {
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
     #[log]
     pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult> {
-        self.request_with_pagination(request, Default::default())
+        self.request_with_pagination(request, Pagination::default())
     }
 
     /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
+    ///
+    /// # Errors
+    /// Fails if subscribing to websocket fails
     pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
         EventIterator::new(
             &format!("ws://{}{}", self.torii_url, uri::SUBSCRIPTION_URI),
@@ -174,6 +205,9 @@ impl Client {
     /// Tries to find the original transaction in the pending tx queue on the leader peer.
     /// Should be used for an MST case.
     /// Takes pagination as parameter.
+    ///
+    /// # Errors
+    /// Fails if subscribing to websocket fails
     pub fn get_original_transaction_with_pagination(
         &mut self,
         transaction: &Transaction,
@@ -194,11 +228,9 @@ impl Client {
             )?;
             if response.status() == StatusCode::OK {
                 let pending_transactions: PendingTransactions =
-                    VersionedPendingTransactions::decode_versioned(&response.body())?
+                    VersionedPendingTransactions::decode_versioned(response.body())?
                         .into_v1()
-                        .ok_or_else(|| {
-                            Error::msg("Expected pending transaction message version 1.")
-                        })?
+                        .ok_or_else(|| error!("Expected pending transaction message version 1."))?
                         .into();
                 let transaction = pending_transactions
                     .into_iter()
@@ -209,9 +241,8 @@ impl Client {
                     });
                 if transaction.is_some() {
                     return Ok(transaction);
-                } else {
-                    thread::sleep(retry_in)
                 }
+                thread::sleep(retry_in)
             } else {
                 return Err(error!(
                     "Failed to make query request with HTTP status: {}",
@@ -224,6 +255,9 @@ impl Client {
 
     /// Tries to find the original transaction in the pending tx queue on the leader peer.
     /// Should be used for an MST case.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
     pub fn get_original_transaction(
         &mut self,
         transaction: &Transaction,
@@ -234,7 +268,7 @@ impl Client {
             transaction,
             retry_count,
             retry_in,
-            Default::default(),
+            Pagination::default(),
         )
     }
 }
@@ -246,6 +280,9 @@ pub struct EventIterator {
 
 impl EventIterator {
     /// Constructs `EventIterator` and sends the subscription request.
+    ///
+    /// # Errors
+    /// Fails if connecting and sending subscription to web socket fails
     pub fn new(url: &str, event_filter: EventFilter) -> Result<EventIterator> {
         let mut stream = http_client::web_socket_connect(url)?;
         stream.write_message(WebSocketMessage::Text(
@@ -280,8 +317,9 @@ impl Iterator for EventIterator {
                     }
                 }
                 Ok(_) => continue,
-                Err(WebSocketError::ConnectionClosed) => return None,
-                Err(WebSocketError::AlreadyClosed) => return None,
+                Err(WebSocketError::ConnectionClosed) | Err(WebSocketError::AlreadyClosed) => {
+                    return None
+                }
                 Err(err) => return Some(Err(err.into())),
             }
         }

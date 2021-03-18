@@ -1,4 +1,4 @@
-use criterion::*;
+use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::{prelude::*, tx::AcceptedTransaction};
 use iroha_data_model::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,7 +34,7 @@ fn build_test_transaction(keys: &KeyPair) -> Transaction {
         AccountId::new(START_ACCOUNT, START_DOMAIN),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
-    .sign(&keys)
+    .sign(keys)
     .expect("Failed to sign.")
 }
 

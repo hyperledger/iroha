@@ -178,15 +178,15 @@ pub mod config {
         }
     }
 
-    fn default_maximum_transactions_in_block() -> u32 {
+    const fn default_maximum_transactions_in_block() -> u32 {
         DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK
     }
 
-    fn default_transaction_time_to_live_ms() -> u64 {
+    const fn default_transaction_time_to_live_ms() -> u64 {
         DEFAULT_TRANSACTION_TIME_TO_LIVE_MS
     }
 
-    fn default_maximum_transactions_in_queue() -> u32 {
+    const fn default_maximum_transactions_in_queue() -> u32 {
         DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE
     }
 }
@@ -234,12 +234,12 @@ mod tests {
     fn push_pending_transaction() {
         let mut queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100000,
+            transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
 
         queue
-            .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
+            .push_pending_transaction(accepted_tx("account", "domain", 100_000, None))
             .expect("Failed to push tx into queue");
     }
 
@@ -248,18 +248,18 @@ mod tests {
         let maximum_transactions_in_queue = 10;
         let mut queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100000,
+            transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue,
         });
         for _ in 0..maximum_transactions_in_queue {
             queue
-                .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
+                .push_pending_transaction(accepted_tx("account", "domain", 100_000, None))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(queue
-            .push_pending_transaction(accepted_tx("account", "domain", 100000, None))
+            .push_pending_transaction(accepted_tx("account", "domain", 100_000, None))
             .is_err());
     }
 
@@ -267,13 +267,13 @@ mod tests {
     fn push_multisignature_transaction() {
         let mut queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100000,
+            transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
         let transaction = Transaction::new(
             Vec::new(),
             <Account as Identifiable>::Id::new("account", "domain"),
-            100000,
+            100_000,
         );
         let get_tx = || {
             VersionedAcceptedTransaction::from_transaction(
@@ -315,7 +315,7 @@ mod tests {
         let max_block_tx = 2;
         let mut queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100000,
+            transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
@@ -324,7 +324,7 @@ mod tests {
                 .push_pending_transaction(accepted_tx(
                     "alice",
                     "wonderland",
-                    100000,
+                    100_000,
                     Some(&alice_key),
                 ))
                 .expect("Failed to push tx into queue");
@@ -346,11 +346,11 @@ mod tests {
         let max_block_tx = 2;
         let mut queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100000,
+            transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let transaction = accepted_tx("alice", "wonderland", 100000, Some(&alice_key));
+        let transaction = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
         let mut world_state_view =
             WorldStateView::new(world_with_test_domains(alice_key.public_key));
         let _ = world_state_view
@@ -414,19 +414,19 @@ mod tests {
         let max_block_tx = 2;
         let mut queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100000,
+            transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
         let alice_key_1 = KeyPair::generate().expect("Failed to generate keypair.");
         let alice_key_2 = KeyPair::generate().expect("Failed to generate keypair.");
         let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_transaction_1 = accepted_tx("alice", "wonderland", 100000, Some(&alice_key_1));
+        let alice_transaction_1 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_2 = accepted_tx("alice", "wonderland", 100000, Some(&alice_key_2));
+        let alice_transaction_2 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_2));
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_3 = accepted_tx("alice", "wonderland", 100000, Some(&bob_key));
+        let alice_transaction_3 = accepted_tx("alice", "wonderland", 100_000, Some(&bob_key));
         thread::sleep(Duration::from_millis(10));
-        let alice_transaction_4 = accepted_tx("alice", "wonderland", 100000, Some(&alice_key_1));
+        let alice_transaction_4 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
         queue
             .push_pending_transaction(alice_transaction_1.clone())
             .expect("Failed to push tx into queue");

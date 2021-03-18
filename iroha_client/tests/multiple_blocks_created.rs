@@ -150,7 +150,7 @@ mod tests {
                 configuration
                     .sumeragi_configuration
                     .max_faulty_peers(MAX_FAULTS);
-                let iroha = Iroha::new(configuration, AllowAll.into());
+                let iroha = Iroha::new(&configuration, AllowAll.into());
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 #[allow(clippy::empty_loop)]
