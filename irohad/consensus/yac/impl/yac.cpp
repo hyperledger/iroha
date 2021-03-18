@@ -106,12 +106,7 @@ namespace iroha {
         // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
         // separate entity
 
-        getSubscription()->dispatcher()->add(
-            SubscriptionEngineHandlers::kVoteProcess,
-            [wptr(weak_from_this()), vote] {
-              if (auto ptr = wptr.lock())
-                ptr->votingStep(vote);
-            });
+        votingStep(vote);
       }
 
       // ------|Network notifications|------
@@ -242,7 +237,7 @@ namespace iroha {
         lock.unlock();
 
         getSubscription()->dispatcher()->addDelayed(
-            SubscriptionEngineHandlers::kVoteProcess,
+            SubscriptionEngineHandlers::kYac,
             timer_->getDelay(),
             [wptr(weak_from_this()), vote, attempt] {
               if (auto ptr = wptr.lock())
