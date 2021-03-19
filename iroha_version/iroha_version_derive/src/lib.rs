@@ -1,15 +1,5 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::use_self,
-    clippy::implicit_return,
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::wildcard_imports
-)]
-extern crate proc_macro;
-
-use crate::proc_macro::TokenStream;
+#![allow(clippy::module_name_repetitions, missing_docs)]
+use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
 use quote::quote;
@@ -264,7 +254,7 @@ impl Parse for DeclareVersionedArgs {
         let enum_name: Ident = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
-        input.parse::<Token![..]>()?;
+        let _ = input.parse::<Token![..]>()?;
         let end_version: LitInt = input.parse()?;
         let end_version: u8 = end_version.base10_parse()?;
         if end_version <= start_version {

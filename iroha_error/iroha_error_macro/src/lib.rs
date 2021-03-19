@@ -1,13 +1,4 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::use_self,
-    clippy::implicit_return,
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::wildcard_imports
-)]
-extern crate proc_macro;
+#![allow(clippy::module_name_repetitions, missing_docs)]
 
 use proc_macro::TokenStream;
 use quote::quote;

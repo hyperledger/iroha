@@ -60,7 +60,7 @@ mod tests {
             .expect("Failed to load configuration.");
         client_configuration.torii_api_url = network.genesis.api_address.clone();
         let mut iroha_client = Client::new(&client_configuration);
-        iroha_client
+        let _ = iroha_client
             .submit_all(vec![
                 create_domain.into(),
                 create_account.into(),
@@ -82,7 +82,7 @@ mod tests {
         let transaction = iroha_client
             .build_transaction(vec![mint_asset.clone().into()])
             .expect("Failed to create transaction.");
-        iroha_client
+        let _ = iroha_client
             .submit_transaction(
                 iroha_client
                     .sign_transaction(transaction)
@@ -115,7 +115,7 @@ mod tests {
             .get_original_transaction(&transaction, 3, Duration::from_millis(100))
             .expect("Failed to query pending transactions.")
             .expect("Found no pending transaction for this account.");
-        iroha_client
+        let _ = iroha_client
             .submit_transaction(
                 iroha_client
                     .sign_transaction(transaction)

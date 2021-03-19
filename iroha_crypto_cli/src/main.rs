@@ -56,7 +56,7 @@ fn main() {
         .expect("Failed to get algorithm name.")
         .parse()
         .expect("Failed to parse algorithm.");
-    let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm.clone());
+    let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
     let keypair = seed_option
         .map_or_else(
             || {

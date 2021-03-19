@@ -24,7 +24,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    peer.start_with_config(configuration);
+    let _ = peer.start_with_config(configuration);
     thread::sleep(pipeline_time);
 
     let domain_name = "wonderland";
@@ -38,7 +38,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         .expect("Failed to load configuration.");
     client_config.torii_api_url = peer.api_address;
     let mut iroha_client = Client::new(&client_config);
-    iroha_client
+    let _ = iroha_client
         .submit(create_asset.into())
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
@@ -51,7 +51,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
             account_id.clone(),
         )),
     );
-    iroha_client
+    let _ = iroha_client
         .submit(mint_asset.into())
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);

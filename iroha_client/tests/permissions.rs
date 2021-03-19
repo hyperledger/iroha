@@ -37,7 +37,8 @@ fn permissions_disallow_asset_transfer() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    peer.start_with_config_permissions(configuration, public_blockchain::default_permissions());
+    let _ =
+        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions());
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
@@ -57,7 +58,7 @@ fn permissions_disallow_asset_transfer() {
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
 
-    iroha_client
+    let _ = iroha_client
         .submit_all(vec![create_asset.into(), register_bob.into()])
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
@@ -66,7 +67,7 @@ fn permissions_disallow_asset_transfer() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
-    iroha_client
+    let _ = iroha_client
         .submit(mint_asset.into())
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
@@ -106,7 +107,8 @@ fn permissions_disallow_asset_burn() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    peer.start_with_config_permissions(configuration, public_blockchain::default_permissions());
+    let _ =
+        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions());
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
@@ -126,7 +128,7 @@ fn permissions_disallow_asset_burn() {
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
 
-    iroha_client
+    let _ = iroha_client
         .submit_all(vec![create_asset.into(), register_bob.into()])
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
@@ -135,7 +137,7 @@ fn permissions_disallow_asset_burn() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
-    iroha_client
+    let _ = iroha_client
         .submit_all(vec![mint_asset.into()])
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);

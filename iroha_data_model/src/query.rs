@@ -209,7 +209,7 @@ pub mod account {
 
     impl FindAccountKeyValueByIdAndKey {
         /// Default `FindAccountById` constructor.
-        pub fn new(id: AccountId, key: String) -> Self {
+        pub const fn new(id: AccountId, key: String) -> Self {
             FindAccountKeyValueByIdAndKey { id, key }
         }
     }

@@ -1,22 +1,6 @@
 //! Module for starting peers and networks. Used only for tests
 
-// Some tests don't use some of the functions
-#![warn(
-    missing_docs,
-    private_doc_tests,
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery
-)]
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::use_self,
-    clippy::implicit_return,
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::wildcard_imports
-)]
+#![allow(clippy::missing_errors_doc, clippy::module_name_repetitions)]
 
 use async_std::task;
 use iroha::{

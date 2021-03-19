@@ -1,3 +1,5 @@
+//! Iroha peer command line
+
 use clap::{App, Arg};
 use iroha::{config::Configuration, permissions::AllowAll, Iroha};
 use iroha_error::Result;

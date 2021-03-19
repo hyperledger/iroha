@@ -13,6 +13,7 @@ pub struct VarUint {
 macro_rules! try_into_uint(
     { $( $ty:ty ),* } => {
         $(
+            #[allow(trivial_numeric_casts)]
             impl std::convert::TryInto<$ty> for VarUint {
                 type Error = Error;
                 fn try_into(self) -> Result<$ty> {
@@ -37,9 +38,9 @@ macro_rules! try_into_uint(
 
 try_into_uint!(u8, u16, u32, u64, u128);
 
-impl std::convert::Into<Vec<u8>> for VarUint {
-    fn into(self) -> Vec<u8> {
-        self.payload
+impl std::convert::From<VarUint> for Vec<u8> {
+    fn from(int: VarUint) -> Self {
+        int.payload
     }
 }
 
@@ -52,6 +53,7 @@ impl std::convert::AsRef<[u8]> for VarUint {
 macro_rules! from_uint(
     { $( $ty:ty ),* } => {
         $(
+            #[allow(trivial_numeric_casts)]
             impl std::convert::From<$ty> for VarUint {
                 fn from(n: $ty) -> VarUint {
                     let zeros = n.leading_zeros();
