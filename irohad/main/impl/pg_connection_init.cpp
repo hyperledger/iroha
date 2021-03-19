@@ -12,6 +12,7 @@
 #include "common/irohad_version.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include <iostream>
 
 using namespace iroha::ametsuchi;
 
@@ -59,7 +60,8 @@ namespace {
           *soci::factory_postgresql(),
           postgres_options.maintenanceConnectionString());
     } catch (std::exception &e) {
-      return fmt::format("Could not connect to maintenance database: {}",
+      return fmt::format("Could not connect to maintenance database '{}': {}",
+                         postgres_options.maintenanceConnectionString(),
                          e.what());
     }
   };
@@ -85,12 +87,19 @@ namespace {
    */
   iroha::expected::Result<bool, std::string> isSchemaCompatible(
       const PostgresOptions &postgres_options) {
-    return getWorkingDbSession(postgres_options) | [](auto sql) {
-      return getDbSchemaVersion(*sql) |
-          [](const SchemaVersion &db_schema_version) {
-            return db_schema_version == iroha::getIrohadVersion();
-          };
-    };
+    try {
+      soci::session sql(*soci::factory_postgresql(),
+          postgres_options.workingConnectionString());
+      auto result = getDbSchemaVersion(sql);
+      if(auto err = iroha::expected::resultToOptionalError(result)){
+        return *err; //iroha::expected::makeError(std::move(*err));
+      }
+      return result.assumeValue() == iroha::getIrohadVersion();
+    } catch (std::exception &e) {
+      return fmt::format("Could not connect to working database '{}': {}",
+                         postgres_options.workingDbName(),
+                         e.what());
+    }
   }
 
   void processPqNotice(void *arg, const char *message) {
@@ -452,41 +461,42 @@ CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
     USING btree
     (log_idx ASC);
 )";
+  std::cerr << "prepare_tables_sql:\n" << prepare_tables_sql<< std::endl;
   session << prepare_tables_sql;
 }
 
 iroha::expected::Result<void, std::string>
-PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) {
-  return getMaintenanceSession(options) | [&](auto maintenance_sql)
-             -> iroha::expected::Result<void, std::string> {
-    return dropDatabaseIfExists(*maintenance_sql, options.workingDbName());
-  };
+PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options)
+try{
+  std::cerr<<"-- connecting_to "<<options.maintenanceConnectionString()<<std::endl;
+  auto maintenance_sql = soci::session(*soci::factory_postgresql(),
+                                       options.maintenanceConnectionString());
+  maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName() << ";";
+//  return dropDatabaseIfExists(maintenance_sql, options.workingDbName());
+  return iroha::expected::Value<void>{};
+}catch(const std::exception &e){
+  return e.what();
 }
 
 iroha::expected::Result<void, std::string> PgConnectionInit::createSchema(
-    const PostgresOptions &postgres_options) {
-  try {
-    return getMaintenanceSession(postgres_options) | [&](auto maintenance_sql) {
-      *maintenance_sql << fmt::format("create database {};",
-                                      postgres_options.workingDbName());
-      return getWorkingDbSession(postgres_options) | [](auto session)
-                 -> iroha::expected::Result<void, std::string> {
-        prepareTables(*session);
-        return iroha::expected::Value<void>{};
-      };
-    };
-  } catch (const std::exception &e) {
-    return e.what();
-  }
+    const PostgresOptions &postgres_options)
+try {
+  auto maintenance_sql = soci::session(*soci::factory_postgresql(),
+          postgres_options.maintenanceConnectionString());
+  maintenance_sql << fmt::format("create database {};",
+                                    postgres_options.workingDbName());
+  auto working_db_sql = soci::session(*soci::factory_postgresql(),
+          postgres_options.workingConnectionString());
+  prepareTables(working_db_sql);
+  return iroha::expected::Value<void>{};
+} catch (const std::exception &e) {
+  return e.what();
 }
 
 iroha::expected::Result<void, std::string> PgConnectionInit::resetPeers(
     soci::session &sql) {
   try {
-    static const std::string reset_peers = R"(
-      TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
-    )";
-    sql << reset_peers;
+    sql << "TRUNCATE TABLE peer RESTART IDENTITY CASCADE;";
   } catch (std::exception &e) {
     return iroha::expected::makeError(std::string{"Failed to reset peers: "}
                                       + formatPostgresMessage(e.what()));
