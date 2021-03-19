@@ -1,15 +1,6 @@
 //! HTTP/1.1 server library with WebSocket support heavily inspired by [tide](https://crates.io/crates/tide).
 
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::doc_markdown,
-    clippy::use_self,
-    clippy::implicit_return,
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::wildcard_imports
-)]
+#![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
 
 //TODO: do we need TLS/SSL?
 use async_std::{
@@ -26,12 +17,15 @@ use web_socket::WebSocketHandler;
 
 const BUFFER_SIZE: usize = 4096;
 
+/// Http and websocket server
+#[allow(missing_debug_implementations)]
 pub struct Server<State> {
     state: State,
     router: Arc<Router<Endpoint<State>>>,
 }
 
 impl<State: Clone + Send + Sync + 'static> Server<State> {
+    /// Constructor for server
     pub fn new(state: State) -> Self {
         Server {
             state,
@@ -39,6 +33,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         }
     }
 
+    /// Will make routebuilder for specific path
     pub fn at<'s>(&'s mut self, path: &str) -> RouteBuilder<'s, State> {
         RouteBuilder {
             path: path.to_string(),
@@ -56,7 +51,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
             let mut stream = stream?;
             let router = self.router.clone();
             let state = self.state.clone();
-            task::spawn(async move {
+            let _drop = task::spawn(async move {
                 let mut buffer = [0_u8; BUFFER_SIZE];
                 let read_size = stream
                     .peek(&mut buffer)
@@ -91,13 +86,19 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     }
 }
 
+/// Endpoint structure
+#[allow(missing_debug_implementations)]
 pub enum Endpoint<State> {
+    /// websocket
     WebSocket(Box<dyn WebSocketHandler<State>>),
+    /// http
     Http(HttpEndpoint<State>),
 }
 
 pub mod http {
     #![allow(clippy::module_name_repetitions)]
+
+    //! Module with http implementation
 
     use super::{web_socket::WEB_SOCKET_UPGRADE, Endpoint};
     use async_std::{net::TcpStream, prelude::*};
@@ -114,36 +115,58 @@ pub mod http {
     };
     use url::form_urlencoded;
 
+    /// get method name
     pub const GET_METHOD: &str = "GET";
+    /// post method name
     pub const POST_METHOD: &str = "POST";
+    /// allow header
     pub const ALLOW_HEADER: &str = "Allow";
+    /// upgrade header
     pub const UPGRADE_HEADER: &str = "Upgrade";
+    /// content length header
     pub const CONTENT_LENGTH_HEADER: &str = "Content-Length";
+    /// http return code `OK`
     pub const HTTP_CODE_OK: StatusCode = 200;
+    /// http return code `INTERNAL_SERVER_ERROR`
     pub const HTTP_CODE_INTERNAL_SERVER_ERROR: StatusCode = 500;
+    /// http return code `NOT_FOUND`
     pub const HTTP_CODE_NOT_FOUND: StatusCode = 404;
+    /// http return code `BAD_REQUEST`
     pub const HTTP_CODE_BAD_REQUEST: StatusCode = 400;
+    /// http return code `METHOD_NOT_ALLOWED`
     pub const HTTP_CODE_METHOD_NOT_ALLOWED: StatusCode = 405;
+    /// http return code `UPGRADE_REQUIRED`
     pub const HTTP_CODE_UPGRADE_REQUIRED: StatusCode = 426;
+    /// http version 1.1
     pub const HTTP_VERSION_1_1: &str = "HTTP/1.1";
     const MAX_HEADERS: usize = 128;
 
+    /// Headers type alias
     pub type Headers = BTreeMap<HeaderName, HeaderValue>;
 
+    /// Header name type alias
     pub type HeaderName = String;
 
-    pub type StatusCode = u16;
-
+    /// Header value type alias
     pub type HeaderValue = Vec<u8>;
 
+    /// Status code type alias
+    pub type StatusCode = u16;
+
+    /// Path parameters type alias
     pub type PathParams = BTreeMap<String, String>;
 
+    /// Query parameters type alias
     pub type QueryParams = BTreeMap<String, String>;
 
     type HttpParseHttpVersion = u8;
 
+    /// Http endpoint
+    #[allow(missing_debug_implementations)]
     pub enum HttpEndpoint<State> {
+        /// Get method
         Get(Box<dyn HttpHandler<State>>),
+        /// Post method
         Post(Box<dyn HttpHandler<State>>),
         //TODO: add other endpoints PUT, PATCH, DELETE and etc.
     }
@@ -151,6 +174,7 @@ pub mod http {
     /// Handler for HTTP connection. Just a trait alias for Fn
     #[async_trait]
     pub trait HttpHandler<State: Clone + Send + Sync + 'static>: Send + Sync + 'static {
+        /// call method for endpoint
         async fn call(
             &self,
             state: State,
@@ -179,11 +203,14 @@ pub mod http {
         }
     }
 
+    /// Error trait for implementing IntoResponse in fancier way
     pub trait HttpResponseError: Send + Sync + 'static {
+        /// Status code of error
         fn status_code(&self) -> StatusCode {
             HTTP_CODE_INTERNAL_SERVER_ERROR
         }
 
+        /// Reason why request failed
         fn reason(code: StatusCode) -> String {
             match code {
                 HTTP_CODE_INTERNAL_SERVER_ERROR => "Internal server error",
@@ -196,8 +223,10 @@ pub mod http {
             .to_owned()
         }
 
+        /// Body of response
         fn error_body(&self) -> Vec<u8>;
 
+        /// Response construction itself
         fn error_response(&self) -> HttpResponse {
             let code = self.status_code();
             HttpResponse {
@@ -217,7 +246,7 @@ pub mod http {
     }
 
     /// The version of HTTP protocol used in the corresponding request or response.
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum HttpVersion {
         /// HTTP/1.1.
         Http1_1,
@@ -231,6 +260,8 @@ pub mod http {
         }
     }
 
+    /// Http error
+    #[allow(variant_size_differences)]
     #[derive(Debug, Clone, Eq, PartialEq, FromVariant, Error)]
     pub enum Error {
         /// Http version is not supported
@@ -288,6 +319,7 @@ pub mod http {
     }
 
     impl HttpRequest {
+        /// Process request
         pub async fn process<State>(
             self,
             state: State,
@@ -460,6 +492,7 @@ pub mod http {
     }
 
     impl HttpResponse {
+        /// Internal server error
         pub fn internal_server_error() -> HttpResponse {
             HttpResponse {
                 version: HttpVersion::Http1_1,
@@ -470,6 +503,7 @@ pub mod http {
             }
         }
 
+        /// not found error
         pub fn not_found() -> HttpResponse {
             HttpResponse {
                 version: HttpVersion::Http1_1,
@@ -480,6 +514,7 @@ pub mod http {
             }
         }
 
+        /// bad request
         pub fn bad_request() -> HttpResponse {
             HttpResponse {
                 version: HttpVersion::Http1_1,
@@ -490,9 +525,10 @@ pub mod http {
             }
         }
 
+        /// method not allowed
         pub fn method_not_allowed(allowed_methods: &[&str]) -> HttpResponse {
             let mut headers = Headers::new();
-            headers.insert(
+            let _drop = headers.insert(
                 ALLOW_HEADER.to_string(),
                 allowed_methods.join(", ").as_bytes().to_vec(),
             );
@@ -505,9 +541,10 @@ pub mod http {
             }
         }
 
+        /// upgrade required
         pub fn upgrade_required(upgrade: &[u8]) -> HttpResponse {
             let mut headers = Headers::new();
-            headers.insert(UPGRADE_HEADER.to_string(), upgrade.to_vec());
+            let _drop = headers.insert(UPGRADE_HEADER.to_string(), upgrade.to_vec());
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_UPGRADE_REQUIRED,
@@ -517,8 +554,9 @@ pub mod http {
             }
         }
 
+        /// Ok constructor
         pub fn ok(mut headers: Headers, body: Vec<u8>) -> HttpResponse {
-            headers.insert(
+            let _drop = headers.insert(
                 CONTENT_LENGTH_HEADER.to_string(),
                 format!("{}", body.len()).as_bytes().to_vec(),
             );
@@ -570,14 +608,19 @@ pub mod http {
 pub mod web_socket {
     #![allow(clippy::module_name_repetitions)]
 
+    //! websocket implementation module
+
     use super::http::{PathParams, QueryParams};
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
     pub use async_tungstenite::tungstenite::Message as WebSocketMessage;
     use async_tungstenite::WebSocketStream as TungsteniteWebSocketStream;
-    pub type WebSocketStream = TungsteniteWebSocketStream<TcpStream>;
     use iroha_error::Result;
 
+    /// Websocket stream alias
+    pub type WebSocketStream = TungsteniteWebSocketStream<TcpStream>;
+
+    /// Websocket upgrade message
     pub const WEB_SOCKET_UPGRADE: &[u8] = b"websocket";
 
     /// Handler for web socket connection. Gets a web socket stream after initial HTTP handshake.
@@ -585,6 +628,7 @@ pub mod web_socket {
     pub trait WebSocketHandler<State: Clone + Send + Sync + 'static>:
         Send + Sync + 'static
     {
+        /// Call websocket handler
         async fn call(
             &self,
             state: State,
@@ -615,6 +659,7 @@ pub mod web_socket {
 }
 
 /// Builder for server route handlers.
+#[allow(missing_debug_implementations)]
 pub struct RouteBuilder<'s, State> {
     path: String,
     server: &'s mut Server<State>,
@@ -742,7 +787,7 @@ where
 
 async fn consume_bytes(stream: &mut TcpStream, length: u64) {
     let mut buffer = Vec::new();
-    stream
+    let _ = stream
         .take(length)
         .read_to_end(&mut buffer)
         .await
@@ -772,7 +817,7 @@ mod tests {
     #[test]
     fn get_request() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
                 |_state: (),
@@ -797,7 +842,7 @@ mod tests {
     #[async_std::test]
     async fn get_request_isahc() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/hello/world").get(
                 |_state: (),
@@ -820,7 +865,7 @@ mod tests {
     #[test]
     fn multiple_routes() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/a").get(
                 |_state: (),
@@ -856,7 +901,7 @@ mod tests {
     #[test]
     fn path_params() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/:a/path/:c").get(
                 |_state: (),
@@ -882,7 +927,7 @@ mod tests {
     #[test]
     fn query_params() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
                 |_state: (),
@@ -909,7 +954,7 @@ mod tests {
     #[test]
     fn stateful_server() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let state = Arc::new(RwLock::new(0));
             let mut server = Server::new(state);
             server.at("/add/:num").get(
@@ -953,7 +998,7 @@ mod tests {
     #[test]
     fn web_socket() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").web_socket(
                 |_state: (),

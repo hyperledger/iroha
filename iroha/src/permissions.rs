@@ -1,3 +1,5 @@
+#![allow(clippy::module_name_repetitions)]
+
 //! This module contains permissions related Iroha functionality.
 
 use crate::prelude::*;

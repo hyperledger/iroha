@@ -16,6 +16,7 @@ use std::{
     time::Duration,
 };
 
+/// Iroha client
 #[derive(Clone)]
 pub struct Client {
     torii_url: String,
@@ -28,6 +29,7 @@ pub struct Client {
 
 /// Representation of `Iroha` client.
 impl Client {
+    /// Constructor for client
     pub fn new(configuration: &Configuration) -> Self {
         Client {
             torii_url: configuration.torii_api_url.clone(),
@@ -128,7 +130,7 @@ impl Client {
         let (sender, receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions)?;
         let hash = transaction.hash();
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             for event in client
                 .listen_for_events(PipelineEventFilter::by_hash(hash).into())
                 .expect("Failed to initialize iterator.")
@@ -146,7 +148,7 @@ impl Client {
                 }
             }
         });
-        self.submit_transaction(transaction)?;
+        let _ = self.submit_transaction(transaction)?;
         receiver
             .recv_timeout(self.transaction_status_timout)
             .map_or_else(
@@ -274,6 +276,7 @@ impl Client {
 }
 
 /// Iterator for getting events from the `WebSocket` stream.
+#[derive(Debug)]
 pub struct EventIterator {
     stream: WebSocketStream,
 }
@@ -336,32 +339,40 @@ impl Debug for Client {
 }
 
 pub mod account {
+    //! Module with queries for account
     use super::*;
 
+    /// Get query to get all accounts
     pub fn all() -> QueryRequest {
         QueryRequest::new(FindAllAccounts::new().into())
     }
 
+    /// Get query to get account by id
     pub fn by_id(account_id: AccountId) -> QueryRequest {
         QueryRequest::new(FindAccountById::new(account_id).into())
     }
 }
 
 pub mod asset {
+    //! Module with queries for assets
     use super::*;
 
+    /// Get query to get all assets
     pub fn all() -> QueryRequest {
         QueryRequest::new(FindAllAssets::new().into())
     }
 
+    /// Get query to get all asset definitions
     pub fn all_definitions() -> QueryRequest {
         QueryRequest::new(FindAllAssetsDefinitions::new().into())
     }
 
+    /// Get query to get all assets by account id
     pub fn by_account_id(account_id: <Account as Identifiable>::Id) -> QueryRequest {
         QueryRequest::new(FindAssetsByAccountId::new(account_id).into())
     }
 
+    /// Get query to get all assets by account id and definition id
     pub fn by_account_id_and_definition_id(
         account_id: AccountId,
         asset_definition_id: AssetDefinitionId,
@@ -373,12 +384,15 @@ pub mod asset {
 }
 
 pub mod domain {
+    //! Module with queries for domains
     use super::*;
 
+    /// Get query to get all domains
     pub fn all() -> QueryRequest {
         QueryRequest::new(FindAllDomains::new().into())
     }
 
+    /// Get query to get all domain by name
     pub fn by_name(domain_name: String) -> QueryRequest {
         QueryRequest::new(FindDomainByName::new(domain_name).into())
     }
@@ -387,6 +401,8 @@ pub mod domain {
 /// URI that `Client` uses to route outgoing requests.
 //TODO: remove duplication with `iroha::torii::uri`.
 pub mod uri {
+    //! Module with uri constants
+
     /// Query URI is used to handle incoming Query requests.
     pub const QUERY_URI: &str = "/query";
     /// Instructions URI is used to handle incoming ISI requests.

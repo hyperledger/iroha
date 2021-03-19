@@ -42,7 +42,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         .expect("Failed to load configuration.");
     client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);
-    iroha_client
+    let _ = iroha_client
         .submit(create_asset.into())
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
@@ -55,7 +55,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
             account_id.clone(),
         )),
     );
-    iroha_client
+    let _ = iroha_client
         .submit(mint_asset.into())
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
@@ -82,9 +82,9 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         panic!("Wrong Query Result Type.");
     }
 
-    task::block_on(peer_handle.cancel());
+    let _ = task::block_on(peer_handle.cancel());
 
-    peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir);
+    let _ = peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir);
     thread::sleep(pipeline_time);
     let request = client::asset::by_account_id(account_id);
     let query_result = iroha_client

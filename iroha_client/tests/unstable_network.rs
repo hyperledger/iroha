@@ -80,7 +80,7 @@ mod tests {
                     account_id.clone(),
                 )),
             );
-            iroha_client
+            let _ = iroha_client
                 .submit(mint_asset.into())
                 .expect("Failed to create asset.");
             account_has_quantity += quantity;

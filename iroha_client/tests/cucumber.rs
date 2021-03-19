@@ -1,9 +1,4 @@
-#![allow(
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::too_many_lines,
-    clippy::wildcard_imports
-)]
+#![allow(missing_docs, clippy::too_many_lines)]
 
 use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
@@ -21,6 +16,7 @@ use tempfile::TempDir;
 const CONFIGURATION_PATH: &str = "tests/single_config.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 
+#[derive(Debug)]
 pub struct IrohaWorld {
     client: Client,
     _peer_id: PeerId,
@@ -60,7 +56,7 @@ mod iroha_steps {
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps
+        let _ = steps
             .given("Iroha Peer is up", |mut world, _step| {
                 let iroha_port = world.iroha_port;
                 world.join_handle = Some(task::spawn(async move {
@@ -84,7 +80,7 @@ mod iroha_steps {
             .then("Iroha Peer is down", |mut world, _step| {
                 if let Some(join_handle) = world.join_handle {
                     executor::block_on(async {
-                        join_handle.cancel().await;
+                        let _ = join_handle.cancel().await;
                     });
                     world.join_handle = None;
                     thread::sleep(Duration::from_millis(world.block_build_time));
@@ -101,14 +97,14 @@ mod asset_steps {
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps.given_regex(
+        let _ = steps.given_regex(
             r"^Peer has Asset Definition with name (.+) and domain (.+)$",
             | mut world,
             matches,
             _step | {
                 let asset_definition_name = matches[1].trim();
                 let asset_definition_domain = matches[2].trim();
-                    world
+                    let _ = world
                         .client
                         .submit(
                             RegisterBox::new (
@@ -138,7 +134,7 @@ mod asset_steps {
                 let asset_quantity: u32 = matches[3].trim().parse().expect("Failed to parse Assets Quantity.");
                 let asset_definition_name = matches[4].trim();
                 let asset_definition_domain = matches[5].trim();
-                world
+                let _ = world
                     .client
                     .submit(
                         MintBox::new(
@@ -226,7 +222,7 @@ mod account_steps {
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps
+        let _ = steps
             .given_regex(
                 r"^Peer has Account with name (.+) and domain (.+)$",
                 | mut world,
@@ -241,7 +237,7 @@ mod account_steps {
                     let register_account = RegisterBox::new(
                          IdentifiableBox::Account(Account::new(AccountId::new(account_name, domain_name)).into()),
                     );
-                    world.client.submit(register_account.into())
+                    let _ = world.client.submit(register_account.into())
                         .expect("Failed to register an account.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
                     world
@@ -262,7 +258,7 @@ mod account_steps {
                         "Going to mint an {} of an asset with definition: {}#{} to an account: {}@{}",
                         quantity, asset_definition_name, asset_definition_domain,
                         account_name, account_domain_name);
-                        world.client.submit(
+                        let _ = world.client.submit(
                             MintBox::new(
                                 Value::U32(quantity),
                                 IdBox::AssetId(AssetId::new(
@@ -308,7 +304,7 @@ mod domain_steps {
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps
+        let _ = steps
             .given_regex(
                 r"^Peer has Domain with name (.+)$",
                 |mut world, matches, _step| {
@@ -316,7 +312,7 @@ mod domain_steps {
                     println!("Going to add domain with name: {}", domain_name);
                     let add_domain =
                         RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
-                    world
+                    let _ = world
                         .client
                         .submit(add_domain.into())
                         .expect("Failed to add the domain.");
@@ -348,7 +344,7 @@ mod query_steps {
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps
+        let _ = steps
             .when_regex(
                 r"^(.+) Account from (.+) domain requests all domains$",
                 |mut world, matches, _step| {
@@ -561,7 +557,7 @@ mod peer_steps {
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
-        steps.when_regex(
+        let _ = steps.when_regex(
             r"(.+) Account from (.+) domain registers new Trusted Peer with URL (.+) and Public Key (.+)$",
             | mut world,
             matches,
@@ -571,7 +567,7 @@ mod peer_steps {
                 let trusted_peer_url = matches[3].trim();
                 let trusted_peer_public_key = matches[4].trim();
                 let public_key: PublicKey = serde_json::from_value(serde_json::json!(trusted_peer_public_key)).expect("Failed to parse Public Key.");
-                    world
+                    let _ = world
                         .client
                         .submit(
                             RegisterBox::new (
@@ -594,29 +590,29 @@ mod peer_steps {
                 let _account_name = matches[1].trim();
                 let _account_domain_name = matches[2].trim();
                 let maximum_faulty_peers_amount = matches[3].parse().expect("Failed to parse MaximumFaultyPeersAmount.");
-                    world
-                        .client
-                        .submit(
-                            MintBox::new (
-                                Value::Parameter(Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)),
-                                IdBox::WorldId
-                                )
+                let _ = world
+                    .client
+                    .submit(
+                        MintBox::new (
+                            Value::Parameter(Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)),
+                            IdBox::WorldId
+                        )
                             .into(),
-                            )
-                .expect("Failed to execute request.");
+                    )
+                    .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
                 world
             })
-        .when_regex(
-            r"(.+) Account from (.+) domain sets Commit Time to (\d+) milliseconds$",
-            | mut world,
-            matches,
-            _step | {
-                let _account_name = matches[1].trim();
-                let _account_domain_name = matches[2].trim();
-                let commit_time_milliseconds = matches[3].parse().expect("Failed to parse CommitTime.");
+            .when_regex(
+                r"(.+) Account from (.+) domain sets Commit Time to (\d+) milliseconds$",
+                | mut world,
+                matches,
+                _step | {
+                    let _account_name = matches[1].trim();
+                    let _account_domain_name = matches[2].trim();
+                    let commit_time_milliseconds = matches[3].parse().expect("Failed to parse CommitTime.");
 
-                    world
+                    let _ = world
                         .client
                         .submit(
                             MintBox::new (
@@ -639,7 +635,7 @@ mod peer_steps {
                 let _account_domain_name = matches[2].trim();
                 let transaction_receipt_time_milliseconds = matches[3].parse().expect("Failed to parse TransactionReceiptTime.");
 
-                    world
+                    let _ = world
                         .client
                         .submit(
                             MintBox::new (
@@ -662,7 +658,7 @@ mod peer_steps {
                 let _account_domain_name = matches[2].trim();
                 let block_time_milliseconds = matches[3].parse().expect("Failed to parse BlockTime.");
 
-                    world
+                    let _ = world
                         .client
                         .submit(
                             MintBox::new (

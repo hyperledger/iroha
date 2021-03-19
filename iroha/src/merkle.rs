@@ -1,3 +1,5 @@
+#![allow(clippy::module_name_repetitions)]
+
 use crate::prelude::*;
 use std::collections::VecDeque;
 

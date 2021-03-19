@@ -25,7 +25,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    peer.start_with_config(configuration);
+    let _ = peer.start_with_config(configuration);
     thread::sleep(pipeline_time);
 
     let domain_name = "wonderland";
@@ -40,7 +40,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
     let committed_event_received = Arc::new(RwLock::new(false));
     let committed_event_received_clone = committed_event_received.clone();
     let mut client_clone = iroha_client.clone();
-    thread::spawn(move || {
+    let _ = thread::spawn(move || {
         for event in client_clone
             .listen_for_events(EventFilter::Pipeline(PipelineEventFilter::by_entity(
                 PipelineEntityType::Transaction,
@@ -61,7 +61,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
     });
     thread::sleep(pipeline_time * 2);
     //When
-    iroha_client
+    let _ = iroha_client
         .submit(create_asset.into())
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
