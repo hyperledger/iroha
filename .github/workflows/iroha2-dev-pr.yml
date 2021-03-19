@@ -19,12 +19,14 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install cargo-lints
+        run: cargo install --debug --git https://github.com/i1i1/cargo-lints
       - name: Format check
         run: cargo fmt --all --verbose -- --check
       - name: Static analysis without features
-        run: cargo clippy --workspace --benches --tests -- -Dwarnings
+        run: cargo lints clippy --all --benches --tests
       - name: Static analysis with all features enabled
-        run: cargo clippy --workspace --all-features --benches --tests -- -Dwarnings
+        run: cargo lints clippy --all --benches --tests --all-features
       - name: Documentation check
         run: cargo doc --no-deps --verbose
       - name: Archive documentation

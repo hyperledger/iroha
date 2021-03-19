@@ -27,7 +27,7 @@ mod tests {
         );
 
         // Given
-        peer.start_with_config(configuration);
+        let _ = peer.start_with_config(configuration);
         thread::sleep(pipeline_time);
 
         let domain_name = "wonderland";
@@ -47,7 +47,7 @@ mod tests {
         client_configuration.torii_api_url = peer.api_address;
 
         let mut iroha_client = Client::new(&client_configuration);
-        iroha_client.submit_all(vec![create_asset.into(), add_signatory.into()])?;
+        let _ = iroha_client.submit_all(vec![create_asset.into(), add_signatory.into()])?;
         thread::sleep(pipeline_time * 2);
         //When
         let quantity: u32 = 200;
@@ -61,7 +61,7 @@ mod tests {
         client_configuration.public_key = key_pair.public_key;
         client_configuration.private_key = key_pair.private_key;
         let mut iroha_client = Client::new(&client_configuration);
-        iroha_client.submit(mint_asset.into())?;
+        let _ = iroha_client.submit(mint_asset.into())?;
         thread::sleep(pipeline_time * 2);
         //Then
         let request = client::asset::by_account_id(account_id);

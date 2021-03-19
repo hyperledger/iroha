@@ -1,10 +1,7 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use
-)]
+#![allow(clippy::module_name_repetitions)]
 
+/// Module with multihash implementation
 pub mod multihash;
 mod varint;
 
@@ -34,10 +31,15 @@ use ursa::{
     },
 };
 
+/// Length of hash
 pub const HASH_LENGTH: usize = 32;
+/// ed25519
 pub const ED_25519: &str = "ed25519";
+/// secp256k1
 pub const SECP_256_K1: &str = "secp256k1";
+/// bls normal
 pub const BLS_NORMAL: &str = "bls_normal";
+/// bls small
 pub const BLS_SMALL: &str = "bls_small";
 
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
@@ -47,6 +49,7 @@ pub const BLS_SMALL: &str = "bls_small";
 pub struct Hash(pub [u8; HASH_LENGTH]);
 
 impl Hash {
+    /// new hash from bytes
     pub fn new(bytes: &[u8]) -> Self {
         let vec_hash = VarBlake2b::new(32)
             .expect("Failed to initialize variable size hash")
@@ -79,11 +82,16 @@ impl AsRef<[u8]> for Hash {
     }
 }
 
-#[derive(Clone)]
+/// Algorithm for hashing
+#[derive(Clone, Copy, Debug)]
 pub enum Algorithm {
+    /// Ed25519
     Ed25519,
+    /// Secp256k1
     Secp256k1,
+    /// BlsSmall
     BlsSmall,
+    /// BlsNormal
     BlsNormal,
 }
 
@@ -117,9 +125,12 @@ impl Display for Algorithm {
     }
 }
 
-#[derive(Clone)]
+/// Options for key generation
+#[derive(Clone, Debug)]
 pub enum KeyGenOption {
+    /// Use seed
     UseSeed(Vec<u8>),
+    /// Derive from private key
     FromPrivateKey(PrivateKey),
 }
 
@@ -143,23 +154,30 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
     }
 }
 
-#[derive(Default, Clone)]
+/// Configuration of key generation
+#[derive(Default, Clone, Debug)]
 pub struct KeyGenConfiguration {
+    /// Options
     pub key_gen_option: Option<KeyGenOption>,
+    /// Algorithm
     pub algorithm: Algorithm,
 }
 
+#[allow(clippy::missing_const_for_fn)]
 impl KeyGenConfiguration {
+    /// Use seed
     pub fn use_seed(mut self, seed: Vec<u8>) -> KeyGenConfiguration {
         self.key_gen_option = Some(KeyGenOption::UseSeed(seed));
         self
     }
 
+    /// Use private key
     pub fn use_private_key(mut self, private_key: PrivateKey) -> KeyGenConfiguration {
         self.key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
         self
     }
 
+    /// with algorithm
     pub fn with_algorithm(mut self, algorithm: Algorithm) -> KeyGenConfiguration {
         self.algorithm = algorithm;
         self
@@ -218,7 +236,9 @@ impl KeyPair {
 /// Public Key used in signatures.
 #[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash, Default)]
 pub struct PublicKey {
+    /// Digest function
     pub digest_function: String,
+    /// payload of key
     pub payload: Vec<u8>,
 }
 
@@ -304,7 +324,9 @@ impl<'de> Deserialize<'de> for PublicKey {
 /// Private Key used in signatures.
 #[derive(Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct PrivateKey {
+    /// Digest function
     pub digest_function: String,
+    /// key payload
     #[serde(deserialize_with = "from_hex", serialize_with = "to_hex")]
     pub payload: Vec<u8>,
 }

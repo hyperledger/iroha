@@ -27,7 +27,7 @@ mod tests {
             Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
         // Given
-        peer.start_with_config(configuration.clone());
+        let _ = peer.start_with_config(configuration.clone());
         thread::sleep(pipeline_time);
 
         //When
@@ -51,7 +51,7 @@ mod tests {
             .expect("Failed to load configuration.");
         client_config.torii_api_url = peer.api_address;
         let mut iroha_client = Client::new(&client_config);
-        iroha_client
+        let _ = iroha_client
             .submit_all(vec![create_asset.into(), mint_asset.into()])
             .expect("Failed to prepare state.");
         thread::sleep(Duration::from_millis(

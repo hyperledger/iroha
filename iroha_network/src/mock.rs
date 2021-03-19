@@ -1,4 +1,4 @@
-#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_errors_doc, unsafe_code, missing_docs)]
 
 use async_std::{
     io::{Read, Write},
@@ -20,18 +20,20 @@ const BUFFER_SIZE: usize = 2048;
 static mut ENDPOINTS: Vec<(String, Sender<RequestStream>)> = Vec::new();
 
 fn find_sender(server_url: &str) -> Sender<RequestStream> {
-    unsafe {
-        for tuple in &ENDPOINTS {
-            if tuple.0 == server_url {
-                return tuple.1.clone();
-            }
+    for tuple in unsafe { &ENDPOINTS } {
+        if tuple.0 == server_url {
+            return tuple.1.clone();
         }
     }
     panic!("Can't find ENDPOINT: {}", server_url);
 }
 
+/// alias of `Arc<RwLock<T>`
 pub type State<T> = Arc<RwLock<T>>;
+
+/// Alias for read write
 pub trait AsyncStream: Read + Write + Send + Unpin {}
+
 impl<T> AsyncStream for T where T: Read + Write + Send + Unpin {}
 
 struct RequestStream {
@@ -83,7 +85,8 @@ impl Write for RequestStream {
     }
 }
 
-#[derive(Debug)]
+/// Network type
+#[derive(Debug, Clone)]
 pub struct Network {
     server_url: String,
 }

@@ -48,7 +48,7 @@ mod tests {
         client_configuration.torii_api_url =
             peers.first().expect("Failed to get first peer.").clone();
         let mut iroha_client = Client::new(&client_configuration);
-        iroha_client
+        let _ = iroha_client
             .submit_all(vec![
                 create_domain.into(),
                 create_account.into(),
@@ -69,7 +69,7 @@ mod tests {
                     account_id.clone(),
                 )),
             );
-            iroha_client
+            let _ = iroha_client
                 .submit(mint_asset.into())
                 .expect("Failed to create asset.");
             account_has_quantity += quantity;
@@ -128,7 +128,7 @@ mod tests {
             let peer_id = peer_ids[i].clone();
             let key_pair = peer_keys[i].clone();
             let (p2p_address, api_address) = addresses[i].clone();
-            task::spawn(async move {
+            let _ = task::spawn(async move {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
                     .expect("Failed to load configuration.");

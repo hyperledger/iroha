@@ -51,7 +51,7 @@ mod tests {
             .expect("Failed to load configuration.");
         client_configuration.torii_api_url = network.genesis.api_address.clone();
         let mut iroha_client = Client::new(&client_configuration);
-        iroha_client
+        let _ = iroha_client
             .submit_all(vec![
                 create_domain.into(),
                 create_account.into(),
@@ -65,7 +65,7 @@ mod tests {
             Value::U32(quantity),
             IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
         );
-        iroha_client
+        let _ = iroha_client
             .submit(mint_asset.into())
             .expect("Failed to create asset.");
         thread::sleep(pipeline_time * 2);
@@ -73,11 +73,11 @@ mod tests {
         let peer = TestPeer::new().expect("Failed to create new peer");
         configuration.sumeragi_configuration.trusted_peers.peers = network.ids().collect();
 
-        peer.start_with_config(configuration);
+        let _ = peer.start_with_config(configuration);
 
         thread::sleep(pipeline_time * 2);
         let add_peer = RegisterBox::new(IdentifiableBox::Peer(Peer::new(peer.id).into()));
-        iroha_client
+        let _ = iroha_client
             .submit(add_peer.into())
             .expect("Failed to add new peer.");
         thread::sleep(pipeline_time * 8);

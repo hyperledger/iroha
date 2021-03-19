@@ -7,7 +7,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_connect_handling() {
-        thread::spawn(|| {
+        let _drop = thread::spawn(|| {
             task::block_on(async {
                 Network::listen(
                     Arc::new(RwLock::new(())),
@@ -41,7 +41,7 @@ mod tests {
                 .wrap_err("Failed to write message")?;
             stream.flush().await.wrap_err("Failed to flush")?;
             let mut receipt = [0_u8; 4];
-            stream
+            let _ = stream
                 .read(&mut receipt)
                 .await
                 .wrap_err("Failed to read receipt")?;

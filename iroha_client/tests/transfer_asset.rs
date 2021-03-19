@@ -29,7 +29,7 @@ mod tests {
             Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
         // Given
-        peer.start_with_config(configuration);
+        let _ = peer.start_with_config(configuration);
         thread::sleep(pipeline_time);
 
         let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
@@ -74,7 +74,7 @@ mod tests {
                 account1_id.clone(),
             )),
         );
-        iroha_client
+        let _ = iroha_client
             .submit_all(vec![
                 create_domain.into(),
                 create_account1.into(),
@@ -91,7 +91,7 @@ mod tests {
             Value::U32(quantity),
             IdBox::AssetId(AssetId::new(asset_definition_id, account2_id.clone())),
         );
-        iroha_client
+        let _ = iroha_client
             .submit(transfer_asset.into())
             .expect("Failed to submit instruction.");
         thread::sleep(pipeline_time * 2);

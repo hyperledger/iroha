@@ -1,0 +1,32 @@
+#
+# For all clippy lints please visit: https://rust-lang.github.io/rust-clippy/master/
+#
+deny = [
+    'anonymous_parameters',
+    'clippy::all',
+    'clippy::nursery',
+    'clippy::pedantic',
+    'future_incompatible',
+    'missing_copy_implementations',
+    'missing_debug_implementations',
+    'missing_docs',
+    'nonstandard_style',
+    'private_doc_tests',
+    'rust_2018_idioms',
+    'trivial_casts',
+    'trivial_numeric_casts',
+    'unsafe_code',
+    'unused',
+    'unused_import_braces',
+    'unused_results',
+    'variant_size_differences',
+]
+allow = [
+    'clippy::enum_glob_use',
+    'clippy::implicit_return',
+    'clippy::must_use_candidate',
+    'clippy::use_self',
+    'clippy::wildcard_imports',
+    'elided_lifetimes_in_paths',
+]
+warn = []
