@@ -118,7 +118,7 @@ mod asset_steps {
                                     .into()
                                 ),
                             )
-                            .into(),
+                            .into()
                         )
                     .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
@@ -147,7 +147,7 @@ mod asset_steps {
                                 AccountId::new(account_name, account_domain)),
                             )
                         )
-                            .into(),
+                            .into()
                     )
                     .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));

@@ -2,19 +2,21 @@
 
 #![allow(missing_docs)]
 
-use clap::{App, Arg};
+use clap::{App, Arg, ArgMatches};
 use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
 use iroha_error::{Result, WrapErr};
-use std::{str::FromStr, time::Duration};
+use std::{fs::File, io::BufReader, str::FromStr, time::Duration};
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
 const ACCOUNT: &str = "account";
 const ASSET: &str = "asset";
 const EVENTS: &str = "listen";
+const METADATA: &str = "metadata";
+const FILE_VALUE_NAME: &str = "FILE";
 
 // TODO: move into config.
 const RETRY_COUNT_MST: u32 = 1;
@@ -29,7 +31,7 @@ fn main() {
             Arg::with_name(CONFIG)
                 .short("c")
                 .long(CONFIG)
-                .value_name("FILE")
+                .value_name(FILE_VALUE_NAME)
                 .help("Sets a config file path.")
                 .takes_value(true)
                 .default_value("config.json"),
@@ -59,10 +61,10 @@ fn main() {
     }
 }
 
-pub fn submit(instruction: Instruction, configuration: &Configuration) {
+pub fn submit(instruction: Instruction, configuration: &Configuration, metadata: Metadata) {
     let mut iroha_client = Client::new(configuration);
     let transaction = iroha_client
-        .build_transaction(vec![instruction])
+        .build_transaction(vec![instruction], metadata)
         .expect("Failed to build transaction.");
     if let Ok(Some(original_transaction)) = iroha_client.get_original_transaction(
         &transaction,
@@ -88,6 +90,28 @@ pub fn submit(instruction: Instruction, configuration: &Configuration) {
             .submit_transaction(transaction)
             .expect("Failed to submit transaction.");
     }
+}
+
+pub fn metadata_arg() -> Arg<'static, 'static> {
+    Arg::with_name(METADATA)
+        .long(METADATA)
+        .value_name(FILE_VALUE_NAME)
+        .help("The filename with key-value metadata pairs in JSON.")
+        .takes_value(true)
+        .required(false)
+}
+
+pub fn parse_metadata(matches: &ArgMatches<'_>) -> Metadata {
+    matches.value_of(METADATA).map_or_else(
+        || Metadata::new(),
+        |metadata_filename| {
+            let file = File::open(metadata_filename).expect("Failed to open the metadata file.");
+            let reader = BufReader::new(file);
+            let metadata: Metadata = serde_json::from_reader(reader)
+                .expect("Failed to deserialize metadata json from reader.");
+            metadata
+        },
+    )
 }
 
 mod events {
@@ -145,14 +169,16 @@ mod domain {
         App::new(DOMAIN)
             .about("Use this command to work with Domain Entities in Iroha Peer.")
             .subcommand(
-                App::new(ADD).arg(
-                    Arg::with_name(DOMAIN_NAME)
-                        .long(DOMAIN_NAME)
-                        .value_name(DOMAIN_NAME)
-                        .help("Domain's name as double-quoted string.")
-                        .takes_value(true)
-                        .required(true),
-                ),
+                App::new(ADD)
+                    .arg(
+                        Arg::with_name(DOMAIN_NAME)
+                            .long(DOMAIN_NAME)
+                            .value_name(DOMAIN_NAME)
+                            .help("Domain's name as double-quoted string.")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(metadata_arg()),
             )
     }
 
@@ -160,14 +186,14 @@ mod domain {
         if let Some(matches) = matches.subcommand_matches(ADD) {
             if let Some(domain_name) = matches.value_of(DOMAIN_NAME) {
                 println!("Adding a new Domain with a name: {}", domain_name);
-                create_domain(domain_name, configuration);
+                create_domain(domain_name, configuration, parse_metadata(matches));
             }
         }
     }
 
-    fn create_domain(domain_name: &str, configuration: &Configuration) {
+    fn create_domain(domain_name: &str, configuration: &Configuration, metadata: Metadata) {
         let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(domain_name)));
-        submit(create_domain.into(), configuration);
+        submit(create_domain.into(), configuration, metadata);
     }
 }
 
@@ -214,7 +240,8 @@ mod account {
                             .help("Account's public key as double-quoted string.")
                             .takes_value(true)
                             .required(true),
-                    ),
+                    )
+                    .arg(metadata_arg()),
             )
             .subcommand(
                 App::new(SET)
@@ -230,6 +257,7 @@ mod account {
                                     .takes_value(true)
                                     .required(true),
                             )
+                            .arg(metadata_arg())
                     ),
             )
     }
@@ -247,7 +275,16 @@ mod account {
                     println!("Creating account with a domain's name: {}", domain_name);
                     if let Some(public_key) = matches.value_of(ACCOUNT_KEY) {
                         println!("Creating account with a public key: {}", public_key);
-                        create_account(account_name, domain_name, public_key, configuration);
+                        let public_key: PublicKey =
+                            serde_json::from_value(serde_json::json!(public_key))
+                                .expect("Failed to deserialize supplied public key argument.");
+                        create_account(
+                            account_name,
+                            domain_name,
+                            public_key,
+                            configuration,
+                            parse_metadata(matches),
+                        );
                     }
                 }
             }
@@ -262,7 +299,7 @@ mod account {
             if let Some(matches) = matches.subcommand_matches(ACCOUNT_SIGNATURE_CONDITION) {
                 if let Some(file) = matches.value_of(ACCOUNT_SIGNATURE_CONDITION_FILE) {
                     println!("Setting account signature condition from file: {}", file);
-                    set_account_signature_condition(file, configuration);
+                    set_account_signature_condition(file, configuration, parse_metadata(matches));
                 }
             }
         }
@@ -271,15 +308,15 @@ mod account {
     fn create_account(
         account_name: &str,
         domain_name: &str,
-        _public_key: &str,
+        public_key: PublicKey,
         configuration: &Configuration,
+        metadata: Metadata,
     ) {
-        let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let create_account = RegisterBox::new(IdentifiableBox::from(Account::with_signatory(
             AccountId::new(account_name, domain_name),
-            key_pair.public_key,
+            public_key,
         )));
-        submit(create_account.into(), configuration);
+        submit(create_account.into(), configuration, metadata);
     }
 
     fn signature_condition_from_file(
@@ -292,11 +329,19 @@ mod account {
         Ok(SignatureCheckCondition(condition.into()))
     }
 
-    fn set_account_signature_condition(file: &str, configuration: &Configuration) {
+    fn set_account_signature_condition(
+        file: &str,
+        configuration: &Configuration,
+        metadata: Metadata,
+    ) {
         let account = Account::new(configuration.account_id.clone());
         let condition = signature_condition_from_file(file)
             .expect("Failed to get signature condition from file");
-        submit(MintBox::new(account, condition).into(), configuration);
+        submit(
+            MintBox::new(account, condition).into(),
+            configuration,
+            metadata,
+        );
     }
 }
 
@@ -342,14 +387,16 @@ mod asset {
                     .takes_value(true)
                     .required(true),
                     )
-                )
+                .arg(metadata_arg())
+            )
             .subcommand(
                 App::new(MINT)
                 .about("Use this command to Mint Asset in existing Iroha Account.")
                 .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
-                )
+                .arg(metadata_arg())
+            )
             .subcommand(
             App::new(TRANSFER)
                 .about("Use this command to Transfer Asset from Account to Account.")
@@ -357,14 +404,14 @@ mod asset {
                 .arg(Arg::with_name(DESTINATION_ACCOUNT_ID).long(DESTINATION_ACCOUNT_ID).value_name(DESTINATION_ACCOUNT_ID).help("Destination Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
-                )
+                .arg(metadata_arg())
+            )
             .subcommand(
                 App::new(GET)
                 .about("Use this command to get Asset information from Iroha Account.")
                 .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
                 .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
-
-                )
+            )
     }
 
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
@@ -376,7 +423,12 @@ mod asset {
                         "Registering asset definition with a domain's name: {}",
                         domain_name
                     );
-                    register_asset_definition(asset_name, domain_name, configuration);
+                    register_asset_definition(
+                        asset_name,
+                        domain_name,
+                        configuration,
+                        parse_metadata(matches),
+                    );
                 }
             }
         }
@@ -390,7 +442,13 @@ mod asset {
                     );
                     if let Some(amount) = matches.value_of(QUANTITY) {
                         println!("Minting asset's quantity: {}", amount);
-                        mint_asset(asset_id, account_id, amount, configuration);
+                        mint_asset(
+                            asset_id,
+                            account_id,
+                            amount,
+                            configuration,
+                            parse_metadata(matches),
+                        );
                     }
                 }
             }
@@ -416,6 +474,7 @@ mod asset {
                                 asset_id,
                                 quantity,
                                 configuration,
+                                parse_metadata(matches),
                             );
                         }
                     }
@@ -437,6 +496,7 @@ mod asset {
         asset_name: &str,
         domain_name: &str,
         configuration: &Configuration,
+        metadata: Metadata,
     ) {
         submit(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
@@ -444,6 +504,7 @@ mod asset {
             ))
             .into(),
             configuration,
+            metadata,
         );
     }
 
@@ -452,6 +513,7 @@ mod asset {
         account_id: &str,
         quantity: &str,
         configuration: &Configuration,
+        metadata: Metadata,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
         let mint_asset = MintBox::new(
@@ -462,7 +524,7 @@ mod asset {
                 AccountId::from_str(account_id).expect("Failed to parse Account Id."),
             )),
         );
-        submit(mint_asset.into(), configuration);
+        submit(mint_asset.into(), configuration, metadata);
     }
 
     fn transfer_asset(
@@ -471,6 +533,7 @@ mod asset {
         asset_definition_id: &str,
         quantity: &str,
         configuration: &Configuration,
+        metadata: Metadata,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
         let transfer_asset = TransferBox::new(
@@ -486,7 +549,7 @@ mod asset {
                 AccountId::from_str(account2_id).expect("Failed to parse Destination Account Id."),
             )),
         );
-        submit(transfer_asset.into(), configuration);
+        submit(transfer_asset.into(), configuration, metadata);
     }
 
     fn get_asset(asset_id: &str, account_id: &str, configuration: &Configuration) {

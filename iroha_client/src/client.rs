@@ -50,11 +50,16 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signing transaction fails
-    pub fn build_transaction(&self, instructions: Vec<Instruction>) -> Result<Transaction> {
-        Transaction::new(
+    pub fn build_transaction(
+        &self,
+        instructions: Vec<Instruction>,
+        metadata: Metadata,
+    ) -> Result<Transaction> {
+        Transaction::with_metadata(
             instructions,
             self.account_id.clone(),
             self.proposed_transaction_ttl_ms,
+            metadata,
         )
         .sign(&self.key_pair)
     }
@@ -83,7 +88,36 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
-        self.submit_transaction(self.build_transaction(instructions)?)
+        self.submit_all_with_metadata(instructions, Metadata::new())
+    }
+
+    /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
+    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Returns submitted transaction's hash or error string.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
+    #[log]
+    pub fn submit_with_metadata(
+        &mut self,
+        instruction: Instruction,
+        metadata: Metadata,
+    ) -> Result<Hash> {
+        self.submit_all_with_metadata(vec![instruction], metadata)
+    }
+
+    /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
+    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Returns submitted transaction's hash or error string.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
+    pub fn submit_all_with_metadata(
+        &mut self,
+        instructions: Vec<Instruction>,
+        metadata: Metadata,
+    ) -> Result<Hash> {
+        self.submit_transaction(self.build_transaction(instructions, metadata)?)
     }
 
     /// Submit a prebuilt transaction.
@@ -126,9 +160,37 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
+        self.submit_all_blocking_with_metadata(instructions, Metadata::new())
+    }
+
+    /// Submits and waits until the transaction is either rejected or committed.
+    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Returns rejection reason if transaction was rejected.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
+    pub fn submit_blocking_with_metadata(
+        &mut self,
+        instruction: Instruction,
+        metadata: Metadata,
+    ) -> Result<Hash> {
+        self.submit_all_blocking_with_metadata(vec![instruction], metadata)
+    }
+
+    /// Submits and waits until the transaction is either rejected or committed.
+    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Returns rejection reason if transaction was rejected.
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
+    pub fn submit_all_blocking_with_metadata(
+        &mut self,
+        instructions: Vec<Instruction>,
+        metadata: Metadata,
+    ) -> Result<Hash> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
-        let transaction = self.build_transaction(instructions)?;
+        let transaction = self.build_transaction(instructions, metadata)?;
         let hash = transaction.hash();
         let _ = thread::spawn(move || {
             for event in client

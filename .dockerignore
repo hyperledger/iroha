@@ -1,11 +1,2 @@
-target/debug/build
-target/debug/deps
-target/debug/incremental
-target/debug/native
-target/debug/examples
-target/prod/build
-target/prod/deps
-target/prod/incremental
-target/prod/native
-target/prod/examples
+target
 Dockerfile
