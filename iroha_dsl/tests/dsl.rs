@@ -111,14 +111,14 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    peer.start_with_config(configuration);
+    let _ = peer.start_with_config(configuration);
     thread::sleep(pipeline_time);
 
     let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
     configuration.torii_api_url = peer.api_address;
     let mut iroha_client = Client::new(&configuration);
-    iroha_client
+    let _ = iroha_client
         .submit_all(vec![
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("exchange").into())).into(),
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("company").into())).into(),

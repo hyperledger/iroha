@@ -12,6 +12,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     mod model_1 {
+        #![allow(unused_results)]
         use super::*;
 
         declare_versioned!(VersionedMessage 1..3);
@@ -26,6 +27,8 @@ mod tests {
     }
 
     mod model_2 {
+        #![allow(unused_results)]
+
         use super::*;
 
         declare_versioned!(VersionedMessage 1..4);

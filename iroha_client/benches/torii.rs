@@ -1,4 +1,4 @@
-#![allow(clippy::cast_precision_loss)]
+#![allow(missing_docs, clippy::cast_precision_loss)]
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::{config::Configuration, prelude::*};
@@ -23,7 +23,7 @@ fn query_requests(criterion: &mut Criterion) {
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    peer.start_with_config(configuration);
+    let _ = peer.start_with_config(configuration);
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("query-reqeuests");
@@ -53,7 +53,7 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Failed to load configuration.");
     client_config.torii_api_url = peer.api_address;
     let mut iroha_client = Client::new(&client_config);
-    iroha_client
+    let _ = iroha_client
         .submit_all(vec![
             create_domain.into(),
             create_account.into(),
@@ -65,8 +65,8 @@ fn query_requests(criterion: &mut Criterion) {
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;
-    group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
-    group.bench_function("query", |b| {
+    let _dropable = group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
+    let _dropable2 = group.bench_function("query", |b| {
         b.iter(|| match iroha_client.request(&request) {
             Ok(query_result) => {
                 if let QueryResult(Value::Vec(assets)) = query_result {
@@ -103,7 +103,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    peer.start_with_config(configuration);
+    let _ = peer.start_with_config(configuration);
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("instruction-requests");
@@ -125,13 +125,13 @@ fn instruction_submits(criterion: &mut Criterion) {
         .expect("Failed to load configuration.");
     client_config.torii_api_url = peer.api_address;
     let mut iroha_client = Client::new(&client_config);
-    iroha_client
+    let _ = iroha_client
         .submit_all(vec![create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
     let mut success_count = 0;
     let mut failures_count = 0;
-    group.bench_function("instructions", |b| {
+    let _dropable = group.bench_function("instructions", |b| {
         b.iter(|| {
             let quantity: u32 = 200;
             let mint_asset = MintBox::new(

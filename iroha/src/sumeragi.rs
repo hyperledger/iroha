@@ -1746,6 +1746,9 @@ pub mod config {
 
     impl TrustedPeers {
         /// Load trusted peers variables from a json *pretty* formatted file.
+        ///
+        /// # Errors
+        /// Fails if there is no file or if file is not valid json
         pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<TrustedPeers> {
             let file = File::open(path).wrap_err("Failed to open a file")?;
             let reader = BufReader::new(file);
@@ -1784,6 +1787,7 @@ pub mod config {
         DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     fn default_empty_trusted_peers() -> TrustedPeers {
         TrustedPeers {
             peers: BTreeSet::new(),

@@ -1,14 +1,9 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::use_self,
-    clippy::implicit_return,
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::wildcard_imports
-)]
+//! Iroha network crate
+
+#![allow(clippy::module_name_repetitions)]
 
 #[cfg(feature = "mock")]
+/// Network mock
 pub mod mock;
 
 use async_std::{
@@ -31,11 +26,16 @@ use std::{
 const BUFFER_SIZE: usize = 4096;
 const REQUEST_TIMEOUT_MILLIS: u64 = 500;
 
+/// State type alias
 pub type State<T> = Arc<RwLock<T>>;
+
+/// async stream trait alias
 pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
+
 impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 
-#[derive(Debug)]
+/// Network type
+#[derive(Debug, Clone)]
 pub struct Network {
     server_url: String,
 }
@@ -146,6 +146,8 @@ impl Network {
     }
 }
 
+/// Connection
+#[derive(Debug)]
 pub struct Connection {
     tcp_stream: SyncTcpStream,
 }
@@ -153,8 +155,9 @@ pub struct Connection {
 /// `Receipt` should be used by [Consumers](https://github.com/cloudevents/spec/blob/v1.0/spec.md#consumer)
 /// to notify [Source](https://github.com/cloudevents/spec/blob/v1.0/spec.md#source) about
 /// [Message](https://github.com/cloudevents/spec/blob/v1.0/spec.md#message) consumption.
-#[derive(Io, Encode, Decode, Debug)]
+#[derive(Io, Encode, Decode, Debug, Copy, Clone)]
 pub enum Receipt {
+    /// ok
     Ok,
 }
 
@@ -209,9 +212,12 @@ impl Iterator for Connection {
     }
 }
 
+/// Request
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Request {
+    /// at uri
     pub uri_path: String,
+    /// with payload
     pub payload: Vec<u8>,
 }
 
@@ -234,10 +240,12 @@ impl Request {
         Request { uri_path, payload }
     }
 
+    /// getter for url
     pub fn url(&self) -> &str {
         &self.uri_path[..]
     }
 
+    /// getter for payload
     pub fn payload(&self) -> &[u8] {
         &self.payload[..]
     }
@@ -272,13 +280,17 @@ impl TryFrom<Vec<u8>> for Request {
     }
 }
 
+/// Response
 #[derive(Debug, PartialEq, Io, Encode, Decode)]
 pub enum Response {
+    /// Okay
     Ok(Vec<u8>),
+    /// internal server error
     InternalError,
 }
 
 impl Response {
+    /// empty
     pub const fn empty_ok() -> Self {
         Response::Ok(Vec::new())
     }
@@ -348,7 +360,7 @@ mod tests {
             Network::handle_message_async(state, stream, handle_request).await
         }
 
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -376,7 +388,7 @@ mod tests {
 
         let counter: State<usize> = Arc::new(RwLock::new(0));
         let counter_move = counter.clone();
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -388,7 +400,7 @@ mod tests {
             Response::InternalError => panic!("Response should be ok."),
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
-        task::spawn(async move {
+        let _drop = task::spawn(async move {
             let data = counter.write().await;
             assert_eq!(*data, 1)
         });

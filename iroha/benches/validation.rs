@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::{prelude::*, tx::AcceptedTransaction};
 use iroha_data_model::prelude::*;
@@ -56,7 +58,7 @@ fn accept_transaction(criterion: &mut Criterion) {
     let transaction = build_test_transaction(&keys);
     let mut success_count = 0;
     let mut failures_count = 0;
-    criterion.bench_function("accept", |b| {
+    let _ = criterion.bench_function("accept", |b| {
         b.iter(
             || match AcceptedTransaction::from_transaction(transaction.clone(), 4096) {
                 Ok(_) => success_count += 1,
@@ -76,7 +78,7 @@ fn sign_transaction(criterion: &mut Criterion) {
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    criterion.bench_function("sign", |b| {
+    let _ = criterion.bench_function("sign", |b| {
         b.iter(|| match transaction.clone().sign(&key_pair) {
             Ok(_) => success_count += 1,
             Err(_) => failures_count += 1,
@@ -95,7 +97,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
     let world_state_view = build_test_wsv(&keys);
-    criterion.bench_function("validate", |b| {
+    let _ = criterion.bench_function("validate", |b| {
         b.iter(|| {
             match transaction
                 .clone()
@@ -119,7 +121,7 @@ fn chain_blocks(criterion: &mut Criterion) {
     let block = PendingBlock::new(vec![transaction.into()]);
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
-    criterion.bench_function("chain_block", |b| {
+    let _ = criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
             let new_block = block
@@ -142,7 +144,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    criterion.bench_function("sign_block", |b| {
+    let _ = criterion.bench_function("sign_block", |b| {
         b.iter(|| match block.clone().sign(&key_pair) {
             Ok(_) => success_count += 1,
             Err(_) => failures_count += 1,
@@ -162,21 +164,21 @@ fn validate_blocks(criterion: &mut Criterion) {
     let account_id = AccountId::new("root", &domain_name);
     let account = Account::with_signatory(account_id.clone(), key_pair.public_key);
     let mut accounts = BTreeMap::new();
-    accounts.insert(account_id, account);
+    let _ = accounts.insert(account_id, account);
     let domain = Domain {
         name: domain_name.clone(),
         accounts,
         asset_definitions,
     };
     let mut domains = BTreeMap::new();
-    domains.insert(domain_name, domain);
+    let _ = domains.insert(domain_name, domain);
     let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)
         .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()]).chain_first();
-    criterion.bench_function("validate_block", |b| {
+    let _ = criterion.bench_function("validate_block", |b| {
         b.iter(|| block.clone().validate(&world_state_view, &AllowAll.into()));
     });
 }

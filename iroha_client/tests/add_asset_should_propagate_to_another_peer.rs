@@ -50,7 +50,7 @@ mod tests {
             .expect("Failed to load configuration.");
         client_configuration.torii_api_url = network.genesis.api_address.clone();
         let mut iroha_client = Client::new(&client_configuration);
-        iroha_client
+        let _ = iroha_client
             .submit_all(vec![
                 create_domain.into(),
                 create_account.into(),
@@ -64,7 +64,7 @@ mod tests {
             Value::U32(quantity),
             IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
         );
-        iroha_client
+        let _ = iroha_client
             .submit(mint_asset.into())
             .expect("Failed to create asset.");
         thread::sleep(pipeline_time * 2);

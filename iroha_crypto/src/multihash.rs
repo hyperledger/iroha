@@ -6,9 +6,13 @@ use std::{
     str::FromStr,
 };
 
+/// ed25519 public string
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";
+/// secp256k1 public string
 pub const SECP_256_K1_PUB_STR: &str = "secp256k1-pub";
+/// bls12 381 g1 public string
 pub const BLS12_381_G1_PUB: &str = "bls12_381-g1-pub";
+/// bls12 381 g2 public string
 pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 
 /// Type of digest function.
@@ -16,9 +20,13 @@ pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 #[repr(u64)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum DigestFunction {
+    /// Ed25519
     Ed25519Pub = 0xed,
+    /// Secp256k1
     Secp256k1Pub = 0xe7,
+    /// Bls12381G1
     Bls12381G1Pub = 0xea,
+    /// Bls12381G2
     Bls12381G2Pub = 0xeb,
 }
 
@@ -75,9 +83,12 @@ impl TryFrom<u64> for DigestFunction {
     }
 }
 
+/// Multihash
 #[derive(Eq, PartialEq, Debug)]
 pub struct Multihash {
+    /// digest
     pub digest_function: DigestFunction,
+    /// hash payload
     pub payload: Vec<u8>,
 }
 

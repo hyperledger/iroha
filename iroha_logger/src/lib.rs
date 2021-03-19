@@ -1,3 +1,5 @@
+//! Module with logger for iroha
+
 use chrono::prelude::*;
 use log::{Level, Log, Metadata, Record, SetLoggerError};
 use std::sync::RwLock;
@@ -27,7 +29,7 @@ impl Logger {
     }
 
     /// Default values were taken from the `pretty_env_logger` [source code](https://github.com/seanmonstar/pretty-env-logger/blob/master/src/lib.rs).
-    fn color(level: Level) -> u8 {
+    const fn color(level: Level) -> u8 {
         match level {
             Level::Error => RED,
             Level::Warn => YELLOW,
@@ -96,10 +98,13 @@ pub mod config {
     #[derive(Clone, Deserialize, Debug)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct LoggerConfiguration {
+        /// Maximum log level
         #[serde(default = "default_max_log_level")]
         pub max_log_level: LevelFilter,
+        /// Should we enable colors?
         #[serde(default = "default_terminal_color_enabled")]
         pub terminal_color_enabled: bool,
+        /// Format of date and time
         #[serde(default = "default_date_time_format")]
         pub date_time_format: String,
     }
@@ -128,11 +133,11 @@ pub mod config {
         }
     }
 
-    fn default_terminal_color_enabled() -> bool {
+    const fn default_terminal_color_enabled() -> bool {
         DEFAULT_TERMINAL_COLOR_ENABLED
     }
 
-    fn default_max_log_level() -> LevelFilter {
+    const fn default_max_log_level() -> LevelFilter {
         DEFAULT_MAX_LOG_LEVEL
     }
 

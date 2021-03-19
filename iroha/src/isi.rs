@@ -340,7 +340,7 @@ mod tests {
         let wsv = SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
             "Bytes".to_string(),
-            vec![1u32, 2u32, 3u32],
+            vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
         let asset_store: &Metadata = wsv
@@ -369,7 +369,7 @@ mod tests {
         let wsv = SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
             "Bytes".to_string(),
-            vec![1u32, 2u32, 3u32],
+            vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
         let bytes = wsv

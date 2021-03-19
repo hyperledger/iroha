@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    #![allow(unused_results)]
+
     use iroha_version_derive::{declare_versioned, version};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};

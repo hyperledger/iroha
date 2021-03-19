@@ -1,4 +1,6 @@
 //! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
+#![allow(clippy::module_name_repetitions)]
+
 use self::config::GenesisConfiguration;
 use crate::{
     sumeragi::{InitializedNetworkTopology, Sumeragi},

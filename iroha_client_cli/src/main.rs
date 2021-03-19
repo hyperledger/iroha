@@ -1,11 +1,6 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::use_self,
-    clippy::implicit_return,
-    clippy::must_use_candidate,
-    clippy::enum_glob_use,
-    clippy::wildcard_imports
-)]
+//! iroha client command line
+
+#![allow(missing_docs)]
 
 use clap::{App, Arg};
 use dialoguer::Confirm;
@@ -79,16 +74,17 @@ pub fn submit(instruction: Instruction, configuration: &Configuration) {
             .interact()
             .expect("Failed to show interactive prompt.") 
         {
-            iroha_client
+            let _ = iroha_client
                 .submit_transaction(iroha_client.sign_transaction(original_transaction).expect("Failed to sign transaction."))
-                .expect("Failed to submit transaction.");
+                .expect("Failed to submit transaction.")
+                ;
         } else {
-            iroha_client
+            let _ =iroha_client
             .submit_transaction(transaction)
             .expect("Failed to submit transaction.");
         }
     } else {
-        iroha_client
+        let _ = iroha_client
             .submit_transaction(transaction)
             .expect("Failed to submit transaction.");
     }

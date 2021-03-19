@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::sumeragi::NetworkTopology;
 use iroha_crypto::{Hash, KeyPair};
@@ -21,7 +23,7 @@ fn sort_peers(criterion: &mut Criterion) {
     let mut network_topology = NetworkTopology::new(&get_n_peers(N_PEERS), None, 1)
         .init()
         .expect("Failed to initialize topology.");
-    criterion.bench_function("sort_peers", |b| {
+    let _ = criterion.bench_function("sort_peers", |b| {
         b.iter(|| network_topology.sort_peers_by_hash(Some(Hash([0_u8; 32]))));
     });
 }
