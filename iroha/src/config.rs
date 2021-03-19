@@ -99,7 +99,7 @@ impl Configuration {
     /// Load trusted peers variables from a json *pretty* formatted file.
     ///
     /// # Errors
-    /// Returns error if loading peers from json path fails
+    /// Fails if can not load [`TrustedPeers`] from `path`.
     pub fn load_trusted_peers_from_path<P: AsRef<Path> + Debug>(&mut self, path: P) -> Result<()> {
         self.sumeragi_configuration.trusted_peers = TrustedPeers::from_path(&path)?;
         Ok(())

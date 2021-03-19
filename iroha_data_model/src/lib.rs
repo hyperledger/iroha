@@ -1173,7 +1173,7 @@ pub mod transaction {
     //! This module contains `Transaction` structures and related implementations
     //! and traits implementations.
 
-    use crate::{account::Account, isi::Instruction, Identifiable};
+    use crate::{account::Account, isi::Instruction, Identifiable, Metadata};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use iroha_error::{error, Result};
@@ -1218,6 +1218,8 @@ pub mod transaction {
         pub creation_time: u64,
         /// The transaction will be dropped after this time if it is still in a `Queue`.
         pub time_to_live_ms: u64,
+        /// Metadata.
+        pub metadata: Metadata,
     }
 
     impl VersionedTransaction {
@@ -1282,6 +1284,16 @@ pub mod transaction {
             account_id: <Account as Identifiable>::Id,
             proposed_ttl_ms: u64,
         ) -> Transaction {
+            Transaction::with_metadata(instructions, account_id, proposed_ttl_ms, Metadata::new())
+        }
+
+        /// [`Transactions`] constructor with metadata.
+        pub fn with_metadata(
+            instructions: Vec<Instruction>,
+            account_id: <Account as Identifiable>::Id,
+            proposed_ttl_ms: u64,
+            metadata: Metadata,
+        ) -> Transaction {
             #[allow(clippy::cast_possible_truncation)]
             Transaction {
                 payload: Payload {
@@ -1292,6 +1304,7 @@ pub mod transaction {
                         .expect("Failed to get System Time.")
                         .as_millis() as u64,
                     time_to_live_ms: proposed_ttl_ms,
+                    metadata,
                 },
                 signatures: Vec::new(),
             }
@@ -1341,6 +1354,7 @@ pub mod transaction {
             self.account_id == other.account_id
                 && self.instructions == other.instructions
                 && self.time_to_live_ms == other.time_to_live_ms
+                && self.metadata == other.metadata
         }
     }
 
