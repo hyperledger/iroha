@@ -21,6 +21,7 @@
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "validators/field_validator.hpp"
@@ -30,6 +31,7 @@ using namespace iroha::expected;
 
 class StorageInitTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   StorageInitTest() {
     pg_opt_without_dbname_ = integration_framework::getPostgresCredsOrDefault();
     pgopt_ = pg_opt_without_dbname_ + " dbname=" + dbname_;

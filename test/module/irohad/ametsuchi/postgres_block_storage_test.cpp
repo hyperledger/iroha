@@ -16,6 +16,7 @@
 #include "generator/generator.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -33,6 +34,7 @@ using MockBlockPValidator = MockValidator<iroha::protocol::Block>;
 
 class PostgresBlockStorageTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   PostgresBlockStorageTest() {
     ON_CALL(*mock_block_, height()).WillByDefault(Return(height_));
     ON_CALL(*mock_block_, blob()).WillByDefault(ReturnRef(blob_));

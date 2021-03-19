@@ -12,6 +12,7 @@
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
+#include "main/subscription.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace integration_framework;
@@ -59,6 +60,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
     });
   }
 
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   IntegrationTestFramework itf;
   std::string invalidPrivateKey;
   std::string invalidPublicKey;

@@ -26,7 +26,9 @@ namespace iroha {
 
   namespace simulator {
 
-    class Simulator : public VerifiedProposalCreator, public BlockCreator {
+    class Simulator : public VerifiedProposalCreator,
+                      public BlockCreator,
+                      public std::enable_shared_from_this<Simulator> {
      public:
       using CryptoSignerType = shared_model::crypto::AbstractCryptoModelSigner<
           shared_model::interface::Block>;
@@ -44,12 +46,10 @@ namespace iroha {
           logger::LoggerPtr log);
 
       ~Simulator() = default;
+      void initialize();
 
       std::shared_ptr<validation::VerifiedProposalAndErrors> processProposal(
           const shared_model::interface::Proposal &proposal) override;
-
-      /*rxcpp::observable<VerifiedProposalCreatorEvent> onVerifiedProposal()
-          override;*/
 
       boost::optional<std::shared_ptr<shared_model::interface::Block>>
       processVerifiedProposal(
@@ -57,19 +57,9 @@ namespace iroha {
               &verified_proposal_and_errors,
           const TopBlockInfo &top_block_info) override;
 
-      // rxcpp::observable<BlockCreatorEvent> onBlock() override;
-
      private:
       // internal
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor_;
-
-      /*rxcpp::composite_subscription notifier_lifetime_;
-      rxcpp::subjects::subject<VerifiedProposalCreatorEvent> notifier_;
-      rxcpp::composite_subscription block_notifier_lifetime_;
-      rxcpp::subjects::subject<BlockCreatorEvent> block_notifier_;*/
-
-      // rxcpp::composite_subscription proposal_subscription_;
-      // rxcpp::composite_subscription verified_proposal_subscription_;
 
       std::shared_ptr<validation::StatefulValidator> validator_;
       std::shared_ptr<ametsuchi::TemporaryFactory> ametsuchi_factory_;
@@ -79,12 +69,9 @@ namespace iroha {
 
       logger::LoggerPtr log_;
 
-      using OnProposalSubscriber = BaseSubscriber<bool, network::OrderingEvent>;
-      using OnVerifiedProposalSubscriber =
-          BaseSubscriber<bool, VerifiedProposalCreatorEvent>;
-
-      std::shared_ptr<OnProposalSubscriber> on_proposal_subscription_;
-      std::shared_ptr<OnVerifiedProposalSubscriber>
+      std::shared_ptr<BaseSubscriber<bool, network::OrderingEvent>>
+          on_proposal_subscription_;
+      std::shared_ptr<BaseSubscriber<bool, VerifiedProposalCreatorEvent>>
           on_verified_proposal_subscription_;
     };
   }  // namespace simulator

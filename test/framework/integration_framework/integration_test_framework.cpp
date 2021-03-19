@@ -44,6 +44,7 @@
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
@@ -245,6 +246,40 @@ namespace integration_framework {
                                         log_,
                                         startup_wsv_data_policy,
                                         dbname);
+
+    mst_state_update_ =
+        SubscriberCreatorType<std::shared_ptr<iroha::MstState>>::create<
+            iroha::EventTypes::kOnStateUpdate,
+            iroha::SubscriptionEngineHandlers::kYac>(
+            [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
+
+    mst_prepared_batches_ = SubscriberCreatorType<iroha::BatchPtr>::create<
+        iroha::EventTypes::kOnPreparedBatches,
+        iroha::SubscriptionEngineHandlers::kYac>(
+        [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
+
+    mst_expired_batches_ = SubscriberCreatorType<iroha::BatchPtr>::create<
+        iroha::EventTypes::kOnExpiredBatches,
+        iroha::SubscriptionEngineHandlers::kYac>(
+        [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
+
+    yac_gate_outcome_ =
+        SubscriberCreatorType<iroha::consensus::GateObject>::create<
+            iroha::EventTypes::kOnOutcome,
+            iroha::SubscriptionEngineHandlers::kYac>(
+            [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
+
+    pcs_synchronization_ =
+        SubscriberCreatorType<iroha::synchronizer::SynchronizationEvent>::
+            create<iroha::EventTypes::kOnSynchronization,
+                   iroha::SubscriptionEngineHandlers::kYac>(
+                [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
+
+    storage_commit_ = SubscriberCreatorType<
+        std::shared_ptr<const shared_model::interface::Block>>::
+        create<iroha::EventTypes::kOnBlock,
+               iroha::SubscriptionEngineHandlers::kYac>(
+            [](auto &subj, auto ev) { subj.get_subscriber().on_next(ev); });
   }
 
   IntegrationTestFramework::~IntegrationTestFramework() {
@@ -401,14 +436,37 @@ namespace integration_framework {
 
   void IntegrationTestFramework::subscribeQueuesAndRun() {
     // subscribing for components
+    requested_proposals_ =
+        SubscriberCreatorType<iroha::network::OrderingEvent>::create<
+            iroha::EventTypes::kOnProposal,
+            iroha::SubscriptionEngineHandlers::kYac>(
+            [](auto &requested_proposals_subject, auto orderingEvent) {
+              requested_proposals_subject.get_subscriber().on_next(
+                  orderingEvent);
+            });
 
-    rxcpp::observable<iroha::network::OrderingEvent> requested_proposals =
-        iroha_instance_->getIrohaInstance()
-            ->getPeerCommunicationService()
-            ->onProposal();
+    verified_proposals_ =
+        SubscriberCreatorType<iroha::simulator::VerifiedProposalCreatorEvent>::
+            create<iroha::EventTypes::kOnVerifiedProposal,
+                   iroha::SubscriptionEngineHandlers::kYac>(
+                [](auto &verified_proposals_subject,
+                   auto verified_proposal_event) {
+                  verified_proposals_subject.get_subscriber().on_next(
+                      verified_proposal_event);
+                });
+
+    committed_blocks_ = iroha::SubscriberCreator<
+        bool,
+        std::shared_ptr<const shared_model::interface::Block>>::
+        create<iroha::EventTypes::kOnBlock,
+               iroha::SubscriptionEngineHandlers::kYac>(
+            [&](auto &, auto committed_block) {
+              block_queue_->push(committed_block);
+              log_->info("block commit");
+            });
 
     rxcpp::observable<iroha::network::OrderingEvent> received_proposals =
-        requested_proposals.filter(
+        requested_proposals_->get().get_observable().filter(
             [](const auto &event) { return event.proposal; });
 
     received_proposals.subscribe([this](const auto &event) {
@@ -424,15 +482,11 @@ namespace integration_framework {
       return rxcpp::observable<>::empty<std::tuple_element_t<0, decltype(t)>>();
     };
 
-    rxcpp::observable<iroha::simulator::VerifiedProposalCreatorEvent>
-        verified_proposals = iroha_instance_->getIrohaInstance()
-                                 ->getPeerCommunicationService()
-                                 ->onVerifiedProposal();
-
     rxcpp::observable<std::tuple<iroha::simulator::VerifiedProposalCreatorEvent,
                                  iroha::network::OrderingEvent>>
         verified_proposals_with_events =
-            verified_proposals.zip(requested_proposals);
+            verified_proposals_->get().get_observable().zip(
+                requested_proposals_->get().get_observable());
     rxcpp::observable<iroha::simulator::VerifiedProposalCreatorEvent>
         nonempty_proposals =
             verified_proposals_with_events.flat_map(proposal_flat_map);
@@ -442,11 +496,6 @@ namespace integration_framework {
       log_->info("verified proposal");
     });
 
-    iroha_instance_->getIrohaInstance()->getStorage()->on_commit().subscribe(
-        [this](auto committed_block) {
-          block_queue_->push(committed_block);
-          log_->info("block commit");
-        });
     iroha_instance_->getIrohaInstance()->getStatusBus()->statuses().subscribe(
         [this](auto response) {
           const auto hash = response->transactionHash().hex();
@@ -485,35 +534,38 @@ namespace integration_framework {
 
   rxcpp::observable<std::shared_ptr<iroha::MstState>>
   IntegrationTestFramework::getMstStateUpdateObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getMstProcessor()
-        ->onStateUpdate();
+    assert(mst_state_update_);
+    return mst_state_update_->get().get_observable();
   }
 
   rxcpp::observable<iroha::BatchPtr>
   IntegrationTestFramework::getMstPreparedBatchesObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getMstProcessor()
-        ->onPreparedBatches();
+    assert(mst_prepared_batches_);
+    return mst_prepared_batches_->get().get_observable();
   }
 
   rxcpp::observable<iroha::BatchPtr>
   IntegrationTestFramework::getMstExpiredBatchesObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getMstProcessor()
-        ->onExpiredBatches();
+    assert(mst_expired_batches_);
+    return mst_expired_batches_->get().get_observable();
   }
 
   rxcpp::observable<iroha::consensus::GateObject>
   IntegrationTestFramework::getYacOnCommitObservable() {
-    return iroha_instance_->getIrohaInstance()->getConsensusGate()->onOutcome();
+    assert(yac_gate_outcome_);
+    return yac_gate_outcome_->get().get_observable();
   }
 
   rxcpp::observable<iroha::synchronizer::SynchronizationEvent>
   IntegrationTestFramework::getPcsOnCommitObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getPeerCommunicationService()
-        ->onSynchronization();
+    assert(pcs_synchronization_);
+    return pcs_synchronization_->get().get_observable();
+  }
+
+  rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
+  IntegrationTestFramework::getCommitObservable() {
+    assert(storage_commit_);
+    return storage_commit_->get().get_observable();
   }
 
   std::shared_ptr<iroha::ametsuchi::BlockQuery>

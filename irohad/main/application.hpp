@@ -217,6 +217,8 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
+  std::shared_ptr<iroha::Subscription> se_;
+
   IrohadConfig config_;
   const std::string listen_ip_;
   boost::optional<shared_model::crypto::Keypair> keypair_;

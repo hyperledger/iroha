@@ -37,11 +37,12 @@ namespace shared_model {
     }
 
     MockCommandFactory::FactoryResult<MockAddPeer>
-    MockCommandFactory::constructAddPeer(const Peer &peer) const {
+    MockCommandFactory::constructAddPeer(
+        std::shared_ptr<Peer const> peer) const {
       return createFactoryResult<MockAddPeer>(
           [&peer](FactoryResult<MockAddPeer> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, peer())
-                .WillRepeatedly(ReturnRef(peer));
+                .WillRepeatedly(Return(peer));
             return specific_cmd_mock;
           });
     }

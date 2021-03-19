@@ -8,6 +8,8 @@
 
 #include "interfaces/commands/add_peer.hpp"
 
+#include <memory>
+
 #include "backend/protobuf/common_objects/peer.hpp"
 #include "commands.pb.h"
 #include "interfaces/common_objects/peer.hpp"
@@ -19,11 +21,11 @@ namespace shared_model {
      public:
       explicit AddPeer(iroha::protocol::Command &command);
 
-      const interface::Peer &peer() const override;
+      std::shared_ptr<const interface::Peer> peer() const override;
 
      private:
       const iroha::protocol::AddPeer &add_peer_;
-      proto::Peer peer_;
+      std::shared_ptr<proto::Peer> peer_;
     };
   }  // namespace proto
 }  // namespace shared_model

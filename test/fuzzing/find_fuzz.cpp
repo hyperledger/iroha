@@ -66,6 +66,7 @@ struct QueryFixture {
         pending_transactions_,
         query_response_factory_,
         logger::getDummyLoggerPtr());
+    qry_processor_->initialize();
 
     std::unique_ptr<shared_model::validation::AbstractValidator<
         shared_model::interface::Query>>

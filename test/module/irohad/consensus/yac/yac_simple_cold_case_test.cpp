@@ -61,8 +61,8 @@ TEST_F(YacTest, YacWhenColdStartAndAchieveOneVote) {
   // assume that our peer receive message
 
   auto wrapper = subscribeEventAsync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
-      [&](auto const &/*event*/) {});
+                                     iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const & /*event*/) {});
 
   network->notification->onState({crypto->getVote(
       received_hash, PublicKeyHexStringView{default_peers[0]->pubkey()})});
@@ -94,10 +94,9 @@ TEST_F(YacTest, DISABLED_YacWhenColdStartAndAchieveSupermajorityOfVotes) {
 
   YacHash received_hash(initial_round, "my_proposal", "my_block");
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
-      [&](auto const &event) {
-      },
-      [&](){
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &event) {},
+      [&]() {
         for (auto peer : default_peers)
           network->notification->onState({crypto->getVote(
               received_hash, PublicKeyHexStringView{peer->pubkey()})});
@@ -123,12 +122,12 @@ TEST_F(YacTest, YacWhenColdStartAndAchieveCommitMessage) {
   EXPECT_CALL(*timer, deny()).Times(AtLeast(1));
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &commit_hash) {
         ASSERT_EQ(propagated_hash,
                   boost::get<CommitMessage>(commit_hash).votes.at(0).hash);
       },
-      [&](){
+      [&]() {
         auto committed_peer = default_peers.at(0);
         auto msg = CommitMessage(std::vector<VoteMessage>{});
         for (size_t i = 0; i < default_peers.size(); ++i) {
@@ -161,12 +160,12 @@ TEST_F(YacTest, DISABLED_PropagateCommitBeforeNotifyingSubscribersApplyVote) {
           [&](const auto &, const auto &msg) { messages.push_back(msg); }));
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &msg) {
         ASSERT_EQ(default_peers.size(), messages.size());
         messages.push_back(boost::get<CommitMessage>(msg).votes);
       },
-      [&](){
+      [&]() {
         for (size_t i = 0; i < default_peers.size(); ++i) {
           yac->onState(
               {createVote(YacHash(initial_round, "proposal_hash", "block_hash"),
@@ -193,24 +192,25 @@ TEST_F(YacTest, PropagateCommitBeforeNotifyingSubscribersApplyReject) {
   EXPECT_CALL(*network, sendState(_, _)).Times(0);
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &msg) {
         messages.push_back(boost::get<CommitMessage>(msg).votes);
       },
-      [&](){
+      [&]() {
         std::vector<VoteMessage> commit;
 
         auto yac_hash = YacHash(initial_round, "proposal_hash", "block_hash");
 
         auto f = (default_peers.size() - 1)
-                 / iroha::consensus::yac::detail::kSupermajorityCheckerKfPlus1Bft;
+            / iroha::consensus::yac::detail::kSupermajorityCheckerKfPlus1Bft;
         for (size_t i = 0; i < default_peers.size() - f - 1; ++i) {
           auto vote = createVote(yac_hash, std::to_string(i));
           yac->onState({vote});
           commit.push_back(vote);
         }
 
-        auto vote = createVote(yac_hash, std::to_string(default_peers.size() - f));
+        auto vote =
+            createVote(yac_hash, std::to_string(default_peers.size() - f));
         RejectMessage reject(
             {vote,
              createVote(YacHash(initial_round, "", "my_block"),
@@ -238,14 +238,12 @@ TEST_F(YacTest, Future) {
   EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &message) {
         auto commit_message = boost::get<FutureMessage>(message);
         ASSERT_EQ(hash, commit_message.votes.at(0).hash);
       },
-      [&](){
-        network->notification->onState({createVote(hash, "1")});
-      });
+      [&]() { network->notification->onState({createVote(hash, "1")}); });
 
   ASSERT_TRUE(wrapper->get());
 }
@@ -287,10 +285,9 @@ TEST_F(YacAlternativeOrderTest, OnState) {
   EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
-      [&](auto const &/*message*/) {
-      },
-      [&](){
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const & /*message*/) {},
+      [&]() {
         YacHash received_hash(
             {initial_round.block_round + 1, 0}, "my_proposal", "my_block");
         // assume that our peer receive message

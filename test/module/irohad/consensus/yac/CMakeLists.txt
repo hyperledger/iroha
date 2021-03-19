@@ -51,6 +51,7 @@ addtest(yac_block_storage_test yac_block_storage_test.cpp)
 target_link_libraries(yac_block_storage_test
     yac
     test_logger
+    subscription
     )
 
 addtest(yac_proposal_storage_test yac_proposal_storage_test.cpp)

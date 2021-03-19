@@ -250,8 +250,8 @@ namespace iroha {
         createDefaultAccount();
       }
 
-      std::unique_ptr<MockPeer> peer;
-      std::unique_ptr<MockPeer> peer_with_cert;
+      std::shared_ptr<MockPeer> peer;
+      std::shared_ptr<MockPeer> peer_with_cert;
     };
 
     /**
@@ -262,7 +262,7 @@ namespace iroha {
     TEST_F(AddPeer, Valid) {
       addAllPerms();
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructAddPeer(*peer_with_cert)));
+          execute(*mock_command_factory->constructAddPeer(peer_with_cert)));
     }
 
     /**
@@ -273,7 +273,7 @@ namespace iroha {
     TEST_F(AddPeer, ValidWithCertificate) {
       addAllPerms();
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructAddPeer(*peer)));
+          execute(*mock_command_factory->constructAddPeer(peer)));
     }
 
     /**
@@ -282,7 +282,7 @@ namespace iroha {
      * @then peer is not added
      */
     TEST_F(AddPeer, NoPerms) {
-      auto cmd_result = execute(*mock_command_factory->constructAddPeer(*peer));
+      auto cmd_result = execute(*mock_command_factory->constructAddPeer(peer));
 
       std::vector<std::string> query_args{peer->address(), peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
@@ -296,7 +296,7 @@ namespace iroha {
     TEST_F(AddPeer, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructAddPeer(*peer)));
+          execute(*mock_command_factory->constructAddPeer(peer)));
     }
 
     class RemovePeer : public CommandExecutorTest {
@@ -309,10 +309,10 @@ namespace iroha {
         createDefaultDomain();
         createDefaultAccount();
         CHECK_SUCCESSFUL_RESULT(
-            execute(*mock_command_factory->constructAddPeer(*peer), true));
+            execute(*mock_command_factory->constructAddPeer(peer), true));
       }
 
-      std::unique_ptr<MockPeer> peer, another_peer;
+      std::shared_ptr<MockPeer> peer, another_peer;
     };
 
     /**
@@ -322,8 +322,8 @@ namespace iroha {
      */
     TEST_F(RemovePeer, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddPeer(*another_peer), true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddPeer(another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
@@ -345,8 +345,8 @@ namespace iroha {
      * @then peer is not removed
      */
     TEST_F(RemovePeer, NoPerms) {
-      CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddPeer(*another_peer), true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddPeer(another_peer), true));
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(kPublicKey));
 
@@ -403,8 +403,8 @@ namespace iroha {
      */
     TEST_F(RemovePeer, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(execute(
-          *mock_command_factory->constructAddPeer(*another_peer), true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddPeer(another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));

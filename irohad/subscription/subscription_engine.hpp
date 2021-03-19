@@ -130,11 +130,12 @@ namespace iroha::subscription {
       auto &subscribers_container = it->second;
       std::lock_guard l(subscribers_container.subscribers_list_cs);
       for (auto it_sub = subscribers_container.subscribers_list.begin();
-           it_sub != subscribers_container.subscribers_list.end();) {
+           it_sub != subscribers_container.subscribers_list.end();
+           ++it_sub) {
         auto wsub = std::get<2>(*it_sub);
         auto id = std::get<1>(*it_sub);
 
-        if (auto sub = wsub.lock()) {
+        if (!wsub.expired()) {
           dispatcher_->addDelayed(std::get<0>(*it_sub),
                                   timeout,
                                   [wsub(std::move(wsub)),
@@ -149,9 +150,6 @@ namespace iroha::subscription {
                                           },
                                           std::move(args));
                                   });
-          ++it_sub;
-        } else {
-          it_sub = subscribers_container.subscribers_list.erase(it_sub);
         }
       }
     }

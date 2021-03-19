@@ -36,18 +36,6 @@ namespace iroha {
                           boost::optional<ClusterOrdering> alternative_order =
                               boost::none) = 0;
 
-        /**
-         * Observable with consensus outcomes - commits and rejects - in network
-         * @return observable for subscription
-         */
-        // virtual rxcpp::observable<Answer> onOutcome() = 0;
-
-        /**
-         * Notification called when unable to wrap the round.
-         * @return observable
-         */
-        //        virtual rxcpp::observable<FreezedRound> onFreezedRound() = 0;
-
         /// Prevent any new outgoing network activity. Be passive.
         virtual void stop() = 0;
 

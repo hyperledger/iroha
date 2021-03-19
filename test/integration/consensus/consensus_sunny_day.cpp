@@ -47,6 +47,7 @@ auto mk_local_peer(uint64_t num) {
 
 class ConsensusSunnyDayTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   std::shared_ptr<CleanupStrategy> cleanup_strategy;
   std::unique_ptr<grpc::Server> server;
   std::shared_ptr<NetworkImpl> network;
@@ -131,11 +132,9 @@ class ConsensusSunnyDayTest : public ::testing::Test {
 TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-      iroha::EventTypes::kOnOutcomeFromYac>(
-      [&](auto const &val) {
-        std::cout << "^_^ COMMITTED!!!" << std::endl;
-      },
-      [&](){
+                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      [&](auto const &val) { std::cout << "^_^ COMMITTED!!!" << std::endl; },
+      [&]() {
         YacHash my_hash(initial_round, "proposal_hash", "block_hash");
         my_hash.block_signature =
             createSig(shared_model::interface::types::PublicKeyHexStringView{

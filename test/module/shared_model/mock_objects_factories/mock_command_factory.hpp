@@ -30,7 +30,8 @@ namespace shared_model {
        * @param peer to be in that command
        * @return pointer to the created command
        */
-      FactoryResult<MockAddPeer> constructAddPeer(const Peer &peer) const;
+      FactoryResult<MockAddPeer> constructAddPeer(
+          std::shared_ptr<Peer const> peer) const;
 
       /**
        * Construct a mocked RemovePeer

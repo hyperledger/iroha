@@ -115,7 +115,8 @@ Irohad::Irohad(
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
-    : config_(config),
+    : se_(getSubscription()),
+      config_(config),
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
@@ -646,6 +647,7 @@ Irohad::RunResult Irohad::initSimulator() {
         crypto_signer_,
         std::move(block_factory),
         log_manager_->getChild("Simulator")->getLogger());
+    simulator->initialize();
 
     log_->info("[Init] => init simulator");
     return {};
@@ -878,7 +880,6 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       mst_processor,
       status_bus_,
       status_factory,
-      // storage->on_commit(),
       command_service_log_manager->getChild("Processor")->getLogger());
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
@@ -918,6 +919,7 @@ Irohad::RunResult Irohad::initQueryService() {
       pending_txs_storage_,
       query_response_factory_,
       query_service_log_manager->getChild("Processor")->getLogger());
+  query_processor->initialize();
 
   query_service = std::make_shared<::torii::QueryService>(
       query_processor,
@@ -1033,11 +1035,11 @@ Irohad::RunResult Irohad::run() {
     }
 
     getSubscription()->notify(
-        EventTypes::kOnBlock,
+        EventTypes::kOnInitialBlock,
         std::shared_ptr<const shared_model::interface::Block>(
             std::move(block)));
 
-    getSubscription()->notify(EventTypes::kOnSynchronization,
+    getSubscription()->notify(EventTypes::kOnInitialSynchronization,
                               synchronizer::SynchronizationEvent{
                                   SynchronizationOutcomeType::kCommit,
                                   {block_height, ordering::kFirstRejectRound},

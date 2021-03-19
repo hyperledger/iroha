@@ -8,6 +8,7 @@
 
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
+#include "main/subscription.hpp"
 
 using namespace shared_model;
 using namespace integration_framework;
@@ -20,6 +21,8 @@ class QueryPermissionFixture : public AcceptanceFixture {
   QueryPermissionTest impl_;
 
  protected:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
   void SetUp() override {
     impl_.itf_ = std::make_unique<IntegrationTestFramework>(1);
     impl_.itf_->setInitialState(common_constants::kAdminKeypair);

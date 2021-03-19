@@ -56,69 +56,58 @@ namespace iroha {
             block_creator_(std::move(block_creator)),
             consensus_result_cache_(std::move(consensus_result_cache)),
             hash_gate_(std::move(hash_gate)),
-            outcome_subscription_(std::make_shared<OutcomeSubscription>(
-                getSubscription()->getEngine<EventTypes, Answer>())),
-            delayed_outcome_subscription_(std::make_shared<OutcomeSubscription>(
-                getSubscription()->getEngine<EventTypes, Answer>())),
-            block_creator_subscription_(
-                std::make_shared<BlockCreatorSubscription>(
-                    getSubscription()
-                        ->getEngine<EventTypes,
-                                    simulator::BlockCreatorEvent>())) {
-        block_creator_subscription_->setCallback(
-            [this](auto,
-                   auto &,
-                   auto const key,
-                   simulator::BlockCreatorEvent event) {
-              assert(EventTypes::kOnBlockCreatorEvent == key);
-              this->vote(event);
-            });
+            delay_func_(std::move(delay_func)) {}
 
-        outcome_subscription_->setCallback(
-            [delay_func = std::move(delay_func)](
-                auto, auto &, auto key, Answer message) {
-              assert(EventTypes::kOnOutcomeFromYac == key);
-              auto delay = delay_func(
-                  visit_in_place(message,
-                                 [](const CommitMessage &msg) {
-                                   auto const hash = getHash(msg.votes).value();
-                                   if (hash.vote_hashes.proposal_hash.empty()) {
-                                     return ConsensusOutcomeType::kNothing;
-                                   }
-                                   return ConsensusOutcomeType::kCommit;
-                                 },
-                                 [](const RejectMessage &msg) {
-                                   return ConsensusOutcomeType::kReject;
-                                 },
-                                 [](const FutureMessage &msg) {
-                                   return ConsensusOutcomeType::kFuture;
-                                 }));
+      void YacGateImpl::initialize() {
+        block_creator_subscription_ =
+            iroha::SubscriberCreator<bool, simulator::BlockCreatorEvent>::
+                template create<EventTypes::kOnBlockCreatorEvent,
+                                SubscriptionEngineHandlers::kYac>(
+                    [wptr(weak_from_this())](auto &, auto event) {
+                      if (auto ptr = wptr.lock())
+                        ptr->vote(event);
+                    });
 
-              getSubscription()->notifyDelayed(
-                  delay, EventTypes::kOnOutcomeDelayed, std::move(message));
-            });
-
-        delayed_outcome_subscription_->setCallback(
-            [this](auto, auto &, auto key, Answer const &message) {
-              assert(EventTypes::kOnOutcomeDelayed == key);
+        delayed_outcome_subscription_ =
+            iroha::SubscriberCreator<bool, Answer>::template create<
+                EventTypes::kOnOutcomeDelayed,
+                SubscriptionEngineHandlers::kYac>([wptr(weak_from_this())](
+                                                      auto &, auto message) {
               // check ptr ref remains 1
-              visit_in_place(
-                  message,
-                  [this](const CommitMessage &msg) { this->handleCommit(msg); },
-                  [this](const RejectMessage &msg) { this->handleReject(msg); },
-                  [this](const FutureMessage &msg) {
-                    this->handleFuture(msg);
-                  });
+              if (auto ptr = wptr.lock())
+                visit_in_place(
+                    message,
+                    [&](const CommitMessage &msg) { ptr->handleCommit(msg); },
+                    [&](const RejectMessage &msg) { ptr->handleReject(msg); },
+                    [&](const FutureMessage &msg) { ptr->handleFuture(msg); });
             });
 
-        outcome_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-            0, EventTypes::kOnOutcomeFromYac);
-        delayed_outcome_subscription_
-            ->subscribe<SubscriptionEngineHandlers::kYac>(
-                0, EventTypes::kOnOutcomeDelayed);
-        block_creator_subscription_
-            ->subscribe<SubscriptionEngineHandlers::kYac>(
-                0, EventTypes::kOnBlockCreatorEvent);
+        outcome_subscription_ =
+            iroha::SubscriberCreator<bool, Answer>::template create<
+                EventTypes::kOnOutcomeFromYac,
+                SubscriptionEngineHandlers::kYac>([wptr(weak_from_this())](
+                                                      auto &, auto message) {
+              if (auto ptr = wptr.lock()) {
+                auto delay = ptr->delay_func_(visit_in_place(
+                    message,
+                    [](const CommitMessage &msg) {
+                      auto const hash = getHash(msg.votes).value();
+                      if (hash.vote_hashes.proposal_hash.empty()) {
+                        return ConsensusOutcomeType::kNothing;
+                      }
+                      return ConsensusOutcomeType::kCommit;
+                    },
+                    [](const RejectMessage &msg) {
+                      return ConsensusOutcomeType::kReject;
+                    },
+                    [](const FutureMessage &msg) {
+                      return ConsensusOutcomeType::kFuture;
+                    }));
+
+                getSubscription()->notifyDelayed(
+                    delay, EventTypes::kOnOutcomeDelayed, std::move(message));
+              }
+            });
       }
 
       void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {

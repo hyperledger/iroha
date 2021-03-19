@@ -125,6 +125,7 @@ namespace query_validation {
 template <typename Launcher>
 class BinaryTestFixture : public ::testing::Test {
  public:
+  std::shared_ptr<Subscription> se_ = getSubscription();
   Launcher launcher;
 
   /**

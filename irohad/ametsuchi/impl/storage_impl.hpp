@@ -110,9 +110,6 @@ namespace iroha {
 
       std::shared_ptr<BlockQuery> getBlockQuery() const override;
 
-      /*rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() override;*/
-
       void prepareBlock(std::unique_ptr<TemporaryWsv> wsv) override;
 
       ~StorageImpl() override;

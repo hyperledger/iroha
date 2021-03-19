@@ -15,19 +15,6 @@ namespace iroha {
     this->propagateBatchImpl(batch);
   }
 
-  /*rxcpp::observable<std::shared_ptr<MstState>> MstProcessor::onStateUpdate()
-      const {
-    return this->onStateUpdateImpl();
-  }*/
-
-  /*rxcpp::observable<DataType> MstProcessor::onPreparedBatches() const {
-    return this->onPreparedBatchesImpl();
-  }*/
-
-  /*rxcpp::observable<DataType> MstProcessor::onExpiredBatches() const {
-    return this->onExpiredBatchesImpl();
-  }*/
-
   bool MstProcessor::batchInStorage(const DataType &batch) const {
     return this->batchInStorageImpl(batch);
   }

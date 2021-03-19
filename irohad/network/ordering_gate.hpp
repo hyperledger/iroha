@@ -34,17 +34,6 @@ namespace iroha {
       virtual void propagateBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch) = 0;
 
-      /**
-       * Return observable of all proposals in the consensus
-       * @return observable with notifications
-       */
-      // virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
-
-      /**
-       * Command to initiate request proposal
-       */
-      // virtual void requestProposal(RequestProposal request) = 0;
-
       virtual ~OrderingGate() = default;
 
       /// Prevent any new outgoing network activity. Be passive.

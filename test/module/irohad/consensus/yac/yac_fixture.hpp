@@ -15,6 +15,7 @@
 
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/mock_yac_timer.hpp"
@@ -30,6 +31,8 @@ namespace iroha {
 
       class YacTest : public ::testing::Test {
        public:
+        std::shared_ptr<Subscription> se_ = getSubscription();
+
         // ------|Network|------
         std::shared_ptr<MockYacNetwork> network;
         std::shared_ptr<MockYacCryptoProvider> crypto;
@@ -120,23 +123,20 @@ namespace iroha {
 
           InSequence seq;
 
-          EXPECT_CALL(
-              *timer,
-              getDelay())
-              .WillRepeatedly(Return(10h));
+          EXPECT_CALL(*timer, getDelay()).WillRepeatedly(Return(10h));
 
-/*          EXPECT_CALL(
-              *network,
-              sendState(_, ElementsAre(Field(&VoteMessage::hash, hash))))
-              .Times(times_to_send_state)
-              .WillRepeatedly(makeSendStateOrderChecker(order));*/
+          /*          EXPECT_CALL(
+                        *network,
+                        sendState(_, ElementsAre(Field(&VoteMessage::hash,
+             hash)))) .Times(times_to_send_state)
+                        .WillRepeatedly(makeSendStateOrderChecker(order));*/
 
           // stop after sending a vote \a times_to_send_state times.
-/*          EXPECT_CALL(
-              *network,
-              sendState(_, ElementsAre(Field(&VoteMessage::hash, hash))))
-              .WillOnce(InvokeWithoutArgs(
-                  [this] { timer->setInvokeEnabled(false); }));*/
+          /*          EXPECT_CALL(
+                        *network,
+                        sendState(_, ElementsAre(Field(&VoteMessage::hash,
+             hash)))) .WillOnce(InvokeWithoutArgs( [this] {
+             timer->setInvokeEnabled(false); }));*/
         }
 
         /**
@@ -148,9 +148,9 @@ namespace iroha {
         void setNetworkOrderCheckerYacState(
             const ClusterOrdering &order,
             ::testing::Matcher<const std::vector<VoteMessage> &> state) {
-/*          EXPECT_CALL(*network, sendState(::testing::_, state))
-              .Times(order.getPeers().size())
-              .WillRepeatedly(makeSendStateOrderChecker(order));*/
+          /*          EXPECT_CALL(*network, sendState(::testing::_, state))
+                        .Times(order.getPeers().size())
+                        .WillRepeatedly(makeSendStateOrderChecker(order));*/
         }
 
         /**

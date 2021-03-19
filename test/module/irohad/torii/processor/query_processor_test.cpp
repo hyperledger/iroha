@@ -40,6 +40,7 @@ using ::testing::Return;
 
 class QueryProcessorTest : public ::testing::Test {
  public:
+  std::shared_ptr<Subscription> se_ = getSubscription();
   void SetUp() override {
     qry_exec = std::make_unique<MockQueryExecutor>();
     storage = std::make_shared<MockStorage>();
@@ -51,6 +52,7 @@ class QueryProcessorTest : public ::testing::Test {
         nullptr,
         query_response_factory,
         getTestLogger("QueryProcessor"));
+    qpi->initialize();
     EXPECT_CALL(*storage, getBlockQuery())
         .WillRepeatedly(Return(block_queries));
   }
@@ -195,7 +197,8 @@ TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
   for (int i = 0; i < block_number; i++) {
     getSubscription()->notify(
         EventTypes::kOnBlock,
-        std::shared_ptr<const shared_model::interface::Block>(clone(TestBlockBuilder().build())));
+        std::shared_ptr<const shared_model::interface::Block>(
+            clone(TestBlockBuilder().build())));
   }
   ASSERT_TRUE(wrapper.validate());
 }
@@ -261,10 +264,11 @@ TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
   for (int i = 0; i < block_number; i++) {
     getSubscription()->notify(
         EventTypes::kOnBlock,
-        std::shared_ptr<const shared_model::interface::Block>(clone(TestBlockBuilder()
-                                                                        .height(1)
-                                                                        .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
-                                                                        .build())));
+        std::shared_ptr<const shared_model::interface::Block>(clone(
+            TestBlockBuilder()
+                .height(1)
+                .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
+                .build())));
   }
   ASSERT_TRUE(wrapper.validate());
 }

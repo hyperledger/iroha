@@ -33,12 +33,6 @@ namespace iroha {
       virtual std::shared_ptr<validation::VerifiedProposalAndErrors>
       processProposal(const shared_model::interface::Proposal &proposal) = 0;
 
-      /**
-       * Emit proposals which were verified by stateful validator
-       */
-      /*virtual rxcpp::observable<VerifiedProposalCreatorEvent>
-      onVerifiedProposal() = 0;*/
-
       virtual ~VerifiedProposalCreator() = default;
     };
   }  // namespace simulator
