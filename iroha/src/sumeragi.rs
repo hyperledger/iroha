@@ -1787,6 +1787,7 @@ pub mod config {
         DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE
     }
 
+    // Allowed because `BTreeSet::new()` is not const yet.
     #[allow(clippy::missing_const_for_fn)]
     fn default_empty_trusted_peers() -> TrustedPeers {
         TrustedPeers {

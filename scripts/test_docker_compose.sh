@@ -1,9 +1,9 @@
 #!/bin/bash
 set -ex
 cd test_docker
-./iroha_client_cli domain add --name="Soramitsu"
+./iroha_client_cli domain add --name="Soramitsu" --metadata="metadata.json"
 sleep 2
-./iroha_client_cli account register --name="Alice" --domain="Soramitsu" --key="[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"
+./iroha_client_cli account register --name="Alice" --domain="Soramitsu" --key="ed0120a753146e75b910ae5e2994dc8adea9e7d87e5d53024cfa310ce992f17106f92c"
 sleep 2
 ./iroha_client_cli asset register --name="XOR" --domain="Soramitsu"
 sleep 2
