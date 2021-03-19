@@ -289,10 +289,6 @@ Irohad::RunResult Irohad::initStorage(
                                 log_manager_->getChild("Storage"))
                | [&](auto &&v) -> RunResult {
       storage = std::move(v);
-
-      using shared_model::crypto::Hash;
-      using shared_model::interface::Block;
-
       log_->info("[Init] => storage");
       return {};
     };

@@ -376,6 +376,13 @@ int main(int argc, char *argv[]) {
 
         // clear previous storage if any
         irohad->dropStorage();
+        // Check if iroha daemon storage was successfully re-initialized
+        if (not irohad->storage) {
+          // Abort execution if not
+          log->error("Failed to re-initialize storage");
+          daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+          return EXIT_FAILURE;
+        }
 
         const auto txs_num = block->transactions().size();
         if (auto e = iroha::expected::resultToOptionalError(
