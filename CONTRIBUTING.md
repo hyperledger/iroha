@@ -178,7 +178,7 @@ Our community members are active at:
 | StackOverflow | https://stackoverflow.com/questions/tagged/hyperledger-iroha |
 | Mailing List  | hyperledger-iroha@lists.hyperledger.org                      |
 | Gitter        | https://gitter.im/hyperledger-iroha/Lobby                    |
-| Telegram      | https://t.me/hl\_iroha                                       |
+| Telegram      | https://t.me/hl_iroha                                        |
 | YouTube       | https://www.youtube.com/channel/UCYlK9OrZo9hvNYFuf0vrwww     |
 
 ---
