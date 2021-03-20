@@ -50,9 +50,6 @@ struct CommandFixture {
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_notifier_;
-  rxcpp::subjects::subject<
-      std::shared_ptr<const shared_model::interface::Block>>
-      commit_notifier_;
 
   CommandFixture() {
     pcs_ = std::make_shared<iroha::network::MockPeerCommunicationService>();
@@ -82,8 +79,9 @@ struct CommandFixture {
         mst_processor_,
         status_bus,
         status_factory,
-        commit_notifier_.get_observable(),
         logger::getDummyLoggerPtr());
+    tx_processor_->initialize();
+
     auto storage = std::make_shared<iroha::ametsuchi::MockStorage>();
     service_ = std::make_shared<iroha::torii::CommandServiceImpl>(
         tx_processor_,

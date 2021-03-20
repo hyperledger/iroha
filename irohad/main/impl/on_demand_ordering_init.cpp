@@ -51,9 +51,11 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
                   [&](auto &, auto committed_block) {
                     processBlock(committed_block);
                   })),
-      on_syncro_subscription_(std::make_shared<OnSyncronizationSubscription>(
-          getSubscription()
-              ->getEngine<EventTypes, synchronizer::SynchronizationEvent>())),
+      on_syncro_subscription_(
+          iroha::SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+              template create<EventTypes::kOnSynchronization,
+                              SubscriptionEngineHandlers::kYac>(
+                  [&](auto &, auto event) { processSynchroEvent(event); })),
       on_initial_syncro_subscription_(
           iroha::SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
               template create<EventTypes::kOnInitialSynchronization,
@@ -68,15 +70,6 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
         assert(EventTypes::kOnBlock == key);
         processBlock(block);
       });
-
-  on_syncro_subscription_->setCallback(
-      [this](auto, auto &, auto key, synchronizer::SynchronizationEvent event) {
-        assert(EventTypes::kOnSynchronization == key);
-        processSynchroEvent(event);
-      });
-
-  on_syncro_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-      0, EventTypes::kOnSynchronization);
 }
 
 /**

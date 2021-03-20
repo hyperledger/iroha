@@ -28,25 +28,18 @@ namespace iroha {
       : MstStorage(log),
         completer_(completer),
         own_state_(MstState::empty(mst_state_logger, completer_)),
-        finalized_txs_subscription_(std::make_shared<FinalizedTxsSubscription>(
-            getSubscription()
-                ->getEngine<EventTypes,
-                            shared_model::interface::types::HashType>())),
-        mst_state_logger_(std::move(mst_state_logger)) {
-    finalized_txs_subscription_->setCallback(
-        [this](auto,
-               auto &,
-               auto key,
-               shared_model::interface::types::HashType const &hash) {
-          assert(EventTypes::kOnFinalizedTxs == key);
-          for (auto &p : peer_states_) {
-            p.second.eraseByTransactionHash(hash);
-          }
-          own_state_.eraseByTransactionHash(hash);
-        });
-    finalized_txs_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-        0, EventTypes::kOnFinalizedTxs);
-  }
+        finalized_txs_subscription_(
+            iroha::SubscriberCreator<bool,
+                                     shared_model::interface::types::HashType>::
+                template create<EventTypes::kOnFinalizedTxs,
+                                SubscriptionEngineHandlers::kYac>(
+                    [&](auto &, auto const &hash) {
+                      for (auto &p : peer_states_) {
+                        p.second.eraseByTransactionHash(hash);
+                      }
+                      own_state_.eraseByTransactionHash(hash);
+                    })),
+        mst_state_logger_(std::move(mst_state_logger)) {}
 
   std::shared_ptr<MstStorageStateImpl> MstStorageStateImpl::create(
       CompleterType const &completer,

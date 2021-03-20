@@ -20,8 +20,6 @@
 #include "logger/logger_fwd.hpp"
 #include "main/subscription.hpp"
 
-#include <rxcpp/operators/rx-observe_on.hpp>
-
 namespace iroha {
   namespace consensus {
     namespace yac {
@@ -44,7 +42,6 @@ namespace iroha {
             std::shared_ptr<Timer> timer,
             ClusterOrdering order,
             Round round,
-            rxcpp::observe_on_one_worker worker,
             logger::LoggerPtr log);
 
         Yac(YacVoteStorage vote_storage,
@@ -53,10 +50,11 @@ namespace iroha {
             std::shared_ptr<Timer> timer,
             ClusterOrdering order,
             Round round,
-            rxcpp::observe_on_one_worker worker,
             logger::LoggerPtr log);
 
         ~Yac() override;
+
+        void initialize();
 
         // ------|Hash gate|------
 
@@ -78,7 +76,7 @@ namespace iroha {
          * Voting step is strategy of propagating vote
          * until commit/reject message received
          */
-        void votingStep(VoteMessage vote, uint32_t attempt = 0ul);
+        void votingStep(VoteMessage vote, uint32_t attempt = 0u);
 
         /**
          * Erase temporary data of current round
@@ -130,10 +128,8 @@ namespace iroha {
         std::shared_ptr<YacCryptoProvider> crypto_;
         std::shared_ptr<Timer> timer_;
 
-        using ApplyStateSubscription =
-            BaseSubscriber<utils::ReadWriteObject<Round>, Round>;
-
-        std::shared_ptr<ApplyStateSubscription> apply_state_subscription_;
+        std::shared_ptr<BaseSubscriber<utils::ReadWriteObject<Round>, Round>>
+            apply_state_subscription_;
       };
     }  // namespace yac
   }    // namespace consensus

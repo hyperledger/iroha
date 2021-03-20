@@ -100,7 +100,6 @@ class ConsensusSunnyDayTest : public ::testing::Test {
         timer,
         order.value(),
         initial_round,
-        rxcpp::observe_on_new_thread(),
         getTestLogger("Yac"));
     network->subscribe(yac);
 

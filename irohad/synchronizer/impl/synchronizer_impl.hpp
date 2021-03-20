@@ -28,7 +28,9 @@ namespace iroha {
 
   namespace synchronizer {
 
-    class SynchronizerImpl : public Synchronizer {
+    class SynchronizerImpl
+        : public Synchronizer,
+          public std::enable_shared_from_this<SynchronizerImpl> {
      public:
       SynchronizerImpl(
           std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
@@ -39,9 +41,10 @@ namespace iroha {
           std::shared_ptr<network::BlockLoader> block_loader,
           logger::LoggerPtr log);
 
-      ~SynchronizerImpl() override;
+      ~SynchronizerImpl() override = default;
 
       void processOutcome(consensus::GateObject object) override;
+      void initialize();
 
      private:
       /**
@@ -80,9 +83,7 @@ namespace iroha {
       std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory_;
       std::shared_ptr<network::BlockLoader> block_loader_;
 
-      using OnOutcomeSubscriber = BaseSubscriber<bool, consensus::GateObject>;
-
-      std::shared_ptr<OnOutcomeSubscriber> notifier_;
+      std::shared_ptr<BaseSubscriber<bool, consensus::GateObject>> notifier_;
 
       logger::LoggerPtr log_;
     };

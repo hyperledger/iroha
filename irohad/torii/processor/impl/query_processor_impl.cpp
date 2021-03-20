@@ -29,30 +29,22 @@ namespace iroha {
           qry_exec_{std::move(qry_exec)},
           pending_transactions_{std::move(pending_transactions)},
           response_factory_{std::move(response_factory)},
-          block_subscription_(std::make_shared<BlockSubscription>(
-              getSubscription()
-                  ->getEngine<EventTypes,
-                              std::shared_ptr<
-                                  const shared_model::interface::Block>>())),
           log_{std::move(log)} {}
 
     void QueryProcessorImpl::initialize() {
-      block_subscription_->setCallback(
-          [wptr(weak_from_this())](
-              auto,
-              auto,
-              auto key,
-              std::shared_ptr<const shared_model::interface::Block> block) {
-            assert(EventTypes::kOnBlock == key);
-            if (auto ptr = wptr.lock()) {
-              auto block_response =
-                  ptr->response_factory_->createBlockQueryResponse(block);
-              ptr->blocks_query_subject_.get_subscriber().on_next(
-                  std::move(block_response));
-            }
-          });
-      block_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-          0, EventTypes::kOnBlock);
+      block_subscription_ = iroha::SubscriberCreator<
+          bool,
+          std::shared_ptr<const shared_model::interface::Block>>::
+          template create<EventTypes::kOnBlock,
+                          SubscriptionEngineHandlers::kYac>(
+              [wptr{weak_from_this()}](auto &, auto const block) {
+                if (auto ptr = wptr.lock()) {
+                  auto block_response =
+                      ptr->response_factory_->createBlockQueryResponse(block);
+                  ptr->blocks_query_subject_.get_subscriber().on_next(
+                      std::move(block_response));
+                }
+              });
     }
 
     iroha::expected::Result<

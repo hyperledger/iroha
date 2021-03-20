@@ -62,7 +62,6 @@ namespace iroha {
         : block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_->connection_pool_),
-          // notifier_(notifier_lifetime_),
           perm_converter_(std::move(perm_converter)),
           pending_txs_storage_(std::move(pending_txs_storage)),
           query_response_factory_(std::move(query_response_factory)),
@@ -448,7 +447,6 @@ namespace iroha {
     }
 
     StorageImpl::~StorageImpl() {
-      // notifier_lifetime_.unsubscribe();
       freeConnections();
     }
 

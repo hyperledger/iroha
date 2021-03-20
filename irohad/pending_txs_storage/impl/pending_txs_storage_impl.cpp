@@ -13,54 +13,34 @@ namespace iroha {
   PendingTransactionStorageImpl::PendingTransactionStorageImpl(
       PendingTransactionStorageImpl::private_tag)
       : mst_state_update_subscription_(
-            std::make_shared<MSTStateUpdateSubscription>(
-                getSubscription()
-                    ->getEngine<EventTypes, std::shared_ptr<MstState>>())),
+            iroha::SubscriberCreator<bool, std::shared_ptr<MstState>>::
+                template create<EventTypes::kOnStateUpdate,
+                                SubscriptionEngineHandlers::kYac>(
+                    [&](auto &, auto const &batches) {
+                      updatedBatchesHandler(batches);
+                    })),
         mst_prepared_batches_subscription_(
-            std::make_shared<MSTPreparedBatchesSubscription>(
-                getSubscription()->getEngine<EventTypes, DataType>())),
+            iroha::SubscriberCreator<bool, DataType>::template create<
+                EventTypes::kOnPreparedBatches,
+                SubscriptionEngineHandlers::kYac>(
+                [&](auto &, auto const &preparedBatch) {
+                  removeBatch(preparedBatch);
+                })),
         mst_expired_batches_subscription_(
-            std::make_shared<MSTExpiredBatchesSubscription>(
-                getSubscription()->getEngine<EventTypes, DataType>())),
-        finalized_txs_subscription_(std::make_shared<FinalizedTxsSubscription>(
-            getSubscription()
-                ->getEngine<EventTypes,
-                            shared_model::interface::types::HashType>())) {
-    mst_state_update_subscription_->setCallback(
-        [this](auto, auto &, auto key, auto &batches) {
-          assert(EventTypes::kOnStateUpdate == key);
-          updatedBatchesHandler(batches);
-        });
-    mst_prepared_batches_subscription_->setCallback(
-        [this](auto, auto &, auto key, auto &preparedBatch) {
-          assert(EventTypes::kOnPreparedBatches == key);
-          removeBatch(preparedBatch);
-        });
-    mst_expired_batches_subscription_->setCallback(
-        [this](auto, auto &, auto key, auto &expiredBatch) {
-          assert(EventTypes::kOnExpiredBatches == key);
-          removeBatch(expiredBatch);
-        });
-    finalized_txs_subscription_->setCallback(
-        [this](auto,
-               auto &,
-               auto key,
-               shared_model::interface::types::HashType const &hash) {
-          assert(EventTypes::kOnFinalizedTxs == key);
-          removeTransaction(hash);
-        });
-
-    mst_state_update_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-        0, EventTypes::kOnStateUpdate);
-    mst_prepared_batches_subscription_
-        ->subscribe<SubscriptionEngineHandlers::kYac>(
-            0, EventTypes::kOnPreparedBatches);
-    mst_expired_batches_subscription_
-        ->subscribe<SubscriptionEngineHandlers::kYac>(
-            0, EventTypes::kOnExpiredBatches);
-    finalized_txs_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-        0, EventTypes::kOnFinalizedTxs);
-  }
+            iroha::SubscriberCreator<bool, DataType>::template create<
+                EventTypes::kOnExpiredBatches,
+                SubscriptionEngineHandlers::kYac>(
+                [&](auto &, auto const &expiredBatch) {
+                  removeBatch(expiredBatch);
+                })),
+        finalized_txs_subscription_(
+            iroha::SubscriberCreator<bool,
+                                     shared_model::interface::types::HashType>::
+                template create<EventTypes::kOnFinalizedTxs,
+                                SubscriptionEngineHandlers::kYac>(
+                    [&](auto &, auto const &hash) {
+                      removeTransaction(hash);
+                    })) {}
 
   std::shared_ptr<PendingTransactionStorageImpl>
   PendingTransactionStorageImpl::create() {

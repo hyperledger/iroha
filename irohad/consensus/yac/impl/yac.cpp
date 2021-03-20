@@ -36,16 +36,11 @@ namespace iroha {
           std::shared_ptr<Timer> timer,
           ClusterOrdering order,
           Round round,
-          rxcpp::observe_on_one_worker worker,
           logger::LoggerPtr log) {
-        return std::make_shared<Yac>(vote_storage,
-                                     network,
-                                     crypto,
-                                     timer,
-                                     order,
-                                     round,
-                                     worker,
-                                     std::move(log));
+        auto ptr = std::make_shared<Yac>(
+            vote_storage, network, crypto, timer, order, round, std::move(log));
+        ptr->initialize();
+        return ptr;
       }
 
       Yac::Yac(YacVoteStorage vote_storage,
@@ -54,7 +49,6 @@ namespace iroha {
                std::shared_ptr<Timer> timer,
                ClusterOrdering order,
                Round round,
-               rxcpp::observe_on_one_worker worker,
                logger::LoggerPtr log)
           : log_(std::move(log)),
             cluster_order_(order),
@@ -62,24 +56,22 @@ namespace iroha {
             vote_storage_(std::move(vote_storage)),
             network_(std::move(network)),
             crypto_(std::move(crypto)),
-            timer_(std::move(timer)),
-            apply_state_subscription_(std::make_shared<ApplyStateSubscription>(
-                getSubscription()->getEngine<EventTypes, Round>())) {
-        apply_state_subscription_->setCallback([](auto,
-                                                  auto &cached_closed_round,
-                                                  auto const key,
-                                                  Round const &closed_round) {
-          assert(key == EventTypes::kOnApplyState);
-          cached_closed_round.exclusiveAccess([&](auto &obj) {
-            assert(closed_round >= obj);
-            obj = closed_round;
-          });
-        });
-        apply_state_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-            0, EventTypes::kOnApplyState);
-      }
+            timer_(std::move(timer)) {}
 
       Yac::~Yac() {}
+
+      void Yac::initialize() {
+        apply_state_subscription_ =
+            iroha::SubscriberCreator<utils::ReadWriteObject<Round>, Round>::
+                template create<EventTypes::kOnApplyState,
+                                SubscriptionEngineHandlers::kYac>(
+                    [](auto &cached_closed_round, auto closed_round) {
+                      cached_closed_round.exclusiveAccess([&](auto &obj) {
+                        assert(closed_round >= obj);
+                        obj = closed_round;
+                      });
+                    });
+      }
 
       void Yac::stop() {
         network_->stop();

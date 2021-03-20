@@ -254,8 +254,6 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:
-  // rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
-
   // initialization objects
   iroha::ordering::OnDemandOrderingInit ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
@@ -378,18 +376,14 @@ class Irohad {
   std::shared_ptr<
       iroha::BaseSubscriber<bool, iroha::synchronizer::SynchronizationEvent>>
       syncSubscription;
-
-  using OnProposalSubscription =
-      iroha::BaseSubscriber<bool, iroha::network::OrderingEvent>;
-  using OnOutcomeSubscription =
-      iroha::BaseSubscriber<bool, iroha::consensus::GateObject>;
-  using OnBlockSubscription = iroha::BaseSubscriber<
+  std::shared_ptr<iroha::BaseSubscriber<bool, iroha::network::OrderingEvent>>
+      on_proposal_subscription_;
+  std::shared_ptr<iroha::BaseSubscriber<bool, iroha::consensus::GateObject>>
+      on_outcome_subscription_;
+  std::shared_ptr<iroha::BaseSubscriber<
       bool,
-      std::shared_ptr<const shared_model::interface::Block>>;
-
-  std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
-  std::shared_ptr<OnOutcomeSubscription> on_outcome_subscription_;
-  std::shared_ptr<OnBlockSubscription> on_block_subscription_;
+      std::shared_ptr<const shared_model::interface::Block>>>
+      on_block_subscription_;
 };
 
 #endif  // IROHA_APPLICATION_HPP

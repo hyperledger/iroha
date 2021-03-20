@@ -20,21 +20,18 @@ OnDemandConnectionManager::OnDemandConnectionManager(
     logger::LoggerPtr log)
     : log_(std::move(log)),
       factory_(std::move(factory)),
-      subscription_(std::make_shared<SubscriberType>(
-          getSubscription()->getEngine<EventTypes, CurrentPeers>())) {
-  subscription_->setCallback([this](auto, auto &, auto key, auto const &peers) {
-    assert(EventTypes::kOnCurrentRoundPeers == key);
-    this->initializeConnections(peers);
-  });
-  subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
-      0, EventTypes::kOnCurrentRoundPeers);
-}
+      subscription_(
+          iroha::SubscriberCreator<bool, CurrentPeers>::template create<
+              EventTypes::kOnCurrentRoundPeers,
+              SubscriptionEngineHandlers::kYac>([&](auto &, auto const &peers) {
+            this->initializeConnections(peers);
+          })) {}
 
 OnDemandConnectionManager::OnDemandConnectionManager(
     std::shared_ptr<transport::OdOsNotificationFactory> factory,
     CurrentPeers initial_peers,
     logger::LoggerPtr log)
-    : OnDemandConnectionManager(std::move(factory), /*peers,*/ std::move(log)) {
+    : OnDemandConnectionManager(std::move(factory), std::move(log)) {
   // using start_with(initial_peers) results in deadlock
   initializeConnections(initial_peers);
 }

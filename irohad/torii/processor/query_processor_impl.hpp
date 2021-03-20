@@ -54,11 +54,10 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::QueryResponseFactory>
           response_factory_;
 
-      using BlockSubscription =
+      std::shared_ptr<
           BaseSubscriber<bool,
-                         std::shared_ptr<const shared_model::interface::Block>>;
-
-      std::shared_ptr<BlockSubscription> block_subscription_;
+                         std::shared_ptr<const shared_model::interface::Block>>>
+          block_subscription_;
 
       logger::LoggerPtr log_;
     };

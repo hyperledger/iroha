@@ -61,6 +61,7 @@ class TransactionProcessorTest : public ::testing::Test {
         status_bus,
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>(),
         getTestLogger("TransactionProcessor"));
+    tp->initialize();
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(

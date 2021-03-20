@@ -36,17 +36,16 @@ namespace iroha {
           mutable_factory_(std::move(mutable_factory)),
           block_query_factory_(std::move(block_query_factory)),
           block_loader_(std::move(block_loader)),
-          notifier_(std::make_shared<OnOutcomeSubscriber>(
-              getSubscription()
-                  ->getEngine<EventTypes, consensus::GateObject>())),
-          log_(std::move(log)) {
-      notifier_->setCallback(
-          [&](auto, auto &, auto key, consensus::GateObject object) {
-            assert(EventTypes::kOnOutcome == key);
-            this->processOutcome(object);
-          });
-      notifier_->subscribe<SubscriptionEngineHandlers::kYac>(
-          0, EventTypes::kOnOutcome);
+          log_(std::move(log)) {}
+
+    void SynchronizerImpl::initialize() {
+      notifier_ = iroha::SubscriberCreator<bool, consensus::GateObject>::
+          template create<EventTypes::kOnOutcome,
+                          SubscriptionEngineHandlers::kYac>(
+              [wptr{weak_from_this()}](auto &, auto const object) {
+                if (auto ptr = wptr.lock())
+                  ptr->processOutcome(object);
+              });
     }
 
     void SynchronizerImpl::processOutcome(consensus::GateObject object) {
@@ -231,8 +230,6 @@ namespace iroha {
             log_->error("Synchronization failed: {}", error.error);
           });
     }
-
-    SynchronizerImpl::~SynchronizerImpl() {}
 
   }  // namespace synchronizer
 }  // namespace iroha

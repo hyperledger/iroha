@@ -154,11 +154,6 @@ namespace iroha {
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<soci::connection_pool> &connection_;
 
-      /*rxcpp::composite_subscription notifier_lifetime_;
-      rxcpp::subjects::subject<
-          std::shared_ptr<const shared_model::interface::Block>>
-          notifier_;*/
-
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
 

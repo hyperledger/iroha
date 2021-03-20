@@ -17,7 +17,6 @@
 #include <boost/bimap.hpp>
 #include <boost/bimap/unordered_multiset_of.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "main/subscription.hpp"
@@ -39,12 +38,7 @@ namespace iroha {
     using TransactionBatch = shared_model::interface::TransactionBatch;
     using SharedState = std::shared_ptr<MstState>;
     using SharedBatch = std::shared_ptr<TransactionBatch>;
-    using StateObservable = rxcpp::observable<SharedState>;
-    using BatchObservable = rxcpp::observable<SharedBatch>;
     using PreparedTransactionDescriptor = std::pair<AccountIdType, HashType>;
-    using PreparedTransactionsObservable =
-        rxcpp::observable<PreparedTransactionDescriptor>;
-    using FinalizedTransactionsObservable = rxcpp::observable<HashType>;
 
     PendingTransactionStorageImpl(PendingTransactionStorageImpl::private_tag);
 
@@ -129,19 +123,14 @@ namespace iroha {
      */
     std::unordered_map<AccountIdType, AccountBatches> storage_;
 
-    using MSTStateUpdateSubscription =
-        BaseSubscriber<bool, std::shared_ptr<MstState>>;
-    using MSTPreparedBatchesSubscription = BaseSubscriber<bool, DataType>;
-    using MSTExpiredBatchesSubscription = BaseSubscriber<bool, DataType>;
-    using FinalizedTxsSubscription =
-        BaseSubscriber<bool, shared_model::interface::types::HashType>;
-
-    std::shared_ptr<MSTStateUpdateSubscription> mst_state_update_subscription_;
-    std::shared_ptr<MSTPreparedBatchesSubscription>
-        mst_prepared_batches_subscription_;
-    std::shared_ptr<MSTExpiredBatchesSubscription>
-        mst_expired_batches_subscription_;
-    std::shared_ptr<FinalizedTxsSubscription> finalized_txs_subscription_;
+    using MSTBatchesSubscription = BaseSubscriber<bool, DataType>;
+    std::shared_ptr<BaseSubscriber<bool, std::shared_ptr<MstState>>>
+        mst_state_update_subscription_;
+    std::shared_ptr<MSTBatchesSubscription> mst_prepared_batches_subscription_;
+    std::shared_ptr<MSTBatchesSubscription> mst_expired_batches_subscription_;
+    std::shared_ptr<
+        BaseSubscriber<bool, shared_model::interface::types::HashType>>
+        finalized_txs_subscription_;
   };
 
 }  // namespace iroha

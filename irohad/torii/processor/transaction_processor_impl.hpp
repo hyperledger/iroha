@@ -10,7 +10,6 @@
 
 #include <mutex>
 
-#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
@@ -22,7 +21,9 @@
 
 namespace iroha {
   namespace torii {
-    class TransactionProcessorImpl : public TransactionProcessor {
+    class TransactionProcessorImpl
+        : public TransactionProcessor,
+          public std::enable_shared_from_this<TransactionProcessorImpl> {
      public:
       /**
        * @param pcs - provide information proposals and commits
@@ -44,6 +45,8 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch>
               transaction_batch) const override;
 
+      void initialize();
+
      private:
       // connections
       std::shared_ptr<network::PeerCommunicationService> pcs_;
@@ -53,11 +56,6 @@ namespace iroha {
 
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
-      // internal
-      /*rxcpp::subjects::subject<
-          std::shared_ptr<shared_model::interface::TransactionResponse>>
-          notifier_;*/
-
       // keeps hashes of transaction, which were committed during this round
       std::vector<shared_model::interface::types::HashType> current_txs_hashes_;
 
@@ -66,19 +64,16 @@ namespace iroha {
 
       logger::LoggerPtr log_;
 
-      using VerifiedProposalSubscription =
-          BaseSubscriber<bool, simulator::VerifiedProposalCreatorEvent>;
-      using BlockSubscription =
-          BaseSubscriber<bool,
-                         std::shared_ptr<const shared_model::interface::Block>>;
-      using MSTStateUpdateSubscription =
-          BaseSubscriber<bool, std::shared_ptr<MstState>>;
       using MSTBatchesSubscription = BaseSubscriber<bool, DataType>;
 
-      std::shared_ptr<VerifiedProposalSubscription>
+      std::shared_ptr<
+          BaseSubscriber<bool, simulator::VerifiedProposalCreatorEvent>>
           verified_proposal_subscription_;
-      std::shared_ptr<BlockSubscription> blocks_subscription_;
-      std::shared_ptr<MSTStateUpdateSubscription>
+      std::shared_ptr<
+          BaseSubscriber<bool,
+                         std::shared_ptr<const shared_model::interface::Block>>>
+          blocks_subscription_;
+      std::shared_ptr<BaseSubscriber<bool, std::shared_ptr<MstState>>>
           mst_state_update_subscription_;
       std::shared_ptr<MSTBatchesSubscription>
           mst_prepared_batches_subscription_;

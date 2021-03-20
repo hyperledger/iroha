@@ -9,7 +9,6 @@
 #include <memory>
 #include <unordered_map>
 
-#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 #include "main/subscription.hpp"
 #include "multi_sig_transactions/hash.hpp"
@@ -98,9 +97,9 @@ namespace iroha {
         peer_states_;
     MstState own_state_;
 
-    using FinalizedTxsSubscription =
-        BaseSubscriber<bool, shared_model::interface::types::HashType>;
-    std::shared_ptr<FinalizedTxsSubscription> finalized_txs_subscription_;
+    std::shared_ptr<
+        BaseSubscriber<bool, shared_model::interface::types::HashType>>
+        finalized_txs_subscription_;
 
     logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                           ///< objects.

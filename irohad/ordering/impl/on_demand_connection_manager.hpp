@@ -11,7 +11,6 @@
 #include <atomic>
 #include <shared_mutex>
 
-#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 #include "main/subscription.hpp"
 
@@ -87,10 +86,7 @@ namespace iroha {
 
       logger::LoggerPtr log_;
       std::shared_ptr<transport::OdOsNotificationFactory> factory_;
-      // rxcpp::composite_subscription subscription_;
-      using SubscriberType = BaseSubscriber<bool, CurrentPeers>;
-
-      std::shared_ptr<SubscriberType> subscription_;
+      std::shared_ptr<BaseSubscriber<bool, CurrentPeers>> subscription_;
 
       CurrentConnections connections_;
 

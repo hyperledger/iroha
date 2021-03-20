@@ -47,9 +47,6 @@ struct CommandFixture {
   rxcpp::subjects::subject<iroha::network::OrderingEvent> prop_notifier_;
   rxcpp::subjects::subject<iroha::simulator::VerifiedProposalCreatorEvent>
       vprop_notifier_;
-  rxcpp::subjects::subject<
-      std::shared_ptr<const shared_model::interface::Block>>
-      commit_notifier_;
   rxcpp::subjects::subject<iroha::DataType> mst_notifier_;
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
@@ -79,8 +76,8 @@ struct CommandFixture {
         mst_processor_,
         status_bus,
         status_factory,
-        commit_notifier_.get_observable(),
         logger::getDummyLoggerPtr());
+    tx_processor_->initialize();
 
     std::unique_ptr<shared_model::validation::AbstractValidator<
         shared_model::interface::Transaction>>

@@ -141,6 +141,7 @@ class SynchronizerTest : public ::testing::Test {
                                            block_query_factory,
                                            block_loader,
                                            getTestLogger("Synchronizer"));
+    synchronizer->initialize();
 
     ledger_state = std::make_shared<LedgerState>(
         ledger_peers, commit_message->height() - 1, commit_message->prevHash());

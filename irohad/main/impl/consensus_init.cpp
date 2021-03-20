@@ -46,7 +46,6 @@ namespace {
       std::shared_ptr<Timer> timer,
       std::shared_ptr<YacNetwork> network,
       ConsistencyModel consistency_model,
-      rxcpp::observe_on_one_worker coordination,
       const logger::LoggerManagerTreePtr &consensus_log_manager) {
     std::shared_ptr<iroha::consensus::yac::CleanupStrategy> cleanup_strategy =
         std::make_shared<iroha::consensus::yac::BufferedCleanupStrategy>();
@@ -60,7 +59,6 @@ namespace {
         std::move(timer),
         initial_order,
         initial_round,
-        coordination,
         consensus_log_manager->getChild("HashGate")->getLogger());
   }
 }  // namespace
@@ -121,7 +119,6 @@ namespace iroha {
                              createTimer(vote_delay_milliseconds),
                              consensus_network_,
                              consistency_model,
-                             rxcpp::observe_on_new_thread(),
                              consensus_log_manager);
         consensus_network_->subscribe(yac);
 
