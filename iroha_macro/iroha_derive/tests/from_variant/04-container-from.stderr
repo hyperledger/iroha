@@ -1,0 +1,12 @@
+error[E0119]: conflicting implementations of trait `std::convert::From<Variant1>` for type `Enum`:
+  --> $DIR/03-container-enums.rs:14:10
+   |
+14 | #[derive(iroha_derive::FromVariant)]
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Enum`
+   |
+  ::: $WORKSPACE/iroha_macro/iroha_derive/tests/from_variant/04-container-from.rs
+   |
+   | impl std::convert::From<Variant1> for Enum {
+   | ------------------------------------------ first implementation here
+   |
+   = note: this error originates in a derive macro (in Nightly builds, run with -Z macro-backtrace for more info)

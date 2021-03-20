@@ -348,7 +348,7 @@ pub mod account {
     }
 
     /// Get query to get account by id
-    pub fn by_id(account_id: AccountId) -> QueryRequest {
+    pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> QueryRequest {
         QueryRequest::new(FindAccountById::new(account_id).into())
     }
 }
@@ -368,14 +368,16 @@ pub mod asset {
     }
 
     /// Get query to get all assets by account id
-    pub fn by_account_id(account_id: <Account as Identifiable>::Id) -> QueryRequest {
+    pub fn by_account_id(
+        account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>,
+    ) -> QueryRequest {
         QueryRequest::new(FindAssetsByAccountId::new(account_id).into())
     }
 
     /// Get query to get all assets by account id and definition id
     pub fn by_account_id_and_definition_id(
-        account_id: AccountId,
-        asset_definition_id: AssetDefinitionId,
+        account_id: impl Into<EvaluatesTo<AccountId>>,
+        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
     ) -> QueryRequest {
         QueryRequest::new(
             FindAssetsByAccountIdAndAssetDefinitionId::new(account_id, asset_definition_id).into(),
@@ -393,7 +395,7 @@ pub mod domain {
     }
 
     /// Get query to get all domain by name
-    pub fn by_name(domain_name: String) -> QueryRequest {
+    pub fn by_name(domain_name: impl Into<EvaluatesTo<String>>) -> QueryRequest {
         QueryRequest::new(FindDomainByName::new(domain_name).into())
     }
 }

@@ -92,7 +92,9 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Domain related implementations.
 pub mod query {
     use super::*;
+    use crate::expression::Evaluate;
     use iroha_derive::*;
+    use iroha_error::{Result, WrapErr};
 
     impl Query for FindAllDomains {
         #[log]
@@ -108,8 +110,12 @@ pub mod query {
     impl Query for FindDomainByName {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let name = self
+                .name
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get domain name")?;
             Ok(world_state_view
-                .read_domain(&self.name)
+                .read_domain(&name)
                 .map(Clone::clone)
                 .ok_or_else(|| error!("Failed to get a domain."))?
                 .into())
