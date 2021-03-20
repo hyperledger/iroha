@@ -197,7 +197,8 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Asset related implementations.
 pub mod query {
     use super::*;
-    use iroha_error::{error, Result};
+    use crate::expression::Evaluate;
+    use iroha_error::{error, Result, WrapErr};
 
     impl Query for FindAllAssets {
         #[log]
@@ -225,10 +226,14 @@ pub mod query {
     impl Query for FindAssetById {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset id")?;
             Ok(world_state_view
-                .read_asset(&self.id)
+                .read_asset(&id)
                 .cloned()
-                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &self.id))?
+                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &id))?
                 .into())
         }
     }
@@ -236,10 +241,14 @@ pub mod query {
     impl Query for FindAssetsByName {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let name = self
+                .name
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset name")?;
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
-                .filter(|asset| asset.id.definition_id.name == self.name)
+                .filter(|asset| asset.id.definition_id.name == name)
                 .cloned()
                 .collect())
         }
@@ -248,9 +257,13 @@ pub mod query {
     impl Query for FindAssetsByAccountId {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .account_id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get account id")?;
             let vec = world_state_view
-                .read_account_assets(&self.account_id)
-                .ok_or_else(|| error!("No account with id: {} found.", &self.account_id))?
+                .read_account_assets(&id)
+                .ok_or_else(|| error!("No account with id: {} found.", &id))?
                 .into_iter()
                 .cloned()
                 .map(Box::new)
@@ -264,10 +277,14 @@ pub mod query {
     impl Query for FindAssetsByAssetDefinitionId {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .asset_definition_id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset definition id")?;
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
-                .filter(|asset| asset.id.definition_id == self.asset_definition_id)
+                .filter(|asset| asset.id.definition_id == id)
                 .cloned()
                 .collect())
         }
@@ -276,10 +293,14 @@ pub mod query {
     impl Query for FindAssetsByDomainName {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let name = self
+                .domain_name
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get domain name")?;
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
-                .filter(|asset| asset.id.account_id.domain_name == self.domain_name)
+                .filter(|asset| asset.id.account_id.domain_name == name)
                 .cloned()
                 .collect())
         }
@@ -288,11 +309,19 @@ pub mod query {
     impl Query for FindAssetsByAccountIdAndAssetDefinitionId {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .account_id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get account id")?;
+            let asset_id = self
+                .asset_definition_id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset id")?;
             let vec = world_state_view
-                .read_account_assets(&self.account_id)
-                .ok_or_else(|| error!("No account with id: {} found.", &self.account_id))?
+                .read_account_assets(&id)
+                .ok_or_else(|| error!("No account with id: {} found.", &id))?
                 .into_iter()
-                .filter(|asset| asset.id.definition_id == self.asset_definition_id)
+                .filter(|asset| asset.id.definition_id == asset_id)
                 .cloned()
                 .map(Box::new)
                 .map(IdentifiableBox::Asset)
@@ -305,12 +334,19 @@ pub mod query {
     impl Query for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let name = self
+                .domain_name
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get domain name")?;
+            let asset_id = self
+                .asset_definition_id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset id")?;
             Ok(world_state_view
                 .read_all_assets()
                 .into_iter()
                 .filter(|asset| {
-                    asset.id.account_id.domain_name == self.domain_name
-                        && asset.id.definition_id == self.asset_definition_id
+                    asset.id.account_id.domain_name == name && asset.id.definition_id == asset_id
                 })
                 .cloned()
                 .collect())
@@ -320,14 +356,20 @@ pub mod query {
     impl Query for FindAssetQuantityById {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let asset_id = self
+                .id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset id")?;
             Ok(world_state_view
-                .read_asset(&self.id)
+                .read_asset(&asset_id)
                 .map(|asset| {
                     let quantity: Result<u32> = asset.try_as_ref().map(Clone::clone);
                     quantity
                 })
                 .transpose()?
-                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &self.id))?
+                .ok_or_else(|| {
+                    error!("Failed to get an asset with identification: {}.", &asset_id)
+                })?
                 .into())
         }
     }
@@ -335,20 +377,27 @@ pub mod query {
     impl Query for FindAssetKeyValueByIdAndKey {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get asset id")?;
+            let key = self
+                .key
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get key")?;
             Ok(world_state_view
-                .read_asset(&self.id)
+                .read_asset(&id)
                 .map(|asset| {
                     let store: Result<&Metadata> = asset.try_as_ref();
                     store.and_then(|store| {
-                        store.get(&self.key).map(ToOwned::to_owned).ok_or_else(|| {
-                            error!("Key {} not found in asset {}", self.key, self.id)
-                        })
+                        store
+                            .get(&key)
+                            .map(ToOwned::to_owned)
+                            .ok_or_else(|| error!("Key {} not found in asset {}", key, id))
                     })
                 })
                 .transpose()?
-                .ok_or_else(|| {
-                    error!("Failed to get an asset with identification: {}.", &self.id)
-                })?)
+                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &id))?)
         }
     }
 }

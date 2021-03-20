@@ -1,0 +1,7 @@
+error: proc-macro derive panicked
+ --> $DIR/05-struct.rs:1:10
+  |
+1 | #[derive(iroha_derive::FromVariant)]
+  |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: Only enums are supported

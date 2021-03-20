@@ -3,7 +3,7 @@ use quote::quote;
 
 const SOURCE_ATTR: &str = "source";
 
-fn attrs_has_ident(attrs: &[syn::Attribute], ident: &str) -> bool {
+fn attrs_have_ident(attrs: &[syn::Attribute], ident: &str) -> bool {
     attrs.iter().any(|attr| attr.path.is_ident(ident))
 }
 
@@ -19,7 +19,7 @@ pub fn impl_source(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     .map(|variant| {
         let ident = &variant.ident;
         match variant.fields {
-            syn::Fields::Unnamed(ref fields) if fields.unnamed.len() == 1 && attrs_has_ident(&fields.unnamed[0].attrs, SOURCE_ATTR) => {
+            syn::Fields::Unnamed(ref fields) if fields.unnamed.len() == 1 && attrs_have_ident(&fields.unnamed[0].attrs, SOURCE_ATTR) => {
                 quote! { Self:: #ident (var) => std::error::Error::source(var) }
             },
             syn::Fields::Unnamed(ref fields) if fields.unnamed.len() == 1 => {
