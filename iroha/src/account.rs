@@ -102,8 +102,9 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Account related implementations.
 pub mod query {
     use super::*;
+    use crate::expression::Evaluate;
     use iroha_derive::*;
-    use iroha_error::{error, Result};
+    use iroha_error::{error, Result, WrapErr};
 
     impl Query for FindAllAccounts {
         #[log]
@@ -119,8 +120,12 @@ pub mod query {
     impl Query for FindAccountById {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get id")?;
             Ok(world_state_view
-                .read_account(&self.id)
+                .read_account(&id)
                 .map(Clone::clone)
                 .ok_or_else(|| error!("Failed to get an account."))?
                 .into())
@@ -130,10 +135,14 @@ pub mod query {
     impl Query for FindAccountsByName {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let name = self
+                .name
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get account name")?;
             Ok(world_state_view
                 .read_all_accounts()
                 .into_iter()
-                .filter(|account| account.id.name == self.name)
+                .filter(|account| account.id.name == name)
                 .cloned()
                 .collect())
         }
@@ -142,10 +151,14 @@ pub mod query {
     impl Query for FindAccountsByDomainName {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let name = self
+                .domain_name
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get domain name")?;
             Ok(world_state_view
                 .read_all_accounts()
                 .into_iter()
-                .filter(|account| account.id.domain_name == self.domain_name)
+                .filter(|account| account.id.domain_name == name)
                 .cloned()
                 .collect())
         }
@@ -154,11 +167,19 @@ pub mod query {
     impl Query for FindAccountKeyValueByIdAndKey {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get account id")?;
+            let key = self
+                .key
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get key")?;
             world_state_view
-                .read_account(&self.id)
+                .read_account(&id)
                 .ok_or_else(|| error!("Failed to get an account."))?
                 .metadata
-                .get(&self.key)
+                .get(&key)
                 .map(Clone::clone)
                 .ok_or_else(|| error!("No metadata entry with this key."))
         }

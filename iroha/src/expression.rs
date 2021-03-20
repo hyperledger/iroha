@@ -348,8 +348,10 @@ impl Evaluate for Mod {
 mod tests {
     use super::*;
     use iroha_crypto::KeyPair;
-    use iroha_error::{MessageError, Result};
+    use iroha_error::Result;
+    use iroha_macro::error::ErrorTryFromEnum;
     use parity_scale_codec::{Decode, Encode};
+    use std::{error::Error as StdError, fmt::Debug};
 
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
@@ -486,52 +488,46 @@ mod tests {
 
     #[test]
     fn wrong_operand_types_are_caught() {
-        fn assert_eval<V, E>(inst: &E, err_msg: &str, ends_with: &str)
+        fn assert_eval<I, E>(inst: &I, err_msg: &str)
         where
-            V: std::fmt::Debug,
-            E: Evaluate<Value = V> + std::fmt::Debug,
+            I: Evaluate + Debug,
+            I::Value: Debug,
+            E: StdError + Eq + Default + 'static,
         {
             let wsv = WorldStateView::new(World::new());
             let result: Result<_> = inst.evaluate(&wsv, &Context::new());
             let err = result.expect_err(err_msg);
-            let err = err.downcast_ref::<MessageError<String>>().unwrap();
-            assert!(err.msg.ends_with(ends_with))
+            let err = err.downcast_ref::<E>().unwrap();
+            assert_eq!(err, &E::default());
         }
 
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
             &Add::new(10_u32, true),
             "Should not be possible to add int and bool.",
-            "is not U32.",
         );
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
             &Subtract::new(10_u32, true),
             "Should not be possible to subtract int and bool.",
-            "is not U32.",
         );
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
             &And::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply logical and to int and vec.",
-            "is not bool.",
         );
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
             &Or::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply logical or to int and vec.",
-            "is not bool.",
         );
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
             &Greater::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply greater sign to int and vec.",
-            "is not U32.",
         );
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
             &Less::new(1_u32, Vec::<Value>::new()),
             "Should not be possible to apply greater sign to int and vec.",
-            "is not U32.",
         );
-        assert_eval(
+        assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
             &IfExpression::new(1_u32, 2_u32, 3_u32),
             "If condition should be bool",
-            "is not bool.",
         );
     }
 

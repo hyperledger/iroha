@@ -1,3 +1,5 @@
+//! `iroha_crypto_cli` is a command line tool used to generate keys for Iroha peers and clients.
+
 use clap::{App, Arg, ArgGroup};
 use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 

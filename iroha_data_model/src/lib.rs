@@ -10,7 +10,8 @@ pub mod query;
 
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
-use iroha_error::{error, Error, Result};
+use iroha_error::Result;
+use iroha_macro::error::ErrorTryFromEnum;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, fmt::Debug};
@@ -96,7 +97,7 @@ pub enum IdentifiableBox {
 pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
 pub enum Value {
     /// `u32` integer.
     U32(u32),
@@ -105,7 +106,7 @@ pub enum Value {
     /// `String` value.
     String(String),
     /// `Vec` of `Value`.
-    Vec(Vec<Value>),
+    Vec(#[skip_from] Vec<Value>),
     /// `Id` of `Asset`, `Account`, etc.
     Id(IdBox),
     /// `Identifiable` as `Asset`, `Account` etc.
@@ -133,131 +134,100 @@ impl Value {
     }
 }
 
-impl TryFrom<Value> for String {
-    type Error = Error;
+macro_rules! from_and_try_from_value_idbox {
+    ( $($variant:ident( $ty:ty ),)* ) => {
+        $(
+            impl TryFrom<Value> for $ty {
+                type Error = ErrorTryFromEnum<Self, Value>;
 
-    fn try_from(value: Value) -> Result<String> {
-        if let Value::String(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not String.", value))
-        }
-    }
+                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                    if let Value::Id(IdBox::$variant(id)) = value {
+                        Ok(id)
+                    } else {
+                        Err(Self::Error::default())
+                    }
+                }
+            }
+
+            impl From<$ty> for Value {
+                fn from(id: $ty) -> Self {
+                    Value::Id(IdBox::$variant(id))
+                }
+            }
+        )*
+    };
 }
 
-impl TryFrom<Value> for u32 {
-    type Error = Error;
+from_and_try_from_value_idbox!(
+    AccountId(account::Id),
+    AssetId(asset::Id),
+    AssetDefinitionId(asset::DefinitionId),
+    PeerId(peer::Id),
+);
+// TODO: Should we wrap String with new type in order to convert like here?
+//from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
 
-    fn try_from(value: Value) -> Result<u32> {
-        if let Value::U32(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not U32.", value))
-        }
-    }
+macro_rules! from_and_try_from_value_identifiablebox {
+    ( $( $variant:ident( Box< $ty:ty > ),)* ) => {
+        $(
+            impl TryFrom<Value> for $ty {
+                type Error = ErrorTryFromEnum<Self, Value>;
+
+                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                    if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
+                        Ok(*id)
+                    } else {
+                        Err(Self::Error::default())
+                    }
+                }
+            }
+
+            impl From<$ty> for Value {
+                fn from(id: $ty) -> Self {
+                    Value::Identifiable(IdentifiableBox::$variant(Box::new(id)))
+                }
+            }
+        )*
+    };
+}
+macro_rules! from_and_try_from_value_identifiable {
+    ( $( $variant:ident( $ty:ty ), )* ) => {
+        $(
+            impl TryFrom<Value> for $ty {
+                type Error = ErrorTryFromEnum<Self, Value>;
+
+                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                    if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
+                        Ok(id)
+                    } else {
+                        Err(Self::Error::default())
+                    }
+                }
+            }
+
+            impl From<$ty> for Value {
+                fn from(id: $ty) -> Self {
+                    Value::Identifiable(IdentifiableBox::$variant(id))
+                }
+            }
+        )*
+    };
 }
 
-impl TryFrom<Value> for bool {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<bool> {
-        if let Value::Bool(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not bool.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for Vec<Value> {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<Vec<Value>> {
-        if let Value::Vec(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not vec.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for IdBox {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<IdBox> {
-        if let Value::Id(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not an id.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for IdentifiableBox {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<IdentifiableBox> {
-        if let Value::Identifiable(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not an identifiable entity.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for PublicKey {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<PublicKey> {
-        if let Value::PublicKey(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not a public key.", value))
-        }
-    }
-}
-
-impl TryFrom<Value> for Parameter {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<Parameter> {
-        if let Value::Parameter(value) = value {
-            Ok(value)
-        } else {
-            Err(error!("Value {:?} is not a parameter.", value))
-        }
-    }
-}
-
-impl From<u32> for Value {
-    fn from(value: u32) -> Value {
-        Value::U32(value)
-    }
-}
-
-impl From<bool> for Value {
-    fn from(value: bool) -> Value {
-        Value::Bool(value)
-    }
-}
-
-impl From<Parameter> for Value {
-    fn from(value: Parameter) -> Value {
-        Value::Parameter(value)
-    }
-}
-
-impl From<IdentifiableBox> for Value {
-    fn from(value: IdentifiableBox) -> Value {
-        Value::Identifiable(value)
-    }
-}
-
-impl From<IdBox> for Value {
-    fn from(value: IdBox) -> Value {
-        Value::Id(value)
-    }
-}
+from_and_try_from_value_identifiablebox!(
+    Account(Box<account::Account>),
+    Asset(Box<asset::Asset>),
+    AssetDefinition(Box<asset::AssetDefinition>),
+    Domain(Box<domain::Domain>),
+    Peer(Box<peer::Peer>),
+);
+from_and_try_from_value_identifiable!(
+    Account(Box<account::Account>),
+    Asset(Box<asset::Asset>),
+    AssetDefinition(Box<asset::AssetDefinition>),
+    Domain(Box<domain::Domain>),
+    Peer(Box<peer::Peer>),
+);
 
 impl<V: Into<Value>> From<Vec<V>> for Value {
     fn from(values: Vec<V>) -> Value {
@@ -265,22 +235,10 @@ impl<V: Into<Value>> From<Vec<V>> for Value {
     }
 }
 
-impl From<PublicKey> for Value {
-    fn from(value: PublicKey) -> Value {
-        Value::PublicKey(value)
-    }
-}
-
 #[allow(clippy::fallible_impl_from)]
 impl From<u128> for Value {
     fn from(_: u128) -> Value {
         todo!()
-    }
-}
-
-impl From<String> for Value {
-    fn from(value: String) -> Value {
-        Value::String(value)
     }
 }
 
@@ -362,7 +320,6 @@ pub mod world {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-
         pub use super::{World, WorldId};
     }
 }
@@ -591,24 +548,12 @@ pub mod account {
         type Id = Id;
     }
 
-    impl From<Account> for Value {
-        fn from(account: Account) -> Self {
-            Value::Identifiable(account.into())
-        }
-    }
-
     impl FromIterator<Account> for Value {
         fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
             iter.into_iter()
                 .map(|account| account.into())
                 .collect::<Vec<Value>>()
                 .into()
-        }
-    }
-
-    impl From<SignatureCheckCondition> for Value {
-        fn from(condition: SignatureCheckCondition) -> Value {
-            Value::SignatureCheckCondition(condition)
         }
     }
 
@@ -996,24 +941,12 @@ pub mod asset {
         type Id = DefinitionId;
     }
 
-    impl From<Asset> for Value {
-        fn from(asset: Asset) -> Value {
-            Value::Identifiable(asset.into())
-        }
-    }
-
     impl FromIterator<Asset> for Value {
         fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
             iter.into_iter()
                 .map(|asset| asset.into())
                 .collect::<Vec<Value>>()
                 .into()
-        }
-    }
-
-    impl From<AssetDefinition> for Value {
-        fn from(asset_definition: AssetDefinition) -> Value {
-            Value::Identifiable(asset_definition.into())
         }
     }
 
@@ -1153,12 +1086,6 @@ pub mod domain {
         type Id = Name;
     }
 
-    impl From<Domain> for Value {
-        fn from(domain: Domain) -> Value {
-            Value::Identifiable(domain.into())
-        }
-    }
-
     impl FromIterator<Domain> for Value {
         fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
             iter.into_iter()
@@ -1224,12 +1151,6 @@ pub mod peer {
                 address: address.to_string(),
                 public_key: public_key.clone(),
             }
-        }
-    }
-
-    impl From<Id> for Value {
-        fn from(id: Id) -> Value {
-            Value::Id(id.into())
         }
     }
 

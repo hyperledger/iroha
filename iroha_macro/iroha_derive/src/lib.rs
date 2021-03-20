@@ -9,6 +9,8 @@ use syn::{
     PatIdent, PatReference, PatStruct, PatTuple, PatTupleStruct, PatType, Signature,
 };
 
+const SKIP_FROM_ATTR: &str = "skip_from";
+
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn log(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -102,10 +104,38 @@ pub fn into_query_derive(input: TokenStream) -> TokenStream {
     impl_into_query(&ast)
 }
 
-#[proc_macro_derive(FromVariant)]
+/// `FromVariant` is used for implementing `From<Variant> for Enum` and `TryFrom<Enum> for Variant`.
+///
+/// ```rust
+/// use iroha_derive::FromVariant;
+///
+/// #[derive(FromVariant)]
+/// enum Obj {
+///     Uint(u32),
+///     Int(i32),
+///     String(String),
+///     // You can also skip implementing `From`
+///     Vec(#[skip_from] Vec<Obj>),
+/// }
+///
+/// // For example for avoid cases like this:
+/// impl<T: Into<Obj>> From<Vec<T>> for Obj {
+///     fn from(vec: Vec<T>) -> Self {
+///         # stringify!(
+///         ...
+///         # );
+///         # todo!()
+///     }
+/// }
+/// ```
+#[proc_macro_derive(FromVariant, attributes(skip_from))]
 pub fn from_variant_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
     impl_from_variant(&ast)
+}
+
+fn attrs_have_ident(attrs: &[syn::Attribute], ident: &str) -> bool {
+    attrs.iter().any(|attr| attr.path.is_ident(ident))
 }
 
 fn param_names(pat: Pat) -> Box<dyn Iterator<Item = Ident>> {
@@ -181,14 +211,14 @@ fn get_type_argument<'a, 'b>(
 
 fn from_container_variant_internal(
     into_ty: &syn::Ident,
-    from_variant: &syn::Ident,
+    into_variant: &syn::Ident,
     from_ty: &syn::GenericArgument,
     container_ty: &syn::TypePath,
 ) -> proc_macro2::TokenStream {
     quote! {
         impl std::convert::From<#from_ty> for #into_ty {
             fn from(origin: #from_ty) -> Self {
-                #into_ty :: #from_variant (#container_ty :: new(origin))
+                #into_ty :: #into_variant (#container_ty :: new(origin))
             }
         }
     }
@@ -196,13 +226,13 @@ fn from_container_variant_internal(
 
 fn from_variant_internal(
     into_ty: &syn::Ident,
-    from_variant: &syn::Ident,
+    into_variant: &syn::Ident,
     from_ty: &syn::Type,
 ) -> proc_macro2::TokenStream {
     quote! {
         impl std::convert::From<#from_ty> for #into_ty {
             fn from(origin: #from_ty) -> Self {
-                #into_ty :: #from_variant (origin)
+                #into_ty :: #into_variant (origin)
             }
         }
     }
@@ -210,10 +240,10 @@ fn from_variant_internal(
 
 fn from_variant(
     into_ty: &syn::Ident,
-    from_variant: &syn::Ident,
+    into_variant: &syn::Ident,
     from_ty: &syn::Type,
 ) -> proc_macro2::TokenStream {
-    let from_orig = from_variant_internal(into_ty, from_variant, from_ty);
+    let from_orig = from_variant_internal(into_ty, into_variant, from_ty);
 
     if let syn::Type::Path(path) = from_ty {
         let mut code = from_orig;
@@ -237,7 +267,7 @@ fn from_variant(
                 let path = &syn::TypePath { path, qself: None };
 
                 let from_inner =
-                    from_container_variant_internal(into_ty, from_variant, inner, path);
+                    from_container_variant_internal(into_ty, into_variant, inner, path);
                 code = quote! {
                     #code
                     #from_inner
@@ -249,6 +279,26 @@ fn from_variant(
     }
 
     from_orig
+}
+
+fn try_into_variant(
+    enum_ty: &syn::Ident,
+    variant: &syn::Ident,
+    variant_ty: &syn::Type,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl std::convert::TryFrom<#enum_ty> for #variant_ty {
+            type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
+
+            fn try_from(origin: #enum_ty) -> std::result::Result<Self, iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>> {
+                if let #enum_ty :: #variant(variant) = origin {
+                    Ok(variant)
+                } else {
+                    Err(iroha_macro::error::ErrorTryFromEnum::default())
+                }
+            }
+        }
+    }
 }
 
 fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
@@ -268,7 +318,17 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
                     .first()
                     .expect("Won't fail as we have more than  one argument for variant")
                     .ty;
-                return Some(from_variant(name, &variant.ident, variant_type));
+                let try_into = try_into_variant(name, &variant.ident, variant_type);
+                let from = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_FROM_ATTR) {
+                    quote!()
+                } else {
+                    from_variant(name, &variant.ident, variant_type)
+                };
+
+                return Some(quote!(
+                    #try_into
+                    #from
+                ));
             }
         }
         None

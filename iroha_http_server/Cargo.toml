@@ -13,6 +13,7 @@ route-recognizer = "0.2.0"
 futures = "0.3.4"
 async-std = { version = "=1.6.2", features = ["attributes","unstable"] }
 iroha_error = { version = "=0.1.0", path = "../iroha_error" }
+iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 log = { version = "0.4", features = ["std", "serde"] }
 async-trait = "0.1.38"

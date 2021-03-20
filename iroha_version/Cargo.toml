@@ -20,4 +20,5 @@ parity-scale-codec = { version = "2", features = ["derive"], optional = true }
 serde_json = {version = "1.0", optional = true }
 iroha_version_derive = { path = "./iroha_version_derive", optional = true }
 iroha_derive = { path = "../iroha_macro/iroha_derive" }
+iroha_macro = { path = "../iroha_macro" }
 iroha_http_server = { path = "../iroha_http_server", optional = true }

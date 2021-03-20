@@ -491,11 +491,13 @@ mod asset {
 
     fn get_asset(asset_id: &str, account_id: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
+        let account_id = AccountId::from_str(account_id).expect("Failed to parse Account Id.");
+        let asset_id =
+            AssetDefinitionId::from_str(asset_id).expect("Failed to parse Asset Definition Id.");
+
         let query_result = iroha_client
             .request(&asset::by_account_id_and_definition_id(
-                AccountId::from_str(account_id).expect("Failed to parse Account Id."),
-                AssetDefinitionId::from_str(asset_id)
-                    .expect("Failed to parse Asset Definition Id."),
+                account_id, asset_id,
             ))
             .expect("Failed to get asset.");
         let QueryResult(value) = query_result;
