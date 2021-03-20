@@ -164,7 +164,7 @@ pub mod account {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountById {
         /// `Id` of an account to find.
-        pub id: AccountId,
+        pub id: EvaluatesTo<AccountId>,
     }
 
     /// `FindAccountById` Iroha Query will find a [`Value`] of the key-value metadata pair
@@ -172,9 +172,9 @@ pub mod account {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountKeyValueByIdAndKey {
         /// `Id` of an account to find.
-        pub id: AccountId,
+        pub id: EvaluatesTo<AccountId>,
         /// Key of the specific key-value in the Account's metadata.
-        pub key: String,
+        pub key: EvaluatesTo<String>,
     }
 
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
@@ -182,7 +182,7 @@ pub mod account {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountsByName {
         /// `name` of accounts to find.
-        pub name: Name,
+        pub name: EvaluatesTo<Name>,
     }
 
     /// `FindAccountsByDomainName` Iroha Query will get `Domain`s name as input and
@@ -190,7 +190,7 @@ pub mod account {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAccountsByDomainName {
         /// `domain_name` under which accounts should be found.
-        pub domain_name: Name,
+        pub domain_name: EvaluatesTo<Name>,
     }
 
     impl FindAllAccounts {
@@ -202,28 +202,36 @@ pub mod account {
 
     impl FindAccountById {
         /// Default `FindAccountById` constructor.
-        pub const fn new(id: AccountId) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AccountId>>) -> Self {
+            let id = id.into();
             FindAccountById { id }
         }
     }
 
     impl FindAccountKeyValueByIdAndKey {
         /// Default `FindAccountById` constructor.
-        pub const fn new(id: AccountId, key: String) -> Self {
+        pub fn new(
+            id: impl Into<EvaluatesTo<AccountId>>,
+            key: impl Into<EvaluatesTo<String>>,
+        ) -> Self {
+            let id = id.into();
+            let key = key.into();
             FindAccountKeyValueByIdAndKey { id, key }
         }
     }
 
     impl FindAccountsByName {
         /// Default `FindAccountsByName` constructor.
-        pub const fn new(name: Name) -> Self {
+        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
+            let name = name.into();
             FindAccountsByName { name }
         }
     }
 
     impl FindAccountsByDomainName {
         /// Default `FindAccountsByDomainName` constructor.
-        pub const fn new(domain_name: Name) -> Self {
+        pub fn new(domain_name: impl Into<EvaluatesTo<Name>>) -> Self {
+            let domain_name = domain_name.into();
             FindAccountsByDomainName { domain_name }
         }
     }
@@ -262,7 +270,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetById {
         /// `Id` of an `Asset` to find.
-        pub id: AssetId,
+        pub id: EvaluatesTo<AssetId>,
     }
 
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
@@ -270,7 +278,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetsByName {
         /// `Name` of `Asset`s to find.
-        pub name: Name,
+        pub name: EvaluatesTo<Name>,
     }
 
     /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
@@ -278,7 +286,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetsByAccountId {
         /// `AccountId` under which assets should be found.
-        pub account_id: AccountId,
+        pub account_id: EvaluatesTo<AccountId>,
     }
 
     /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
@@ -286,7 +294,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetsByAssetDefinitionId {
         /// `AssetDefinitionId` with type of `Asset`s should be found.
-        pub asset_definition_id: AssetDefinitionId,
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
     /// `FindAssetsByDomainName` Iroha Query will get `Domain`s name as input and
@@ -294,7 +302,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetsByDomainName {
         /// `Name` of the domain under which assets should be found.
-        pub domain_name: Name,
+        pub domain_name: EvaluatesTo<Name>,
     }
 
     /// `FindAssetsByAccountIdAndAssetDefinitionId` Iroha Query will get `AccountId` and
@@ -303,9 +311,9 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetsByAccountIdAndAssetDefinitionId {
         /// `AccountId` under which assets should be found.
-        pub account_id: AccountId,
+        pub account_id: EvaluatesTo<AccountId>,
         /// `AssetDefinitionId` which assets should be found.
-        pub asset_definition_id: AssetDefinitionId,
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
     /// `FindAssetsByDomainNameAndAssetDefinitionId` Iroha Query will get `Domain`'s name and
@@ -314,9 +322,9 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetsByDomainNameAndAssetDefinitionId {
         /// `Name` of the domain under which assets should be found.
-        pub domain_name: Name,
+        pub domain_name: EvaluatesTo<Name>,
         /// `AssetDefinitionId` assets of which type should be found.
-        pub asset_definition_id: AssetDefinitionId,
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
@@ -324,7 +332,7 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetQuantityById {
         /// `Id` of an `Asset` to find quantity of.
-        pub id: AssetId,
+        pub id: EvaluatesTo<AssetId>,
     }
 
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` and key as input and find [`Value`]
@@ -332,9 +340,9 @@ pub mod asset {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindAssetKeyValueByIdAndKey {
         /// `Id` of an `Asset` acting as `Store`.
-        pub id: AssetId,
+        pub id: EvaluatesTo<AssetId>,
         /// The key of the key-value pair stored in the asset.
-        pub key: Name,
+        pub key: EvaluatesTo<Name>,
     }
 
     impl FindAllAssets {
@@ -351,25 +359,56 @@ pub mod asset {
         }
     }
 
+    impl FindAssetById {
+        /// Default `FindAssetById` constructor
+        pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
+            let id = id.into();
+            Self { id }
+        }
+    }
+
+    impl FindAssetsByName {
+        /// Default `FindAssetsByName` constructor
+        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
+            let name = name.into();
+            Self { name }
+        }
+    }
+
     impl FindAssetsByAccountId {
         /// Default `FindAssetsByAccountId` constructor.
-        pub const fn new(account_id: AccountId) -> Self {
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
+            let account_id = account_id.into();
             FindAssetsByAccountId { account_id }
         }
     }
 
     impl FindAssetsByAssetDefinitionId {
         /// Default `FindAssetsByAssetDefinitionId` constructor.
-        pub const fn new(asset_definition_id: AssetDefinitionId) -> Self {
+        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let asset_definition_id = asset_definition_id.into();
             FindAssetsByAssetDefinitionId {
                 asset_definition_id,
             }
         }
     }
 
+    impl FindAssetsByDomainName {
+        /// Default `FindAssetsByDomainName` constructor
+        pub fn new(domain_name: impl Into<EvaluatesTo<Name>>) -> Self {
+            let domain_name = domain_name.into();
+            Self { domain_name }
+        }
+    }
+
     impl FindAssetsByAccountIdAndAssetDefinitionId {
         /// Default `FindAssetsByAccountIdAndAssetDefinitionId` constructor.
-        pub const fn new(account_id: AccountId, asset_definition_id: AssetDefinitionId) -> Self {
+        pub fn new(
+            account_id: impl Into<EvaluatesTo<AccountId>>,
+            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+        ) -> Self {
+            let account_id = account_id.into();
+            let asset_definition_id = asset_definition_id.into();
             FindAssetsByAccountIdAndAssetDefinitionId {
                 account_id,
                 asset_definition_id,
@@ -377,16 +416,34 @@ pub mod asset {
         }
     }
 
+    impl FindAssetsByDomainNameAndAssetDefinitionId {
+        /// Default `FindAssetsByDomainNameAndAssetDefinitionId` constructor
+        pub fn new(
+            domain_name: impl Into<EvaluatesTo<Name>>,
+            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+        ) -> Self {
+            let domain_name = domain_name.into();
+            let asset_definition_id = asset_definition_id.into();
+            Self {
+                domain_name,
+                asset_definition_id,
+            }
+        }
+    }
+
     impl FindAssetQuantityById {
         /// Default `FindAssetQuantityById` constructor.
-        pub const fn new(id: AssetId) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
+            let id = id.into();
             FindAssetQuantityById { id }
         }
     }
 
     impl FindAssetKeyValueByIdAndKey {
         /// Default [`FindAssetKeyValueByIdAndKey`] constructor.
-        pub const fn new(id: AssetId, key: Name) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AssetId>>, key: impl Into<EvaluatesTo<Name>>) -> Self {
+            let id = id.into();
+            let key = key.into();
             Self { id, key }
         }
     }
@@ -420,7 +477,7 @@ pub mod domain {
     #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
     pub struct FindDomainByName {
         /// Name of the domain to find.
-        pub name: Name,
+        pub name: EvaluatesTo<Name>,
     }
 
     impl FindAllDomains {
@@ -432,7 +489,8 @@ pub mod domain {
 
     impl FindDomainByName {
         /// Default `FindDomainByName` constructor.
-        pub const fn new(name: Name) -> Self {
+        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
+            let name = name.into();
             FindDomainByName { name }
         }
     }
