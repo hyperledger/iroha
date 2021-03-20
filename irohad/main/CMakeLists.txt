@@ -107,6 +107,7 @@ target_link_libraries(irohad
     irohad_version
     pg_connection_init
     subscription
+    maintenance
     )
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)
