@@ -50,7 +50,7 @@ namespace iroha::subscription {
         std::function<void(SubscriptionSetId,
                            ReceiverType &,
                            const typename Parent::EventType &,
-                           const Arguments &...)>;
+                           Arguments &&...)>;
 
    private:
     using SubscriptionsContainer =

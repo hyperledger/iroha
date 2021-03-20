@@ -89,8 +89,6 @@ namespace fuzzing {
           timer_,
           *initial_order,
           initial_round_,
-          rxcpp::observe_on_one_worker(
-              rxcpp::schedulers::make_current_thread()),
           getTestLoggerManager(logger::LogLevel::kCritical)
               ->getChild("Yac")
               ->getLogger());
