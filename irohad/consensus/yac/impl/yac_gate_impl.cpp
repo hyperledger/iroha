@@ -108,6 +108,15 @@ namespace iroha {
                     delay, EventTypes::kOnOutcomeDelayed, std::move(message));
               }
             });
+
+        ledger_state_subscription_ =
+            iroha::SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+                template create<EventTypes::kOnSynchronization,
+                                SubscriptionEngineHandlers::kYac>(
+                    [wptr{weak_from_this()}](auto &, auto event) {
+                      if (auto ptr = wptr.lock())
+                        ptr->current_ledger_state_ = event.ledger_state;
+                    });
       }
 
       void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {

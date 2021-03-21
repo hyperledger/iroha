@@ -17,6 +17,7 @@
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"
 #include "main/subscription.hpp"
+#include "synchronizer/synchronizer_common.hpp"
 
 namespace iroha {
 
@@ -86,6 +87,9 @@ namespace iroha {
             delayed_outcome_subscription_;
         std::shared_ptr<BaseSubscriber<bool, simulator::BlockCreatorEvent>>
             block_creator_subscription_;
+        std::shared_ptr<
+            BaseSubscriber<bool, synchronizer::SynchronizationEvent>>
+            ledger_state_subscription_;
         std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
             delay_func_;
       };

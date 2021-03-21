@@ -71,28 +71,8 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                 ordering_service_->onCollaborationOutcome(event.next_round);
 
                 this->sendCachedTransactions();
-                getSubscription()->notify(EventTypes::kOnNeedProposal, event);
-              })),
-      need_proposal_subscription_(
-          SubscriberCreator<bool, RoundSwitch>::template create<
-              EventTypes::kOnNeedProposal,
-              SubscriptionEngineHandlers::kRequestProposal>(
-              [wptr_network_client = std::weak_ptr<transport::OdOsNotification>(
-                   network_client_)](auto &, auto event) {
-                if (auto ptr = wptr_network_client.lock()) {
-                  auto proposal = ptr->onRequestProposal(event.next_round);
-                  getSubscription()->notify(
-                      EventTypes::kOnNewProposal, std::move(proposal), event);
-                }
-              })),
-      new_proposal_subscription_(
-          SubscriberCreator<
-              bool,
-              boost::optional<std::shared_ptr<const ProposalType>>,
-              RoundSwitch>::template create<EventTypes::kOnNewProposal,
-                                            SubscriptionEngineHandlers::kYac>(
-              [this](auto &, auto new_proposal, auto event) {
-                auto proposal = this->processProposalRequest(new_proposal);
+                auto proposal = this->processProposalRequest(
+                    network_client_->onRequestProposal(event.next_round));
                 // vote for the object received from the network
                 getSubscription()->notify(
                     EventTypes::kOnProposal,
