@@ -45,6 +45,9 @@ namespace iroha {
     kOnPreparedBatches,
     kOnExpiredBatches,
 
+    // YAC
+    kTimer,
+
     // TEST
     kOnTestOperationComplete
   };

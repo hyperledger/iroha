@@ -24,6 +24,10 @@ namespace iroha::subscription {
    public:
     Dispatcher() = default;
 
+    void dispose() {
+      for (auto &h : handlers_) h.dispose();
+    }
+
     template <Tid kId>
     static constexpr void checkTid() {
       static_assert(kId < kHandlersCount, "Unexpected TID handler.");

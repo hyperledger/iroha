@@ -51,6 +51,15 @@ namespace iroha::subscription {
    public:
     SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
 
+    void dispose() {
+      std::shared_lock lock(engines_cs_);
+      for (auto &descriptor : engines_)
+        std::reinterpret_pointer_cast<IDisposable>(descriptor.second)
+            ->dispose();
+
+      dispatcher_->dispose();
+    }
+
     template <typename EventKey, typename... Args>
     auto getEngine() {
       using EngineType =

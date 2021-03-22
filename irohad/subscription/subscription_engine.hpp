@@ -17,6 +17,10 @@
 
 namespace iroha::subscription {
 
+  struct IDisposable {
+    virtual void dispose() = 0;
+  };
+
   /**
    * @tparam EventKey - the type of a specific event from event set (e. g. a key
    * from a storage or a particular kind of event from an enumeration)
@@ -26,7 +30,8 @@ namespace iroha::subscription {
    */
   template <typename EventKey, typename Dispatcher, typename Receiver>
   class SubscriptionEngine final
-      : public std::enable_shared_from_this<
+      : public IDisposable,
+        public std::enable_shared_from_this<
             SubscriptionEngine<EventKey, Dispatcher, Receiver>>,
         utils::NoMove,
         utils::NoCopy {
@@ -52,6 +57,10 @@ namespace iroha::subscription {
       assert(dispatcher_);
     }
     ~SubscriptionEngine() = default;
+
+    void dispose() override {
+      dispatcher_.reset();
+    }
 
    private:
     struct SubscriptionContext final {
@@ -122,6 +131,10 @@ namespace iroha::subscription {
     void notifyDelayed(std::chrono::microseconds timeout,
                        const EventKeyType &key,
                        EventParams const &... args) {
+      auto dispatcher = dispatcher_;
+      if (!dispatcher)
+        return;
+
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
       if (subscribers_map_.end() == it)
@@ -136,20 +149,20 @@ namespace iroha::subscription {
         auto id = std::get<1>(*it_sub);
 
         if (!wsub.expired()) {
-          dispatcher_->addDelayed(std::get<0>(*it_sub),
-                                  timeout,
-                                  [wsub(std::move(wsub)),
-                                   id(id),
-                                   key(key),
-                                   args = std::make_tuple(args...)]() mutable {
-                                    if (auto sub = wsub.lock())
-                                      std::apply(
-                                          [&](auto &&... args) {
-                                            sub->on_notify(
-                                                id, key, std::move(args)...);
-                                          },
-                                          std::move(args));
-                                  });
+          dispatcher->addDelayed(std::get<0>(*it_sub),
+                                 timeout,
+                                 [wsub(std::move(wsub)),
+                                  id(id),
+                                  key(key),
+                                  args = std::make_tuple(args...)]() mutable {
+                                   if (auto sub = wsub.lock())
+                                     std::apply(
+                                         [&](auto &&... args) {
+                                           sub->on_notify(
+                                               id, key, std::move(args)...);
+                                         },
+                                         std::move(args));
+                                 });
         }
       }
     }

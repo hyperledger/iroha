@@ -172,6 +172,8 @@ Irohad::~Irohad() {
   }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
+
+  se_->dispose();
 }
 
 /**

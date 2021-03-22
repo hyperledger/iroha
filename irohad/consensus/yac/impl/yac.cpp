@@ -60,18 +60,7 @@ namespace iroha {
 
       Yac::~Yac() {}
 
-      void Yac::initialize() {
-        apply_state_subscription_ =
-            iroha::SubscriberCreator<utils::ReadWriteObject<Round>, Round>::
-                template create<EventTypes::kOnApplyState,
-                                SubscriptionEngineHandlers::kYac>(
-                    [](auto &cached_closed_round, auto closed_round) {
-                      cached_closed_round.exclusiveAccess([&](auto &obj) {
-                        assert(closed_round >= obj);
-                        obj = closed_round;
-                      });
-                    });
-      }
+      void Yac::initialize() {}
 
       void Yac::stop() {
         network_->stop();
@@ -195,13 +184,6 @@ namespace iroha {
           return;
         }
 
-        if (apply_state_subscription_->get().sharedAccess(
-                [&](auto const &closed_round) {
-                  return (closed_round >= round_);
-                })) {
-          return;
-        }
-
         enum { kRotatePeriod = 10 };
 
         if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
@@ -228,16 +210,22 @@ namespace iroha {
         cluster_order.switchToNext();
         lock.unlock();
 
-        getSubscription()->dispatcher()->addDelayed(
-            SubscriptionEngineHandlers::kYac,
+        repeat_voting_ =
+            iroha::SubscriberCreator<bool, VoteContext>::template create<
+                EventTypes::kTimer,
+                SubscriptionEngineHandlers::kYac>(
+                [wptr(weak_from_this())](auto &, auto const &context) {
+                  if (auto ptr = wptr.lock())
+                    ptr->votingStep(context.msg, context.attempt);
+                });
+        getSubscription()->notifyDelayed(
             timer_->getDelay(),
-            [wptr(weak_from_this()), vote, attempt] {
-              if (auto ptr = wptr.lock())
-                ptr->votingStep(vote, attempt + 1);
-            });
+            EventTypes::kTimer,
+            VoteContext{std::move(vote), attempt + 1});
       }
 
       void Yac::closeRound() {
+        repeat_voting_.reset();
         timer_->deny();
       }
 

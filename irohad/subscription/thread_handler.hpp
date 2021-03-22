@@ -37,6 +37,8 @@ namespace iroha::subscription {
     std::thread worker_;
     utils::WaitForSingleObject event_;
 
+    std::thread::id id_;
+
    private:
     inline void checkLocked() {
       assert(!tasks_cs_.try_lock());
@@ -89,6 +91,7 @@ namespace iroha::subscription {
     }
 
     uint32_t process() {
+      id_ = std::this_thread::get_id();
       Task task;
       do {
         while (extractExpired(task, now())) {
@@ -110,7 +113,9 @@ namespace iroha::subscription {
           [](ThreadHandler *__this) { return __this->process(); }, this);
     }
 
-    ~ThreadHandler() {
+    ~ThreadHandler() {}
+
+    void dispose() {
       proceed_.clear();
       event_.set();
       worker_.join();
@@ -123,10 +128,15 @@ namespace iroha::subscription {
 
     template <typename F>
     void addDelayed(std::chrono::microseconds timeout, F &&f) {
-      auto const tp = now() + timeout;
-      std::lock_guard lock(tasks_cs_);
-      insert(after(tp), TimedTask{tp, std::forward<F>(f)});
-      event_.set();
+      if (timeout == std::chrono::microseconds(0ull)
+          && id_ == std::this_thread::get_id())
+        std::forward<F>(f)();
+      else {
+        auto const tp = now() + timeout;
+        std::lock_guard lock(tasks_cs_);
+        insert(after(tp), TimedTask{tp, std::forward<F>(f)});
+        event_.set();
+      }
     }
   };
 

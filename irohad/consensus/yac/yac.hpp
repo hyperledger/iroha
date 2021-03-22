@@ -71,6 +71,10 @@ namespace iroha {
 
        private:
         // ------|Private interface|------
+        struct VoteContext {
+          VoteMessage msg;
+          uint32_t attempt;
+        };
 
         /**
          * Voting step is strategy of propagating vote
@@ -128,8 +132,7 @@ namespace iroha {
         std::shared_ptr<YacCryptoProvider> crypto_;
         std::shared_ptr<Timer> timer_;
 
-        std::shared_ptr<BaseSubscriber<utils::ReadWriteObject<Round>, Round>>
-            apply_state_subscription_;
+        std::shared_ptr<BaseSubscriber<bool, VoteContext>> repeat_voting_;
       };
     }  // namespace yac
   }    // namespace consensus
