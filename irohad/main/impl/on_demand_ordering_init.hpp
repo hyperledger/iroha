@@ -10,7 +10,6 @@
 #include <vector>
 
 #include <rxcpp/rx-lite.hpp>
-#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -117,18 +116,8 @@ namespace iroha {
           std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
-      /**
-       * Processing new block event.
-       * @param block data
-       */
-      void processBlock(
-          std::shared_ptr<shared_model::interface::Block const> const &block);
-
-      /**
-       * Processing new synchronization event.
-       * @param event data
-       */
-      void processSynchroEvent(synchronizer::SynchronizationEvent const &event);
+      // rxcpp::composite_subscription sync_event_notifier_lifetime_;
+      // rxcpp::composite_subscription commit_notifier_lifetime_;
 
      public:
       /// Constructor.
@@ -184,21 +173,24 @@ namespace iroha {
       /// gRPC service for ordering service
       std::shared_ptr<grpc::Service> service;
 
+      /// commit notifier from peer communication service
+      /*rxcpp::subjects::subject<synchronizer::SynchronizationEvent>
+          sync_event_notifier;*/
+      /*rxcpp::subjects::subject<
+          std::shared_ptr<shared_model::interface::Block const>>
+          commit_notifier;*/
+
       using HashesCache = std::tuple<shared_model::crypto::Hash,
                                      shared_model::crypto::Hash,
                                      shared_model::crypto::Hash>;
       using OnBlockSubscription =
-          BaseSubscriber<bool,
+          BaseSubscriber<HashesCache,
                          std::shared_ptr<shared_model::interface::Block const>>;
       using OnSyncronizationSubscription =
           BaseSubscriber<bool, synchronizer::SynchronizationEvent>;
 
-      HashesCache current_hashes_cache_;
       std::shared_ptr<OnBlockSubscription> on_block_subscription_;
-      std::shared_ptr<OnBlockSubscription> on_initial_block_subscription_;
       std::shared_ptr<OnSyncronizationSubscription> on_syncro_subscription_;
-      std::shared_ptr<OnSyncronizationSubscription>
-          on_initial_syncro_subscription_;
 
      private:
       logger::LoggerPtr log_;

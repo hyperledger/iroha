@@ -13,7 +13,6 @@
 
 #include "consensus/consensus_block_cache.hpp"
 #include "logger/dummy_logger.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
@@ -24,7 +23,6 @@ using namespace testing;
 namespace fuzzing {
 
   struct BlockLoaderFixture {
-    std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
     std::shared_ptr<NiceMock<iroha::ametsuchi::MockBlockQuery>> storage_;
     std::shared_ptr<NiceMock<iroha::ametsuchi::MockBlockQueryFactory>>
         block_query_factory_;

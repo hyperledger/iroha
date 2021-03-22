@@ -10,7 +10,6 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
-#include <rxcpp/rx-lite.hpp>
 #include <rxcpp/rx-observable-fwd.hpp>
 
 #include "consensus/gate_object.hpp"
@@ -20,8 +19,6 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/startup_params.hpp"
-#include "main/subscription.hpp"
-#include "multi_sig_transactions/mst_types.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
 namespace google {
@@ -77,7 +74,6 @@ namespace iroha {
     class ServerRunner;
     template <typename Response>
     class AsyncGrpcClient;
-    struct OrderingEvent;
   }  // namespace network
   namespace protocol {
     class Proposal;
@@ -87,9 +83,6 @@ namespace iroha {
     struct VerifiedProposalAndErrors;
   }
   class MstState;
-  namespace simulator {
-    struct VerifiedProposalCreatorEvent;
-  }
 }  // namespace iroha
 namespace torii {
   class CommandSyncClient;
@@ -432,9 +425,6 @@ namespace integration_framework {
         std::shared_ptr<shared_model::interface::TransactionBatch>>
     getMstExpiredBatchesObservable();
 
-    rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-    getCommitObservable();
-
     rxcpp::observable<iroha::consensus::GateObject> getYacOnCommitObservable();
 
     rxcpp::observable<iroha::synchronizer::SynchronizationEvent>
@@ -560,30 +550,6 @@ namespace integration_framework {
 
     boost::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
-
-    template <typename T>
-    using SubscriberTypePtr =
-        std::shared_ptr<iroha::BaseSubscriber<rxcpp::subjects::subject<T>, T>>;
-
-    template <typename T>
-    using SubscriberCreatorType =
-        iroha::SubscriberCreator<rxcpp::subjects::subject<T>, T>;
-
-    SubscriberTypePtr<std::shared_ptr<iroha::MstState>> mst_state_update_;
-    SubscriberTypePtr<iroha::BatchPtr> mst_prepared_batches_;
-    SubscriberTypePtr<iroha::BatchPtr> mst_expired_batches_;
-    SubscriberTypePtr<iroha::consensus::GateObject> yac_gate_outcome_;
-    SubscriberTypePtr<iroha::synchronizer::SynchronizationEvent>
-        pcs_synchronization_;
-    SubscriberTypePtr<std::shared_ptr<const shared_model::interface::Block>>
-        storage_commit_;
-    SubscriberTypePtr<iroha::network::OrderingEvent> requested_proposals_;
-    SubscriberTypePtr<iroha::simulator::VerifiedProposalCreatorEvent>
-        verified_proposals_;
-    std::shared_ptr<iroha::BaseSubscriber<
-        bool,
-        std::shared_ptr<const shared_model::interface::Block>>>
-        committed_blocks_;
 
    private:
     bool cleanup_on_exit_;

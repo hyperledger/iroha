@@ -6,7 +6,7 @@
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 #include "common/hexutils.hpp"
-#include "main/subscription.hpp"
+//#include "module/irohad/main/mock_subscription_engine.hpp"
 
 using namespace iroha::consensus::yac;
 
@@ -63,8 +63,6 @@ class NetworkUtil {
 
 class YacSynchronizationTest : public YacTest {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
-
   void SetUp() override {
     YacTest::SetUp();
 

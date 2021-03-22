@@ -18,7 +18,6 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
-#include "main/subscription.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 
@@ -61,7 +60,6 @@ namespace {
  */
 class AcceptanceFixture : public ::testing::Test {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   AcceptanceFixture();
 
   virtual ~AcceptanceFixture() = default;

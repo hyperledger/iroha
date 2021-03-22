@@ -42,6 +42,7 @@ namespace iroha {
       ~SynchronizerImpl() override;
 
       void processOutcome(consensus::GateObject object) override;
+      // rxcpp::observable<SynchronizationEvent> on_commit_chain() override;
 
      private:
       /**
@@ -79,6 +80,11 @@ namespace iroha {
       std::shared_ptr<ametsuchi::MutableFactory> mutable_factory_;
       std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory_;
       std::shared_ptr<network::BlockLoader> block_loader_;
+
+      // internal
+      // rxcpp::composite_subscription notifier_lifetime_;
+      // rxcpp::subjects::subject<SynchronizationEvent> notifier_;
+      // rxcpp::composite_subscription subscription_;
 
       using OnOutcomeSubscriber = BaseSubscriber<bool, consensus::GateObject>;
 

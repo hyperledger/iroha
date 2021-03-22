@@ -28,9 +28,13 @@ namespace iroha::subscription {
                          Subscriber<EventKey, Dispatcher, Arguments...>>,
                      utils::NoMove,
                      utils::NoCopy {
+   protected:
+    Subscriber() = default;
+
    public:
     using EventType = EventKey;
-    virtual ~Subscriber() = default;
+
+    virtual ~Subscriber() {}
 
     /**
      * Notification callback function

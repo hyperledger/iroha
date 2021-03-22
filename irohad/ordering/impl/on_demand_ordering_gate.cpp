@@ -6,7 +6,6 @@
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 
 #include <iterator>
-#include <memory>
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>
@@ -38,68 +37,58 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
       processed_hashes_subscription_(
-          SubscriberCreator<
-              bool,
-              std::shared_ptr<cache::OrderingGateCache::HashesSetType>>::
-              template create<EventTypes::kOnProcessedHashes,
-                              SubscriptionEngineHandlers::kYac>(
-                  [this](auto &, auto hashes) {
-                    // remove transaction hashes from cache
-                    log_->debug("Asking to remove {} transactions from cache.",
-                                hashes->size());
-                    ordering_service_->onTxsCommitted(*hashes);
-                  })),
-      round_switch_subscription_(
-          SubscriberCreator<bool, RoundSwitch>::template create<
-              EventTypes::kOnRoundSwitch,
-              SubscriptionEngineHandlers::kYac>(
-              [this,
-               proposal_creation_strategy =
-                   std::move(proposal_creation_strategy)](auto &, auto event) {
-                log_->debug("Current: {}", event.next_round);
+          std::make_shared<ProcessedHashesSubscriberType>(
+              getSubscription()
+                  ->getEngine<EventTypes,
+                              std::shared_ptr<
+                                  cache::OrderingGateCache::HashesSetType>>())),
+      round_switch_subscription_(std::make_shared<RoundSwitchSubscriberType>(
+          getSubscription()->getEngine<EventTypes, RoundSwitch>())) {
+  processed_hashes_subscription_->setCallback(
+      [this](auto, auto &, auto key, auto hashes) {
+        assert(EventTypes::kOnProcessedHashes == key);
+        // remove transaction hashes from cache
+        log_->debug("Asking to remove {} transactions from cache.",
+                    hashes->size());
+        ordering_service_->onTxsCommitted(*hashes);
+      });
+  round_switch_subscription_->setCallback(
+      [this,
+       proposal_creation_strategy = std::move(proposal_creation_strategy)](
+          auto, auto &, auto key, auto event) {
+        assert(EventTypes::kOnRoundSwitch == key);
+        log_->debug("Current: {}", event.next_round);
+        log_->error("==========================");
 
-                std::shared_lock<std::shared_timed_mutex> stop_lock(
-                    stop_mutex_);
-                if (stop_requested_) {
-                  log_->warn("Not doing anything because stop was requested.");
-                  return;
-                }
+        std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+        if (stop_requested_) {
+          log_->warn("Not doing anything because stop was requested.");
+          return;
+        }
 
-                // notify our ordering service about new round
-                proposal_creation_strategy->onCollaborationOutcome(
-                    event.next_round, event.ledger_state->ledger_peers.size());
-                ordering_service_->onCollaborationOutcome(event.next_round);
+        // notify our ordering service about new round
+        proposal_creation_strategy->onCollaborationOutcome(
+            event.next_round, event.ledger_state->ledger_peers.size());
+        ordering_service_->onCollaborationOutcome(event.next_round);
 
-                this->sendCachedTransactions();
-                getSubscription()->notify(EventTypes::kOnNeedProposal, event);
-              })),
-      need_proposal_subscription_(
-          SubscriberCreator<bool, RoundSwitch>::template create<
-              EventTypes::kOnNeedProposal,
-              SubscriptionEngineHandlers::kRequestProposal>(
-              [wptr_network_client = std::weak_ptr<transport::OdOsNotification>(
-                   network_client_)](auto &, auto event) {
-                if (auto ptr = wptr_network_client.lock()) {
-                  auto proposal = ptr->onRequestProposal(event.next_round);
-                  getSubscription()->notify(
-                      EventTypes::kOnNewProposal, std::move(proposal), event);
-                }
-              })),
-      new_proposal_subscription_(
-          SubscriberCreator<
-              bool,
-              boost::optional<std::shared_ptr<const ProposalType>>,
-              RoundSwitch>::template create<EventTypes::kOnNewProposal,
-                                            SubscriptionEngineHandlers::kYac>(
-              [this](auto &, auto new_proposal, auto event) {
-                auto proposal = this->processProposalRequest(new_proposal);
-                // vote for the object received from the network
-                getSubscription()->notify(
-                    EventTypes::kOnProposal,
-                    network::OrderingEvent{std::move(proposal),
-                                           event.next_round,
-                                           std::move(event.ledger_state)});
-              })) {}
+        this->sendCachedTransactions();
+
+        // request proposal for the current round
+        auto proposal = this->processProposalRequest(
+            network_client_->onRequestProposal(event.next_round));
+        // vote for the object received from the network
+        getSubscription()->notify(
+            EventTypes::kOnProposal,
+            network::OrderingEvent{std::move(proposal),
+                                   event.next_round,
+                                   std::move(event.ledger_state)});
+      });
+
+  round_switch_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnRoundSwitch);
+  processed_hashes_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+      0, EventTypes::kOnProcessedHashes);
+}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();

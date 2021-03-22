@@ -49,7 +49,7 @@ namespace iroha::subscription {
 
    private:
     DispatcherPtr dispatcher_;
-    std::shared_mutex engines_cs_;
+    std::mutex engines_cs_;
     EnginesList engines_;
 
    private:
@@ -69,13 +69,7 @@ namespace iroha::subscription {
                              Dispatcher,
                              Subscriber<EventKey, Dispatcher, Args...>>;
       constexpr auto engineId = getSubscriptionType<Args...>();
-      {
-        std::shared_lock lock(engines_cs_);
-        if (auto it = engines_.find(engineId); it != engines_.end()) {
-          return std::reinterpret_pointer_cast<EngineType>(it->second);
-        }
-      }
-      std::unique_lock lock(engines_cs_);
+      std::lock_guard lock(engines_cs_);
       if (auto it = engines_.find(engineId); it != engines_.end()) {
         return std::reinterpret_pointer_cast<EngineType>(it->second);
       }
@@ -100,14 +94,14 @@ namespace iroha::subscription {
       constexpr auto engineId = getSubscriptionType<Args...>();
       std::shared_ptr<EngineType> engine;
       {
-        std::shared_lock lock(engines_cs_);
+        std::lock_guard lock(engines_cs_);
         if (auto it = engines_.find(engineId); it != engines_.end())
           engine = std::reinterpret_pointer_cast<EngineType>(it->second);
         else
           return;
       }
-      assert(engine);
-      engine->notifyDelayed(timeout, key, args...);
+      if (engine)
+        engine->notifyDelayed(timeout, key, args...);
     }
 
     DispatcherPtr dispatcher() const {

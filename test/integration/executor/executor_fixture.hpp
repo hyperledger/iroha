@@ -25,7 +25,6 @@
 #include "interfaces/query_responses/error_responses/not_supported_error_response.hpp"
 #include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
 #include "interfaces/query_responses/error_responses/stateless_failed_error_response.hpp"
-#include "main/subscription.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
@@ -110,7 +109,6 @@ namespace executor_testing {
   /// Base class for Executor ITF tests.
   class ExecutorTestBase : public ::testing::Test {
    public:
-    std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
     void SetUp();
 
     iroha::integration_framework::ExecutorItf &getItf() const;

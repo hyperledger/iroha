@@ -45,7 +45,7 @@ namespace shared_model {
     };
 
     struct MockAddPeer : public shared_model::interface::AddPeer {
-      MOCK_CONST_METHOD0(peer, std::shared_ptr<const interface::Peer>());
+      MOCK_CONST_METHOD0(peer, const Peer &());
     };
 
     struct MockRemovePeer : public shared_model::interface::RemovePeer {

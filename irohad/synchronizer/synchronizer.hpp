@@ -23,6 +23,13 @@ namespace iroha {
        */
       virtual void processOutcome(consensus::GateObject object) = 0;
 
+      /**
+       * After synchronization this observable emits zero or more blocks plus
+       * outcome of synchronization
+       */
+      //      virtual rxcpp::observable<SynchronizationEvent> on_commit_chain()
+      //      = 0;
+
       virtual ~Synchronizer() = default;
     };
 

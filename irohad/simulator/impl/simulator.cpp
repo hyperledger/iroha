@@ -29,62 +29,67 @@ namespace iroha {
           ametsuchi_factory_(std::move(factory)),
           crypto_signer_(std::move(crypto_signer)),
           block_factory_(std::move(block_factory)),
-          log_(std::move(log)) {}
+          log_(std::move(log)),
+          on_proposal_subscription_(std::make_shared<OnProposalSubscriber>(
+              getSubscription()
+                  ->getEngine<EventTypes, network::OrderingEvent>())),
+          on_verified_proposal_subscription_(
+              std::make_shared<OnVerifiedProposalSubscriber>(
+                  getSubscription()
+                      ->getEngine<EventTypes,
+                                  VerifiedProposalCreatorEvent>())) {
+      on_proposal_subscription_->setCallback(
+          [this](auto, auto &, auto const key, network::OrderingEvent event) {
+            assert(EventTypes::kOnProposal == key);
+            if (event.proposal) {
+              auto validated_proposal_and_errors =
+                  this->processProposal(*getProposalUnsafe(event));
 
-    void Simulator::initialize() {
-      on_proposal_subscription_ =
-          SubscriberCreator<bool, network::OrderingEvent>::
-              create<EventTypes::kOnProposal, SubscriptionEngineHandlers::kYac>(
-                  [wptr(weak_from_this())](auto &, auto event) {
-                    auto ptr = wptr.lock();
-                    if (!ptr)
-                      return;
-                    if (event.proposal) {
-                      auto validated_proposal_and_errors =
-                          ptr->processProposal(*getProposalUnsafe(event));
+              getSubscription()->notify(
+                  EventTypes::kOnVerifiedProposal,
+                  VerifiedProposalCreatorEvent{validated_proposal_and_errors,
+                                               event.round,
+                                               event.ledger_state});
+            } else {
+              getSubscription()->notify(
+                  EventTypes::kOnVerifiedProposal,
+                  VerifiedProposalCreatorEvent{
+                      boost::none, event.round, event.ledger_state});
+            }
+          });
 
-                      getSubscription()->notify(
-                          EventTypes::kOnVerifiedProposal,
-                          VerifiedProposalCreatorEvent{
-                              validated_proposal_and_errors,
-                              event.round,
-                              event.ledger_state});
-                    } else {
-                      getSubscription()->notify(
-                          EventTypes::kOnVerifiedProposal,
-                          VerifiedProposalCreatorEvent{
-                              boost::none, event.round, event.ledger_state});
-                    }
-                  });
-      on_verified_proposal_subscription_ =
-          SubscriberCreator<bool, VerifiedProposalCreatorEvent>::create<
-              EventTypes::kOnVerifiedProposal,
-              SubscriptionEngineHandlers::kYac>(
-              [wptr(weak_from_this())](auto &, auto event) {
-                auto ptr = wptr.lock();
-                if (!ptr)
-                  return;
+      on_verified_proposal_subscription_->setCallback(
+          [this](auto,
+                 auto &,
+                 auto const key,
+                 VerifiedProposalCreatorEvent event) {
+            assert(EventTypes::kOnVerifiedProposal == key);
+            if (event.verified_proposal_result) {
+              auto proposal_and_errors = getVerifiedProposalUnsafe(event);
+              auto block = this->processVerifiedProposal(
+                  proposal_and_errors, event.ledger_state->top_block_info);
+              if (block) {
+                getSubscription()->notify(
+                    EventTypes::kOnBlockCreatorEvent,
+                    BlockCreatorEvent{
+                        RoundData{proposal_and_errors->verified_proposal,
+                                  *block},
+                        event.round,
+                        event.ledger_state});
+              }
+            } else {
+              getSubscription()->notify(
+                  EventTypes::kOnBlockCreatorEvent,
+                  BlockCreatorEvent{
+                      boost::none, event.round, event.ledger_state});
+            }
+          });
 
-                if (event.verified_proposal_result) {
-                  auto proposal_and_errors = getVerifiedProposalUnsafe(event);
-                  auto block = ptr->processVerifiedProposal(
-                      proposal_and_errors, event.ledger_state->top_block_info);
-                  if (block) {
-                    getSubscription()->notify(
-                        EventTypes::kOnBlockCreatorEvent,
-                        BlockCreatorEvent{
-                            RoundData{proposal_and_errors->verified_proposal,
-                                      *block},
-                            event.round,
-                            event.ledger_state});
-                  }
-                } else {
-                  getSubscription()->notify(
-                      EventTypes::kOnBlockCreatorEvent,
-                      BlockCreatorEvent{
-                          boost::none, event.round, event.ledger_state});
-                }
-              });
+      on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kYac>(
+          0, EventTypes::kOnProposal);
+      on_verified_proposal_subscription_
+          ->subscribe<SubscriptionEngineHandlers::kYac>(
+              0, EventTypes::kOnVerifiedProposal);
     }
 
     std::shared_ptr<validation::VerifiedProposalAndErrors>

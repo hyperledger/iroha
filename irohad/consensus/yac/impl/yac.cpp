@@ -100,12 +100,11 @@ namespace iroha {
         std::unique_lock<std::mutex> lock(mutex_);
         cluster_order_ = order;
         alternative_order_ = std::move(alternative_order);
-        round_ = hash.vote_round;
+        round_.exclusiveAccess([&](auto &obj) { obj = hash.vote_round; });
         lock.unlock();
         auto vote = crypto_->getVote(hash);
         // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
         // separate entity
-
         votingStep(vote);
       }
 
@@ -152,7 +151,9 @@ namespace iroha {
         if (crypto_->verify(state)) {
           auto &proposal_round = getRound(state);
 
-          if (proposal_round.block_round > round_.block_round) {
+          if (round_.sharedAccess([&](auto const &obj) {
+                return (proposal_round.block_round > obj.block_round);
+              })) {
             guard.unlock();
             log_->info("Pass state from future for {} to pipeline",
                        proposal_round);
@@ -162,7 +163,9 @@ namespace iroha {
             return;
           }
 
-          if (proposal_round.block_round < round_.block_round) {
+          if (round_.sharedAccess([&](auto const &obj) {
+                return (proposal_round.block_round < obj.block_round);
+              })) {
             log_->info("Received state from past for {}, try to propagate back",
                        proposal_round);
             tryPropagateBack(state);
@@ -203,10 +206,12 @@ namespace iroha {
           return;
         }
 
-        if (apply_state_subscription_->get().sharedAccess(
-                [&](auto const &closed_round) {
-                  return (closed_round >= round_);
-                })) {
+        if (round_.sharedAccess([&](auto const &current_round) {
+              return apply_state_subscription_->get().sharedAccess(
+                  [&](auto const &closed_round) {
+                    return (closed_round >= current_round);
+                  });
+            })) {
           return;
         }
 
@@ -229,10 +234,11 @@ namespace iroha {
 
         auto &cluster_order = getCurrentOrder();
 
-        if (auto current_leader = cluster_order.currentLeader()) {
-          log_->info("Vote {} to peer {}", vote, *current_leader);
-          propagateStateDirectly(*current_leader, {vote});
-        }
+        const auto &current_leader = cluster_order.currentLeader();
+
+        log_->info("Vote {} to peer {}", vote, current_leader);
+
+        propagateStateDirectly(current_leader, {vote});
         cluster_order.switchToNext();
         lock.unlock();
 
@@ -279,7 +285,8 @@ namespace iroha {
             answer,
             [&](const Answer &answer) {
               auto &proposal_round = getRound(state);
-              auto &current_round = round_;
+              auto current_round =
+                  round_.sharedAccess([](auto const &obj) { return obj; });
 
               /*
                * It is possible that a new peer with an outdated peers list may

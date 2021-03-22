@@ -76,11 +76,11 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommit) {
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &val) {
         ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
       },
-      [&]() {
+      [&](){
         setNetworkOrderCheckerSingleVote(
             my_order.value(), my_hash, kRandomFixedNumber);
 
@@ -121,11 +121,11 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommitTwice) {
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &val) {
         ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
       },
-      [&]() {
+      [&](){
         setNetworkOrderCheckerSingleVote(
             my_order.value(), my_hash, kRandomFixedNumber);
 
@@ -144,6 +144,7 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommitTwice) {
           votes.push_back(createVote(my_hash, std::to_string(i)));
         };
         yac->onState(votes);
+
       });
 
   ASSERT_TRUE(wrapper->get());
@@ -163,11 +164,11 @@ TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
 
   YacHash my_hash(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
   auto wrapper = subscribeEventSync<iroha::consensus::yac::Answer,
-                                    iroha::EventTypes::kOnOutcomeFromYac>(
+      iroha::EventTypes::kOnOutcomeFromYac>(
       [&](auto const &val) {
         ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
       },
-      [&]() {
+      [&](){
         auto vote_message = createVote(my_hash, std::to_string(0));
 
         setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
@@ -179,6 +180,7 @@ TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
         auto commit_message = CommitMessage({vote_message});
 
         yac->onState(commit_message.votes);
+
       });
 
   ASSERT_TRUE(wrapper->get());

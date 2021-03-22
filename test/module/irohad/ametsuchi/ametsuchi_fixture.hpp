@@ -28,7 +28,6 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
@@ -41,7 +40,6 @@ namespace iroha {
      */
     class AmetsuchiTest : public ::testing::Test {
      public:
-      std::shared_ptr<Subscription> se_ = getSubscription();
       static void SetUpTestCase() {
         ASSERT_FALSE(boost::filesystem::exists(block_store_path))
             << "Temporary block store " << block_store_path

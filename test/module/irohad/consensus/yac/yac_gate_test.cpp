@@ -14,7 +14,6 @@
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_hash_gate.hpp"
 #include "module/irohad/consensus/yac/mock_yac_hash_provider.hpp"
@@ -23,6 +22,7 @@
 #include "module/irohad/simulator/simulator_mocks.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "main/subscription.hpp"
 
 using namespace std::literals;
 using namespace iroha::consensus::yac;
@@ -47,12 +47,10 @@ static const std::string kActualPubkey2{"actual_hex_pubkey_2"};
 
 class YacGateTest : public ::testing::Test {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
-  void checkNoOutcome(Answer const &answer) {
+  void checkNoOutcome( Answer const &answer) {
     auto outcome_wrapper =
         subscribeEventAsync<iroha::network::ConsensusGate::GateObject,
-                            iroha::EventTypes::kOnOutcome>(
-            [&](auto const &) {});
+            iroha::EventTypes::kOnOutcome>([&](auto const &) {});
 
     iroha::utils::WaitForSingleObject operation_complete;
     auto operation_complete_wrapper =
@@ -65,8 +63,7 @@ class YacGateTest : public ::testing::Test {
               iroha::EventTypes::kOnTestOperationComplete, false);
         },
         [&]() {
-          iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac,
-                                           answer);
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, answer);
         });
 
     operation_complete.wait(std::chrono::minutes(10ull));
@@ -144,7 +141,6 @@ class YacGateTest : public ::testing::Test {
                                          block_creator,
                                          block_cache,
                                          getTestLogger("YacGateImpl"));
-    gate->initialize();
   }
 
   iroha::consensus::Round round{2, 1};
@@ -188,17 +184,14 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  auto block_create =
-      subscribeEventSync<BlockCreatorEvent,
-                         iroha::EventTypes::kOnBlockCreatorEvent>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnBlockCreatorEvent,
-                BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                                  round,
-                                  ledger_state});
-          });
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
   ASSERT_TRUE(block_create->get());
 
   // verify that block we voted for is in the cache
@@ -207,7 +200,7 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
 
   // verify that yac gate emit expected block
   auto wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
-                                    iroha::EventTypes::kOnOutcome>(
+      iroha::EventTypes::kOnOutcome>(
       [&](auto const &outcome) {
         auto block = boost::get<iroha::consensus::PairValid>(outcome).block;
         ASSERT_EQ(block, expected_block);
@@ -216,9 +209,8 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
         auto cache_block = block_cache->get();
         ASSERT_EQ(block, cache_block);
       },
-      [&]() {
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac,
-                                         expected_commit);
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
       });
   ASSERT_TRUE(wrapper->get());
 }
@@ -247,27 +239,23 @@ TEST_F(YacGateTest, CacheReleased) {
       .WillOnce(Return(expected_hash))
       .WillOnce(Return(empty_hash));
 
-  auto block_create =
-      subscribeEventSync<BlockCreatorEvent,
-                         iroha::EventTypes::kOnBlockCreatorEvent>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnBlockCreatorEvent,
-                BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                                  round,
-                                  ledger_state});
-          });
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
   ASSERT_TRUE(block_create->get());
 
-  auto gate_wrapper =
-      subscribeEventSync<iroha::network::ConsensusGate::GateObject,
-                         iroha::EventTypes::kOnOutcome>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
-          });
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
+      });
   ASSERT_TRUE(gate_wrapper->get());
 
   round.reject_round++;
@@ -291,17 +279,14 @@ TEST_F(YacGateTest, YacGateSubscribtionTestFailCase) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  auto block_create =
-      subscribeEventSync<BlockCreatorEvent,
-                         iroha::EventTypes::kOnBlockCreatorEvent>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnBlockCreatorEvent,
-                BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                                  round,
-                                  ledger_state});
-          });
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
   ASSERT_TRUE(block_create->get());
 }
 
@@ -344,14 +329,12 @@ TEST_F(YacGateTest, DifferentCommit) {
   /*block_notifier.get_subscriber().on_next(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});*/
   subscribeEventSync<BlockCreatorEvent,
-                     iroha::EventTypes::kOnBlockCreatorEvent>(
-      [&](auto const &) {},
-      [&]() {
-        iroha::getSubscription()->notify(
-            iroha::EventTypes::kOnBlockCreatorEvent,
-            BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                              round,
-                              ledger_state});
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
       });
 
   // create another block, which will be "received", and generate a commit
@@ -376,10 +359,9 @@ TEST_F(YacGateTest, DifferentCommit) {
 
   // verify that yac gate emit expected block
   auto wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
-                                    iroha::EventTypes::kOnOutcome>(
+      iroha::EventTypes::kOnOutcome>(
       [&](auto const &outcome) {
-        auto concrete_outcome =
-            boost::get<iroha::consensus::VoteOther>(outcome);
+        auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
         auto public_keys = concrete_outcome.public_keys;
         auto hash = concrete_outcome.hash;
 
@@ -387,9 +369,8 @@ TEST_F(YacGateTest, DifferentCommit) {
         ASSERT_EQ(kActualPubkey, public_keys.front());
         ASSERT_EQ(hash, actual_hash);
       },
-      [&]() {
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac,
-                                         expected_commit);
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
       });
   ASSERT_TRUE(wrapper->get());
 }
@@ -410,17 +391,14 @@ TEST_F(YacGateTest, Future) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  auto block_create =
-      subscribeEventSync<BlockCreatorEvent,
-                         iroha::EventTypes::kOnBlockCreatorEvent>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnBlockCreatorEvent,
-                BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                                  round,
-                                  ledger_state});
-          });
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
   ASSERT_TRUE(block_create->get());
 
   iroha::consensus::Round future_round{round.block_round + 1,
@@ -433,20 +411,16 @@ TEST_F(YacGateTest, Future) {
   future_message.signature = signature;
 
   // verify that yac gate emit expected block
-  auto gate_wrapper =
-      subscribeEventSync<iroha::network::ConsensusGate::GateObject,
-                         iroha::EventTypes::kOnOutcome>(
-          [&](auto const &outcome) {
-            auto concrete_outcome =
-                boost::get<iroha::consensus::Future>(outcome);
+  auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+      iroha::EventTypes::kOnOutcome>(
+      [&](auto const &outcome) {
+        auto concrete_outcome = boost::get<iroha::consensus::Future>(outcome);
 
-            ASSERT_EQ(future_round, concrete_outcome.round);
-          },
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnOutcomeFromYac,
-                Answer(FutureMessage{future_message}));
-          });
+        ASSERT_EQ(future_round, concrete_outcome.round);
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, Answer(FutureMessage{future_message}));
+      });
 
   ASSERT_TRUE(gate_wrapper->get());
 }
@@ -506,18 +480,14 @@ class CommitFromTheFuture : public YacGateTest {
 
     EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
 
-    auto block_create =
-        subscribeEventSync<BlockCreatorEvent,
-                           iroha::EventTypes::kOnBlockCreatorEvent>(
-            [&](auto const &) {},
-            [&]() {
-              iroha::getSubscription()->notify(
-                  iroha::EventTypes::kOnBlockCreatorEvent,
-                  BlockCreatorEvent{
-                      RoundData{expected_proposal, expected_block},
-                      round,
-                      ledger_state});
-            });
+    auto block_create = subscribeEventSync<BlockCreatorEvent,
+        iroha::EventTypes::kOnBlockCreatorEvent>(
+        [&](auto const &) {
+        },
+        [&](){
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+              RoundData{expected_proposal, expected_block}, round, ledger_state});
+        });
     ASSERT_TRUE(block_create->get());
 
     Hash actual_hash("actual_hash");
@@ -534,18 +504,16 @@ class CommitFromTheFuture : public YacGateTest {
   template <typename CommitType>
   void validate() {
     // verify that yac gate emit expected block
-    auto gate_wrapper =
-        subscribeEventSync<iroha::network::ConsensusGate::GateObject,
-                           iroha::EventTypes::kOnOutcome>(
-            [&](auto const &outcome) {
-              auto concrete_outcome = boost::get<CommitType>(outcome);
+    auto gate_wrapper = subscribeEventSync<iroha::network::ConsensusGate::GateObject,
+        iroha::EventTypes::kOnOutcome>(
+        [&](auto const &outcome) {
+          auto concrete_outcome = boost::get<CommitType>(outcome);
 
-              ASSERT_EQ(future_round, concrete_outcome.round);
-            },
-            [&]() {
-              iroha::getSubscription()->notify(
-                  iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
-            });
+          ASSERT_EQ(future_round, concrete_outcome.round);
+        },
+        [&](){
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnOutcomeFromYac, expected_commit);
+        });
 
     ASSERT_TRUE(gate_wrapper->get());
   }
@@ -619,18 +587,14 @@ class YacGateOlderTest : public YacGateTest {
     // make hash from block
     ON_CALL(*hash_provider, makeHash(_)).WillByDefault(Return(expected_hash));
 
-    auto block_create =
-        subscribeEventSync<BlockCreatorEvent,
-                           iroha::EventTypes::kOnBlockCreatorEvent>(
-            [&](auto const &) {},
-            [&]() {
-              iroha::getSubscription()->notify(
-                  iroha::EventTypes::kOnBlockCreatorEvent,
-                  BlockCreatorEvent{
-                      RoundData{expected_proposal, expected_block},
-                      round,
-                      ledger_state});
-            });
+    auto block_create = subscribeEventSync<BlockCreatorEvent,
+        iroha::EventTypes::kOnBlockCreatorEvent>(
+        [&](auto const &) {
+        },
+        [&](){
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+              RoundData{expected_proposal, expected_block}, round, ledger_state});
+        });
     ASSERT_TRUE(block_create->get());
   }
 };
@@ -647,17 +611,14 @@ TEST_F(YacGateOlderTest, OlderVote) {
 
   EXPECT_CALL(*hash_provider, makeHash(_)).Times(0);
 
-  auto block_create =
-      subscribeEventSync<BlockCreatorEvent,
-                         iroha::EventTypes::kOnBlockCreatorEvent>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnBlockCreatorEvent,
-                BlockCreatorEvent{boost::none,
-                                  {round.block_round - 1, round.reject_round},
-                                  ledger_state});
-          });
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            boost::none, {round.block_round - 1, round.reject_round}, ledger_state});
+      });
   ASSERT_TRUE(block_create->get());
 }
 
@@ -740,17 +701,14 @@ TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsed) {
   // yac consensus
   EXPECT_CALL(*hash_gate, vote(expected_hash, _, alternative_order)).Times(1);
 
-  auto block_create =
-      subscribeEventSync<BlockCreatorEvent,
-                         iroha::EventTypes::kOnBlockCreatorEvent>(
-          [&](auto const &) {},
-          [&]() {
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnBlockCreatorEvent,
-                BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                                  round,
-                                  ledger_state});
-          });
+  auto block_create = subscribeEventSync<BlockCreatorEvent,
+      iroha::EventTypes::kOnBlockCreatorEvent>(
+      [&](auto const &) {
+      },
+      [&](){
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnBlockCreatorEvent, BlockCreatorEvent{
+            RoundData{expected_proposal, expected_block}, round, ledger_state});
+      });
   ASSERT_TRUE(block_create->get());
 }
 
@@ -787,15 +745,14 @@ TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsedOnce) {
   {
     auto block_create =
         subscribeEventSync<BlockCreatorEvent,
-                           iroha::EventTypes::kOnBlockCreatorEvent>(
+            iroha::EventTypes::kOnBlockCreatorEvent>(
             [&](auto const &) {},
             [&]() {
               iroha::getSubscription()->notify(
                   iroha::EventTypes::kOnBlockCreatorEvent,
-                  BlockCreatorEvent{
-                      RoundData{expected_proposal, expected_block},
-                      {round.block_round + 1, 0},
-                      ledger_state});
+                  BlockCreatorEvent{RoundData{expected_proposal, expected_block},
+                                    {round.block_round + 1, 0},
+                                    ledger_state});
             });
     ASSERT_TRUE(block_create->get());
   }

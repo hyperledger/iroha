@@ -87,6 +87,8 @@ TEST_F(SubscriptionTest, SimpleExecutionTest) {
 
   manager->notify(1ul, test_value);
   ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+
+  manager->dispose();
 }
 
 /**
@@ -119,6 +121,8 @@ TEST_F(SubscriptionTest, DoubleExecutionTest) {
 
   manager->notify(1ul, test_value);
   ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+
+  manager->dispose();
 }
 
 /**
@@ -154,6 +158,8 @@ TEST_F(SubscriptionTest, XExecutionTest) {
 
   ASSERT_EQ(counter[0], 1ul);
   ASSERT_EQ(counter[1], 1ul);
+
+  manager->dispose();
 }
 
 /**
@@ -212,6 +218,8 @@ TEST_F(SubscriptionTest, ParallelExecutionTest) {
     ASSERT_EQ(values.size(), 4);
     for (auto &value : values) ASSERT_TRUE(value.second == 1);
   });
+
+  manager->dispose();
 }
 
 /**
@@ -245,6 +253,8 @@ TEST_F(SubscriptionTest, PingPongExecutionTest) {
   ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
   ASSERT_EQ(subscriber_0->get(), 42ul);
   ASSERT_EQ(subscriber_1->get(), 49ul);
+
+  manager->dispose();
 }
 
 /**
@@ -284,6 +294,7 @@ TEST_F(SubscriptionTest, RotationExecutionTest_1) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1ull));
 
   ASSERT_EQ(result, "AAABBBCCC");
+  manager->dispose();
 }
 
 /**
@@ -322,6 +333,7 @@ TEST_F(SubscriptionTest, RotationExecutionTest_2) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1ull));
 
   ASSERT_EQ(result, "ABCABCABC");
+  manager->dispose();
 }
 
 /**
@@ -355,6 +367,7 @@ TEST_F(SubscriptionTest, RotationExecutionTest_3) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10ull));
 
   ASSERT_EQ(result, "ABCDE");
+  manager->dispose();
 }
 
 /**
@@ -398,6 +411,7 @@ TEST_F(SubscriptionTest, StarExecutionTest) {
   ASSERT_TRUE(complete.wait(std::chrono::seconds(10ull)));
 
   ASSERT_EQ(result, "Star!");
+  manager->dispose();
 }
 
 /**
@@ -418,6 +432,7 @@ TEST_F(SubscriptionTest, UnsubExecutionTest) {
   subscriber_0->unsubscribe();
   manager->notify(0ul, false);
   ASSERT_TRUE(complete.wait(std::chrono::seconds(10ull)));
+  manager->dispose();
 }
 
 /**
@@ -438,6 +453,7 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_1) {
   subscriber_0->unsubscribe(0ul);
   manager->notify(0ul, false);
   ASSERT_TRUE(complete.wait(std::chrono::seconds(10ull)));
+  manager->dispose();
 }
 
 /**
@@ -458,6 +474,7 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_2) {
   subscriber_0->unsubscribe(0ul, 1ul);
   manager->notify(1ul, false);
   ASSERT_TRUE(complete.wait(std::chrono::seconds(10ull)));
+  manager->dispose();
 }
 
 /**
@@ -483,6 +500,7 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_3) {
   manager->notify(1ul, false);
   ASSERT_TRUE(complete.wait(std::chrono::seconds(10ull)));
   ASSERT_TRUE(flag.test_and_set());
+  manager->dispose();
 }
 
 /**

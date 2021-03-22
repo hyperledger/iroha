@@ -6,21 +6,13 @@
 #include "main/subscription.hpp"
 
 #include <fstream>
-#include <mutex>
 
 namespace iroha {
 
   std::shared_ptr<Subscription> getSubscription() {
-    static std::weak_ptr<Subscription> engine;
-    if (auto ptr = engine.lock())
-      return ptr;
-
-    static std::mutex engine_cs;
-    std::lock_guard<std::mutex> lock(engine_cs);
-    auto ptr = std::make_shared<Subscription>();
-
-    engine = ptr;
-    return ptr;
+    static std::shared_ptr<Subscription> engine =
+        std::make_shared<Subscription>();
+    return engine;
   }
 
 }  // namespace iroha

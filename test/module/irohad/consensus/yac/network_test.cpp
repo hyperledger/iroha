@@ -10,7 +10,6 @@
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
@@ -28,7 +27,6 @@ namespace iroha {
     namespace yac {
       class YacNetworkTest : public ::testing::Test {
        public:
-        std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
         static constexpr auto default_ip = "0.0.0.0";
         static constexpr auto default_address = "0.0.0.0:0";
 

@@ -51,7 +51,9 @@ namespace iroha {
                 delay_func =
                     ConsensusOutcomeDelay(std::chrono::milliseconds(0)));
         void vote(const simulator::BlockCreatorEvent &event) override;
-        void initialize();
+
+        // rxcpp::observable<GateObject> onOutcome() override;
+        // rxcpp::observable<consensus::FreezedRound> onFreezedRound() override;
 
         void stop() override;
 
@@ -66,6 +68,10 @@ namespace iroha {
         void handleReject(const RejectMessage &msg);
         void handleFuture(const FutureMessage &msg);
 
+        // rxcpp::observable<GateObject> handleCommit(const CommitMessage &msg);
+        // rxcpp::observable<GateObject> handleReject(const RejectMessage &msg);
+        // rxcpp::observable<GateObject> handleFuture(const FutureMessage &msg);
+
         logger::LoggerPtr log_;
 
         boost::optional<std::shared_ptr<shared_model::interface::Block>>
@@ -74,6 +80,7 @@ namespace iroha {
         boost::optional<ClusterOrdering> alternative_order_;
         std::shared_ptr<const LedgerState> current_ledger_state_;
 
+        // rxcpp::observable<GateObject> published_events_;
         std::shared_ptr<YacPeerOrderer> orderer_;
         std::shared_ptr<YacHashProvider> hash_provider_;
         std::shared_ptr<simulator::BlockCreator> block_creator_;
@@ -81,13 +88,13 @@ namespace iroha {
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;
 
-        std::shared_ptr<BaseSubscriber<bool, Answer>> outcome_subscription_;
-        std::shared_ptr<BaseSubscriber<bool, Answer>>
-            delayed_outcome_subscription_;
-        std::shared_ptr<BaseSubscriber<bool, simulator::BlockCreatorEvent>>
-            block_creator_subscription_;
-        std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
-            delay_func_;
+        using OutcomeSubscription = BaseSubscriber<bool, Answer>;
+        using BlockCreatorSubscription =
+            BaseSubscriber<bool, simulator::BlockCreatorEvent>;
+
+        std::shared_ptr<OutcomeSubscription> outcome_subscription_;
+        std::shared_ptr<OutcomeSubscription> delayed_outcome_subscription_;
+        std::shared_ptr<BlockCreatorSubscription> block_creator_subscription_;
       };
 
     }  // namespace yac

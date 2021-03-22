@@ -129,7 +129,7 @@ namespace iroha {
 
         initialized_ = true;
 
-        auto ptr = std::make_shared<YacGateImpl>(
+        return std::make_shared<YacGateImpl>(
             std::move(yac),
             std::move(peer_orderer),
             alternative_peers |
@@ -140,8 +140,6 @@ namespace iroha {
             std::move(consensus_result_cache),
             consensus_log_manager->getChild("Gate")->getLogger(),
             ConsensusOutcomeDelay(delay));
-        ptr->initialize();
-        return ptr;
       }
     }  // namespace yac
   }    // namespace consensus

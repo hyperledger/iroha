@@ -137,11 +137,10 @@ namespace iroha {
     class QueryExecutorTest : public AmetsuchiTest {
      public:
       QueryExecutorTest()
-          : peer(std::make_shared<shared_model::plain::Peer>(
-                "127.0.0.1",
-                "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f218000a5"
-                "533",
-                std::nullopt)) {
+          : peer{"127.0.0.1",
+                 "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f218000a5"
+                 "533",
+                 std::nullopt} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
@@ -302,7 +301,7 @@ namespace iroha {
           mock_command_factory =
               std::make_unique<shared_model::interface::MockCommandFactory>();
 
-      std::shared_ptr<shared_model::plain::Peer> peer;
+      shared_model::plain::Peer peer;
     };
 
     class BlocksQueryExecutorTest : public QueryExecutorTest {};
@@ -1796,10 +1795,10 @@ namespace iroha {
           TestQueryBuilder().creatorAccountId(account_id).getPeers().build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::PeersResponse>(
-          std::move(result), [expected_peer(peer)](const auto &cast_resp) {
+          std::move(result), [&expected_peer = peer](const auto &cast_resp) {
             ASSERT_EQ(boost::size(cast_resp.peers()), 1);
             auto &peer = cast_resp.peers().front();
-            ASSERT_EQ(peer, *expected_peer);
+            ASSERT_EQ(peer, expected_peer);
           });
     }
 
@@ -1830,8 +1829,8 @@ namespace iroha {
           std::move(result), [&expected_peer = peer](const auto &cast_resp) {
             ASSERT_EQ(boost::size(cast_resp.peers()), 1);
             auto &peer = cast_resp.peers().front();
-            ASSERT_EQ(peer.address(), expected_peer->address());
-            ASSERT_EQ(peer.pubkey(), expected_peer->pubkey());
+            ASSERT_EQ(peer.address(), expected_peer.address());
+            ASSERT_EQ(peer.pubkey(), expected_peer.pubkey());
           });
     }
 

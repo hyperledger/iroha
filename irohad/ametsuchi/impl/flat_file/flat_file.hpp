@@ -102,7 +102,9 @@ namespace iroha {
        * @param path - folder of storage
        * @param log to print progress
        */
-      FlatFile(std::string path, FlatFile::private_tag, logger::LoggerPtr log);
+      FlatFile(std::string path,
+               FlatFile::private_tag,
+               logger::LoggerPtr log);
 
      private:
       /**

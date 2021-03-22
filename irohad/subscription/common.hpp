@@ -10,18 +10,6 @@
 #include <mutex>
 #include <shared_mutex>
 
-#if __clang__
-namespace std {
-
-  template <typename To, typename From>
-  inline std::shared_ptr<To> reinterpret_pointer_cast(
-      std::shared_ptr<From> const &ptr) noexcept {
-    return std::shared_ptr<To>(ptr, reinterpret_cast<To *>(ptr.get()));
-  }
-
-}  // namespace std
-#endif
-
 namespace iroha::utils {
 
   struct NoCopy {
@@ -42,9 +30,9 @@ namespace iroha::utils {
    * Example:
    * @code
    * ReadWriteObject<std::string> obj("1");
-   * bool const is_one_att1 = obj.sharedAccess([](auto const &str) { return str
-   * == "1"; }); obj.exclusiveAccess([](auto &str) { str = "2"; }); bool const
-   * is_one_att2 = obj.sharedAccess([](auto const &str) { return str == "1"; });
+   * bool const is_one_att1 = obj.sharedAccess([](auto const &str) { return str == "1"; });
+   * obj.exclusiveAccess([](auto &str) { str = "2"; });
+   * bool const is_one_att2 = obj.sharedAccess([](auto const &str) { return str == "1"; });
    * std::cout <<
    *   "Attempt 1: " << is_one_att1 << std::endl <<
    *   "Attempt 2: " << is_one_att2;
@@ -84,8 +72,9 @@ namespace iroha::utils {
 
     bool wait(std::chrono::microseconds wait_timeout) {
       std::unique_lock<std::mutex> _lock(wait_m_);
-      return wait_cv_.wait_for(
-          _lock, wait_timeout, [&]() { return !flag_.test_and_set(); });
+      return wait_cv_.wait_for(_lock,
+                               wait_timeout,
+                               [&]() { return !flag_.test_and_set(); });
     }
 
     void set() {

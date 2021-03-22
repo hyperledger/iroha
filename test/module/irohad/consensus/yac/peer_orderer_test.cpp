@@ -15,7 +15,6 @@
 #include <boost/range/numeric.hpp>
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "framework/crypto_literals.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
@@ -34,7 +33,6 @@ const size_t kPeersQuantity = 4;
 
 class YacPeerOrdererTest : public ::testing::Test {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   YacPeerOrdererTest() : orderer(make_shared<MockPeerQueryFactory>()) {}
 
   void SetUp() override {

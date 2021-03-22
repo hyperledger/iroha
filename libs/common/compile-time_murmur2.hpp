@@ -94,13 +94,8 @@ namespace iroha::ct_hash {
   ::iroha::ct_hash::Hasher::murmur2(x, (sizeof(x) / sizeof(x[0])) - 1)
 #endif  // CT_MURMUR2
 
-static_assert(CT_MURMUR2("Called the One Ring, or the Ruling Ring.")
-              == 1333588607);
-static_assert(
-    CT_MURMUR2("Fashioned by Sauron a decade after the making of the Elven "
-               "rings in the fires of Mount Doom in Mordor and which")
-    == 1319897327);
-static_assert(CT_MURMUR2("could only be destroyed in that same fire.")
-              == 702138758);
+static_assert(CT_MURMUR2("Called the One Ring, or the Ruling Ring.") == 1333588607);
+static_assert(CT_MURMUR2("Fashioned by Sauron a decade after the making of the Elven rings in the fires of Mount Doom in Mordor and which") == 1319897327);
+static_assert(CT_MURMUR2("could only be destroyed in that same fire.") == 702138758);
 
 #endif  // IROHA_MURMUR_2_HPP

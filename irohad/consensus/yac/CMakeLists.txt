@@ -37,7 +37,6 @@ target_link_libraries(yac
     consensus_round
     gate_object
     permutation_generator
-    subscription
     )
 # avoid compilation error due to missing operator<< in Answer variant types
 target_compile_definitions(yac

@@ -34,6 +34,14 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           const override;
 
+      // rxcpp::observable<OrderingEvent> onProposal() const override;
+
+      /*rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
+      onVerifiedProposal() const override;*/
+
+      /*rxcpp::observable<synchronizer::SynchronizationEvent>
+         onSynchronization() const override;*/
+
      private:
       std::shared_ptr<OrderingGate> ordering_gate_;
       std::shared_ptr<synchronizer::Synchronizer> synchronizer_;

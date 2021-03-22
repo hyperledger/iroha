@@ -114,6 +114,21 @@ namespace iroha {
         storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));
   }
 
+  /*auto FairMstProcessor::onStateUpdateImpl() const
+      -> decltype(onStateUpdate()) {
+    return state_subject_.get_observable();
+  }*/
+
+  /*auto FairMstProcessor::onPreparedBatchesImpl() const
+      -> decltype(onPreparedBatches()) {
+    return batches_subject_.get_observable();
+  }*/
+
+  /*auto FairMstProcessor::onExpiredBatchesImpl() const
+      -> decltype(onExpiredBatches()) {
+    return expired_subject_.get_observable();
+  }*/
+
   bool FairMstProcessor::batchInStorageImpl(const DataType &batch) const {
     return storage_->batchInStorage(batch);
   }
@@ -149,6 +164,7 @@ namespace iroha {
     if (not state.isEmpty()) {
       state.iterateBatches([](const DataType &batch) {
         getSubscription()->notify(EventTypes::kOnPreparedBatches, batch);
+        // batches_subject_.get_subscriber().on_next(batch);
       });
     }
   }
@@ -157,6 +173,8 @@ namespace iroha {
     if (not state.isEmpty()) {
       getSubscription()->notify(EventTypes::kOnStateUpdate,
                                 std::make_shared<MstState>(state));
+      /*state_subject_.get_subscriber().on_next(
+          std::make_shared<MstState>(state));*/
     }
   }
 
@@ -164,6 +182,7 @@ namespace iroha {
     if (not state.isEmpty()) {
       state.iterateBatches([](const DataType &batch) {
         getSubscription()->notify(EventTypes::kOnExpiredBatches, batch);
+        // expired_subject_.get_subscriber().on_next(batch);
       });
     }
   }

@@ -7,12 +7,10 @@
 
 #include "consensus/yac/cluster_order.hpp"
 
-#include "main/subscription.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 
 class ClusterOrderTest : public ::testing::Test {
  protected:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   void SetUp() override {
     p1 = iroha::consensus::yac::makePeer("1");
     p2 = iroha::consensus::yac::makePeer("2");
@@ -50,7 +48,7 @@ TEST_F(ClusterOrderTest, BadClusterOrderCreation) {
 TEST_F(ClusterOrderTest, ClusterOrderOnNext) {
   auto order = iroha::consensus::yac::ClusterOrdering::create(peers_list);
   ASSERT_TRUE(order);
-  ASSERT_EQ("1", order->currentLeader()->address());
-  ASSERT_EQ("2", order->switchToNext().currentLeader()->address());
-  ASSERT_EQ("1", order->switchToNext().currentLeader()->address());
+  ASSERT_EQ("1", order->currentLeader().address());
+  ASSERT_EQ("2", order->switchToNext().currentLeader().address());
+  ASSERT_EQ("1", order->switchToNext().currentLeader().address());
 }

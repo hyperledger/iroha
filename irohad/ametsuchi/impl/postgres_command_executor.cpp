@@ -1472,14 +1472,14 @@ namespace iroha {
         const std::string &tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
-      auto peer = command.peer();
+      auto &peer = command.peer();
 
       StatementExecutor executor(
           add_peer_statements_, do_validation, "AddPeer", perm_converter_);
       executor.use("creator", creator_account_id);
-      executor.use("address", peer->address());
-      executor.use("pubkey", peer->pubkey());
-      executor.use("tls_certificate", peer->tlsCertificate());
+      executor.use("address", peer.address());
+      executor.use("pubkey", peer.pubkey());
+      executor.use("tls_certificate", peer.tlsCertificate());
 
       return executor.execute();
     }

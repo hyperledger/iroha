@@ -30,6 +30,11 @@ namespace iroha {
               &verified_proposal_and_errors,
           const TopBlockInfo &top_block_info) = 0;
 
+      /**
+       * Emit blocks made from proposals
+       */
+      // virtual rxcpp::observable<BlockCreatorEvent> onBlock() = 0;
+
       virtual ~BlockCreator() = default;
     };
   }  // namespace simulator

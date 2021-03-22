@@ -22,7 +22,6 @@ target_link_libraries(on_demand_ordering_service
     shared_model_interfaces
     consensus_round
     logger
-    subscription
     )
 
 add_library(on_demand_ordering_service_transport_grpc
@@ -39,7 +38,6 @@ target_link_libraries(on_demand_ordering_service_transport_grpc
     logger
     ordering_grpc
     common
-    subscription
     )
 
 add_library(on_demand_connection_manager

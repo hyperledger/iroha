@@ -13,7 +13,6 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
@@ -41,7 +40,6 @@ using MockProposalValidator = MockValidator<Proposal>;
 
 class OnDemandOsTest : public ::testing::Test {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   std::shared_ptr<OnDemandOrderingService> os;
   const uint64_t transaction_limit = 20;
   const uint32_t proposal_limit = 5;

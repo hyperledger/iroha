@@ -12,7 +12,6 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
-#include "main/subscription.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/validators/validators.hpp"
@@ -28,7 +27,6 @@ using ::testing::Invoke;
 using ::testing::Return;
 
 struct OnDemandOsServerGrpcTest : public ::testing::Test {
-  std::shared_ptr<Subscription> se_ = getSubscription();
   void SetUp() override {
     notification = std::make_shared<MockOdOsNotification>();
     std::unique_ptr<shared_model::validation::AbstractValidator<
