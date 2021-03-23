@@ -71,15 +71,15 @@ Metrics::Metrics(
       .Register(*registry);
   auto&peers_number_value = peers_number_gauge.Add({});//{{"valueP", "any"}});
 
-  block_subscriber = make_shared<BlockSubscriber>(
+  block_subscriber = std::make_shared<BlockSubscriber>(
       getSubscription()->getEngine<EventTypes,BlockPtr>());
   block_subscriber->setCallback(
-        [this,&block_height_value]
+        [&block_height_value] //Stored in registry
         (auto, auto&receiver, auto const event, auto pblock){
           // block_height_value is captured by reference because it is stored inside registry, which is shared_ptr
           assert(!!pblock);
           block_height_value.Set(pblock->height());
-        });/**/
+        });
   block_subscriber->subscribe<SubscriptionEngineHandlers::kMetrics>(
       EventTypes::kOnBlock);
 
@@ -98,7 +98,7 @@ Metrics::Metrics(
   on_proposal_subscription_ = std::make_shared<OnProposalSubscription>(
       getSubscription()->getEngine<EventTypes, network::OrderingEvent>());
   on_proposal_subscription_->setCallback(
-      [this,&peers_number_value]
+      [&peers_number_value]
       (auto, auto, auto key, network::OrderingEvent const &oe) {
         // block_height_value can be captured by reference because it is stored inside registry
         assert(EventTypes::kOnProposal == key);
