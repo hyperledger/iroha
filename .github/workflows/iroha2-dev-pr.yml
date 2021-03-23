@@ -19,6 +19,8 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Update rust
+        run: rustup update
       - name: Install cargo-lints
         run: cargo install --debug --git https://github.com/i1i1/cargo-lints
       - name: Format check
