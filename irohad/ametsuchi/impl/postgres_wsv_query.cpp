@@ -125,5 +125,16 @@ namespace iroha {
       }
     }
 
+    boost::optional<int>
+        PostgresWsvQuery::getNumberOfDomains() const
+    try {
+      using namespace soci;
+      int domains_count = -1;
+      sql_ << "select count(*) from domain;", into(domains_count);
+      return domains_count;
+    } catch (std::exception &e) {
+      return boost::none;
+    }
+
   }  // namespace ametsuchi
 }  // namespace iroha

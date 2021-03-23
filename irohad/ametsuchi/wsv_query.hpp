@@ -51,6 +51,9 @@ namespace iroha {
       /// Get top block info from ledger state.
       virtual iroha::expected::Result<iroha::TopBlockInfo, std::string>
       getTopBlockInfo() const = 0;
+
+      /// To get number of domains for metrics #883 
+      virtual boost::optional<int> getNumberOfDomains() const = 0;
     };
 
   }  // namespace ametsuchi

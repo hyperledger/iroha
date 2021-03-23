@@ -35,6 +35,8 @@ namespace iroha {
       iroha::expected::Result<iroha::TopBlockInfo, std::string>
       getTopBlockInfo() const override;
 
+      boost::optional<int> getNumberOfDomains() const override;
+
      private:
       /**
        * Executes given lambda of type F, catches exceptions if any, logs the
