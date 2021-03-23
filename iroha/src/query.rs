@@ -177,7 +177,10 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let _ = domain.asset_definitions.insert(
             asset_definition_id.clone(),
-            AssetDefinitionEntry::new(AssetDefinition::new(asset_definition_id), account_id),
+            AssetDefinitionEntry::new(
+                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity),
+                account_id,
+            ),
         );
         let _ = domains.insert("wonderland".to_string(), domain);
         Ok(World::with(domains, PeersIds::new()))

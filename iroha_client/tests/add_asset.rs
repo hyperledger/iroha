@@ -32,7 +32,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     let account_id = AccountId::new(account_name, domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new(asset_definition_id.clone()).into(),
+        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
