@@ -6,6 +6,7 @@ use crate::{
     queue::config::QueueConfiguration,
     sumeragi::config::{SumeragiConfiguration, TrustedPeers},
     torii::config::ToriiConfiguration,
+    wsv::config::Configuration as WorldStateViewConfiguration,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
@@ -39,6 +40,9 @@ pub struct Configuration {
     pub logger_configuration: LoggerConfiguration,
     /// Configuration for `GenesisBlock`.
     pub genesis_configuration: GenesisConfiguration,
+    /// Configuration for [`WorldStateView`](crate::wsv::WorldStateView).
+    #[serde(default)]
+    pub wsv_configuration: WorldStateViewConfiguration,
 }
 
 impl Configuration {
@@ -77,6 +81,7 @@ impl Configuration {
         self.queue_configuration.load_environment()?;
         self.logger_configuration.load_environment()?;
         self.genesis_configuration.load_environment()?;
+        self.wsv_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .wrap_err("Failed to parse Public Key")?;

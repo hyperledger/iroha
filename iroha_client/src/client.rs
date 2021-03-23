@@ -53,7 +53,7 @@ impl Client {
     pub fn build_transaction(
         &self,
         instructions: Vec<Instruction>,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) -> Result<Transaction> {
         Transaction::with_metadata(
             instructions,
@@ -88,7 +88,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
-        self.submit_all_with_metadata(instructions, Metadata::new())
+        self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
@@ -101,7 +101,7 @@ impl Client {
     pub fn submit_with_metadata(
         &mut self,
         instruction: Instruction,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) -> Result<Hash> {
         self.submit_all_with_metadata(vec![instruction], metadata)
     }
@@ -115,7 +115,7 @@ impl Client {
     pub fn submit_all_with_metadata(
         &mut self,
         instructions: Vec<Instruction>,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) -> Result<Hash> {
         self.submit_transaction(self.build_transaction(instructions, metadata)?)
     }
@@ -160,7 +160,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
-        self.submit_all_blocking_with_metadata(instructions, Metadata::new())
+        self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
@@ -172,7 +172,7 @@ impl Client {
     pub fn submit_blocking_with_metadata(
         &mut self,
         instruction: Instruction,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) -> Result<Hash> {
         self.submit_all_blocking_with_metadata(vec![instruction], metadata)
     }
@@ -186,7 +186,7 @@ impl Client {
     pub fn submit_all_blocking_with_metadata(
         &mut self,
         instructions: Vec<Instruction>,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) -> Result<Hash> {
         let mut client = self.clone();
         let (sender, receiver) = mpsc::channel();
