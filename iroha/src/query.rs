@@ -190,9 +190,10 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id);
         let mut store = Metadata::new();
-        let _ = store.insert(
+        let _ = store.insert_with_limits(
             "Bytes".to_string(),
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+            MetadataLimits::new(10, 100),
         );
         wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)));
         let bytes =
@@ -212,9 +213,10 @@ mod tests {
             .account(&account_id)
             .ok_or_else(|| error!("Failed to find account."))?
             .metadata
-            .insert(
+            .insert_with_limits(
                 "Bytes".to_string(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+                MetadataLimits::new(10, 100),
             );
         let bytes =
             FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_string()).execute(&wsv)?;

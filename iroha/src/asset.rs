@@ -79,16 +79,18 @@ pub mod isi {
                         &self.object_id.definition_id
                     )
                 })?;
+            let asset_metadata_limits = world_state_view.config.asset_metadata_limits;
             match world_state_view.asset(&self.object_id) {
                 Some(asset) => {
                     let store: &mut Metadata = asset.try_as_mut()?;
-                    let _ = store.insert(self.key, self.value);
+                    let _ = store.insert_with_limits(self.key, self.value, asset_metadata_limits);
                 }
                 None => world_state_view.add_asset(Asset::with_parameter(
                     self.object_id,
                     self.key,
                     self.value,
-                )),
+                    asset_metadata_limits,
+                )?),
             }
             Ok(world_state_view)
         }

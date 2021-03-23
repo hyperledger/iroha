@@ -100,10 +100,13 @@ impl Iroha {
         let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
-        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(World::with(
-            init::domains(config),
-            config.sumeragi_configuration.trusted_peers.peers.clone(),
-        ))));
+        let world_state_view = Arc::new(RwLock::new(WorldStateView::from_config(
+            config.wsv_configuration,
+            World::with(
+                init::domains(config),
+                config.sumeragi_configuration.trusted_peers.peers.clone(),
+            ),
+        )));
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
             &config.queue_configuration,
         )));
