@@ -33,6 +33,12 @@ class BatchPipelineTest
     : public AcceptanceFixture,
       public WithParamInterface<interface::types::BatchType> {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~BatchPipelineTest() {
+    se_->dispose();
+  }
+
   /**
    * Create transaction to create first user
    * @return transaction to create first user

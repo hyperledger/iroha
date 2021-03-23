@@ -294,6 +294,8 @@ namespace integration_framework {
       iroha_instance_->getIrohaInstance()->terminate(
           std::chrono::system_clock::now());
     }
+
+    se_->dispose();
   }
 
   std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(

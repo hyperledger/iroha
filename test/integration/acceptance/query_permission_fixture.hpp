@@ -23,6 +23,10 @@ class QueryPermissionFixture : public AcceptanceFixture {
  protected:
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
 
+  ~QueryPermissionFixture() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     impl_.itf_ = std::make_unique<IntegrationTestFramework>(1);
     impl_.itf_->setInitialState(common_constants::kAdminKeypair);

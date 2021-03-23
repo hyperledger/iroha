@@ -87,6 +87,9 @@ class MstProcessorTest : public testing::Test {
     complete.wait(std::chrono::minutes(10ull));
     return observers;
   }
+  ~MstProcessorTest() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();

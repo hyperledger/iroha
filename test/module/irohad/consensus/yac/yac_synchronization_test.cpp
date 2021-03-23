@@ -63,8 +63,6 @@ class NetworkUtil {
 
 class YacSynchronizationTest : public YacTest {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
-
   void SetUp() override {
     YacTest::SetUp();
 

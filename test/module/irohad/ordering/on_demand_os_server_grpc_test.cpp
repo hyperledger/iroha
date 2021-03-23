@@ -29,6 +29,10 @@ using ::testing::Return;
 
 struct OnDemandOsServerGrpcTest : public ::testing::Test {
   std::shared_ptr<Subscription> se_ = getSubscription();
+  ~OnDemandOsServerGrpcTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     notification = std::make_shared<MockOdOsNotification>();
     std::unique_ptr<shared_model::validation::AbstractValidator<

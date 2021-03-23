@@ -34,6 +34,9 @@ class TxPresenceCacheTest : public ::testing::Test {
   }
 
  public:
+  ~TxPresenceCacheTest() {
+    se_->dispose();
+  }
   std::shared_ptr<MockStorage> mock_storage;
   std::shared_ptr<MockBlockQuery> mock_block_query;
 };

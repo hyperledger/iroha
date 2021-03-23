@@ -92,7 +92,6 @@ namespace integration_framework {
     }
 
    private:
-    std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
     logger::LoggerPtr log_;
   };
 }  // namespace integration_framework

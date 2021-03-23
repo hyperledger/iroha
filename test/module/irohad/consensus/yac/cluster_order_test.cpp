@@ -19,6 +19,10 @@ class ClusterOrderTest : public ::testing::Test {
     peers_list = {p1, p2};
   }
 
+  ~ClusterOrderTest() {
+    se_->dispose();
+  }
+
   std::shared_ptr<shared_model::interface::Peer> p1;
   std::shared_ptr<shared_model::interface::Peer> p2;
 

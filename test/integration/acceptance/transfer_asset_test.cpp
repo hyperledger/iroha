@@ -28,6 +28,11 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class TransferAsset : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~TransferAsset() {
+    se_->dispose();
+  }
   /**
    * Creates the transaction with the first user creation commands
    * @param perms are the permissions of the user

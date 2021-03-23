@@ -42,6 +42,10 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
     invalidPublicKeyView = invalidPublicKey;
   };
 
+  ~QueriesAcceptanceTest() {
+    se_->dispose();
+  }
+
   void SetUp() {
     itf.setInitialState(kAdminKeypair)
         .sendTxAwait(

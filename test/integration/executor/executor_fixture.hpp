@@ -111,6 +111,9 @@ namespace executor_testing {
   class ExecutorTestBase : public ::testing::Test {
    public:
     std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+    ~ExecutorTestBase() {
+      se_->dispose();
+    }
     void SetUp();
 
     iroha::integration_framework::ExecutorItf &getItf() const;

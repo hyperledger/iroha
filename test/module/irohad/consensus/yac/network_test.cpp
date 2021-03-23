@@ -43,6 +43,10 @@ namespace iroha {
               .WillOnce(Return(ByMove(std::move(stub))));
         }
 
+        ~YacNetworkTest() {
+          se_->dispose();
+        }
+
         void SetUp() override {
           notifications = std::make_shared<MockYacNetworkNotifications>();
           async_call = std::make_shared<

@@ -15,6 +15,12 @@ using namespace common_constants;
 
 class CreateAssetFixture : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~CreateAssetFixture() {
+    se_->dispose();
+  }
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateAsset}) {
     return AcceptanceFixture::makeUserWithPerms(perms);

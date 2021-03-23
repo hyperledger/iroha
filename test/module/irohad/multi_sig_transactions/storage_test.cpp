@@ -17,6 +17,12 @@ auto log_ = getTestLogger("MstStorageTest");
 
 class StorageTest : public testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~StorageTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
     storage = MstStorageStateImpl::create(

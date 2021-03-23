@@ -36,6 +36,9 @@ class YacPeerOrdererTest : public ::testing::Test {
  public:
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   YacPeerOrdererTest() : orderer(make_shared<MockPeerQueryFactory>()) {}
+  ~YacPeerOrdererTest() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     wsv = make_shared<MockPeerQuery>();

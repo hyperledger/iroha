@@ -12,7 +12,13 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class InvalidField : public AcceptanceFixture {};
+class InvalidField : public AcceptanceFixture {
+ public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+  ~InvalidField() {
+    se_->dispose();
+  }
+};
 
 /**
  * TODO mboldyrev 18.01.2019 IR-217 remove, covered by field validator test

@@ -41,6 +41,10 @@ using ::testing::Return;
 class QueryProcessorTest : public ::testing::Test {
  public:
   std::shared_ptr<Subscription> se_ = getSubscription();
+  ~QueryProcessorTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     qry_exec = std::make_unique<MockQueryExecutor>();
     storage = std::make_shared<MockStorage>();

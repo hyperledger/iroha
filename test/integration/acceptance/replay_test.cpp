@@ -18,6 +18,11 @@ using shared_model::interface::types::PublicKeyHexStringView;
 class ReplayFixture : public AcceptanceFixture {
  public:
   ReplayFixture() : itf(1), kReceiverRole("receiver") {}
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~ReplayFixture() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     auto create_user_tx = complete(

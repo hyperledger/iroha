@@ -47,6 +47,9 @@ namespace fuzzing {
             clone<shared_model::interface::Block>(TestBlockBuilder().build()));
       }));
     }
+    ~BlockLoaderFixture() {
+      se_->dispose();
+    }
   };
 
 }  // namespace fuzzing

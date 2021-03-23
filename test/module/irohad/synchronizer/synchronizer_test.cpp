@@ -66,6 +66,10 @@ static constexpr shared_model::interface::types::HeightType kInitTopBlockHeight{
 class SynchronizerTest : public ::testing::Test {
  public:
   std::shared_ptr<Subscription> se_ = getSubscription();
+  ~SynchronizerTest() {
+    se_->dispose();
+  }
+
   void checkNoSynchronize(ConsensusGate::GateObject &&obj) {
     auto synchro_wrapper =
         subscribeEventAsync<SynchronizationEvent,

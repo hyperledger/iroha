@@ -41,6 +41,10 @@ class YacBlockStorageTest : public ::testing::Test {
                       getTestLogger("YacBlockStorage"));
   std::vector<VoteMessage> valid_votes;
 
+  ~YacBlockStorageTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     valid_votes.reserve(number_of_peers);
     std::generate_n(std::back_inserter(valid_votes), number_of_peers, [this] {

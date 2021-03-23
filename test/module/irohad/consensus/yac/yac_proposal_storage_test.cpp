@@ -40,6 +40,9 @@ class YacProposalStorageTest : public ::testing::Test {
       supermajority_checker,
       getTestLoggerManager()->getChild("YacProposalStorage"));
   std::vector<VoteMessage> valid_votes;
+  ~YacProposalStorageTest() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     valid_votes.reserve(number_of_peers);

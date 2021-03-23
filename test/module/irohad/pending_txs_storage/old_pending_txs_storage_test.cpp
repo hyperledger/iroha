@@ -19,6 +19,9 @@ class OldPendingTxsStorageFixture : public ::testing::Test {
  public:
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   using Batch = shared_model::interface::TransactionBatch;
+  ~OldPendingTxsStorageFixture() {
+    se_->dispose();
+  }
 
   /**
    * Get the closest to now timestamp from the future but never return the same

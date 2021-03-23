@@ -37,6 +37,10 @@ class StorageInitTest : public ::testing::Test {
     pgopt_ = pg_opt_without_dbname_ + " dbname=" + dbname_;
   }
 
+  ~StorageInitTest() {
+    se_->dispose();
+  }
+
  protected:
   // generate random valid dbname
   std::string dbname_ = "d"

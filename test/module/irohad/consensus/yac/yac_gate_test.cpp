@@ -48,6 +48,10 @@ static const std::string kActualPubkey2{"actual_hex_pubkey_2"};
 class YacGateTest : public ::testing::Test {
  public:
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+  ~YacGateTest() {
+    se_->dispose();
+  }
+
   void checkNoOutcome(Answer const &answer) {
     auto outcome_wrapper =
         subscribeEventAsync<iroha::network::ConsensusGate::GateObject,

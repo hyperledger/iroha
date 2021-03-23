@@ -42,6 +42,10 @@ class PostgresBlockStorageTest : public ::testing::Test {
     ON_CALL(*mock_other_block_, blob()).WillByDefault(ReturnRef(blob_));
   }
 
+  ~PostgresBlockStorageTest() {
+    se_->dispose();
+  }
+
  protected:
   void SetUp() override {
     IROHA_ASSERT_RESULT_VALUE(PgConnectionInit::prepareWorkingDatabase(

@@ -76,12 +76,7 @@ namespace iroha::subscription {
           engine_(ptr),
           object_(std::forward<SubscriberConstructorArgs>(args)...) {}
 
-    ~SubscriberImpl() {
-      // Unsubscribe all
-      if (auto engine = engine_.lock())
-        for (auto &[_, subscriptions] : subscriptions_sets_)
-          for (auto &[key, it] : subscriptions) engine->unsubscribe(key, it);
-    }
+    ~SubscriberImpl() {}
 
     void setCallback(CallbackFnType &&f) {
       on_notify_callback_ = std::move(f);

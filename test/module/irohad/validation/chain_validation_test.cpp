@@ -29,6 +29,10 @@ using ::testing::SaveArg;
 class ChainValidationTest : public ::testing::Test {
  public:
   std::shared_ptr<Subscription> se_ = getSubscription();
+  ~ChainValidationTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     validator = std::make_shared<ChainValidatorImpl>(
         supermajority_checker, getTestLogger("ChainValidator"));

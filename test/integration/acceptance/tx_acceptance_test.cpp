@@ -15,6 +15,12 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class AcceptanceTest : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~AcceptanceTest() {
+    se_->dispose();
+  }
+
   const std::function<void(const shared_model::proto::TransactionResponse &)>
       checkStatelessValidStatus = [](auto &status) {
         ASSERT_NO_THROW(

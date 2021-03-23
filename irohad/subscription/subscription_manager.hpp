@@ -40,6 +40,7 @@ namespace iroha::subscription {
     DispatcherPtr dispatcher_;
     std::shared_mutex engines_cs_;
     EnginesList engines_;
+    std::atomic_flag disposed_;
 
    private:
     template <typename... Args>
@@ -49,15 +50,19 @@ namespace iroha::subscription {
     }
 
    public:
-    SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {}
+    SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {
+      disposed_.clear();
+    }
 
     void dispose() {
-      std::shared_lock lock(engines_cs_);
-      for (auto &descriptor : engines_)
-        std::reinterpret_pointer_cast<IDisposable>(descriptor.second)
-            ->dispose();
+      if (!disposed_.test_and_set()) {
+        std::shared_lock lock(engines_cs_);
+        for (auto &descriptor : engines_)
+          std::reinterpret_pointer_cast<IDisposable>(descriptor.second)
+              ->dispose();
 
-      dispatcher_->dispose();
+        dispatcher_->dispose();
+      }
     }
 
     template <typename EventKey, typename... Args>

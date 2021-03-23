@@ -31,6 +31,7 @@
 #include "framework/common_constants.hpp"
 #include "framework/test_client_factory.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "torii/processor/query_processor_impl.hpp"
@@ -60,6 +61,11 @@ using ErrorQueryType =
 // mocked
 class ToriiQueriesTest : public testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+  virtual ~ToriiQueriesTest() {
+    se_->dispose();
+  }
+
   virtual void SetUp() {
     signatories.emplace_back(pair.publicKey());
     runner = std::make_unique<iroha::network::ServerRunner>(

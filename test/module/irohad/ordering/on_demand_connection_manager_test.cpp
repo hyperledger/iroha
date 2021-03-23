@@ -32,6 +32,10 @@ ACTION_P(CreateAndSave, var) {
 
 struct OnDemandConnectionManagerTest : public ::testing::Test {
   std::shared_ptr<Subscription> se_ = getSubscription();
+  ~OnDemandConnectionManagerTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     factory = std::make_shared<MockOdOsNotificationFactory>();
 

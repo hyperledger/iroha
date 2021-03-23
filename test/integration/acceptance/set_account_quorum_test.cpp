@@ -16,6 +16,11 @@ using shared_model::interface::types::PublicKeyHexStringView;
 class QuorumFixture : public AcceptanceFixture {
  public:
   QuorumFixture() : itf(1) {}
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~QuorumFixture() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     auto add_public_key_tx = complete(

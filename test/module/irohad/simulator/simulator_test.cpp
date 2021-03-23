@@ -50,6 +50,9 @@ class SimulatorTest : public ::testing::Test {
   std::shared_ptr<Subscription> se_ = getSubscription();
   using CryptoSignerType = shared_model::crypto::MockAbstractCryptoModelSigner<
       shared_model::interface::Block>;
+  ~SimulatorTest() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     auto command_executor = std::make_unique<MockCommandExecutor>();

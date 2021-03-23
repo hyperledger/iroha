@@ -28,6 +28,10 @@ class FakePeerFixture : public AcceptanceFixture {
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   std::unique_ptr<integration_framework::IntegrationTestFramework> itf_;
 
+  ~FakePeerFixture() {
+    se_->dispose();
+  }
+
   /**
    * Create honest fake iroha peers
    *

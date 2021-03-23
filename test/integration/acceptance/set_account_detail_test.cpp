@@ -18,6 +18,12 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class SetAccountDetail : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~SetAccountDetail() {
+    se_->dispose();
+  }
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kAddPeer}) {
     return AcceptanceFixture::makeUserWithPerms(perms);

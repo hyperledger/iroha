@@ -21,7 +21,6 @@
 class GrantablePermissionsFixture : public AcceptanceFixture {
  public:
   using TxBuilder = TestUnsignedTransactionBuilder;
-
   /**
    * Create a transaction that creates a user and a role with specified name and
    * a set of permissions. The default domain role will be detached from the

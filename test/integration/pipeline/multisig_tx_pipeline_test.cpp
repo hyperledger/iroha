@@ -22,8 +22,14 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class MstPipelineTest : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
   MstPipelineTest()
       : mst_itf_{1, {}, iroha::StartupWsvDataPolicy::kDrop, true, true} {}
+
+  ~MstPipelineTest() {
+    se_->dispose();
+  }
 
   /**
    * Creates a mst user

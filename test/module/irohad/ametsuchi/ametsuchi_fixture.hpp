@@ -42,6 +42,10 @@ namespace iroha {
     class AmetsuchiTest : public ::testing::Test {
      public:
       std::shared_ptr<Subscription> se_ = getSubscription();
+      ~AmetsuchiTest() {
+        se_->dispose();
+      }
+
       static void SetUpTestCase() {
         ASSERT_FALSE(boost::filesystem::exists(block_store_path))
             << "Temporary block store " << block_store_path

@@ -29,6 +29,9 @@ class PendingTxsStorageFixture : public ::testing::Test {
       shared_model::interface::PendingTransactionsPageResponse::BatchInfo;
   using Response = iroha::PendingTransactionStorage::Response;
   using ErrorCode = iroha::PendingTransactionStorage::ErrorCode;
+  ~PendingTxsStorageFixture() {
+    se_->dispose();
+  }
 
   /**
    * Get the closest to now timestamp from the future but never return the same

@@ -61,10 +61,7 @@ namespace {
  */
 class AcceptanceFixture : public ::testing::Test {
  public:
-  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
   AcceptanceFixture();
-
-  virtual ~AcceptanceFixture() = default;
 
   /**
    * Creates a set of transactions for user creation

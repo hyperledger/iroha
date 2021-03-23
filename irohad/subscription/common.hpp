@@ -88,6 +88,11 @@ namespace iroha::utils {
           _lock, wait_timeout, [&]() { return !flag_.test_and_set(); });
     }
 
+    void wait() {
+      std::unique_lock<std::mutex> _lock(wait_m_);
+      wait_cv_.wait(_lock, [&]() { return !flag_.test_and_set(); });
+    }
+
     void set() {
       flag_.clear();
       wait_cv_.notify_one();

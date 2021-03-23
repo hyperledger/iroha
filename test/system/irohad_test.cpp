@@ -72,6 +72,11 @@ static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
 
 class IrohadTest : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~IrohadTest() {
+    se_->dispose();
+  }
   IrohadTest()
       : kAddress(kLocalHost),
         kPort(50051),

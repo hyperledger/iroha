@@ -22,6 +22,12 @@ using namespace common_constants;
 
 class PipelineIntegrationTest : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~PipelineIntegrationTest() {
+    se_->dispose();
+  }
+
   /**
    * prepares signed transaction with CreateDomain command
    * @param domain_name name of the domain

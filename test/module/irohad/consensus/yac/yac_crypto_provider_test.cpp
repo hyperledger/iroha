@@ -32,6 +32,9 @@ namespace iroha {
         YacCryptoProviderTest()
             : keypair(shared_model::crypto::DefaultCryptoAlgorithmType::
                           generateKeypair()) {}
+        ~YacCryptoProviderTest() {
+          se_->dispose();
+        }
 
         void SetUp() override {
           crypto_provider = std::make_shared<CryptoProviderImpl>(

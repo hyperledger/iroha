@@ -127,6 +127,9 @@ class BinaryTestFixture : public ::testing::Test {
  public:
   std::shared_ptr<Subscription> se_ = getSubscription();
   Launcher launcher;
+  ~BinaryTestFixture() {
+    se_->dispose();
+  }
 
   /**
    * Generates genesis block for ITF initialization using the first transaction

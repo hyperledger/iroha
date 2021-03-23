@@ -22,6 +22,10 @@ using Identifier = FlatFile::Identifier;
 class BlStore_Test : public ::testing::Test {
  protected:
   std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+  ~BlStore_Test() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     fs::create_directory(block_store_path);
     block = std::vector<uint8_t>(100000, 5);

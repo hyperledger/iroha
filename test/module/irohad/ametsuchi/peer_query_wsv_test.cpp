@@ -18,6 +18,10 @@ class PeerQueryWSVTest : public ::testing::Test {
   }
 
  protected:
+  ~PeerQueryWSVTest() {
+    se_->dispose();
+  }
+
   std::unique_ptr<iroha::ametsuchi::PeerQuery> peer_query_;
   std::shared_ptr<iroha::ametsuchi::MockWsvQuery> wsv_query_;
 };

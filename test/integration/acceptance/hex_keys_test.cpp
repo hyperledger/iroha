@@ -61,6 +61,12 @@ struct HexKeys : public AcceptanceFixture,
   IntegrationTestFramework itf;
   HexKeys() : itf(1), kNow(iroha::time::now()) {}
 
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~HexKeys() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     using Role = interface::permissions::Role;
     const interface::RolePermissionSet permissions = {Role::kAddSignatory,

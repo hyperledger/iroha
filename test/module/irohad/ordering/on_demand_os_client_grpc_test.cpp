@@ -43,6 +43,9 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
       shared_model::interface::Proposal>;
   using MockProtoProposalValidator =
       shared_model::validation::MockValidator<iroha::protocol::Proposal>;
+  ~OnDemandOsClientGrpcTest() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();

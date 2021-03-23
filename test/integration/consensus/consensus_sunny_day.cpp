@@ -71,6 +71,10 @@ class ConsensusSunnyDayTest : public ::testing::Test {
     }
   }
 
+  ~ConsensusSunnyDayTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     cleanup_strategy =
         std::make_shared<iroha::consensus::yac::BufferedCleanupStrategy>();

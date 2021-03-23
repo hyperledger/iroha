@@ -13,6 +13,12 @@ using namespace common_constants;
 
 class CreateDomain : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~CreateDomain() {
+    se_->dispose();
+  }
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateDomain}) {
     return AcceptanceFixture::makeUserWithPerms(perms);

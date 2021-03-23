@@ -22,6 +22,12 @@ using shared_model::interface::permissions::Role;
 
 class EngineCall : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~EngineCall() {
+    se_->dispose();
+  }
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms =
                              shared_model::interface::RolePermissionSet()) {
     return AcceptanceFixture::makeUserWithPerms(perms);

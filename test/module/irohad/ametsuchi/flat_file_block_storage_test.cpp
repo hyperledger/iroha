@@ -28,6 +28,10 @@ class FlatFileBlockStorageTest : public ::testing::Test {
     ON_CALL(*block_, height()).WillByDefault(Return(height_));
   }
 
+  ~FlatFileBlockStorageTest() {
+    se_->dispose();
+  }
+
  protected:
   void SetUp() override {
     create_directory(path_provider_());

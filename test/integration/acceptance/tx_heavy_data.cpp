@@ -18,6 +18,11 @@ using namespace common_constants;
 
 class HeavyTransactionTest : public AcceptanceFixture {
  public:
+  std::shared_ptr<iroha::Subscription> se_ = iroha::getSubscription();
+
+  ~HeavyTransactionTest() {
+    se_->dispose();
+  }
   /**
    * Creates the transaction with the user creation commands
    * @param perms are the permissions of the user

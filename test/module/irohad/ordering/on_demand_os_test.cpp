@@ -51,6 +51,9 @@ class OnDemandOsTest : public ::testing::Test {
                          reject_round = {2, kNextRejectRoundConsumer};
   NiceMock<iroha::ametsuchi::MockTxPresenceCache> *mock_cache;
   std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;
+  ~OnDemandOsTest() {
+    se_->dispose();
+  }
 
   void SetUp() override {
     // TODO: nickaleks IR-1811 use mock factory

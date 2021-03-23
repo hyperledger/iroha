@@ -32,6 +32,9 @@ namespace iroha {
       class YacTest : public ::testing::Test {
        public:
         std::shared_ptr<Subscription> se_ = getSubscription();
+        ~YacTest() {
+          se_->dispose();
+        }
 
         // ------|Network|------
         std::shared_ptr<MockYacNetwork> network;

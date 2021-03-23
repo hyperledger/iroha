@@ -43,6 +43,10 @@ using shared_model::interface::TransactionBatch;
 class TransactionProcessorTest : public ::testing::Test {
  public:
   std::shared_ptr<Subscription> se_ = getSubscription();
+  ~TransactionProcessorTest() {
+    se_->dispose();
+  }
+
   void SetUp() override {
     pcs = std::make_shared<MockPeerCommunicationService>();
     mst = std::make_shared<MockMstProcessor>(getTestLogger("MstProcessor"));
