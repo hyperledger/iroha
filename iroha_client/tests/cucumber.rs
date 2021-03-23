@@ -109,7 +109,7 @@ mod asset_steps {
                         .submit(
                             RegisterBox::new (
                                 IdentifiableBox::AssetDefinition(
-                                    AssetDefinition::new(
+                                    AssetDefinition::new_quantity(
                                         AssetDefinitionId::new(
                                             asset_definition_name,
                                             asset_definition_domain,

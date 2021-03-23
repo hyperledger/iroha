@@ -36,7 +36,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let account_id = AccountId::new(account_name, domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new(asset_definition_id.clone()).into(),
+        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");

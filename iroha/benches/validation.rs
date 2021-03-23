@@ -25,7 +25,7 @@ fn build_test_transaction(keys: &KeyPair) -> Transaction {
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new(asset_definition_id).into(),
+        AssetDefinition::new(asset_definition_id, AssetValueType::Quantity).into(),
     ));
     Transaction::new(
         vec![

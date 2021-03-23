@@ -41,7 +41,7 @@ mod tests {
         ));
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-            AssetDefinition::new(asset_definition_id.clone()).into(),
+            AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
         ));
         let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");

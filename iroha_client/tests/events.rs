@@ -31,7 +31,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
     let domain_name = "wonderland";
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new(asset_definition_id).into(),
+        AssetDefinition::new_quantity(asset_definition_id).into(),
     ));
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
