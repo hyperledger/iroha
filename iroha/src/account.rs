@@ -72,10 +72,14 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
+            let account_metadata_limits = world_state_view.config.account_metadata_limits;
             let account = world_state_view
                 .account(&self.object_id)
                 .ok_or_else(|| error!("Failed to find account."))?;
-            let _ = account.metadata.insert(self.key, self.value);
+            let _ =
+                account
+                    .metadata
+                    .insert_with_limits(self.key, self.value, account_metadata_limits);
             Ok(world_state_view)
         }
     }
