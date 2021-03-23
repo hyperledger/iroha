@@ -12,6 +12,25 @@ pub mod isi {
     use super::*;
     use iroha_error::{error, Result};
 
+    fn assert_asset_type(
+        definition_id: &AssetDefinitionId,
+        world_state_view: &mut WorldStateView,
+        expected_value_type: AssetValueType,
+    ) -> Result<()> {
+        let value_type = world_state_view
+            .asset_definition_entry(definition_id)
+            .ok_or_else(|| error!("Failed to find asset."))?
+            .definition
+            .value_type;
+        if value_type != expected_value_type {
+            return Err(error!(
+                "Unexpected value for asset of type {:?}",
+                value_type
+            ));
+        }
+        Ok(())
+    }
+
     impl Execute for Mint<Asset, u32> {
         fn execute(
             self,
@@ -19,9 +38,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::Quantity,
+            )?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     let quantity: &mut u32 = asset.try_as_mut()?;
@@ -45,9 +66,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::BigQuantity,
+            )?;
             match world_state_view.asset(&self.destination_id) {
                 Some(asset) => {
                     let quantity: &mut u128 = asset.try_as_mut()?;
@@ -71,14 +94,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view
-                .asset_definition_entry(&self.object_id.definition_id)
-                .ok_or_else(|| {
-                    error!(
-                        "Failed to find asset definition. {:?}",
-                        &self.object_id.definition_id
-                    )
-                })?;
+            assert_asset_type(
+                &self.object_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::Store,
+            )?;
             let asset_metadata_limits = world_state_view.config.asset_metadata_limits;
             match world_state_view.asset(&self.object_id) {
                 Some(asset) => {
@@ -103,9 +123,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::Quantity,
+            )?;
             let asset = world_state_view
                 .asset(&self.destination_id)
                 .ok_or_else(|| error!("Asset not found."))?;
@@ -124,9 +146,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
-            let _ = world_state_view
-                .asset_definition_entry(&self.destination_id.definition_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::BigQuantity,
+            )?;
             let asset = world_state_view
                 .asset(&self.destination_id)
                 .ok_or_else(|| error!("Asset not found."))?;
@@ -145,6 +169,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
+            assert_asset_type(
+                &self.object_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::Store,
+            )?;
             let _ = world_state_view
                 .asset_definition_entry(&self.object_id.definition_id)
                 .ok_or_else(|| error!("Failed to find asset definition."))?;
@@ -172,9 +201,16 @@ pub mod isi {
                     "Can not transfer asset between different asset types."
                 ));
             }
-            let _ = world_state_view
-                .asset_definition_entry(&self.source_id.definition_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
+            assert_asset_type(
+                &self.source_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::Quantity,
+            )?;
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                &mut world_state_view,
+                AssetValueType::Quantity,
+            )?;
             let source_asset = world_state_view
                 .asset(&self.source_id)
                 .ok_or_else(|| error!("Source asset not found."))?;

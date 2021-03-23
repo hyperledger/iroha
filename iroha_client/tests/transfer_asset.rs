@@ -65,7 +65,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let quantity: u32 = 200;
         let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-            AssetDefinition::new(asset_definition_id.clone()).into(),
+            AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
         ));
         let mint_asset = MintBox::new(
             Value::U32(quantity),

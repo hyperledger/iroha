@@ -186,12 +186,16 @@ mod domain {
     }
 
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        if let Some(matches) = matches.subcommand_matches(ADD) {
-            if let Some(domain_name) = matches.value_of(DOMAIN_NAME) {
-                println!("Adding a new Domain with a name: {}", domain_name);
-                create_domain(domain_name, configuration, parse_metadata(matches));
-            }
-        }
+        let matches = match matches.subcommand_matches(ADD) {
+            Some(matches) => matches,
+            None => return,
+        };
+        let domain_name = match matches.value_of(DOMAIN_NAME) {
+            Some(domain_name) => domain_name,
+            None => return,
+        };
+        println!("Adding a new Domain with a name: {}", domain_name);
+        create_domain(domain_name, configuration, parse_metadata(matches));
     }
 
     fn create_domain(
@@ -367,10 +371,16 @@ mod asset {
     const ASSET_NAME: &str = "name";
     const ASSET_DOMAIN_NAME: &str = "domain";
     const ASSET_ACCOUNT_ID: &str = "account_id";
+    const ASSET_VALUE_TYPE: &str = "value_type";
     const DESTINATION_ACCOUNT_ID: &str = "dst_account_id";
     const SOURCE_ACCOUNT_ID: &str = "src_account_id";
     const ASSET_ID: &str = "id";
     const QUANTITY: &str = "quantity";
+
+    fn parse_value_type(value_type: &str) -> AssetValueType {
+        serde_json::from_value(serde_json::json!(value_type))
+            .expect("Failed to deserialize value type")
+    }
 
     pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         App::new(ASSET)
@@ -380,65 +390,89 @@ mod asset {
                 .about("Use this command to register new Asset Definition in existing Iroha Domain.")
                 .arg(
                     Arg::with_name(ASSET_DOMAIN_NAME)
-                    .long(ASSET_DOMAIN_NAME)
-                    .value_name(ASSET_DOMAIN_NAME)
-                    .help("Asset's domain's name as double-quoted string.")
-                    .takes_value(true)
-                    .required(true),
-                    )
+                        .long(ASSET_DOMAIN_NAME)
+                        .value_name(ASSET_DOMAIN_NAME)
+                        .help("Asset's domain's name as double-quoted string.")
+                        .takes_value(true)
+                        .required(true),
+                )
                 .arg(
                     Arg::with_name(ASSET_NAME)
-                    .long(ASSET_NAME)
-                    .value_name(ASSET_NAME)
-                    .help("Asset's name as double-quoted string.")
-                    .takes_value(true)
-                    .required(true),
-                    )
+                        .long(ASSET_NAME)
+                        .value_name(ASSET_NAME)
+                        .help("Asset's name as double-quoted string.")
+                        .takes_value(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name(ASSET_VALUE_TYPE)
+                        .long(ASSET_VALUE_TYPE)
+                        .value_name(ASSET_VALUE_TYPE)
+                        .help("Asset's value type as double-quoted string.")
+                        .takes_value(true)
+                        .required(true),
+                )
                 .arg(metadata_arg())
             )
             .subcommand(
                 App::new(MINT)
-                .about("Use this command to Mint Asset in existing Iroha Account.")
-                .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
-                .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
-                .arg(metadata_arg())
+                    .about("Use this command to Mint Asset in existing Iroha Account.")
+                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
+                    .arg(metadata_arg())
             )
             .subcommand(
-            App::new(TRANSFER)
-                .about("Use this command to Transfer Asset from Account to Account.")
-                .arg(Arg::with_name(SOURCE_ACCOUNT_ID).long(SOURCE_ACCOUNT_ID).value_name(SOURCE_ACCOUNT_ID).help("Source Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                .arg(Arg::with_name(DESTINATION_ACCOUNT_ID).long(DESTINATION_ACCOUNT_ID).value_name(DESTINATION_ACCOUNT_ID).help("Destination Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
-                .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
-                .arg(metadata_arg())
+                App::new(TRANSFER)
+                    .about("Use this command to Transfer Asset from Account to Account.")
+                    .arg(Arg::with_name(SOURCE_ACCOUNT_ID).long(SOURCE_ACCOUNT_ID).value_name(SOURCE_ACCOUNT_ID).help("Source Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(DESTINATION_ACCOUNT_ID).long(DESTINATION_ACCOUNT_ID).value_name(DESTINATION_ACCOUNT_ID).help("Destination Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
+                    .arg(metadata_arg())
             )
             .subcommand(
                 App::new(GET)
-                .about("Use this command to get Asset information from Iroha Account.")
-                .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
+                    .about("Use this command to get Asset information from Iroha Account.")
+                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
             )
     }
 
+    fn process_register(matches: &ArgMatches<'_>, configuration: &Configuration) {
+        let matches = match matches.subcommand_matches(REGISTER) {
+            Some(matches) => matches,
+            None => return,
+        };
+        let asset_name = match matches.value_of(ASSET_NAME) {
+            Some(asset_name) => asset_name,
+            None => return,
+        };
+        let domain_name = match matches.value_of(ASSET_DOMAIN_NAME) {
+            Some(domain_name) => domain_name,
+            None => return,
+        };
+        let value_type = match matches.value_of(ASSET_VALUE_TYPE) {
+            Some(value_type) => value_type,
+            None => return,
+        };
+        println!("Registering asset defintion with a name: {}", asset_name);
+        println!(
+            "Registering asset definition with a value type: {:?}",
+            value_type
+        );
+        println!("Registering asset defintion with a name: {}", asset_name);
+        register_asset_definition(
+            asset_name,
+            domain_name,
+            configuration,
+            parse_metadata(matches),
+            parse_value_type(value_type),
+        );
+    }
+
     pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        if let Some(matches) = matches.subcommand_matches(REGISTER) {
-            if let Some(asset_name) = matches.value_of(ASSET_NAME) {
-                println!("Registering asset defintion with a name: {}", asset_name);
-                if let Some(domain_name) = matches.value_of(ASSET_DOMAIN_NAME) {
-                    println!(
-                        "Registering asset definition with a domain's name: {}",
-                        domain_name
-                    );
-                    register_asset_definition(
-                        asset_name,
-                        domain_name,
-                        configuration,
-                        parse_metadata(matches),
-                    );
-                }
-            }
-        }
+        process_register(matches, configuration);
         if let Some(matches) = matches.subcommand_matches(MINT) {
             if let Some(asset_id) = matches.value_of(ASSET_ID) {
                 println!("Minting asset with an identification: {}", asset_id);
@@ -504,10 +538,12 @@ mod asset {
         domain_name: &str,
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
+        value_type: AssetValueType,
     ) {
         submit(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)).into(),
+                AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name), value_type)
+                    .into(),
             ))
             .into(),
             configuration,

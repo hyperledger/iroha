@@ -604,10 +604,6 @@ pub mod asset {
         str::FromStr,
     };
 
-    const QUANTITY_ASSET_TYPE: &str = "Quantity";
-    const BIG_QUANTITY_ASSET_TYPE: &str = "BigQuantity";
-    const STORE_ASSET_TYPE: &str = "Store";
-
     /// `AssetsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Asset`) pairs.
     pub type AssetsMap = BTreeMap<Id, Asset>;
@@ -654,6 +650,8 @@ pub mod asset {
         Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
     )]
     pub struct AssetDefinition {
+        /// Type of `AssetValue`
+        pub value_type: AssetValueType,
         /// An Identification of the `AssetDefinition`.
         pub id: DefinitionId,
     }
@@ -670,9 +668,33 @@ pub mod asset {
 
     impl Asset {
         /// Returns the asset type as a string.
-        pub const fn type_string(&self) -> &'static str {
-            self.value.type_string()
+        pub const fn value_type(&self) -> AssetValueType {
+            self.value.value_type()
         }
+    }
+
+    /// Asset's inner value type.
+    #[derive(
+        Copy,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+    )]
+    pub enum AssetValueType {
+        /// Asset's Quantity.
+        Quantity,
+        /// Asset's Big Quantity.
+        BigQuantity,
+        /// Asset's key-value structured data.
+        Store,
     }
 
     /// Asset's inner value.
@@ -690,103 +712,61 @@ pub mod asset {
 
     impl AssetValue {
         /// Returns the asset type as a string.
-        pub const fn type_string(&self) -> &'static str {
+        pub const fn value_type(&self) -> AssetValueType {
             match self {
-                AssetValue::Quantity(_) => QUANTITY_ASSET_TYPE,
-                AssetValue::BigQuantity(_) => BIG_QUANTITY_ASSET_TYPE,
-                AssetValue::Store(_) => STORE_ASSET_TYPE,
+                AssetValue::Quantity(_) => AssetValueType::Quantity,
+                AssetValue::BigQuantity(_) => AssetValueType::BigQuantity,
+                AssetValue::Store(_) => AssetValueType::Store,
             }
         }
     }
 
-    impl TryAsMut<u32> for AssetValue {
-        type Error = Error;
+    macro_rules! impl_try_as_for_asset_value {
+        ( $($variant:ident( $ty:ty ),)* ) => {$(
+            impl TryAsMut<$ty> for AssetValue {
+                type Error = Error;
 
-        fn try_as_mut(&mut self) -> Result<&mut u32> {
-            if let AssetValue::Quantity(ref mut quantity) = self {
-                Ok(quantity)
-            } else {
-                Err(error!(
-                    "Expected source asset with value type: Quantity. Got: {}",
-                    self.type_string()
-                ))
+                fn try_as_mut(&mut self) -> Result<&mut $ty> {
+                    if let AssetValue:: $variant (ref mut value) = self {
+                        Ok(value)
+                    } else {
+                        Err(error!(
+                            concat!(
+                                "Expected source asset with value type:",
+                                stringify!($variant),
+                                ". Got: {:?}",
+                            ),
+                            self.value_type()
+                        ))
+                    }
+                }
             }
-        }
+
+            impl TryAsRef<$ty> for AssetValue {
+                type Error = Error;
+
+                fn try_as_ref(&self) -> Result<& $ty > {
+                    if let AssetValue:: $variant (ref value) = self {
+                        Ok(value)
+                    } else {
+                        Err(error!(
+                            concat!(
+                                "Expected source asset with value type:",
+                                stringify!($variant),
+                                ". Got: {:?}",
+                            ),
+                            self.value_type()
+                        ))
+                    }
+                }
+            }
+        )*}
     }
 
-    impl TryAsMut<u128> for AssetValue {
-        type Error = Error;
-
-        fn try_as_mut(&mut self) -> Result<&mut u128> {
-            if let AssetValue::BigQuantity(ref mut quantity) = self {
-                Ok(quantity)
-            } else {
-                Err(error!(
-                    "Expected source asset with value type: BigQuantity. Got: {}",
-                    self.type_string()
-                ))
-            }
-        }
-    }
-
-    impl TryAsMut<Metadata> for AssetValue {
-        type Error = Error;
-
-        fn try_as_mut(&mut self) -> Result<&mut Metadata> {
-            if let AssetValue::Store(ref mut store) = self {
-                Ok(store)
-            } else {
-                Err(error!(
-                    "Expected source asset with value type: Store. Got: {}",
-                    self.type_string()
-                ))
-            }
-        }
-    }
-
-    impl TryAsRef<u32> for AssetValue {
-        type Error = Error;
-
-        fn try_as_ref(&self) -> Result<&u32> {
-            if let AssetValue::Quantity(ref quantity) = self {
-                Ok(quantity)
-            } else {
-                Err(error!(
-                    "Expected source asset with value type: Quantity. Got: {}",
-                    self.type_string()
-                ))
-            }
-        }
-    }
-
-    impl TryAsRef<u128> for AssetValue {
-        type Error = Error;
-
-        fn try_as_ref(&self) -> Result<&u128> {
-            if let AssetValue::BigQuantity(ref quantity) = self {
-                Ok(quantity)
-            } else {
-                Err(error!(
-                    "Expected source asset with value type: BigQuantity. Got: {}",
-                    self.type_string()
-                ))
-            }
-        }
-    }
-
-    impl TryAsRef<Metadata> for AssetValue {
-        type Error = Error;
-
-        fn try_as_ref(&self) -> Result<&Metadata> {
-            if let AssetValue::Store(ref store) = self {
-                Ok(store)
-            } else {
-                Err(error!(
-                    "Expected source asset with value type: Store. Got: {}",
-                    self.type_string()
-                ))
-            }
-        }
+    impl_try_as_for_asset_value! {
+        Quantity(u32),
+        BigQuantity(u128),
+        Store(Metadata),
     }
 
     impl PartialOrd for Asset {
@@ -833,8 +813,23 @@ pub mod asset {
 
     impl AssetDefinition {
         /// Default `AssetDefinition` constructor.
-        pub const fn new(id: DefinitionId) -> Self {
-            AssetDefinition { id }
+        pub const fn new(id: DefinitionId, value_type: AssetValueType) -> Self {
+            AssetDefinition { id, value_type }
+        }
+
+        /// Asset definition with quantity asset value type.
+        pub const fn new_quantity(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Quantity)
+        }
+
+        /// Asset definition with store asset value type.
+        pub const fn new_big_quantity(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::BigQuantity)
+        }
+
+        /// Asset definition with store asset value type.
+        pub const fn new_store(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Store)
         }
     }
 
@@ -864,6 +859,9 @@ pub mod asset {
         }
 
         /// `Asset` with a `parameter` inside `store` value constructor.
+        ///
+        /// # Errors
+        /// Fails if limit check fails
         pub fn with_parameter(
             id: Id,
             key: String,
@@ -999,7 +997,7 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            Asset, AssetDefinition, AssetDefinitionEntry, AssetValue,
+            Asset, AssetDefinition, AssetDefinitionEntry, AssetValue, AssetValueType,
             DefinitionId as AssetDefinitionId, Id as AssetId,
         };
     }
@@ -1640,6 +1638,8 @@ pub mod pagination {
 }
 
 pub mod metadata {
+    //! Module with metadata for accounts
+
     use crate::{Name, Value};
     use iroha_error::{error, Result};
     use parity_scale_codec::{Decode, Encode};
@@ -1652,7 +1652,9 @@ pub mod metadata {
     /// Limits for [`Metadata`].
     #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
     pub struct Limits {
+        /// Maximum number of entries
         pub max_len: u32,
+        /// Maximum length of entry
         pub max_entry_byte_size: u32,
     }
 
@@ -1667,7 +1669,7 @@ pub mod metadata {
     }
 
     /// Collection of parameters by their names with checked insertion.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, Default)]
     #[serde(transparent)]
     pub struct Metadata {
         map: BTreeMap<Name, Value>,
@@ -1675,6 +1677,7 @@ pub mod metadata {
 
     impl Metadata {
         /// Constructor.
+        #[allow(clippy::missing_const_for_fn)]
         pub fn new() -> Self {
             Self {
                 map: BTreeMap::new(),
