@@ -233,7 +233,7 @@ pub mod public_blockchain {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
-            let xor_definition = AssetDefinition::new(xor_id.clone());
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
@@ -266,7 +266,7 @@ pub mod public_blockchain {
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
-            let xor_definition = AssetDefinition { id: xor_id.clone() };
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
@@ -301,7 +301,7 @@ pub mod public_blockchain {
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
-            let xor_definition = AssetDefinition { id: xor_id.clone() };
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {

@@ -37,7 +37,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let wrong_asset_definition_id = AssetDefinitionId::new("ksor", domain_name);
         let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-            AssetDefinition::new(asset_definition_id).into(),
+            AssetDefinition::new_quantity(asset_definition_id).into(),
         ));
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(

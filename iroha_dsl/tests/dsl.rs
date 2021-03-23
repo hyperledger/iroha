@@ -136,15 +136,16 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             ))
             .into(),
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(AssetDefinitionId::new("btc", "crypto")).into(),
+                AssetDefinition::new_quantity(AssetDefinitionId::new("btc", "crypto")).into(),
             ))
             .into(),
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(AssetDefinitionId::new("eth", "crypto")).into(),
+                AssetDefinition::new_quantity(AssetDefinitionId::new("eth", "crypto")).into(),
             ))
             .into(),
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new(AssetDefinitionId::new("btc2eth_rate", "exchange")).into(),
+                AssetDefinition::new_quantity(AssetDefinitionId::new("btc2eth_rate", "exchange"))
+                    .into(),
             ))
             .into(),
             MintBox::new(
