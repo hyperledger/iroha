@@ -14,7 +14,7 @@ use iroha_error::Result;
 use iroha_macro::error::ErrorTryFromEnum;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, convert::TryFrom, fmt::Debug};
+use std::{convert::TryFrom, fmt::Debug};
 
 /// `Name` struct represents type for Iroha Entities names, like `Domain`'s name or `Account`'s
 /// name.
@@ -22,9 +22,6 @@ pub type Name = String;
 
 /// Represents a sequence of bytes. Used for storing encoded data.
 pub type Bytes = Vec<u8>;
-
-/// Collection of parameters by their names.
-pub type Metadata = BTreeMap<Name, Value>;
 
 #[allow(clippy::missing_errors_doc)]
 /// Similar to [`std::convert::AsMut`] but indicating that this reference conversion can fail.
@@ -339,8 +336,9 @@ pub mod account {
         asset::AssetsMap,
         domain::GENESIS_DOMAIN_NAME,
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
+        metadata::Metadata,
         permissions::PermissionRaw,
-        Identifiable, Metadata, Name, PublicKey, Value,
+        Identifiable, Name, PublicKey, Value,
     };
     use iroha_derive::Io;
     use serde::{Deserialize, Serialize};
@@ -415,7 +413,7 @@ pub mod account {
         }
     }
 
-    /// Account entity is an authority which is used to execute `Iroha Special Insturctions`.
+    /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Account {
         /// An Identification of the `Account`.
@@ -485,7 +483,7 @@ pub mod account {
                 signatories: Signatories::new(),
                 permissions: Permissions::new(),
                 signature_check_condition: Default::default(),
-                metadata: Default::default(),
+                metadata: Metadata::new(),
             }
         }
 
@@ -499,7 +497,7 @@ pub mod account {
                 signatories,
                 permissions: Permissions::new(),
                 signature_check_condition: Default::default(),
-                metadata: Metadata::default(),
+                metadata: Metadata::new(),
             }
         }
 
@@ -589,7 +587,11 @@ pub mod asset {
     //! This module contains `Asset` structure, it's implementation and related traits and
     //! instructions implementations.
 
-    use crate::{account::prelude::*, Identifiable, Metadata, Name, TryAsMut, TryAsRef, Value};
+    use crate::{
+        account::prelude::*,
+        metadata::{Limits as MetadataLimits, Metadata},
+        Identifiable, Name, TryAsMut, TryAsRef, Value,
+    };
     use iroha_derive::{FromVariant, Io};
     use iroha_error::{error, Error, Result};
     use parity_scale_codec::{Decode, Encode};
@@ -862,13 +864,18 @@ pub mod asset {
         }
 
         /// `Asset` with a `parameter` inside `store` value constructor.
-        pub fn with_parameter(id: Id, key: String, value: Value) -> Self {
+        pub fn with_parameter(
+            id: Id,
+            key: String,
+            value: Value,
+            limits: MetadataLimits,
+        ) -> Result<Self> {
             let mut store = Metadata::new();
-            let _ = store.insert(key, value);
-            Asset {
+            let _ = store.insert_with_limits(key, value, limits)?;
+            Ok(Asset {
                 id,
                 value: store.into(),
-            }
+            })
         }
     }
 
@@ -1173,7 +1180,7 @@ pub mod transaction {
     //! This module contains `Transaction` structures and related implementations
     //! and traits implementations.
 
-    use crate::{account::Account, isi::Instruction, Identifiable, Metadata};
+    use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use iroha_error::{error, Result};
@@ -1219,7 +1226,7 @@ pub mod transaction {
         /// The transaction will be dropped after this time if it is still in a `Queue`.
         pub time_to_live_ms: u64,
         /// Metadata.
-        pub metadata: Metadata,
+        pub metadata: UnlimitedMetadata,
     }
 
     impl VersionedTransaction {
@@ -1284,7 +1291,12 @@ pub mod transaction {
             account_id: <Account as Identifiable>::Id,
             proposed_ttl_ms: u64,
         ) -> Transaction {
-            Transaction::with_metadata(instructions, account_id, proposed_ttl_ms, Metadata::new())
+            Transaction::with_metadata(
+                instructions,
+                account_id,
+                proposed_ttl_ms,
+                UnlimitedMetadata::new(),
+            )
         }
 
         /// [`Transactions`] constructor with metadata.
@@ -1292,7 +1304,7 @@ pub mod transaction {
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
             proposed_ttl_ms: u64,
-            metadata: Metadata,
+            metadata: UnlimitedMetadata,
         ) -> Transaction {
             #[allow(clippy::cast_possible_truncation)]
             Transaction {
@@ -1627,14 +1639,140 @@ pub mod pagination {
     }
 }
 
+pub mod metadata {
+    use crate::{Name, Value};
+    use iroha_error::{error, Result};
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+    use std::{borrow::Borrow, collections::BTreeMap};
+
+    /// Collection of parameters by their names.
+    pub type UnlimitedMetadata = BTreeMap<Name, Value>;
+
+    /// Limits for [`Metadata`].
+    #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
+    pub struct Limits {
+        pub max_len: u32,
+        pub max_entry_byte_size: u32,
+    }
+
+    impl Limits {
+        /// Constructor.
+        pub const fn new(max_len: u32, max_entry_byte_size: u32) -> Limits {
+            Limits {
+                max_len,
+                max_entry_byte_size,
+            }
+        }
+    }
+
+    /// Collection of parameters by their names with checked insertion.
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct Metadata {
+        map: BTreeMap<Name, Value>,
+    }
+
+    impl Metadata {
+        /// Constructor.
+        pub fn new() -> Self {
+            Self {
+                map: BTreeMap::new(),
+            }
+        }
+
+        /// Inserts `key` and `value`.
+        /// Returns `Some(value)` if the value was already present, `None` otherwise.
+        ///
+        /// # Errors
+        /// Fails if `max_entry_byte_size` or `max_len` from `limits` are exceeded.
+        pub fn insert_with_limits(
+            &mut self,
+            key: Name,
+            value: Value,
+            limits: Limits,
+        ) -> Result<Option<Value>> {
+            if self.map.len() == limits.max_len as usize && !self.map.contains_key(&key) {
+                return Err(error!(
+                    "Metadata length limit is reached: {}",
+                    limits.max_len
+                ));
+            }
+            let entry_bytes: Vec<u8> = (key.clone(), value.clone()).encode();
+            let byte_size = entry_bytes.len();
+            if byte_size > limits.max_entry_byte_size as usize {
+                return Err(error!("Metadata entry is bigger than allowed. Expected less or equal to {} bytes. Got: {} bytes", limits.max_entry_byte_size, byte_size));
+            }
+            Ok(self.map.insert(key, value))
+        }
+
+        /// Returns a reference to the value corresponding to the key.
+        pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&Value>
+        where
+            Name: Borrow<K>,
+        {
+            self.map.get(key)
+        }
+
+        /// Removes a key from the map, returning the value at the key if the key was previously in the map.
+        pub fn remove<K: Ord + ?Sized>(&mut self, key: &K) -> Option<Value>
+        where
+            Name: Borrow<K>,
+        {
+            self.map.remove(key)
+        }
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
+    pub mod prelude {
+        pub use super::{Limits as MetadataLimits, Metadata, UnlimitedMetadata};
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{Limits, Metadata};
+
+        #[test]
+        fn insert_exceeds_entry_size() {
+            let mut metadata = Metadata::new();
+            let limits = Limits::new(10, 5);
+            assert!(metadata
+                .insert_with_limits("1".to_string(), "2".to_string().into(), limits)
+                .is_ok());
+            assert!(metadata
+                .insert_with_limits("1".to_string(), "23456".to_string().into(), limits)
+                .is_err());
+        }
+
+        #[test]
+        fn insert_exceeds_len() {
+            let mut metadata = Metadata::new();
+            let limits = Limits::new(2, 5);
+            assert!(metadata
+                .insert_with_limits("1".to_string(), "0".to_string().into(), limits)
+                .is_ok());
+            assert!(metadata
+                .insert_with_limits("2".to_string(), "0".to_string().into(), limits)
+                .is_ok());
+            assert!(metadata
+                .insert_with_limits("2".to_string(), "1".to_string().into(), limits)
+                .is_ok());
+            assert!(metadata
+                .insert_with_limits("3".to_string(), "0".to_string().into(), limits)
+                .is_err());
+        }
+    }
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, pagination::prelude::*,
         peer::prelude::*, transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable,
-        IdentifiableBox, Metadata, Name, Parameter, TryAsMut, TryAsRef, Value,
+        IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
     };
     pub use crate::{
-        events::prelude::*, expression::prelude::*, isi::prelude::*, query::prelude::*,
+        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
+        query::prelude::*,
     };
 }

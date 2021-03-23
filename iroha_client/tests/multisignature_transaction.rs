@@ -80,7 +80,7 @@ mod tests {
         client_configuration.private_key = key_pair_1.private_key;
         let mut iroha_client = Client::new(&client_configuration);
         let transaction = iroha_client
-            .build_transaction(vec![mint_asset.clone().into()], Metadata::new())
+            .build_transaction(vec![mint_asset.clone().into()], UnlimitedMetadata::new())
             .expect("Failed to create transaction.");
         let _ = iroha_client
             .submit_transaction(
@@ -109,7 +109,7 @@ mod tests {
         client_configuration.private_key = key_pair_2.private_key;
         let mut iroha_client = Client::new(&client_configuration);
         let transaction = iroha_client
-            .build_transaction(vec![mint_asset.into()], Metadata::new())
+            .build_transaction(vec![mint_asset.into()], UnlimitedMetadata::new())
             .expect("Failed to create transaction.");
         let transaction = iroha_client
             .get_original_transaction(&transaction, 3, Duration::from_millis(100))

@@ -61,7 +61,11 @@ fn main() {
     }
 }
 
-pub fn submit(instruction: Instruction, configuration: &Configuration, metadata: Metadata) {
+pub fn submit(
+    instruction: Instruction,
+    configuration: &Configuration,
+    metadata: UnlimitedMetadata,
+) {
     let mut iroha_client = Client::new(configuration);
     let transaction = iroha_client
         .build_transaction(vec![instruction], metadata)
@@ -101,17 +105,16 @@ pub fn metadata_arg() -> Arg<'static, 'static> {
         .required(false)
 }
 
-pub fn parse_metadata(matches: &ArgMatches<'_>) -> Metadata {
-    matches.value_of(METADATA).map_or_else(
-        || Metadata::new(),
-        |metadata_filename| {
+pub fn parse_metadata(matches: &ArgMatches<'_>) -> UnlimitedMetadata {
+    matches
+        .value_of(METADATA)
+        .map_or_else(UnlimitedMetadata::new, |metadata_filename| {
             let file = File::open(metadata_filename).expect("Failed to open the metadata file.");
             let reader = BufReader::new(file);
-            let metadata: Metadata = serde_json::from_reader(reader)
+            let metadata: UnlimitedMetadata = serde_json::from_reader(reader)
                 .expect("Failed to deserialize metadata json from reader.");
             metadata
-        },
-    )
+        })
 }
 
 mod events {
@@ -191,7 +194,11 @@ mod domain {
         }
     }
 
-    fn create_domain(domain_name: &str, configuration: &Configuration, metadata: Metadata) {
+    fn create_domain(
+        domain_name: &str,
+        configuration: &Configuration,
+        metadata: UnlimitedMetadata,
+    ) {
         let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(domain_name)));
         submit(create_domain.into(), configuration, metadata);
     }
@@ -310,7 +317,7 @@ mod account {
         domain_name: &str,
         public_key: PublicKey,
         configuration: &Configuration,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) {
         let create_account = RegisterBox::new(IdentifiableBox::from(Account::with_signatory(
             AccountId::new(account_name, domain_name),
@@ -332,7 +339,7 @@ mod account {
     fn set_account_signature_condition(
         file: &str,
         configuration: &Configuration,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) {
         let account = Account::new(configuration.account_id.clone());
         let condition = signature_condition_from_file(file)
@@ -496,7 +503,7 @@ mod asset {
         asset_name: &str,
         domain_name: &str,
         configuration: &Configuration,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) {
         submit(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
@@ -513,7 +520,7 @@ mod asset {
         account_id: &str,
         quantity: &str,
         configuration: &Configuration,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
         let mint_asset = MintBox::new(
@@ -533,7 +540,7 @@ mod asset {
         asset_definition_id: &str,
         quantity: &str,
         configuration: &Configuration,
-        metadata: Metadata,
+        metadata: UnlimitedMetadata,
     ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
         let transfer_asset = TransferBox::new(
