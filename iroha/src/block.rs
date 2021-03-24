@@ -276,6 +276,30 @@ impl VersionedValidBlock {
     pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.as_inner_v1().has_committed_transactions(wsv)
     }
+
+    /// # Errors
+    /// Asserts specific instruction number of instruction in transaction constraint
+    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        self.as_inner_v1()
+            .check_instruction_len(max_instruction_len)
+    }
+
+    /// Returns true if block can be send for discussion
+    pub fn validation_check(
+        &self,
+        wsv: &WorldStateView,
+        latest_block_hash: Hash,
+        number_of_view_changes: u32,
+        block_height: u64,
+        max_instruction_number: usize,
+    ) -> bool {
+        !self.is_empty()
+            && !self.has_committed_transactions(wsv)
+            && latest_block_hash == self.header().previous_block_hash
+            && number_of_view_changes == self.header().number_of_view_changes
+            && block_height + 1 == self.header().height
+            && self.check_instruction_len(max_instruction_number).is_ok()
+    }
 }
 
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
@@ -293,6 +317,22 @@ pub struct ValidBlock {
 }
 
 impl ValidBlock {
+    /// # Errors
+    /// Asserts specific instruction number of instruction constraint
+    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        self.transactions
+            .iter()
+            .map(|tx| tx.check_instruction_len(max_instruction_len))
+            .collect::<Result<Vec<()>>>()
+            .map(drop)?;
+        self.rejected_transactions
+            .iter()
+            .map(|tx| tx.check_instruction_len(max_instruction_len))
+            .collect::<Result<Vec<()>>>()
+            .map(drop)?;
+        Ok(())
+    }
+
     /// Commit block to the store.
     //TODO: pass block store and block sender as parameters?
     #[allow(clippy::missing_const_for_fn)]

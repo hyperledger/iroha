@@ -21,12 +21,9 @@ use crate::{
     event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
-    query::{UnsupportedVersionError, VerifiedQueryRequest},
+    query::VerifiedQueryRequest,
     queue::Queue,
-    sumeragi::{
-        message::{Message as SumeragiMessage, VersionedMessage as SumeragiVersionedMessage},
-        Sumeragi,
-    },
+    sumeragi::{message::VersionedMessage as SumeragiVersionedMessage, Sumeragi},
     BlockSyncMessageSender, SumeragiMessageSender,
 };
 
@@ -36,6 +33,7 @@ pub struct Torii {
     p2p_url: String,
     api_url: String,
     max_transaction_size: usize,
+    max_sumeragi_message_size: usize,
     max_instruction_number: usize,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
@@ -51,15 +49,6 @@ pub struct Torii {
 /// Errors of torii
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Transaction has unsupported version
-    #[error("Transaction has unsupported version")]
-    UnsupportedTxVersion(#[source] UnsupportedVersionError),
-    /// Query has unsupported version
-    #[error("Query has unsupported version")]
-    UnsupportedQueryVersion(#[source] UnsupportedVersionError),
-    /// Messsage has unsupported version
-    #[error("Message has unsupported version")]
-    UnsupportedMessageVersion(#[source] UnsupportedVersionError),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
     VersionedTransaction(#[source] iroha_version::error::Error),
@@ -80,7 +69,7 @@ pub enum Error {
     EncodePendingTransactions(#[source] iroha_version::error::Error),
     /// The sumeragi message channel is full. Dropping the incoming message.
     #[error("The sumeragi message channel is full. Dropping the incoming message.")]
-    SumeragiChannelFull(#[source] Box<async_std::sync::TrySendError<SumeragiMessage>>),
+    SumeragiChannelFull(#[source] Box<async_std::sync::TrySendError<SumeragiVersionedMessage>>),
     /// The block sync message channel is full. Dropping the incoming message.
     #[error("The block sync message channel is full. Dropping the incoming message.")]
     BlockSyncChannelFull(#[source] Box<async_std::sync::TrySendError<BlockSyncMessage>>),
@@ -94,10 +83,7 @@ impl iroha_http_server::http::HttpResponseError for Error {
         use Error::*;
 
         match self {
-            UnsupportedMessageVersion(_)
-            | UnsupportedTxVersion(_)
-            | UnsupportedQueryVersion(_)
-            | ExecuteQuery(_)
+            ExecuteQuery(_)
             | RequestPendingTransactions(_)
             | DecodeRequestPendingTransactions(_)
             | EncodePendingTransactions(_)
@@ -135,6 +121,7 @@ impl Torii {
             p2p_url: configuration.torii_p2p_url.clone(),
             api_url: configuration.torii_api_url.clone(),
             max_transaction_size: configuration.torii_max_transaction_size,
+            max_sumeragi_message_size: configuration.torii_max_sumeragi_message_size,
             max_instruction_number: configuration.torii_max_instruction_number,
             world_state_view,
             transaction_sender: Arc::new(RwLock::new(transaction_sender)),
@@ -160,6 +147,7 @@ impl Torii {
 
         ToriiState {
             max_transaction_size: self.max_transaction_size,
+            max_sumeragi_message_size: self.max_sumeragi_message_size,
             max_instruction_number: self.max_instruction_number,
             world_state_view,
             transaction_sender,
@@ -206,6 +194,7 @@ impl Torii {
 #[derive(Debug)]
 struct ToriiState {
     max_transaction_size: usize,
+    max_sumeragi_message_size: usize,
     max_instruction_number: usize,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
@@ -252,7 +241,6 @@ async fn handle_queries(
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<QueryResult> {
-    //TODO: Remove when `Result::flatten` https://github.com/rust-lang/rust/issues/70142 will be stabilized
     let result = request
         .query
         .execute(&*state.read().await.world_state_view.read().await)
@@ -307,15 +295,10 @@ async fn handle_pending_transactions_on_leader(
             .map_err(Error::RequestPendingTransactions)?
             .into_result()
             .map_err(Error::RequestPendingTransactions)?;
-            let message = VersionedPendingTransactions::decode_versioned(&bytes)
-                .map_err(Error::DecodeRequestPendingTransactions)?;
-            let version = message.version();
-            message
-                .into_v1()
-                .ok_or(Error::UnsupportedMessageVersion(UnsupportedVersionError {
-                    version,
-                }))?
-                .into()
+
+            VersionedPendingTransactions::decode_versioned(&bytes)
+                .map_err(Error::DecodeRequestPendingTransactions)?
+                .into_inner_v1()
         };
 
     Ok(PendingTransactions(
@@ -390,58 +373,51 @@ async fn handle_request(
     request: Request,
 ) -> iroha_error::Result<Response> {
     match request.url() {
-        uri::CONSENSUS_URI => match SumeragiVersionedMessage::decode_versioned(request.payload()) {
-            Ok(message) => {
-                let version = message.version();
-                if let Some(message) = message.into_v1() {
-                    let message: SumeragiMessage = message.into();
-                    state
-                        .read()
-                        .await
-                        .sumeragi_message_sender
-                        .write()
-                        .await
-                        .try_send(message)
-                        .map_err(Box::new)
-                        .map_err(Error::SumeragiChannelFull)?;
-
-                    Ok(Response::empty_ok())
-                } else {
-                    log::error!("Unsupported version: {}", version);
-                    Ok(Response::InternalError)
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to decode peer message: {}", e);
-                Ok(Response::InternalError)
-            }
-        },
-        uri::BLOCK_SYNC_URI => match BlockSyncVersionedMessage::decode_versioned(request.payload())
+        uri::CONSENSUS_URI
+            if request.payload().len() > state.read().await.max_sumeragi_message_size =>
         {
-            Ok(message) => {
-                let version = message.version();
-                if let Some(message) = message.into_v1() {
-                    let message: BlockSyncMessage = message.into();
-                    state
-                        .read()
-                        .await
-                        .block_sync_message_sender
-                        .write()
-                        .await
-                        .try_send(message)
-                        .map_err(Box::new)
-                        .map_err(Error::BlockSyncChannelFull)?;
-                    Ok(Response::empty_ok())
-                } else {
-                    log::error!("Unsupported version: {}", version);
-                    Ok(Response::InternalError)
+            log::error!("Message is too big. Droping");
+            Ok(Response::InternalError)
+        }
+        uri::CONSENSUS_URI => {
+            let message = match SumeragiVersionedMessage::decode_versioned(request.payload()) {
+                Ok(message) => message,
+                Err(e) => {
+                    log::error!("Failed to decode peer message: {}", e);
+                    return Ok(Response::InternalError);
                 }
-            }
-            Err(e) => {
-                log::error!("Failed to decode peer message: {}", e);
-                Ok(Response::InternalError)
-            }
-        },
+            };
+            state
+                .read()
+                .await
+                .sumeragi_message_sender
+                .write()
+                .await
+                .try_send(message)
+                .map_err(Box::new)
+                .map_err(Error::SumeragiChannelFull)?;
+            Ok(Response::empty_ok())
+        }
+        uri::BLOCK_SYNC_URI => {
+            let message = match BlockSyncVersionedMessage::decode_versioned(request.payload()) {
+                Ok(message) => message.into_inner_v1(),
+                Err(e) => {
+                    log::error!("Failed to decode peer message: {}", e);
+                    return Ok(Response::InternalError);
+                }
+            };
+
+            state
+                .read()
+                .await
+                .block_sync_message_sender
+                .write()
+                .await
+                .try_send(message)
+                .map_err(Box::new)
+                .map_err(Error::BlockSyncChannelFull)?;
+            Ok(Response::empty_ok())
+        }
         uri::HEALTH_URI => Ok(Response::empty_ok()),
         uri::PENDING_TRANSACTIONS_URI => {
             let pending_transactions: VersionedPendingTransactions = state
@@ -497,12 +473,14 @@ pub mod config {
 
     const TORII_API_URL: &str = "TORII_API_URL";
     const TORII_P2P_URL: &str = "TORII_P2P_URL";
+    const TORII_MAX_SUMERAGI_MESSAGE_SIZE: &str = "TORII_MAX_SUMERAGI_MESSAGE_SIZE";
     const TORII_MAX_TRANSACTION_SIZE: &str = "TORII_MAX_TRANSACTION_SIZE";
     const TORII_MAX_INSTRUCTION_NUMBER: &str = "TORII_MAX_INSTRUCTION_NUMBER";
     const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
     const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
     const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
     const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
+    const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Debug)]
@@ -517,6 +495,9 @@ pub mod config {
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
         #[serde(default = "default_torii_max_transaction_size")]
         pub torii_max_transaction_size: usize,
+        /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
+        #[serde(default = "default_torii_max_sumeragi_message_size")]
+        pub torii_max_sumeragi_message_size: usize,
         /// Maximum number of instruction per transaction. Used to prevent from DOS attacks.
         #[serde(default = "default_torii_max_instruction_number")]
         pub torii_max_instruction_number: usize,
@@ -540,6 +521,11 @@ pub mod config {
                     .parse::<usize>()
                     .wrap_err("Failed to get maximum size of transaction")?;
             }
+            if let Ok(torii_max_sumeragi_message_size) = env::var(TORII_MAX_SUMERAGI_MESSAGE_SIZE) {
+                self.torii_max_sumeragi_message_size = torii_max_sumeragi_message_size
+                    .parse::<usize>()
+                    .wrap_err("Failed to get maximum size of block")?;
+            }
             if let Ok(torii_max_instruction_number) = env::var(TORII_MAX_INSTRUCTION_NUMBER) {
                 self.torii_max_instruction_number =
                     torii_max_instruction_number.parse::<usize>().wrap_err(
@@ -556,6 +542,10 @@ pub mod config {
 
     fn default_torii_api_url() -> String {
         DEFAULT_TORII_API_URL.to_string()
+    }
+
+    const fn default_torii_max_sumeragi_message_size() -> usize {
+        DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE
     }
 
     const fn default_torii_max_transaction_size() -> usize {

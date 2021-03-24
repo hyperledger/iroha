@@ -45,7 +45,7 @@ use crate::{
     maintenance::System,
     prelude::*,
     queue::Queue,
-    sumeragi::{message::Message as SumeragiMessage, Sumeragi},
+    sumeragi::{message::VersionedMessage as SumeragiVersionedMessage, Sumeragi},
     torii::Torii,
 };
 
@@ -66,9 +66,9 @@ pub type TransactionSender = Sender<VersionedAcceptedTransaction>;
 /// `AcceptedTransaction` messages.
 pub type TransactionReceiver = Receiver<VersionedAcceptedTransaction>;
 /// Type of `Sender<Message>` which should be used for channels of `Message` messages.
-pub type SumeragiMessageSender = Sender<SumeragiMessage>;
+pub type SumeragiMessageSender = Sender<SumeragiVersionedMessage>;
 /// Type of `Receiver<Message>` which should be used for channels of `Message` messages.
-pub type SumeragiMessageReceiver = Receiver<SumeragiMessage>;
+pub type SumeragiMessageReceiver = Receiver<SumeragiVersionedMessage>;
 /// Type of `Sender<Message>` which should be used for channels of `Message` messages.
 pub type BlockSyncMessageSender = Sender<BlockSyncMessage>;
 /// Type of `Receiver<Message>` which should be used for channels of `Message` messages.
