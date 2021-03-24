@@ -38,7 +38,6 @@ impl RecursivePermissionsValidator {
     }
 }
 
-// TODO: Add permissions for `SetKeyValue` and `RemoveKeyValue`.
 impl PermissionsValidator for RecursivePermissionsValidator {
     fn check_instruction(
         &self,
@@ -137,8 +136,8 @@ impl PermissionsValidatorBuilder {
     }
 
     /// Adds a validator to the list and wraps it with `RecursivePermissionValidator` to check nested permissions.
-    pub fn with_recursive_validator(self, validator: PermissionsValidatorBox) -> Self {
-        self.with_validator(RecursivePermissionsValidator::new(validator).into())
+    pub fn with_recursive_validator(self, validator: impl Into<PermissionsValidatorBox>) -> Self {
+        self.with_validator(RecursivePermissionsValidator::new(validator.into()).into())
     }
 
     /// Returns a `CombinedPermissionsValidator` that will check all the checks of previously supplied validators.
@@ -183,6 +182,12 @@ mod tests {
     use iroha_data_model::isi::*;
 
     struct DenyBurn;
+
+    impl From<DenyBurn> for PermissionsValidatorBox {
+        fn from(permissions: DenyBurn) -> Self {
+            Box::new(permissions)
+        }
+    }
 
     impl PermissionsValidator for DenyBurn {
         fn check_instruction(
@@ -249,7 +254,7 @@ mod tests {
     #[test]
     pub fn recursive_validator() {
         let permissions_validator = PermissionsValidatorBuilder::new()
-            .with_recursive_validator(Box::new(DenyBurn))
+            .with_recursive_validator(DenyBurn)
             .build();
         let instruction_burn: Instruction = BurnBox::new(
             Value::U32(10),
