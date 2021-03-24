@@ -33,8 +33,8 @@ mod tests {
             RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
         let account_name = "account";
         let account_id = AccountId::new(account_name, domain_name);
-        let create_account = RegisterBox::new(IdentifiableBox::Account(
-            Account::with_signatory(
+        let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
+            NewAccount::with_signatory(
                 account_id.clone(),
                 KeyPair::generate()
                     .expect("Failed to generate KeyPair.")

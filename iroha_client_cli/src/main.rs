@@ -323,7 +323,7 @@ mod account {
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
     ) {
-        let create_account = RegisterBox::new(IdentifiableBox::from(Account::with_signatory(
+        let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(
             AccountId::new(account_name, domain_name),
             public_key,
         )));

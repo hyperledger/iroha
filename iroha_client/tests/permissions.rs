@@ -48,8 +48,8 @@ fn permissions_disallow_asset_transfer() {
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
-    let register_bob = RegisterBox::new(IdentifiableBox::Account(
-        Account::new(bob_id.clone()).into(),
+    let register_bob = RegisterBox::new(IdentifiableBox::NewAccount(
+        NewAccount::new(bob_id.clone()).into(),
     ));
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
@@ -118,8 +118,8 @@ fn permissions_disallow_asset_burn() {
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
-    let register_bob = RegisterBox::new(IdentifiableBox::Account(
-        Account::new(bob_id.clone()).into(),
+    let register_bob = RegisterBox::new(IdentifiableBox::NewAccount(
+        NewAccount::new(bob_id.clone()).into(),
     ));
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");

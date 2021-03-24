@@ -78,6 +78,8 @@ pub enum IdBox {
 pub enum IdentifiableBox {
     /// `Account` variant.
     Account(Box<account::Account>),
+    /// `NewAccount` variant.
+    NewAccount(Box<account::NewAccount>),
     /// `Asset` variant.
     Asset(Box<asset::Asset>),
     /// `AssetDefinition` variant.
@@ -413,6 +415,57 @@ pub mod account {
         }
     }
 
+    /// Type which is used for registering `Account`
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    pub struct NewAccount {
+        /// An Identification of the `NewAccount`.
+        pub id: Id,
+        /// `Account`'s signatories.
+        pub signatories: Signatories,
+        /// Metadata of this account as a key-value store.
+        pub metadata: Metadata,
+    }
+
+    impl Into<Account> for NewAccount {
+        fn into(self) -> Account {
+            let Self {
+                id,
+                signatories,
+                metadata,
+            } = self;
+            Account {
+                id,
+                signatories,
+                metadata,
+                assets: AssetsMap::new(),
+                permissions: Permissions::new(),
+                signature_check_condition: SignatureCheckCondition::default(),
+            }
+        }
+    }
+
+    impl NewAccount {
+        /// Default `NewAccount` constructor.
+        pub fn new(id: Id) -> Self {
+            Self {
+                id,
+                signatories: Signatories::new(),
+                metadata: Default::default(),
+            }
+        }
+
+        /// Account with single `signatory` constructor.
+        pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
+            let mut signatories = Signatories::new();
+            signatories.push(signatory);
+            Self {
+                id,
+                signatories,
+                metadata: Metadata::default(),
+            }
+        }
+    }
+
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
     pub struct Account {
@@ -426,7 +479,6 @@ pub mod account {
         pub permissions: Permissions,
         /// Condition which checks if the account has the right signatures.
         #[serde(default)]
-        #[codec(skip)]
         pub signature_check_condition: SignatureCheckCondition,
         /// Metadata of this account as a key-value store.
         pub metadata: Metadata,
@@ -542,6 +594,10 @@ pub mod account {
         }
     }
 
+    impl Identifiable for NewAccount {
+        type Id = Id;
+    }
+
     impl Identifiable for Account {
         type Id = Id;
     }
@@ -579,7 +635,7 @@ pub mod account {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Account, Id as AccountId, SignatureCheckCondition};
+        pub use super::{Account, Id as AccountId, NewAccount, SignatureCheckCondition};
     }
 }
 
