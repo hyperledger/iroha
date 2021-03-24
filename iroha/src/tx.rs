@@ -93,6 +93,13 @@ impl VersionedAcceptedTransaction {
     pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         self.as_inner_v1().is_in_blockchain(wsv)
     }
+
+    /// # Errors
+    /// Asserts specific instruction number of instruction in transaction constraint
+    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        self.as_inner_v1()
+            .check_instruction_len(max_instruction_len)
+    }
 }
 
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
@@ -106,6 +113,12 @@ pub struct AcceptedTransaction {
 }
 
 impl AcceptedTransaction {
+    /// # Errors
+    /// Asserts specific instruction number of instruction in transaction constraint
+    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        self.payload.check_instruction_len(max_instruction_len)
+    }
+
     /// Accepts transaction
     ///
     /// # Errors
@@ -349,6 +362,13 @@ impl VersionedValidTransaction {
     pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         self.as_inner_v1().is_in_blockchain(wsv)
     }
+
+    /// # Errors
+    /// Asserts specific instruction number of instruction in transaction constraint
+    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        self.as_inner_v1()
+            .check_instruction_len(max_instruction_len)
+    }
 }
 
 /// `ValidTransaction` represents trustfull Transaction state.
@@ -360,6 +380,12 @@ pub struct ValidTransaction {
 }
 
 impl ValidTransaction {
+    /// # Errors
+    /// Asserts specific instruction number of instruction in transaction constraint
+    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        self.payload.check_instruction_len(max_instruction_len)
+    }
+
     /// Apply instructions to the `WorldStateView`.
     ///
     /// # Errors
