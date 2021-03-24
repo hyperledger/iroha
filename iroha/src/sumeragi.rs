@@ -64,6 +64,7 @@ pub struct Sumeragi {
     invalidated_blocks_hashes: Vec<Hash>,
     permissions_validator: PermissionsValidatorBox,
     n_topology_shifts_before_reshuffle: u32,
+    max_instruction_number: usize,
 }
 
 impl Sumeragi {
@@ -106,6 +107,7 @@ impl Sumeragi {
             invalidated_blocks_hashes: Vec::new(),
             permissions_validator,
             n_topology_shifts_before_reshuffle: configuration.n_topology_shifts_before_reshuffle,
+            max_instruction_number: configuration.max_instruction_number,
         })
     }
 
@@ -208,8 +210,11 @@ impl Sumeragi {
         let mut send_futures = Vec::new();
         for transaction in transactions {
             send_futures.push(
-                Message::from(TransactionForwarded::new(transaction, &self.peer_id))
-                    .send_to(self.network_topology.leader()),
+                VersionedMessage::from(Message::from(TransactionForwarded::new(
+                    transaction,
+                    &self.peer_id,
+                )))
+                .send_to(self.network_topology.leader()),
             );
             // Don't require leader to submit receipts and therefore create blocks if the transaction is still waiting for more signatures.
             if let Ok(true) =
@@ -249,8 +254,10 @@ impl Sumeragi {
                     for peer in &recipient_peers {
                         if *peer != peer_id {
                             send_futures.push(
-                                Message::NoTransactionReceiptReceived(no_tx_receipt.clone())
-                                    .send_to(peer),
+                                VersionedMessage::from(Message::NoTransactionReceiptReceived(
+                                    no_tx_receipt.clone(),
+                                ))
+                                .send_to(peer),
                             );
                         }
                     }
@@ -296,10 +303,11 @@ impl Sumeragi {
         for peer in &peers {
             for transaction in &transactions {
                 if peer != &leader && peer != &this_peer {
-                    send_futures.push(
-                        Message::from(TransactionForwarded::new(transaction, &this_peer))
-                            .send_to(peer),
-                    );
+                    let message = VersionedMessage::from(Message::from(TransactionForwarded::new(
+                        transaction,
+                        &this_peer,
+                    )));
+                    send_futures.push(message.send_to(peer));
                 }
             }
         }
@@ -333,7 +341,9 @@ impl Sumeragi {
 
         let voting_block = VotingBlock::new(block.clone());
         *self.voting_block.write().await = Some(voting_block.clone());
-        let message = Message::BlockCreated(block.clone().sign(&self.key_pair)?.into());
+        let message = VersionedMessage::from(Message::BlockCreated(
+            block.clone().sign(&self.key_pair)?.into(),
+        ));
         let recipient_peers = network_topology.sorted_peers.clone();
         let this_peer = self.peer_id.clone();
         let mut send_futures = Vec::new();
@@ -381,7 +391,7 @@ impl Sumeragi {
             if let Some(voting_block) = voting_block.write().await.clone() {
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
                 if voting_block.block.hash() == old_voting_block.block.hash() {
-                    let message = Message::CommitTimeout(
+                    let message = VersionedMessage::from(Message::CommitTimeout(
                         CommitTimeout::new(
                             &voting_block,
                             latest_block_hash,
@@ -389,19 +399,19 @@ impl Sumeragi {
                         )
                         .sign(&key_pair)
                         .expect("Failed to sign CommitTimeout"),
-                    );
+                    ));
                     let mut send_futures = Vec::new();
                     for peer in &recipient_peers {
                         if *peer != peer_id {
                             send_futures.push(message.clone().send_to(peer));
                         }
                     }
-                    let results = futures::future::join_all(send_futures).await;
-                    results
-                        .iter()
-                        .filter(|result| result.is_err())
-                        .for_each(|error_result| {
-                            log::error!("Failed to send CommitTimeout messages: {:?}", error_result)
+                    futures::future::join_all(send_futures)
+                        .await
+                        .into_iter()
+                        .filter_map(Result::err)
+                        .for_each(|error| {
+                            log::error!("Failed to send CommitTimeout messages: {:?}", error)
                         });
                 }
             }
@@ -801,6 +811,8 @@ impl VotingBlock {
 
 /// Contains message structures for p2p communication during consensus.
 pub mod message {
+    #![allow(clippy::module_name_repetitions)]
+
     use std::time::{Duration, SystemTime};
 
     use async_std::task;
@@ -819,6 +831,57 @@ pub mod message {
     };
 
     declare_versioned_with_scale!(VersionedMessage 1..2);
+
+    impl VersionedMessage {
+        /// Same as [`as_v1`] but also does conversion
+        pub const fn as_inner_v1(&self) -> &Message {
+            match self {
+                Self::V1(v1) => &v1.0,
+            }
+        }
+
+        /// Same as [`as_inner_v1`] but returns mutable reference
+        pub fn as_mut_inner_v1(&mut self) -> &mut Message {
+            match self {
+                Self::V1(v1) => &mut v1.0,
+            }
+        }
+
+        /// Same as [`into_v1`] but also does conversion
+        #[allow(clippy::missing_const_for_fn)]
+        pub fn into_inner_v1(self) -> Message {
+            match self {
+                Self::V1(v1) => v1.0,
+            }
+        }
+
+        /// Send this message over the network to the specified `peer`.
+        /// # Errors
+        /// Fails if network sending fails
+        #[log]
+        pub async fn send_to(self, peer: &PeerId) -> Result<()> {
+            match Network::send_request_to(
+                &peer.address,
+                Request::new(uri::CONSENSUS_URI.to_string(), self.encode_versioned()?),
+            )
+            .await
+            .wrap_err_with(|| format!("Failed to send to peer {} with error", peer.address))?
+            {
+                Response::Ok(_) => Ok(()),
+                Response::InternalError => Err(error!(
+                    "Failed to send message - Internal Error on peer: {:?}",
+                    peer
+                )),
+            }
+        }
+
+        /// Handles this message as part of `Sumeragi` consensus.
+        /// # Errors
+        /// Fails if message handling fails
+        pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
+            self.as_inner_v1().handle(sumeragi).await
+        }
+    }
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[version_with_scale(n = 1, versioned = "VersionedMessage")]
@@ -843,26 +906,9 @@ pub mod message {
     }
 
     impl Message {
-        /// Send this message over the network to the specified `peer`.
-        #[log]
-        pub async fn send_to(self, peer: &PeerId) -> Result<()> {
-            let message: VersionedMessage = self.into();
-            match Network::send_request_to(
-                &peer.address,
-                Request::new(uri::CONSENSUS_URI.to_string(), message.encode_versioned()?),
-            )
-            .await
-            .wrap_err_with(|| format!("Failed to send to peer {} with error", peer.address))?
-            {
-                Response::Ok(_) => Ok(()),
-                Response::InternalError => Err(error!(
-                    "Failed to send message - Internal Error on peer: {:?}",
-                    peer
-                )),
-            }
-        }
-
         /// Handles this message as part of `Sumeragi` consensus.
+        /// # Errors
+        /// Fails if message handling fails
         #[log]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             match self {
@@ -894,6 +940,12 @@ pub mod message {
     }
 
     impl BlockCreated {
+        /// # Errors
+        /// Asserts specific instruction number of instruction constraint
+        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+            self.block.check_instruction_len(max_instruction_number)
+        }
+
         /// Handles this message as part of `Sumeragi` consensus.
         ///
         /// # Errors
@@ -924,23 +976,21 @@ pub mod message {
                 .clear();
             match network_topology.role(&sumeragi.peer_id) {
                 Role::ValidatingPeer => {
-                    if !self.block.is_empty()
-                        && !self
-                            .block
-                            .has_committed_transactions(&*sumeragi.world_state_view.read().await)
-                        && sumeragi.latest_block_hash == self.block.header().previous_block_hash
-                        && sumeragi.number_of_view_changes
-                            == self.block.header().number_of_view_changes
-                        && sumeragi.block_height + 1 == self.block.header().height
-                    {
+                    if self.block.validation_check(
+                        &*sumeragi.world_state_view.read().await,
+                        sumeragi.latest_block_hash,
+                        sumeragi.number_of_view_changes,
+                        sumeragi.block_height,
+                        sumeragi.max_instruction_number,
+                    ) {
                         let wsv = sumeragi.world_state_view.read().await;
-                        if let Err(e) = Message::BlockSigned(
+                        if let Err(e) = VersionedMessage::from(Message::BlockSigned(
                             self.block
                                 .clone()
                                 .revalidate(&*wsv, &sumeragi.permissions_validator)
                                 .sign(&sumeragi.key_pair)?
                                 .into(),
-                        )
+                        ))
                         .send_to(network_topology.proxy_tail())
                         .await
                         {
@@ -1040,7 +1090,8 @@ pub mod message {
                         network_topology.role(&sumeragi.peer_id),
                         block_hash,
                     );
-                    let message = Message::BlockCommitted(block.clone().into());
+                    let message =
+                        VersionedMessage::from(Message::BlockCommitted(block.clone().into()));
                     let mut send_futures = Vec::new();
                     for peer in network_topology.validating_peers() {
                         send_futures.push(message.clone().send_to(peer));
@@ -1113,7 +1164,7 @@ pub mod message {
         }
     }
 
-    /// Message structure showing a `transaction_receipt` from a leader as a proof that peer did not create a block
+    /// `Message` structure showing a `transaction_receipt` from a leader as a proof that peer did not create a block
     /// in `block_time` after receiving this transaction.
     /// Peers validate the receipt, and sign the message to vote for changing the view.
     #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -1186,11 +1237,12 @@ pub mod message {
                 && sumeragi.voting_block.write().await.is_none()
                 && !self.signatures.contains(&sumeragi.key_pair.public_key)
             {
-                let block_creation_timeout_message = Message::BlockCreationTimeout(
-                    self.clone()
-                        .sign(&sumeragi.key_pair)
-                        .wrap_err("Failed to sign.")?,
-                );
+                let block_creation_timeout_message =
+                    VersionedMessage::from(Message::BlockCreationTimeout(
+                        self.clone()
+                            .sign(&sumeragi.key_pair)
+                            .wrap_err("Failed to sign.")?,
+                    ));
                 drop(
                     futures::future::join_all(
                         sumeragi
@@ -1222,7 +1274,7 @@ pub mod message {
         }
     }
 
-    /// Message structure describing a failed attempt to forward transaction to a leader.
+    /// `Message` structure describing a failed attempt to forward transaction to a leader.
     /// Peers sign it if they are not able to get a `TxReceipt` from a leader after sending the specified transaction.
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct NoTransactionReceiptReceived {
@@ -1309,12 +1361,13 @@ pub mod message {
             if (role == Role::ValidatingPeer || role == Role::ProxyTail)
                 && !self.signatures.contains(&sumeragi.key_pair.public_key)
             {
-                let _result = Message::TransactionForwarded(TransactionForwarded {
-                    transaction: self.transaction.clone(),
-                    peer: sumeragi.peer_id.clone(),
-                })
-                .send_to(sumeragi.network_topology.leader())
-                .await;
+                let _result =
+                    VersionedMessage::from(Message::TransactionForwarded(TransactionForwarded {
+                        transaction: self.transaction.clone(),
+                        peer: sumeragi.peer_id.clone(),
+                    }))
+                    .send_to(sumeragi.network_topology.leader())
+                    .await;
                 let _ = sumeragi
                     .transactions_awaiting_receipts
                     .write()
@@ -1337,8 +1390,10 @@ pub mod message {
                         let mut send_futures = Vec::new();
                         for peer in &recipient_peers {
                             send_futures.push(
-                                Message::NoTransactionReceiptReceived(no_tx_receipt.clone())
-                                    .send_to(peer),
+                                VersionedMessage::from(Message::NoTransactionReceiptReceived(
+                                    no_tx_receipt.clone(),
+                                ))
+                                .send_to(peer),
                             );
                         }
                         drop(futures::future::join_all(send_futures).await);
@@ -1349,7 +1404,7 @@ pub mod message {
         }
     }
 
-    /// Message structure describing a transaction that is forwarded from a client by a peer to the leader.
+    /// `Message` structure describing a transaction that is forwarded from a client by a peer to the leader.
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct TransactionForwarded {
         /// Transaction that is forwarded from a client by a peer to the leader
@@ -1376,10 +1431,9 @@ pub mod message {
         /// Can fail due to signing transaction
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if sumeragi.is_leader() {
-                if let Err(err) = Message::TransactionReceived(TransactionReceipt::new(
-                    &self.transaction,
-                    &sumeragi.key_pair,
-                )?)
+                if let Err(err) = VersionedMessage::from(Message::TransactionReceived(
+                    TransactionReceipt::new(&self.transaction, &sumeragi.key_pair)?,
+                ))
                 .send_to(&self.peer)
                 .await
                 {
@@ -1399,7 +1453,7 @@ pub mod message {
         }
     }
 
-    /// Message structure describing a receipt sent by the leader to the peer it got this transaction from.
+    /// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct TransactionReceipt {
         /// The hash of the transaction that the leader received.
@@ -1499,8 +1553,9 @@ pub mod message {
                         .await
                         .contains(&tx_hash)
                     {
-                        let block_creation_timeout_message =
-                            Message::BlockCreationTimeout(block_creation_timeout);
+                        let block_creation_timeout_message = VersionedMessage::from(
+                            Message::BlockCreationTimeout(block_creation_timeout),
+                        );
                         drop(
                             futures::future::join_all(
                                 recipient_peers.iter().map(|peer| {
@@ -1516,7 +1571,7 @@ pub mod message {
         }
     }
 
-    /// Message structure describing a request to other peers to change view because of the commit timeout.
+    /// `Message` structure describing a request to other peers to change view because of the commit timeout.
     /// Peers vote on this view change by signing and forwarding this structure.
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct CommitTimeout {
@@ -1611,11 +1666,11 @@ pub mod message {
                             && (current_time - voting_block.voted_at) >= sumeragi.commit_time
                             && !self.signatures.contains(&sumeragi.key_pair.public_key)
                         {
-                            let message = Message::CommitTimeout(
+                            let message = VersionedMessage::from(Message::CommitTimeout(
                                 self.clone()
                                     .sign(&sumeragi.key_pair)
                                     .wrap_err("Failed to sign.")?,
-                            );
+                            ));
                             let sorted_peers = sumeragi.network_topology.sorted_peers.clone();
                             drop(task::spawn(async move {
                                 let mut send_futures = Vec::new();
@@ -1654,12 +1709,14 @@ pub mod config {
     const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
     const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
     const MAX_FAULTY_PEERS: &str = "MAX_FAULTY_PEERS";
+    const MAX_INSTRUCTION_NUMBER: &str = "MAX_INSTRUCTION_NUMBER";
     const COMMIT_TIME_MS: &str = "COMMIT_TIME_MS";
     const TX_RECEIPT_TIME_MS: &str = "TX_RECEIPT_TIME_MS";
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
     const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
+    const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 4096;
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u32 = 1;
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
@@ -1691,6 +1748,9 @@ pub mod config {
         /// After N view changes topology will change tactic from shifting by one, to reshuffle.
         #[serde(default = "default_n_topology_shifts_before_reshuffle")]
         pub n_topology_shifts_before_reshuffle: u32,
+        /// Maximum instruction number per transaction
+        #[serde(default = "default_max_instruction_number")]
+        pub max_instruction_number: usize,
     }
 
     impl SumeragiConfiguration {
@@ -1704,6 +1764,11 @@ pub mod config {
                 self.block_time_ms = block_time_ms
                     .parse::<u64>()
                     .wrap_err("Failed to parse Block Build Time")?;
+            }
+            if let Ok(max_instruction_number) = env::var(MAX_INSTRUCTION_NUMBER) {
+                self.max_instruction_number = max_instruction_number
+                    .parse::<usize>()
+                    .wrap_err("Failed to parse maximum instruction number")?;
             }
             if let Ok(trusted_peers) = env::var(TRUSTED_PEERS) {
                 self.trusted_peers.peers = serde_json::from_str(&trusted_peers)
@@ -1790,6 +1855,10 @@ pub mod config {
 
     const fn default_tx_receipt_time_ms() -> u64 {
         DEFAULT_TX_RECEIPT_TIME_MS
+    }
+
+    const fn default_max_instruction_number() -> usize {
+        DEFAULT_MAX_INSTRUCTION_NUMBER
     }
 
     const fn default_n_topology_shifts_before_reshuffle() -> u32 {
@@ -2174,7 +2243,7 @@ mod tests {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate faulty proxy tail
                     if sumeragi.network_topology.role(&sumeragi.peer_id) == Role::ProxyTail {
-                        if let Message::BlockSigned(..) = message {
+                        if let Message::BlockSigned(..) = message.as_inner_v1() {
                             continue;
                         }
                     }
@@ -2327,7 +2396,7 @@ mod tests {
                     let mut sumeragi = sumeragi_arc_clone.write().await;
                     // Simulate faulty leader
                     if sumeragi.network_topology.role(&sumeragi.peer_id) == Role::Leader {
-                        if let Message::TransactionForwarded(..) = message {
+                        if let Message::TransactionForwarded(..) = message.as_inner_v1() {
                             continue;
                         }
                     }
@@ -2491,7 +2560,7 @@ mod tests {
             drop(task::spawn(async move {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     // Simulate faulty leader as if it does not send `BlockCreated` messages
-                    if let Message::BlockCreated(..) = message {
+                    if let Message::BlockCreated(..) = message.as_inner_v1() {
                         continue;
                     }
                     let _result = message.handle(&mut *sumeragi_arc_clone.write().await).await;
@@ -2653,7 +2722,7 @@ mod tests {
                 while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate leader producing empty blocks
-                    if let Message::BlockCreated(block_created) = message {
+                    if let Message::BlockCreated(ref block_created) = message.as_inner_v1() {
                         let mut block_created = block_created.clone();
                         block_created.block.as_mut_inner_v1().transactions = Vec::new();
                         let _result = Message::BlockCreated(block_created)

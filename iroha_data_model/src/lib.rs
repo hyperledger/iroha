@@ -1301,6 +1301,23 @@ pub mod transaction {
         pub metadata: UnlimitedMetadata,
     }
 
+    impl Payload {
+        /// # Errors
+        /// Asserts specific instruction number of instruction constraint
+        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+            if self
+                .instructions
+                .iter()
+                .map(Instruction::len)
+                .sum::<usize>()
+                > max_instruction_number
+            {
+                return Err(error!("Too many instructions in payload"));
+            }
+            Ok(())
+        }
+    }
+
     impl VersionedTransaction {
         /// Same as [`as_v1`] but also does conversion
         pub const fn as_inner_v1(&self) -> &Transaction {
@@ -1412,17 +1429,7 @@ pub mod transaction {
         /// # Errors
         /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
-            if self
-                .payload
-                .instructions
-                .iter()
-                .map(Instruction::len)
-                .sum::<usize>()
-                > max_instruction_number
-            {
-                return Err(error!("Too many instructions in payload"));
-            }
-            Ok(())
+            self.payload.check_instruction_len(max_instruction_number)
         }
 
         /// Sign transaction with the provided key pair.
@@ -1457,6 +1464,30 @@ pub mod transaction {
         fn try_into(self) -> Result<HttpResponse, Self::Error> {
             self.encode_versioned()
                 .map(|pending| HttpResponse::ok(BTreeMap::default(), pending))
+        }
+    }
+
+    impl VersionedPendingTransactions {
+        /// Same as [`as_v1`] but also does conversion
+        pub const fn as_inner_v1(&self) -> &PendingTransactions {
+            match self {
+                Self::V1(v1) => &v1.0,
+            }
+        }
+
+        /// Same as [`as_inner_v1`] but returns mutable reference
+        pub fn as_mut_inner_v1(&mut self) -> &mut PendingTransactions {
+            match self {
+                Self::V1(v1) => &mut v1.0,
+            }
+        }
+
+        /// Same as [`into_v1`] but also does conversion
+        #[allow(clippy::missing_const_for_fn)]
+        pub fn into_inner_v1(self) -> PendingTransactions {
+            match self {
+                Self::V1(v1) => v1.0,
+            }
         }
     }
 
@@ -1556,6 +1587,13 @@ pub mod transaction {
                 Self::V1(v1) => &v1.0.payload,
             }
         }
+
+        /// # Errors
+        /// Asserts specific instruction number of instruction in transaction constraint
+        pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+            self.as_inner_v1()
+                .check_instruction_len(max_instruction_len)
+        }
     }
 
     impl Eq for VersionedRejectedTransaction {}
@@ -1596,6 +1634,12 @@ pub mod transaction {
     }
 
     impl RejectedTransaction {
+        /// # Errors
+        /// Asserts specific instruction number of instruction in transaction constraint
+        pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+            self.payload.check_instruction_len(max_instruction_len)
+        }
+
         /// Calculate transaction [`Hash`].
         pub fn hash(&self) -> Hash {
             let bytes: Vec<u8> = self.payload.clone().into();
