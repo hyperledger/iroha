@@ -44,8 +44,8 @@ mod tests {
         let account2_name = "account2";
         let account1_id = AccountId::new(account1_name, domain_name);
         let account2_id = AccountId::new(account2_name, domain_name);
-        let create_account1 = RegisterBox::new(IdentifiableBox::Account(
-            Account::with_signatory(
+        let create_account1 = RegisterBox::new(IdentifiableBox::NewAccount(
+            NewAccount::with_signatory(
                 account1_id.clone(),
                 KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
@@ -53,8 +53,8 @@ mod tests {
             )
             .into(),
         ));
-        let create_account2 = RegisterBox::new(IdentifiableBox::Account(
-            Account::with_signatory(
+        let create_account2 = RegisterBox::new(IdentifiableBox::NewAccount(
+            NewAccount::with_signatory(
                 account2_id.clone(),
                 KeyPair::generate()
                     .expect("Failed to generate KeyPair.")

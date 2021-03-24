@@ -14,8 +14,8 @@ fn build_test_transaction(keys: &KeyPair) -> Transaction {
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
     let account_name = "account";
-    let create_account = RegisterBox::new(IdentifiableBox::Account(
-        Account::with_signatory(
+    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
+        NewAccount::with_signatory(
             AccountId::new(account_name, domain_name),
             KeyPair::generate()
                 .expect("Failed to generate KeyPair.")

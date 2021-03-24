@@ -9,10 +9,10 @@ use iroha_error::{error, Result};
 pub mod isi {
     use super::*;
 
-    impl Execute for Register<Account> {
+    impl Execute for Register<NewAccount> {
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            _authority: <NewAccount as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
@@ -26,7 +26,7 @@ pub mod isi {
                     &account.id
                 ))
             } else {
-                let _ = domain.accounts.insert(account.id.clone(), account);
+                let _ = domain.accounts.insert(account.id.clone(), account.into());
                 Ok(world_state_view)
             }
         }
