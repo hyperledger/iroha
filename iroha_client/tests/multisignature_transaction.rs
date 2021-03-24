@@ -38,8 +38,8 @@ mod tests {
         let account_id = AccountId::new(account_name, domain_name);
         let key_pair_1 = KeyPair::generate().expect("Failed to generate KeyPair.");
         let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let create_account = RegisterBox::new(IdentifiableBox::Account(
-            Account::with_signatory(account_id.clone(), key_pair_1.public_key.clone()).into(),
+        let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
+            NewAccount::with_signatory(account_id.clone(), key_pair_1.public_key.clone()).into(),
         ));
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(

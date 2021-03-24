@@ -123,16 +123,16 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("exchange").into())).into(),
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("company").into())).into(),
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("crypto").into())).into(),
-            RegisterBox::new(IdentifiableBox::Account(
-                Account::new(AccountId::new("seller", "company")).into(),
+            RegisterBox::new(IdentifiableBox::NewAccount(
+                NewAccount::new(AccountId::new("seller", "company")).into(),
             ))
             .into(),
-            RegisterBox::new(IdentifiableBox::Account(
-                Account::new(AccountId::new("buyer", "company")).into(),
+            RegisterBox::new(IdentifiableBox::NewAccount(
+                NewAccount::new(AccountId::new("buyer", "company")).into(),
             ))
             .into(),
-            RegisterBox::new(IdentifiableBox::Account(
-                Account::new(AccountId::new("dex", "exchange")).into(),
+            RegisterBox::new(IdentifiableBox::NewAccount(
+                NewAccount::new(AccountId::new("dex", "exchange")).into(),
             ))
             .into(),
             RegisterBox::new(IdentifiableBox::AssetDefinition(

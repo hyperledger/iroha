@@ -50,8 +50,8 @@ impl Execute for RegisterBox {
     ) -> Result<WorldStateView> {
         let context = Context::new();
         match self.object.evaluate(world_state_view, &context)? {
-            IdentifiableBox::Account(account) => {
-                Register::<Account>::new(*account).execute(authority, world_state_view)
+            IdentifiableBox::NewAccount(account) => {
+                Register::<NewAccount>::new(*account).execute(authority, world_state_view)
             }
             IdentifiableBox::AssetDefinition(asset_definition) => {
                 Register::<AssetDefinition>::new(*asset_definition)
