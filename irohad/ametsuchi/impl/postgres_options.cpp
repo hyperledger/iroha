@@ -60,7 +60,7 @@ PostgresOptions::PostgresOptions(const std::string &pg_opt,
           extractField(pg_opt, "user"),
           extractField(pg_opt, "password"),
           extractOptionalField(pg_opt, "dbname").value_or(default_dbname),
-          extractField(pg_opt, "user"),
+          extractOptionalField(pg_opt, "maintenance_dbname").value_or(extractField(pg_opt, "user")),
           std::move(log)) {}
 
 PostgresOptions::PostgresOptions(const std::string &host,

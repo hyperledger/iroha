@@ -160,7 +160,18 @@ PgConnectionInit::prepareWorkingDatabase(
     StartupWsvDataPolicy startup_wsv_data_policy,
     const PostgresOptions &options) {
   return getMaintenanceSession(options) | [&](auto maintenance_sql) {
-    if (startup_wsv_data_policy == StartupWsvDataPolicy::kReuse) {
+    int work_db_exists;
+    *maintenance_sql<<"select exists("
+                        "SELECT datname FROM pg_catalog.pg_database "
+                        "WHERE datname = '"+ options.workingDbName() +"');"
+        ,soci::into(work_db_exists);
+    if(not work_db_exists){
+      return createSchema(options);
+    }
+    if (startup_wsv_data_policy == StartupWsvDataPolicy::kDrop) {
+      return dropWorkingDatabase(options) |
+             [&] { return createSchema(options); };
+    }else{  // StartupWsvDataPolicy::kReuse
       return isSchemaCompatible(options) | [&](bool is_compatible)
                  -> iroha::expected::Result<void, std::string> {
         if (not is_compatible) {
@@ -171,7 +182,6 @@ PgConnectionInit::prepareWorkingDatabase(
         return iroha::expected::Value<void>{};
       };
     }
-    return dropWorkingDatabase(options) | [&] { return createSchema(options); };
   };
 }
 
@@ -468,7 +478,7 @@ CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
 iroha::expected::Result<void, std::string>
 PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options)
 try{
-  std::cerr<<"-- connecting_to "<<options.maintenanceConnectionString()<<std::endl;
+//  std::cerr<<"-- connecting_to "<<options.maintenanceConnectionString()<<std::endl;
   auto maintenance_sql = soci::session(*soci::factory_postgresql(),
                                        options.maintenanceConnectionString());
   maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName() << ";";
