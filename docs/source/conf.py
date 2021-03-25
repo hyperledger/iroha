@@ -29,8 +29,9 @@ extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.ifconfig',
     'sphinx.ext.viewcode',
-    'm2r',
-    'sphinx_extensions.iroha_permissions'
+    'm2r2',
+    'sphinx_extensions.iroha_permissions',
+    "sphinxext.remoteliteralinclude"
 ]
 
 html_static_path = ['_static']
