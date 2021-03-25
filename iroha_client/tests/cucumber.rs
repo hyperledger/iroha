@@ -1,5 +1,7 @@
 #![allow(missing_docs, clippy::too_many_lines)]
 
+use std::{convert::Infallible, thread, time::Duration};
+
 use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
 use cucumber_rust::{Cucumber, World as CucumberWorld};
@@ -10,7 +12,6 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use std::{convert::Infallible, thread, time::Duration};
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/single_config.json";
@@ -49,8 +50,9 @@ impl CucumberWorld for IrohaWorld {
 }
 
 mod iroha_steps {
-    use super::*;
     use cucumber_rust::Steps;
+
+    use super::*;
 
     const IROHA_WORLD_SLEEP_TIME: Duration = Duration::from_millis(10);
 
@@ -92,8 +94,9 @@ mod iroha_steps {
 }
 
 mod asset_steps {
-    use super::*;
     use cucumber_rust::Steps;
+
+    use super::*;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
@@ -217,8 +220,9 @@ mod asset_steps {
 }
 
 mod account_steps {
-    use super::*;
     use cucumber_rust::Steps;
+
+    use super::*;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
@@ -299,8 +303,9 @@ mod account_steps {
 }
 
 mod domain_steps {
-    use super::*;
     use cucumber_rust::Steps;
+
+    use super::*;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
@@ -339,8 +344,9 @@ mod domain_steps {
 }
 
 mod query_steps {
-    use super::*;
     use cucumber_rust::Steps;
+
+    use super::*;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();
@@ -552,8 +558,9 @@ mod query_steps {
 }
 
 mod peer_steps {
-    use super::*;
     use cucumber_rust::Steps;
+
+    use super::*;
 
     pub fn steps() -> Steps<IrohaWorld> {
         let mut steps = Steps::<IrohaWorld>::new();

@@ -1,11 +1,11 @@
-use crate::{Error, Result};
+#[cfg(backtrace)]
+use std::backtrace::Backtrace;
 use std::error::Error as StdError;
 use std::fmt::{self, Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::result::Result as StdResult;
 
-#[cfg(backtrace)]
-use std::backtrace::Backtrace;
+use crate::{Error, Result};
 
 /// Type for wrapping any error with specific message
 #[derive(Eq, PartialEq)]

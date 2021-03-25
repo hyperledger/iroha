@@ -1,5 +1,7 @@
 #![allow(missing_docs, clippy::cast_precision_loss)]
 
+use std::thread;
+
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
@@ -7,7 +9,6 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use std::thread;
 use test_network::Peer as TestPeer;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";

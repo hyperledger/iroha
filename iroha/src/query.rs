@@ -1,6 +1,9 @@
 //! This module contains query related Iroha functionality.
 
-use crate::prelude::*;
+use std::convert::TryFrom;
+use std::error::Error as StdError;
+use std::fmt;
+
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_error::{derive::Error, Error, Result};
@@ -11,9 +14,7 @@ use iroha_http_server::http::{
 use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
 
-use std::convert::TryFrom;
-use std::error::Error as StdError;
-use std::fmt;
+use crate::prelude::*;
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Io, Encode, Decode)]
@@ -155,16 +156,18 @@ impl Query for QueryBox {
             QueryBox::FindAllParameters(query) => query.execute(world_state_view),
             QueryBox::FindAssetKeyValueByIdAndKey(query) => query.execute(world_state_view),
             QueryBox::FindAccountKeyValueByIdAndKey(query) => query.execute(world_state_view),
+            QueryBox::FindTransactionsByAccountId(query) => query.execute(world_state_view),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
     use iroha_error::error;
+
+    use super::*;
 
     fn world_with_test_domains() -> Result<World> {
         let mut domains = DomainsMap::new();

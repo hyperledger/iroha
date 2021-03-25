@@ -1,3 +1,5 @@
+use std::{thread, time::Duration};
+
 use async_std::task;
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::{
@@ -5,7 +7,6 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use std::{thread, time::Duration};
 use tempfile::TempDir;
 use test_network::Peer as TestPeer;
 

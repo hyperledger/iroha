@@ -1,8 +1,9 @@
+use std::borrow::Borrow;
+use std::convert::{TryFrom, TryInto};
+
 use attohttpc::Response as AttohttpcResponse;
 pub use http::{Response, StatusCode};
 use iroha_error::{error, Error, Result, WrapErr};
-use std::borrow::Borrow;
-use std::convert::{TryFrom, TryInto};
 use tungstenite::{client::AutoStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 

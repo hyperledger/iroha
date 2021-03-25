@@ -1,16 +1,18 @@
 //! This module contains `Asset` structure, it's implementation and related traits and
 //! instructions implementations.
 
-use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_derive::log;
+
+use crate::{isi::prelude::*, prelude::*};
 
 /// Iroha Special Instructions module provides `AssetInstruction` enum with all possible types of
 /// Asset related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
-    use super::*;
     use iroha_error::{error, Result};
+
+    use super::*;
 
     fn assert_asset_type(
         definition_id: &AssetDefinitionId,
@@ -234,9 +236,10 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Asset related implementations.
 pub mod query {
+    use iroha_error::{error, Result, WrapErr};
+
     use super::*;
     use crate::expression::Evaluate;
-    use iroha_error::{error, Result, WrapErr};
 
     impl Query for FindAllAssets {
         #[log]

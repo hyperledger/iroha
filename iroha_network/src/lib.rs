@@ -6,14 +6,6 @@
 /// Network mock
 pub mod mock;
 
-use async_std::{
-    net::{TcpListener, TcpStream},
-    prelude::*,
-    sync::RwLock,
-};
-use iroha_derive::{log, Io};
-use iroha_error::{error, Result};
-use parity_scale_codec::{Decode, Encode};
 use std::{
     convert::{TryFrom, TryInto},
     future::Future,
@@ -22,6 +14,15 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+
+use async_std::{
+    net::{TcpListener, TcpStream},
+    prelude::*,
+    sync::RwLock,
+};
+use iroha_derive::{log, Io};
+use iroha_error::{error, Result};
+use parity_scale_codec::{Decode, Encode};
 
 const BUFFER_SIZE: usize = 4096;
 const REQUEST_TIMEOUT_MILLIS: u64 = 500;
@@ -314,13 +315,15 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    use std::{convert::TryFrom, sync::Arc};
+
+    use async_std::{sync::RwLock, task};
+    use iroha_error::Result;
+
     #[cfg(feature = "mock")]
     use super::mock::*;
     #[cfg(not(feature = "mock"))]
     use super::*;
-    use async_std::{sync::RwLock, task};
-    use iroha_error::Result;
-    use std::{convert::TryFrom, sync::Arc};
 
     fn get_empty_state() -> State<()> {
         Arc::new(RwLock::new(()))

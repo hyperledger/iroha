@@ -2,13 +2,14 @@
 mod tests {
     #![allow(clippy::shadow_unrelated)]
 
+    use std::{thread, time::Duration};
+
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
     use iroha_data_model::prelude::*;
-    use std::{thread, time::Duration};
     use test_network::Peer as TestPeer;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";

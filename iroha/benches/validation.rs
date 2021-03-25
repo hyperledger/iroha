@@ -1,9 +1,10 @@
 #![allow(missing_docs)]
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::{prelude::*, tx::AcceptedTransaction};
 use iroha_data_model::prelude::*;
-use std::collections::{BTreeMap, BTreeSet};
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 

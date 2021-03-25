@@ -1,11 +1,12 @@
 //! This module provides `WorldStateView` - in-memory representations of the current blockchain
 //! state.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use crate::prelude::*;
 use config::Configuration;
 use iroha_data_model::prelude::*;
+
+use crate::prelude::*;
 
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
@@ -13,7 +14,7 @@ pub struct WorldStateView {
     /// The world - contains `domains`, `triggers`, etc..
     pub world: World,
     /// Hashes of the committed and rejected transactions.
-    pub transactions_hashes: HashSet<Hash>,
+    pub transactions: HashMap<Hash, TransactionValue>,
     /// Configuration of World State View.
     pub config: Configuration,
 }
@@ -24,7 +25,7 @@ impl WorldStateView {
     pub fn new(world: World) -> Self {
         WorldStateView {
             world,
-            transactions_hashes: HashSet::new(),
+            transactions: HashMap::new(),
             config: Configuration::default(),
         }
     }
@@ -33,7 +34,7 @@ impl WorldStateView {
     pub fn from_config(config: Configuration, world: World) -> Self {
         WorldStateView {
             world,
-            transactions_hashes: HashSet::new(),
+            transactions: HashMap::new(),
             config,
         }
     }
@@ -49,12 +50,18 @@ impl WorldStateView {
     pub fn apply(&mut self, block: &VersionedCommittedBlock) {
         for transaction in &block.as_inner_v1().transactions {
             if let Err(e) = &transaction.proceed(self) {
-                log::warn!("Failed to procced transaction on WSV: {}", e);
+                log::warn!("Failed to proceed transaction on WSV: {}", e);
             }
-            let _ = self.transactions_hashes.insert(transaction.hash());
+            let _ = self.transactions.insert(
+                transaction.hash(),
+                TransactionValue::Transaction(transaction.clone().into()),
+            );
         }
         for transaction in &block.as_inner_v1().rejected_transactions {
-            let _ = self.transactions_hashes.insert(transaction.hash());
+            let _ = self.transactions.insert(
+                transaction.hash(),
+                TransactionValue::RejectedTransaction(transaction.clone()),
+            );
         }
     }
 
@@ -215,16 +222,28 @@ impl WorldStateView {
 
     /// Checks if this `transaction_hash` is already committed or rejected.
     pub fn has_transaction(&self, transaction_hash: Hash) -> bool {
-        self.transactions_hashes.contains(&transaction_hash)
+        self.transactions.contains_key(&transaction_hash)
+    }
+
+    /// Get committed and rejected transaction of the account.
+    pub fn read_transactions(&self, account_id: &AccountId) -> Vec<&TransactionValue> {
+        let mut vec: Vec<&TransactionValue> = self
+            .transactions
+            .values()
+            .filter(|tx| &tx.payload().account_id == account_id)
+            .collect();
+        vec.sort();
+        vec
     }
 }
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use std::env;
+
     use iroha_data_model::metadata::Limits as MetadataLimits;
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::env;
 
     const ASSET_MAX_STORE_LEN: &str = "ASSET_MAX_STORE_LEN";
     const ASSET_MAX_STORE_ENTRY_BYTE_SIZE: &str = "ASSET_MAX_STORE_ENTRY_BYTE_SIZE";

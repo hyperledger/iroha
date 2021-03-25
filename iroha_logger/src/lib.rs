@@ -1,8 +1,9 @@
 //! Module with logger for iroha
 
+use std::sync::RwLock;
+
 use chrono::prelude::*;
 use log::{Level, Log, Metadata, Record, SetLoggerError};
-use std::sync::RwLock;
 
 const RED: u8 = 31;
 const GREEN: u8 = 32;
@@ -82,10 +83,11 @@ pub fn init(configuration: &config::LoggerConfiguration) -> Result<(), SetLogger
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use std::env;
+
     use iroha_error::{Result, WrapErr};
     pub use log::LevelFilter;
     use serde::Deserialize;
-    use std::env;
 
     const MAX_LOG_LEVEL: &str = "MAX_LOG_LEVEL";
     const DEFAULT_MAX_LOG_LEVEL: LevelFilter = LevelFilter::Info;
@@ -148,8 +150,9 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
-    use super::{config::LoggerConfiguration, init};
     use log::{debug, LevelFilter};
+
+    use super::{config::LoggerConfiguration, init};
 
     #[test]
     fn init_logger() {

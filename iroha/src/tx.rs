@@ -2,16 +2,18 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
-use iroha_data_model::prelude::*;
-use iroha_derive::Io;
-use iroha_error::{error, Result, WrapErr};
-use iroha_version::{declare_versioned_with_scale, version_with_scale};
-use parity_scale_codec::{Decode, Encode};
 use std::{
     cmp::min,
     time::{Duration, SystemTime},
 };
+
+pub use iroha_data_model::prelude::*;
+use iroha_derive::Io;
+use iroha_error::{error, Result, WrapErr};
+use iroha_version::{declare_versioned_with_scale, version_with_scale};
+use parity_scale_codec::{Decode, Encode};
+
+use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2);
 
@@ -280,6 +282,33 @@ impl From<AcceptedTransaction> for Transaction {
     }
 }
 
+impl From<VersionedValidTransaction> for VersionedTransaction {
+    fn from(transaction: VersionedValidTransaction) -> Self {
+        match transaction {
+            VersionedValidTransaction::V1(v1) => {
+                let transaction: ValidTransaction = v1.0;
+                VersionedTransaction::new(
+                    transaction.payload.instructions,
+                    transaction.payload.account_id,
+                    transaction.payload.time_to_live_ms,
+                )
+            }
+        }
+    }
+}
+
+impl IsInBlockchain for VersionedRejectedTransaction {
+    fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
+        self.as_inner_v1().is_in_blockchain(world_state_view)
+    }
+}
+
+impl IsInBlockchain for RejectedTransaction {
+    fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
+        world_state_view.has_transaction(self.hash())
+    }
+}
+
 declare_versioned_with_scale!(VersionedValidTransaction 1..2);
 
 #[allow(clippy::missing_errors_doc)]
@@ -375,66 +404,6 @@ impl From<ValidTransaction> for AcceptedTransaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedRejectedTransaction 1..2);
-
-#[allow(clippy::missing_errors_doc)]
-impl VersionedRejectedTransaction {
-    /// The same as `as_v1` but also runs into on it
-    pub const fn as_inner_v1(&self) -> &RejectedTransaction {
-        match self {
-            Self::V1(v1) => &v1.0,
-        }
-    }
-
-    /// The same as `as_v1` but also runs into on it
-    pub fn as_mut_inner_v1(&mut self) -> &mut RejectedTransaction {
-        match self {
-            Self::V1(v1) => &mut v1.0,
-        }
-    }
-
-    /// The same as `as_v1` but also runs into on it
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn into_inner_v1(self) -> RejectedTransaction {
-        match self {
-            Self::V1(v1) => v1.into(),
-        }
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        self.as_inner_v1().hash()
-    }
-
-    /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
-        self.as_inner_v1().is_in_blockchain(wsv)
-    }
-}
-
-/// `RejectedTransaction` represents transaction rejected by some validator at some stage of the pipeline.
-#[version_with_scale(n = 1, versioned = "VersionedRejectedTransaction")]
-#[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct RejectedTransaction {
-    payload: Payload,
-    signatures: Vec<Signature>,
-    /// The reason for rejecting this tranaction during the validation pipeline.
-    pub rejection_reason: TransactionRejectionReason,
-}
-
-impl RejectedTransaction {
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        let bytes: Vec<u8> = self.payload.clone().into();
-        Hash::new(&bytes)
-    }
-
-    /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(self.hash())
-    }
-}
-
 impl From<VersionedRejectedTransaction> for VersionedAcceptedTransaction {
     fn from(tx: VersionedRejectedTransaction) -> Self {
         let tx: RejectedTransaction = tx.into_inner_v1();
@@ -452,17 +421,45 @@ impl From<RejectedTransaction> for AcceptedTransaction {
     }
 }
 
+/// Query module provides [`IrohaQuery`] Transaction related implementations.
+pub mod query {
+    use iroha_data_model::prelude::*;
+    use iroha_derive::*;
+    use iroha_error::Result;
+
+    use super::*;
+
+    impl Query for FindTransactionsByAccountId {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let id = self
+                .account_id
+                .evaluate(world_state_view, &Context::default())
+                .wrap_err("Failed to get id")?;
+            Ok(Value::Vec(
+                world_state_view
+                    .read_transactions(&id)
+                    .into_iter()
+                    .cloned()
+                    .map(Value::TransactionValue)
+                    .collect::<Vec<_>>(),
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::default_trait_access)]
 
-    use super::*;
-    use crate::{config::Configuration, init, permissions::AllowAll};
     use iroha_data_model::{
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
         transaction::MAX_INSTRUCTION_NUMBER,
     };
     use iroha_error::{Error, MessageError, Result, WrappedError};
+
+    use super::*;
+    use crate::{config::Configuration, init, permissions::AllowAll};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 

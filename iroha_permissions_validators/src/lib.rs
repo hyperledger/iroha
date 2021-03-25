@@ -2,13 +2,14 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+use std::convert::TryInto;
+
 use iroha::{
     expression::Evaluate,
     permissions::{prelude::*, PermissionsValidator, PermissionsValidatorBuilder},
     prelude::*,
 };
 use iroha_data_model::{isi::*, prelude::*};
-use std::convert::TryInto;
 
 /// Permission checks asociated with use cases that can be summarized as public blockchains.
 pub mod public_blockchain {
@@ -343,8 +344,9 @@ pub mod public_blockchain {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
         use maplit::{btreemap, btreeset};
+
+        use super::*;
 
         #[test]
         fn transfer_only_owned_assets() {

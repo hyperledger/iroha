@@ -3,6 +3,9 @@
 #![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
 
 //TODO: do we need TLS/SSL?
+use std::convert::{Into, TryFrom, TryInto};
+use std::{borrow::Borrow, sync::Arc};
+
 use async_std::{
     net::{TcpListener, TcpStream},
     prelude::*,
@@ -11,8 +14,6 @@ use async_std::{
 use futures::FutureExt;
 use http::{HttpEndpoint, HttpRequest, HttpResponse, HttpResponseError, PathParams, QueryParams};
 use route_recognizer::Router;
-use std::convert::{Into, TryFrom, TryInto};
-use std::{borrow::Borrow, sync::Arc};
 use web_socket::WebSocketHandler;
 
 const BUFFER_SIZE: usize = 4096;
@@ -100,20 +101,22 @@ pub mod http {
 
     //! Module with http implementation
 
-    use super::{web_socket::WEB_SOCKET_UPGRADE, Endpoint};
-    use async_std::{net::TcpStream, prelude::*};
-    use async_trait::async_trait;
-    use httparse::{Request as HttpParseRequest, Status};
-    use iroha_derive::FromVariant;
-    use iroha_error::{derive::Error, error};
-    use route_recognizer::Router;
     use std::{
         collections::BTreeMap,
         convert::{From, TryFrom, TryInto},
         error::Error as StdError,
         fmt::{self, Display},
     };
+
+    use async_std::{net::TcpStream, prelude::*};
+    use async_trait::async_trait;
+    use httparse::{Request as HttpParseRequest, Status};
+    use iroha_derive::FromVariant;
+    use iroha_error::{derive::Error, error};
+    use route_recognizer::Router;
     use url::form_urlencoded;
+
+    use super::{web_socket::WEB_SOCKET_UPGRADE, Endpoint};
 
     /// get method name
     pub const GET_METHOD: &str = "GET";
@@ -610,12 +613,13 @@ pub mod web_socket {
 
     //! websocket implementation module
 
-    use super::http::{PathParams, QueryParams};
     use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
     pub use async_tungstenite::tungstenite::Message as WebSocketMessage;
     use async_tungstenite::WebSocketStream as TungsteniteWebSocketStream;
     use iroha_error::Result;
+
+    use super::http::{PathParams, QueryParams};
 
     /// Websocket stream alias
     pub type WebSocketStream = TungsteniteWebSocketStream<TcpStream>;
@@ -806,13 +810,15 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use super::{prelude::*, Server};
+    use std::sync::Arc;
+    use std::{thread, time::Duration};
+
     use async_std::{sync::RwLock, task};
     use futures::{SinkExt, StreamExt};
     use isahc::AsyncReadResponseExt;
-    use std::sync::Arc;
-    use std::{thread, time::Duration};
     use tungstenite::client as web_socket_client;
+
+    use super::{prelude::*, Server};
 
     #[test]
     fn get_request() {
