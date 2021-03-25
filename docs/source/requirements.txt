@@ -35,3 +35,4 @@ watchdog==0.8.3
 yarg==0.1.9
 m2r
 pygments-lexer-solidity
+sphinxext-remoteliteralinclude
