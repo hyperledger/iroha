@@ -426,14 +426,14 @@ pub mod account {
         pub metadata: Metadata,
     }
 
-    impl Into<Account> for NewAccount {
-        fn into(self) -> Account {
-            let Self {
+    impl From<NewAccount> for Account {
+        fn from(account: NewAccount) -> Self {
+            let NewAccount {
                 id,
                 signatories,
                 metadata,
-            } = self;
-            Account {
+            } = account;
+            Self {
                 id,
                 signatories,
                 metadata,
@@ -456,8 +456,7 @@ pub mod account {
 
         /// Account with single `signatory` constructor.
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let mut signatories = Signatories::new();
-            signatories.push(signatory);
+            let signatories = vec![signatory];
             Self {
                 id,
                 signatories,
@@ -541,8 +540,7 @@ pub mod account {
 
         /// Account with single `signatory` constructor.
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let mut signatories = Signatories::new();
-            signatories.push(signatory);
+            let signatories = vec![signatory];
             Account {
                 id,
                 assets: AssetsMap::new(),
@@ -1584,22 +1582,22 @@ pub mod pagination {
         }
     }
 
-    impl Into<BTreeMap<String, String>> for Pagination {
-        fn into(self) -> BTreeMap<String, String> {
-            let mut query_params = BTreeMap::new();
-            if let Some(start) = self.start {
+    impl From<Pagination> for BTreeMap<String, String> {
+        fn from(pagination: Pagination) -> Self {
+            let mut query_params = Self::new();
+            if let Some(start) = pagination.start {
                 let _ = query_params.insert(PAGINATION_START.to_owned(), start.to_string());
             }
-            if let Some(limit) = self.limit {
+            if let Some(limit) = pagination.limit {
                 let _ = query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string());
             }
             query_params
         }
     }
 
-    impl Into<Vec<(&'static str, usize)>> for Pagination {
-        fn into(self) -> Vec<(&'static str, usize)> {
-            match (self.start, self.limit) {
+    impl From<Pagination> for Vec<(&'static str, usize)> {
+        fn from(pagination: Pagination) -> Self {
+            match (pagination.start, pagination.limit) {
                 (Some(start), Some(limit)) => {
                     vec![(PAGINATION_START, start), (PAGINATION_LIMIT, limit)]
                 }

@@ -92,16 +92,16 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2);
 pub struct QueryResult(pub Value);
 
 #[cfg(feature = "http_error")]
-impl Into<HttpResponse> for &QueryResult {
-    fn into(self) -> HttpResponse {
+impl From<&QueryResult> for HttpResponse {
+    fn from(result: &QueryResult) -> Self {
         use std::collections::BTreeMap;
-        HttpResponse::ok(BTreeMap::default(), self.into())
+        Self::ok(BTreeMap::default(), result.into())
     }
 }
 #[cfg(feature = "http_error")]
-impl Into<HttpResponse> for QueryResult {
-    fn into(self) -> HttpResponse {
-        (&self).into()
+impl From<QueryResult> for HttpResponse {
+    fn from(result: QueryResult) -> Self {
+        (&result).into()
     }
 }
 
