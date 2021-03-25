@@ -1,7 +1,11 @@
 //! This module contains persistence related Iroha logic.
 //! `Kura` is the main entity which should be used to store new `Block`s on the blockchain.
 
-use crate::{block::VersionedValidBlock, merkle::MerkleTree, prelude::*};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 use async_std::{
     fs::{metadata, File},
     prelude::*,
@@ -10,10 +14,8 @@ use iroha_derive::*;
 use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::Deserialize;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+
+use crate::{block::VersionedValidBlock, merkle::MerkleTree, prelude::*};
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
@@ -182,10 +184,12 @@ impl BlockStore {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use super::Mode;
+    use std::{env, path::Path};
+
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::{env, path::Path};
+
+    use super::Mode;
 
     const KURA_INIT_MODE: &str = "KURA_INIT_MODE";
     const KURA_BLOCK_STORE_PATH: &str = "KURA_BLOCK_STORE_PATH";
@@ -235,11 +239,12 @@ pub mod config {
 mod tests {
     #![allow(clippy::cast_possible_truncation)]
 
-    use super::*;
     use async_std::channel;
     use iroha_crypto::KeyPair;
     use iroha_data_model::prelude::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[async_std::test]
     async fn strict_init_kura() {

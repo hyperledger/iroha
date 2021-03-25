@@ -1,3 +1,5 @@
+use std::{thread, time::Duration};
+
 use iroha::config::Configuration;
 use iroha_client::{
     client::{self, Client},
@@ -5,7 +7,6 @@ use iroha_client::{
 };
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain;
-use std::{thread, time::Duration};
 use test_network::Peer as TestPeer;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";

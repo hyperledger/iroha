@@ -1,4 +1,12 @@
 //! This module contains `Configuration` structure and related implementation.
+use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
+
+use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
+use iroha_data_model::prelude::*;
+use iroha_error::{Result, WrapErr};
+use iroha_logger::config::LoggerConfiguration;
+use serde::Deserialize;
+
 use crate::{
     block_sync::config::BlockSyncConfiguration,
     genesis::config::GenesisConfiguration,
@@ -8,12 +16,6 @@ use crate::{
     torii::config::ToriiConfiguration,
     wsv::config::Configuration as WorldStateViewConfiguration,
 };
-use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
-use iroha_data_model::prelude::*;
-use iroha_error::{Result, WrapErr};
-use iroha_logger::config::LoggerConfiguration;
-use serde::Deserialize;
-use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
@@ -123,8 +125,9 @@ impl Configuration {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::BTreeSet;
+
+    use super::*;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";

@@ -1,10 +1,11 @@
 #![allow(missing_docs)]
 
+use std::collections::BTreeSet;
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::sumeragi::NetworkTopology;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
-use std::collections::BTreeSet;
 
 const N_PEERS: usize = 255;
 

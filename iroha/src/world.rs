@@ -1,13 +1,13 @@
 //! This module contains `World` related ISI implementations.
 
 use crate::{isi::prelude::*, prelude::*};
-use iroha_data_model::*;
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
-    use super::*;
     use iroha_data_model::prelude::*;
     use iroha_error::{error, Result};
+
+    use super::*;
 
     impl Execute for Register<Peer> {
         fn execute(
@@ -72,10 +72,11 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
-    use super::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_error::Result;
+
+    use super::*;
 
     impl Query for FindAllPeers {
         #[log]

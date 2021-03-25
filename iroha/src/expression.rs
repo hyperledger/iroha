@@ -1,12 +1,14 @@
 //! Implementations for Expression evaluation for different expressions.
 
-use crate::prelude::*;
+use std::convert::TryFrom;
+
 use iroha_data_model::{
     expression::{prelude::*, Expression},
     prelude::*,
 };
 use iroha_error::{error, Error, Result};
-use std::convert::TryFrom;
+
+use crate::prelude::*;
 
 /// Calculate the result of the expression without mutating the state.
 #[allow(clippy::missing_errors_doc)]
@@ -346,12 +348,14 @@ impl Evaluate for Mod {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{error::Error as StdError, fmt::Debug};
+
     use iroha_crypto::KeyPair;
     use iroha_error::Result;
     use iroha_macro::error::ErrorTryFromEnum;
     use parity_scale_codec::{Decode, Encode};
-    use std::{error::Error as StdError, fmt::Debug};
+
+    use super::*;
 
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]

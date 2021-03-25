@@ -1,9 +1,10 @@
+use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
+
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_dsl::prelude::*;
 use iroha_error::{Error, Result, WrapErr};
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
-use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 const TORII_API_URL: &str = "TORII_API_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";

@@ -1,9 +1,11 @@
-use self::config::QueueConfiguration;
-use crate::prelude::*;
-use iroha_data_model::prelude::*;
-use iroha_error::{error, Result};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
+
+use iroha_data_model::prelude::*;
+use iroha_error::{error, Result};
+
+use self::config::QueueConfiguration;
+use crate::prelude::*;
 
 #[derive(Debug)]
 pub struct Queue {
@@ -129,9 +131,10 @@ impl Queue {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use std::env;
+
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::env;
 
     const MAXIMUM_TRANSACTIONS_IN_BLOCK: &str = "MAXIMUM_TRANSACTIONS_IN_BLOCK";
     // 2^13
@@ -193,10 +196,11 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, thread, time::Duration};
+
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
-    use std::{collections::BTreeMap, thread, time::Duration};
 
     fn accepted_tx(
         account: &str,
@@ -353,9 +357,10 @@ mod tests {
         let transaction = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
         let mut world_state_view =
             WorldStateView::new(world_with_test_domains(alice_key.public_key));
-        let _ = world_state_view
-            .transactions_hashes
-            .insert(transaction.hash());
+        let _ = world_state_view.transactions.insert(
+            transaction.hash(),
+            TransactionValue::Transaction(transaction.clone().into()),
+        );
         queue
             .push_pending_transaction(transaction)
             .expect("Failed to push tx into queue");

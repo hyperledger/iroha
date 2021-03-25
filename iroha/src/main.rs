@@ -1,9 +1,10 @@
 //! Iroha peer command line
 
+use std::{thread, time::Duration};
+
 use clap::{App, Arg};
 use iroha::{config::Configuration, permissions::AllowAll, Iroha};
 use iroha_error::Result;
-use std::{thread, time::Duration};
 
 const CONFIGURATION_PATH: &str = "config.json";
 const GENESIS: &str = "genesis";

@@ -1,9 +1,10 @@
 //! This module contains enumeration of all possible Iroha Special Instructions `Instruction`,
 //! generic instruction types and related implementations.
-use crate::{expression::Evaluate, prelude::*};
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::log;
 use iroha_error::{error, Result};
+
+use crate::{expression::Evaluate, prelude::*};
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 #[allow(clippy::missing_errors_doc)]
@@ -310,9 +311,10 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds, TryAsRef};
+
+    use super::*;
 
     fn world_with_test_domains() -> Result<World> {
         let mut domains = DomainsMap::new();

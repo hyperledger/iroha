@@ -4,21 +4,23 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+use std::ops::Range;
+
 #[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
 #[cfg(feature = "scale")]
 use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
-use std::ops::Range;
 
 /// Module which contains error and result for versioning
 pub mod error {
-    use super::UnsupportedVersion;
     use iroha_derive::FromVariant;
     use iroha_error::derive::Error;
     #[cfg(feature = "http_error")]
     use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
+
+    use super::UnsupportedVersion;
 
     /// Versioning errors
     #[derive(Error, Debug, FromVariant)]
@@ -110,9 +112,10 @@ pub enum RawVersioned {
 /// Scale related versioned (de)serialization traits.
 #[cfg(feature = "scale")]
 pub mod scale {
+    use parity_scale_codec::{Decode, Encode};
+
     use super::error::Result;
     use super::Version;
-    use parity_scale_codec::{Decode, Encode};
 
     /// `Decode` versioned analog.
     pub trait DecodeVersioned: Decode + Version {
@@ -134,9 +137,10 @@ pub mod scale {
 /// JSON related versioned (de)serialization traits.
 #[cfg(feature = "json")]
 pub mod json {
+    use serde::{Deserialize, Serialize};
+
     use super::error::Result;
     use super::Version;
-    use serde::{Deserialize, Serialize};
 
     /// `Serialize` versioned analog, specifically for JSON.
     pub trait DeserializeVersioned<'a>: Deserialize<'a> + Version {

@@ -1,6 +1,19 @@
 //! This module contains incoming requests handling logic of Iroha.
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
+use std::{fmt::Debug, sync::Arc};
+
+use async_std::{prelude::*, sync::RwLock, task};
+use iroha_data_model::prelude::*;
+use iroha_derive::*;
+use iroha_error::{derive::Error, error};
+use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
+#[cfg(feature = "mock")]
+use iroha_network::mock::prelude::*;
+#[cfg(not(feature = "mock"))]
+use iroha_network::prelude::*;
+use iroha_version::prelude::*;
+
 use crate::{
     block_sync::message::{
         Message as BlockSyncMessage, VersionedMessage as BlockSyncVersionedMessage,
@@ -16,17 +29,6 @@ use crate::{
     },
     BlockSyncMessageSender, SumeragiMessageSender,
 };
-use async_std::{prelude::*, sync::RwLock, task};
-use iroha_data_model::prelude::*;
-use iroha_derive::*;
-use iroha_error::{derive::Error, error};
-use iroha_http_server::{prelude::*, web_socket::WebSocketStream, Server};
-#[cfg(feature = "mock")]
-use iroha_network::mock::prelude::*;
-#[cfg(not(feature = "mock"))]
-use iroha_network::prelude::*;
-use iroha_version::prelude::*;
-use std::{fmt::Debug, sync::Arc};
 
 /// Main network handler and the only entrypoint of the Iroha.
 #[derive(Debug)]
@@ -496,9 +498,10 @@ pub mod uri {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use std::env;
+
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::env;
 
     const TORII_API_URL: &str = "TORII_API_URL";
     const TORII_P2P_URL: &str = "TORII_P2P_URL";
@@ -576,12 +579,14 @@ pub mod config {
 mod tests {
     #![allow(clippy::default_trait_access)]
 
-    use super::*;
-    use crate::config::Configuration;
+    use std::{convert::TryInto, time::Duration};
+
     use async_std::{channel, future};
     use futures::future::FutureExt;
     use iroha_data_model::account::Id;
-    use std::{convert::TryInto, time::Duration};
+
+    use super::*;
+    use crate::config::Configuration;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";

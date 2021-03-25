@@ -1,16 +1,18 @@
 //! This module contains `Account` structure, it's implementation and related traits and
 //! instructions implementations.
 
-use crate::prelude::*;
 use iroha_data_model::prelude::*;
+
+use crate::prelude::*;
 
 /// Iroha Special Instructions module provides `AccountInstruction` enum with all possible types of
 /// Account related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
 pub mod isi {
+    use iroha_error::{error, Result};
+
     use super::*;
     use crate::isi::prelude::*;
-    use iroha_error::{error, Result};
 
     impl Execute for Mint<Account, PublicKey> {
         fn execute(
@@ -105,10 +107,11 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Account related implementations.
 pub mod query {
-    use super::*;
-    use crate::expression::Evaluate;
     use iroha_derive::*;
     use iroha_error::{error, Result, WrapErr};
+
+    use super::*;
+    use crate::expression::Evaluate;
 
     impl Query for FindAllAccounts {
         #[log]

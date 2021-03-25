@@ -2,11 +2,13 @@
 
 #![allow(clippy::len_without_is_empty, clippy::unused_self)]
 
-use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, ValueMarker};
+use std::fmt::Debug;
+
 use iroha_derive::FromVariant;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+
+use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, ValueMarker};
 
 /// Sized structure for all possible Instructions.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]

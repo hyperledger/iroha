@@ -5,16 +5,17 @@
 pub mod multihash;
 mod varint;
 
-use iroha_error::{error, Error, Result};
-use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
-use parity_scale_codec::{Decode, Encode};
-use serde::{de::Error as SerdeError, Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Display, Formatter},
     str::FromStr,
 };
+
+use iroha_error::{error, Error, Result};
+use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
+use parity_scale_codec::{Decode, Encode};
+use serde::{de::Error as SerdeError, Deserialize, Serialize};
 use ursa::{
     blake2::{
         digest::{Input, VariableOutput},
@@ -490,13 +491,14 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use hex_literal::hex;
     use serde::Deserialize;
     use ursa::blake2::{
         digest::{Input, VariableOutput},
         VarBlake2b,
     };
+
+    use super::*;
 
     #[test]
     fn create_signature_ed25519() {

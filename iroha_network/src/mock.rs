@@ -1,5 +1,12 @@
 #![allow(clippy::missing_errors_doc, unsafe_code, missing_docs)]
 
+use std::{
+    convert::{TryFrom, TryInto},
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
 use async_std::{
     channel::{self, Sender},
     io::{Read, Write},
@@ -10,12 +17,6 @@ use async_std::{
 use iroha_derive::{log, Io};
 use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
-use std::{
-    convert::{TryFrom, TryInto},
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
 
 const BUFFER_SIZE: usize = 2048;
 static mut ENDPOINTS: Vec<(String, Sender<RequestStream>)> = Vec::new();
