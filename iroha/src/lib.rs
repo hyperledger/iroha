@@ -24,6 +24,18 @@ pub mod tx;
 pub mod world;
 pub mod wsv;
 
+use std::{sync::Arc, time::Duration};
+
+use async_std::{
+    channel::{self, Receiver, Sender},
+    prelude::*,
+    sync::RwLock,
+    task,
+};
+use iroha_data_model::prelude::*;
+use iroha_error::Result;
+use permissions::PermissionsValidatorBox;
+
 use crate::{
     block::VersionedValidBlock,
     block_sync::{message::Message as BlockSyncMessage, BlockSynchronizer},
@@ -36,16 +48,6 @@ use crate::{
     sumeragi::{message::Message as SumeragiMessage, Sumeragi},
     torii::Torii,
 };
-use async_std::{
-    channel::{self, Receiver, Sender},
-    prelude::*,
-    sync::RwLock,
-    task,
-};
-use iroha_data_model::prelude::*;
-use iroha_error::Result;
-use permissions::PermissionsValidatorBox;
-use std::{sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
@@ -290,8 +292,17 @@ impl Iroha {
     }
 }
 
+/// Allow to check if item included in blockchain
+pub trait IsInBlockchain {
+    /// Checks if this item has already been committed or rejected.
+    fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool;
+}
+
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
+
+    #[doc(inline)]
+    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature};
 
     #[doc(inline)]
     pub use crate::{
@@ -305,10 +316,7 @@ pub mod prelude {
             VersionedValidTransaction,
         },
         wsv::WorldStateView,
-        CommittedBlockReceiver, CommittedBlockSender, Iroha, TransactionReceiver,
+        CommittedBlockReceiver, CommittedBlockSender, Iroha, IsInBlockchain, TransactionReceiver,
         TransactionSender, ValidBlockReceiver, ValidBlockSender,
     };
-
-    #[doc(inline)]
-    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature};
 }

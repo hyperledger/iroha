@@ -3,10 +3,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-pub mod events;
-pub mod expression;
-pub mod isi;
-pub mod query;
+use std::{convert::TryFrom, fmt::Debug};
 
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
@@ -14,7 +11,11 @@ use iroha_error::Result;
 use iroha_macro::error::ErrorTryFromEnum;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::{convert::TryFrom, fmt::Debug};
+
+pub mod events;
+pub mod expression;
+pub mod isi;
+pub mod query;
 
 /// `Name` struct represents type for Iroha Entities names, like `Domain`'s name or `Account`'s
 /// name.
@@ -97,6 +98,7 @@ pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
+#[allow(clippy::pub_enum_variant_names)]
 pub enum Value {
     /// `u32` integer.
     U32(u32),
@@ -116,6 +118,8 @@ pub enum Value {
     Parameter(Parameter),
     /// Signature check condition.
     SignatureCheckCondition(account::SignatureCheckCondition),
+    /// Committed or rejected transactions
+    TransactionValue(transaction::TransactionValue),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -126,7 +130,7 @@ impl Value {
 
         match self {
             U32(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) => 1,
+            | String(_) | TransactionValue(_) => 1,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1,
             SignatureCheckCondition(s) => s.0.len(),
         }
@@ -334,6 +338,15 @@ pub mod account {
     //! Structures, traits and impls related to `Account`s.
     #![allow(clippy::default_trait_access)]
 
+    use std::{collections::BTreeMap, fmt, iter::FromIterator};
+
+    //TODO: get rid of it?
+    use iroha_crypto::prelude::*;
+    use iroha_derive::Io;
+    use iroha_error::{error, Error, Result};
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
     use crate::{
         asset::AssetsMap,
         domain::GENESIS_DOMAIN_NAME,
@@ -342,13 +355,6 @@ pub mod account {
         permissions::PermissionRaw,
         Identifiable, Name, PublicKey, Value,
     };
-    use iroha_derive::Io;
-    use serde::{Deserialize, Serialize};
-    //TODO: get rid of it?
-    use iroha_crypto::prelude::*;
-    use iroha_error::{error, Error, Result};
-    use parity_scale_codec::{Decode, Encode};
-    use std::{collections::BTreeMap, fmt, iter::FromIterator};
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
@@ -641,21 +647,23 @@ pub mod asset {
     //! This module contains `Asset` structure, it's implementation and related traits and
     //! instructions implementations.
 
-    use crate::{
-        account::prelude::*,
-        metadata::{Limits as MetadataLimits, Metadata},
-        Identifiable, Name, TryAsMut, TryAsRef, Value,
-    };
-    use iroha_derive::{FromVariant, Io};
-    use iroha_error::{error, Error, Result};
-    use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
     use std::{
         cmp::Ordering,
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
         iter::FromIterator,
         str::FromStr,
+    };
+
+    use iroha_derive::{FromVariant, Io};
+    use iroha_error::{error, Error, Result};
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use crate::{
+        account::prelude::*,
+        metadata::{Limits as MetadataLimits, Metadata},
+        Identifiable, Name, TryAsMut, TryAsRef, Value,
     };
 
     /// `AssetsMap` provides an API to work with collection of key (`Id`) - value
@@ -1060,16 +1068,18 @@ pub mod asset {
 pub mod domain {
     //! This module contains `Domain` structure and related implementations and trait implementations.
 
+    use std::{cmp::Ordering, collections::BTreeMap, iter, iter::FromIterator};
+
+    use iroha_crypto::PublicKey;
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
     use crate::{
         account::{Account, AccountsMap, GenesisAccount},
         asset::AssetDefinitionsMap,
         Identifiable, Name, Value,
     };
-    use iroha_crypto::PublicKey;
-    use iroha_derive::Io;
-    use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
-    use std::{cmp::Ordering, collections::BTreeMap, iter, iter::FromIterator};
 
     /// Genesis domain name. Genesis domain should contain only genesis account.
     pub const GENESIS_DOMAIN_NAME: &str = "genesis";
@@ -1163,11 +1173,13 @@ pub mod domain {
 pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
 
-    use crate::{Identifiable, PublicKey, Value};
+    use std::{collections::BTreeSet, iter::FromIterator};
+
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    use std::{collections::BTreeSet, iter::FromIterator};
+
+    use crate::{Identifiable, PublicKey, Value};
 
     /// Ids of peers.
     pub type PeersIds = BTreeSet<Id>;
@@ -1231,15 +1243,20 @@ pub mod peer {
 pub mod transaction {
     //! This module contains `Transaction` structures and related implementations
     //! and traits implementations.
+    // TODO remove `allow` when the task https://jira.hyperledger.org/browse/IR-1048 will be closed
+    #![allow(unused_results)]
 
-    use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+    use std::cmp::Ordering;
+    use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
+
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use iroha_error::{error, Result};
-    use iroha_version::{declare_versioned_with_scale, version_with_scale};
+    use iroha_version::{
+        declare_versioned, declare_versioned_with_scale, version, version_with_scale,
+    };
     use parity_scale_codec::{Decode, Encode};
-    use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
-
+    use serde::{Deserialize, Serialize};
     #[cfg(feature = "http_error")]
     use {
         iroha_http_server::http::HttpResponse,
@@ -1247,18 +1264,21 @@ pub mod transaction {
         std::collections::BTreeMap,
     };
 
+    use crate::prelude::TransactionRejectionReason;
+    use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
 
-    declare_versioned_with_scale!(VersionedTransaction 1..2);
+    declare_versioned!(VersionedTransaction 1..2);
 
     /// This structure represents transaction in non-trusted form.
     ///
     /// `Iroha` and its' clients use `Transaction` to send transactions via network.
     /// Direct usage in business logic is strongly prohibited. Before any interactions
     /// `accept`.
-    #[version_with_scale(n = 1, versioned = "VersionedTransaction")]
-    #[derive(Clone, Debug, Io, Encode, Decode)]
+    #[version(n = 1, versioned = "VersionedTransaction")]
+    #[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq)]
     pub struct Transaction {
         /// `Transaction` payload.
         pub payload: Payload,
@@ -1267,7 +1287,7 @@ pub mod transaction {
     }
 
     /// Iroha `Transaction` payload.
-    #[derive(Clone, Debug, Io, Encode, Decode)]
+    #[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq)]
     pub struct Payload {
         /// Account ID of transaction creator.
         pub account_id: <Account as Identifiable>::Id,
@@ -1333,6 +1353,13 @@ pub mod transaction {
         /// Fails if signature creation fails
         pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
             self.into_inner_v1().sign(key_pair).map(Into::into)
+        }
+
+        /// Returns payload of transaction
+        pub const fn payload(&self) -> &Payload {
+            match self {
+                Self::V1(v1) => &v1.0.payload,
+            }
         }
     }
 
@@ -1455,21 +1482,143 @@ pub mod transaction {
         }
     }
 
+    /// Transaction Value used in Instructions and Queries
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+    pub enum TransactionValue {
+        /// Committed transaction
+        Transaction(VersionedTransaction),
+        /// Rejected transaction with reason of rejection
+        RejectedTransaction(VersionedRejectedTransaction),
+    }
+
+    impl TransactionValue {
+        /// Used to return payload of the transaction
+        pub const fn payload(&self) -> &Payload {
+            match self {
+                TransactionValue::Transaction(tx) => tx.payload(),
+                TransactionValue::RejectedTransaction(tx) => tx.payload(),
+            }
+        }
+    }
+
+    impl Ord for TransactionValue {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.payload()
+                .creation_time
+                .cmp(&other.payload().creation_time)
+        }
+    }
+
+    impl PartialOrd for TransactionValue {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(
+                self.payload()
+                    .creation_time
+                    .cmp(&other.payload().creation_time),
+            )
+        }
+    }
+
+    declare_versioned!(VersionedRejectedTransaction 1..2);
+
+    #[allow(clippy::missing_errors_doc)]
+    impl VersionedRejectedTransaction {
+        /// The same as `as_v1` but also runs into on it
+        pub const fn as_inner_v1(&self) -> &RejectedTransaction {
+            match self {
+                Self::V1(v1) => &v1.0,
+            }
+        }
+
+        /// The same as `as_v1` but also runs into on it
+        pub fn as_mut_inner_v1(&mut self) -> &mut RejectedTransaction {
+            match self {
+                Self::V1(v1) => &mut v1.0,
+            }
+        }
+
+        /// The same as `as_v1` but also runs into on it
+        #[allow(clippy::missing_const_for_fn)]
+        pub fn into_inner_v1(self) -> RejectedTransaction {
+            match self {
+                Self::V1(v1) => v1.into(),
+            }
+        }
+
+        /// Calculate transaction `Hash`.
+        pub fn hash(&self) -> Hash {
+            self.as_inner_v1().hash()
+        }
+
+        /// Returns payload of transaction
+        pub const fn payload(&self) -> &Payload {
+            match self {
+                Self::V1(v1) => &v1.0.payload,
+            }
+        }
+    }
+
+    impl Eq for VersionedRejectedTransaction {}
+
+    impl PartialEq for VersionedRejectedTransaction {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (
+                    VersionedRejectedTransaction::V1(first),
+                    VersionedRejectedTransaction::V1(second),
+                ) => first.0.eq(&second.0),
+            }
+        }
+    }
+
+    impl Eq for VersionedTransaction {}
+
+    impl PartialEq for VersionedTransaction {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (VersionedTransaction::V1(first), VersionedTransaction::V1(second)) => {
+                    first.0.eq(&second.0)
+                }
+            }
+        }
+    }
+
+    /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
+    #[version(n = 1, versioned = "VersionedRejectedTransaction")]
+    #[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq)]
+    pub struct RejectedTransaction {
+        /// `Transaction` payload.
+        pub payload: Payload,
+        /// `Transaction`'s `Signature`s.
+        pub signatures: Vec<Signature>,
+        /// The reason for rejecting this transaction during the validation pipeline.
+        pub rejection_reason: TransactionRejectionReason,
+    }
+
+    impl RejectedTransaction {
+        /// Calculate transaction [`Hash`].
+        pub fn hash(&self) -> Hash {
+            let bytes: Vec<u8> = self.payload.clone().into();
+            Hash::new(&bytes)
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{
-            Payload, PendingTransactions, Transaction, VersionedPendingTransactions,
-            VersionedTransaction,
+            Payload, PendingTransactions, RejectedTransaction, Transaction, TransactionValue,
+            VersionedPendingTransactions, VersionedRejectedTransaction, VersionedTransaction,
         };
     }
 }
 
 /// Structures and traits related to pagination.
 pub mod pagination {
+    use std::{collections::BTreeMap, convert::TryFrom, fmt};
+
     use iroha_error::Result;
     #[cfg(feature = "http_error")]
     use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
-    use std::{collections::BTreeMap, convert::TryFrom, fmt};
 
     /// Describes a collection to which pagination can be applied.
     /// Implemented for the [`Iterator`] implementors.
@@ -1694,11 +1843,13 @@ pub mod pagination {
 pub mod metadata {
     //! Module with metadata for accounts
 
-    use crate::{Name, Value};
+    use std::{borrow::Borrow, collections::BTreeMap};
+
     use iroha_error::{error, Result};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    use std::{borrow::Borrow, collections::BTreeMap};
+
+    use crate::{Name, Value};
 
     /// Collection of parameters by their names.
     pub type UnlimitedMetadata = BTreeMap<Name, Value>;

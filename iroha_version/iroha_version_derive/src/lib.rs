@@ -1,9 +1,10 @@
 #![allow(clippy::module_name_repetitions, missing_docs)]
+use std::{collections::HashMap, ops::Range};
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
 use quote::quote;
-use std::{collections::HashMap, ops::Range};
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
@@ -373,6 +374,7 @@ fn impl_as_from(args: &DeclareVersionedArgs) -> proc_macro2::TokenStream {
     )
 }
 
+//TODO using this cause linters issue FIXME https://jira.hyperledger.org/browse/IR-1048
 fn impl_declare_versioned(
     args: &DeclareVersionedArgs,
     with_scale: bool,

@@ -2,6 +2,8 @@
 //! This module contains descriptions of such an events and
 //! utilitary Iroha Special Instructions to work with them.
 
+use std::{fmt::Debug, time::Duration};
+
 use async_std::{
     channel::{Receiver, Sender},
     future,
@@ -11,7 +13,6 @@ use iroha_data_model::events::{prelude::*, SubscriptionRequest};
 use iroha_error::{error, Result, WrapErr};
 use iroha_http_server::web_socket::{WebSocketMessage, WebSocketStream};
 use iroha_version::prelude::*;
-use std::{fmt::Debug, time::Duration};
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = Sender<Event>;

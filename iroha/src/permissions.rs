@@ -2,9 +2,11 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use crate::prelude::*;
-use iroha_data_model::prelude::*;
 use std::iter;
+
+use iroha_data_model::prelude::*;
+
+use crate::prelude::*;
 
 /// Reason for prohibiting the execution of the particular instruction.
 pub type DenialReason = String;
@@ -178,8 +180,9 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use iroha_data_model::isi::*;
+
+    use super::*;
 
     struct DenyBurn;
 

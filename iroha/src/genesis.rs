@@ -1,13 +1,8 @@
 //! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
 #![allow(clippy::module_name_repetitions)]
 
-use self::config::GenesisConfiguration;
-use crate::{
-    sumeragi::{InitializedNetworkTopology, Sumeragi},
-    torii::uri,
-    tx::VersionedAcceptedTransaction,
-    Identifiable,
-};
+use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
+
 use async_std::{
     sync::{Arc, RwLock},
     task,
@@ -18,7 +13,14 @@ use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_error::{error, Result, WrapErr};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
-use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
+
+use self::config::GenesisConfiguration;
+use crate::{
+    sumeragi::{InitializedNetworkTopology, Sumeragi},
+    torii::uri,
+    tx::VersionedAcceptedTransaction,
+    Identifiable,
+};
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -205,10 +207,11 @@ impl GenesisNetwork {
 
 /// This module contains all genesis configuration related logic.
 pub mod config {
+    use std::env;
+
     use iroha_crypto::{PrivateKey, PublicKey};
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::env;
 
     const GENESIS_ACCOUNT_PUBLIC_KEY: &str = "IROHA_GENESIS_ACCOUNT_PUBLIC_KEY";
     const GENESIS_ACCOUNT_PRIVATE_KEY: &str = "IROHA_GENESIS_ACCOUNT_PRIVATE_KEY";

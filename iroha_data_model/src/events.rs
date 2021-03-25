@@ -60,9 +60,10 @@ impl EventFilter {
 
 /// Events of data entities.
 pub mod data {
-    use crate::prelude::*;
     use iroha_derive::FromVariant;
     use serde::{Deserialize, Serialize};
+
+    use crate::prelude::*;
 
     /// Entity type to filter events.
     #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Copy, Clone)]
@@ -147,12 +148,13 @@ pub mod data {
 
 /// Pipeline events.
 pub mod pipeline {
-    use crate::isi::Instruction;
     use iroha_crypto::{Hash, Signature};
     use iroha_derive::FromVariant;
     use iroha_error::derive::Error;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
+
+    use crate::isi::Instruction;
 
     /// Event filter.
     #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -399,9 +401,10 @@ pub mod pipeline {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
         use RejectionReason::*;
         use TransactionRejectionReason::*;
+
+        use super::*;
 
         #[test]
         fn events_are_correctly_filtered() {

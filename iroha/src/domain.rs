@@ -1,7 +1,8 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
-use crate::{isi::prelude::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result};
+
+use crate::{isi::prelude::*, prelude::*};
 
 /// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
@@ -91,10 +92,11 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Domain related implementations.
 pub mod query {
-    use super::*;
-    use crate::expression::Evaluate;
     use iroha_derive::*;
     use iroha_error::{Result, WrapErr};
+
+    use super::*;
+    use crate::expression::Evaluate;
 
     impl Query for FindAllDomains {
         #[log]

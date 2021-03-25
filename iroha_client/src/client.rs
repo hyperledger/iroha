@@ -1,19 +1,21 @@
-use crate::{
-    config::Configuration,
-    http_client::{self, StatusCode, WebSocketError, WebSocketMessage},
-};
-use http_client::WebSocketStream;
-use iroha_crypto::{Hash, KeyPair};
-use iroha_derive::log;
-use iroha_dsl::prelude::*;
-use iroha_error::{error, Error, Result, WrapErr};
-use iroha_version::prelude::*;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
     sync::mpsc,
     thread,
     time::Duration,
+};
+
+use http_client::WebSocketStream;
+use iroha_crypto::{Hash, KeyPair};
+use iroha_derive::log;
+use iroha_dsl::prelude::*;
+use iroha_error::{error, Error, Result, WrapErr};
+use iroha_version::prelude::*;
+
+use crate::{
+    config::Configuration,
+    http_client::{self, StatusCode, WebSocketError, WebSocketMessage},
 };
 
 /// Iroha client
@@ -459,6 +461,16 @@ pub mod domain {
     /// Get query to get all domain by name
     pub fn by_name(domain_name: impl Into<EvaluatesTo<String>>) -> QueryRequest {
         QueryRequest::new(FindDomainByName::new(domain_name).into())
+    }
+}
+
+pub mod transaction {
+    //! Module with queries for transactions
+    use super::*;
+
+    /// Get query to retrieve transactions for account
+    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> QueryRequest {
+        QueryRequest::new(FindTransactionsByAccountId::new(account_id).into())
     }
 }
 

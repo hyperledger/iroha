@@ -22,6 +22,7 @@ build/*
 .gradle/*
 .vscode/*
 .idea/*
+*.iml
 *xcworkspace*
 *cmake-build-debug*
 CMakeLists.txt.user

@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use std::{sync::Arc, thread, time::Duration};
+
     use async_std::{prelude::*, sync::RwLock, task};
     use iroha_error::{Result, WrapErr};
     use iroha_network::prelude::*;
-    use std::{sync::Arc, thread, time::Duration};
 
     #[async_std::test]
     async fn test_connect_handling() {

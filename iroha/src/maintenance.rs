@@ -1,11 +1,12 @@
 //! `Maintenance` module provides structures and implementation blocks related to `Iroha`
 //! maintenance functions like Healthcheck, Monitoring, etc.
 
-use crate::config::Configuration;
 use async_std::task;
 use iroha_derive::Io;
 use iroha_error::Result;
 use parity_scale_codec::{Decode, Encode};
+
+use crate::config::Configuration;
 
 /// Entry point and main entity in `maintenance` API.
 /// Provides all information about the system needed for administrators and users.
@@ -76,11 +77,13 @@ impl Metrics {
 }
 
 mod disk {
-    use crate::kura::config::KuraConfiguration;
+    use std::fs::read_dir;
+
     use iroha_derive::Io;
     use iroha_error::{Result, WrapErr};
     use parity_scale_codec::{Decode, Encode};
-    use std::fs::read_dir;
+
+    use crate::kura::config::KuraConfiguration;
 
     #[derive(Clone, Debug, Default, Io, Encode, Decode)]
     pub struct Disk {

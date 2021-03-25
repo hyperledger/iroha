@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::{iter, thread};
+
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
@@ -7,7 +9,6 @@ mod tests {
     };
     use iroha_data_model::prelude::*;
     use iroha_error::Result;
-    use std::{iter, thread};
     use test_network::Peer as TestPeer;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
