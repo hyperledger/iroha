@@ -1,10 +1,12 @@
-use super::varint::VarUint;
-use iroha_error::{error, Error, Result};
 use std::{
     convert::{TryFrom, TryInto},
     fmt::Display,
     str::FromStr,
 };
+
+use iroha_error::{error, Error, Result};
+
+use super::varint::VarUint;
 
 /// ed25519 public string
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";

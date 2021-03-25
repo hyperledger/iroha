@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, convert::TryFrom};
+
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
-    use std::{collections::BTreeMap, convert::TryFrom};
 
     #[derive(Io, Encode, Decode, PartialEq, Debug, Clone)]
     struct SampleContract {

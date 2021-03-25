@@ -1,9 +1,10 @@
 #![allow(clippy::doc_markdown, clippy::module_name_repetitions, missing_docs)]
+use std::str::FromStr;
+
 use log::Level;
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::quote;
-use std::str::FromStr;
 use syn::{
     spanned::Spanned, AttributeArgs, FieldPat, FnArg, Ident, ItemFn, Lit, NestedMeta, Pat,
     PatIdent, PatReference, PatStruct, PatTuple, PatTupleStruct, PatType, Signature,

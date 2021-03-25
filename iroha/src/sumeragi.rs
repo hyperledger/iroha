@@ -2,14 +2,14 @@
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 
-use self::message::*;
-use crate::{
-    block::{ChainedBlock, VersionedPendingBlock},
-    event::EventsSender,
-    permissions::PermissionsValidatorBox,
-    prelude::*,
-    VersionedValidBlock,
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{self, Debug, Formatter},
+    iter,
+    sync::Arc,
+    time::{Duration, SystemTime},
 };
+
 use async_std::sync::RwLock;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
@@ -17,12 +17,14 @@ use iroha_derive::*;
 use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{self, Debug, Formatter},
-    iter,
-    sync::Arc,
-    time::{Duration, SystemTime},
+
+use self::message::*;
+use crate::{
+    block::{ChainedBlock, VersionedPendingBlock},
+    event::EventsSender,
+    permissions::PermissionsValidatorBox,
+    prelude::*,
+    VersionedValidBlock,
 };
 
 trait Consensus {
@@ -803,11 +805,8 @@ impl VotingBlock {
 
 /// Contains message structures for p2p communication during consensus.
 pub mod message {
-    use crate::{
-        sumeragi::{InitializedNetworkTopology, Role, Sumeragi, VotingBlock},
-        torii::uri,
-        VersionedAcceptedTransaction, VersionedValidBlock,
-    };
+    use std::time::{Duration, SystemTime};
+
     use async_std::task;
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
@@ -816,7 +815,12 @@ pub mod message {
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::time::{Duration, SystemTime};
+
+    use crate::{
+        sumeragi::{InitializedNetworkTopology, Role, Sumeragi, VotingBlock},
+        torii::uri,
+        VersionedAcceptedTransaction, VersionedValidBlock,
+    };
 
     declare_versioned_with_scale!(VersionedMessage 1..2);
 
@@ -1644,11 +1648,12 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use std::{collections::BTreeSet, env, fmt::Debug, fs::File, io::BufReader, path::Path};
+
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::{collections::BTreeSet, env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
     const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
     const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
@@ -1806,7 +1811,6 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::BTreeSet;
 
     #[cfg(feature = "network-mock")]
@@ -1816,6 +1820,8 @@ mod tests {
         network::*,
         std::time::Duration,
     };
+
+    use super::*;
 
     #[cfg(feature = "network-mock")]
     mod network {

@@ -2,13 +2,14 @@
 
 #![allow(missing_docs)]
 
+use std::{fs::File, io::BufReader, str::FromStr, time::Duration};
+
 use clap::{App, Arg, ArgMatches};
 use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
 use iroha_error::{Result, WrapErr};
-use std::{fs::File, io::BufReader, str::FromStr, time::Duration};
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
@@ -118,9 +119,10 @@ pub fn parse_metadata(matches: &ArgMatches<'_>) -> UnlimitedMetadata {
 }
 
 mod events {
-    use super::*;
     use clap::ArgMatches;
     use iroha_client::{client::Client, config::Configuration};
+
+    use super::*;
 
     const PIPELINE: &str = "pipeline";
     const DATA: &str = "data";
@@ -161,9 +163,10 @@ mod events {
 }
 
 mod domain {
-    use super::*;
     use clap::ArgMatches;
     use iroha_client::config::Configuration;
+
+    use super::*;
 
     const DOMAIN_NAME: &str = "name";
     const ADD: &str = "add";
@@ -209,10 +212,12 @@ mod domain {
 }
 
 mod account {
-    use super::*;
+    use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
+
     use clap::ArgMatches;
     use iroha_client::config::Configuration;
-    use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
+
+    use super::*;
 
     const REGISTER: &str = "register";
     const SET: &str = "set";
@@ -357,12 +362,13 @@ mod account {
 }
 
 mod asset {
-    use super::*;
     use clap::ArgMatches;
     use iroha_client::{
         client::{asset, Client},
         config::Configuration,
     };
+
+    use super::*;
 
     const REGISTER: &str = "register";
     const MINT: &str = "mint";

@@ -1,15 +1,17 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
 
+use std::{sync::Arc, time::Duration};
+
+use async_std::{sync::RwLock, task};
+use iroha_data_model::prelude::*;
+use iroha_derive::*;
+
 use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
     kura::Kura,
     sumeragi::{Role, Sumeragi},
     VersionedValidBlock,
 };
-use async_std::{sync::RwLock, task};
-use iroha_data_model::prelude::*;
-use iroha_derive::*;
-use std::{sync::Arc, time::Duration};
 
 /// The state of `BlockSynchronizer`.
 #[derive(Clone, Debug)]
@@ -140,8 +142,6 @@ impl BlockSynchronizer {
 
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
-    use super::{BlockSynchronizer, State};
-    use crate::{block::VersionedValidBlock, torii::uri};
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
@@ -149,6 +149,9 @@ pub mod message {
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
+
+    use super::{BlockSynchronizer, State};
+    use crate::{block::VersionedValidBlock, torii::uri};
 
     declare_versioned_with_scale!(VersionedMessage 1..2);
 
@@ -236,9 +239,10 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
+    use std::env;
+
     use iroha_error::{Result, WrapErr};
     use serde::Deserialize;
-    use std::env;
 
     const BATCH_SIZE: &str = "BLOCK_SYNC_BATCH_SIZE";
     const GOSSIP_PERIOD_MS: &str = "BLOCK_SYNC_GOSSIP_PERIOD_MS";

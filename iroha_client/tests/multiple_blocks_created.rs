@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::thread;
+
     use async_std::task;
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
@@ -7,7 +9,6 @@ mod tests {
         config::Configuration as ClientConfiguration,
     };
     use iroha_data_model::prelude::*;
-    use std::thread;
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";

@@ -1,7 +1,8 @@
 #![allow(clippy::module_name_repetitions)]
 
-use crate::prelude::*;
 use std::collections::VecDeque;
+
+use crate::prelude::*;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.

@@ -3,21 +3,24 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+use std::iter;
+use std::time::SystemTime;
+
+use iroha_crypto::{KeyPair, Signatures};
+use iroha_data_model::events::prelude::*;
+use iroha_data_model::transaction::prelude::*;
+use iroha_derive::Io;
+use iroha_error::Result;
+use iroha_version::{declare_versioned_with_scale, version_with_scale};
+use parity_scale_codec::{Decode, Encode};
+
 use crate::{
     merkle::MerkleTree,
     permissions::PermissionsValidatorBox,
     prelude::*,
     sumeragi::InitializedNetworkTopology,
-    tx::{VersionedAcceptedTransaction, VersionedRejectedTransaction, VersionedValidTransaction},
+    tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
 };
-use iroha_crypto::{KeyPair, Signatures};
-use iroha_data_model::events::prelude::*;
-use iroha_derive::Io;
-use iroha_error::Result;
-use iroha_version::{declare_versioned_with_scale, version_with_scale};
-use parity_scale_codec::{Decode, Encode};
-use std::iter;
-use std::time::SystemTime;
 
 declare_versioned_with_scale!(VersionedPendingBlock 1..2);
 
@@ -529,8 +532,9 @@ impl From<&CommittedBlock> for Vec<Event> {
 
 #[cfg(test)]
 mod tests {
-    use crate::block::{BlockHeader, ValidBlock};
     use iroha_crypto::{Hash, Signatures};
+
+    use crate::block::{BlockHeader, ValidBlock};
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {

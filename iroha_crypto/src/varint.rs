@@ -97,8 +97,9 @@ impl VarUint {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::convert::TryInto;
+
+    use super::*;
 
     #[test]
     fn test_basic_into() {

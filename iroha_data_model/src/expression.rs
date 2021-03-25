@@ -6,12 +6,14 @@
     clippy::unused_self
 )]
 
-use super::{query::QueryBox, Value, ValueBox};
+use std::{collections::BTreeMap, convert::TryFrom, marker::PhantomData};
+
 use iroha_derive::FromVariant;
 use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, convert::TryFrom, marker::PhantomData};
+
+use super::{query::QueryBox, Value, ValueBox};
 
 /// Binded name for a value.
 pub type ValueName = String;

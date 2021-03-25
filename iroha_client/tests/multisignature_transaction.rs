@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::{thread, time::Duration};
+
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
@@ -7,7 +9,6 @@ mod tests {
     };
     use iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE;
     use iroha_data_model::prelude::*;
-    use std::{thread, time::Duration};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";

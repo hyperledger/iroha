@@ -2,6 +2,8 @@
 
 #![allow(clippy::missing_errors_doc, clippy::module_name_repetitions)]
 
+use std::thread;
+
 use async_std::task;
 use iroha::{
     config::Configuration, permissions::PermissionsValidatorBox, prelude::*,
@@ -11,7 +13,6 @@ use iroha_data_model::prelude::*;
 use iroha_error::{Error, Result};
 use iroha_logger::config::{LevelFilter, LoggerConfiguration};
 use rand::seq::SliceRandom;
-use std::thread;
 use tempfile::TempDir;
 
 /// Network of peers

@@ -1,8 +1,7 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
-use crate::Value;
+use std::time::SystemTime;
 
-use self::{account::*, asset::*, domain::*, peer::*};
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
 use iroha_error::Result;
@@ -11,7 +10,9 @@ use iroha_http_server::http::HttpResponse;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+
+use self::{account::*, asset::*, domain::*, peer::*, transaction::*};
+use crate::Value;
 
 /// Sized container for all possible Queries.
 #[allow(clippy::pub_enum_variant_names)]
@@ -57,6 +58,8 @@ pub enum QueryBox {
     FindAllPeers(Box<FindAllPeers>),
     /// `FindAllParameters` variant.
     FindAllParameters(Box<FindAllParameters>),
+    /// `FindTransactionsByAccountId` variant.
+    FindTransactionsByAccountId(Box<FindTransactionsByAccountId>),
 }
 
 /// I/O ready structure to send queries.
@@ -149,10 +152,11 @@ impl SignedQueryRequest {
 
 pub mod account {
     //! Queries related to `Account`.
-    use crate::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
+
+    use crate::prelude::*;
 
     /// `FindAllAccounts` Iroha Query will find all `Account`s presented.
     #[derive(
@@ -248,10 +252,11 @@ pub mod account {
 pub mod asset {
     //! Queries related to `Asset`.
 
-    use crate::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
+
+    use crate::prelude::*;
 
     /// `FindAllAssets` Iroha Query will find all `Asset`s presented in Iroha Peer.
     #[derive(
@@ -462,10 +467,11 @@ pub mod asset {
 pub mod domain {
     //! Queries related to `Domain`.
 
-    use crate::prelude::*;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
+
+    use crate::prelude::*;
 
     /// `FindAllDomains` Iroha Query will find all `Domain`s presented in Iroha `Peer`.
     #[derive(
@@ -539,11 +545,42 @@ pub mod peer {
     }
 }
 
+pub mod transaction {
+    //! Queries related to `Transaction`.
+
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use crate::account::prelude::AccountId;
+    use crate::expression::EvaluatesTo;
+
+    /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
+    /// for the account
+    #[derive(Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+    pub struct FindTransactionsByAccountId {
+        /// Signer's `AccountId` under which transactions should be found.
+        pub account_id: EvaluatesTo<AccountId>,
+    }
+
+    impl FindTransactionsByAccountId {
+        ///Default [`FindTransactionsByAccountId`] constructor.
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
+            let account_id = account_id.into();
+            FindTransactionsByAccountId { account_id }
+        }
+    }
+    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub mod prelude {
+        pub use super::FindTransactionsByAccountId;
+    }
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*, QueryBox,
-        QueryRequest, QueryResult, SignedQueryRequest, VersionedQueryResult,
-        VersionedSignedQueryRequest,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
+        transaction::*, QueryBox, QueryRequest, QueryResult, SignedQueryRequest,
+        VersionedQueryResult, VersionedSignedQueryRequest,
     };
 }
