@@ -73,7 +73,7 @@ mod tests {
         let peer = TestPeer::new().expect("Failed to create new peer");
         configuration.sumeragi_configuration.trusted_peers.peers = network.ids().collect();
 
-        let _ = peer.start_with_config(configuration);
+        drop(peer.start_with_config(configuration));
 
         thread::sleep(pipeline_time * 2);
         let add_peer = RegisterBox::new(IdentifiableBox::Peer(Peer::new(peer.id).into()));

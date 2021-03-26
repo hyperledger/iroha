@@ -1,9 +1,10 @@
 #![allow(clippy::missing_errors_doc, unsafe_code, missing_docs)]
 
 use async_std::{
+    channel::{self, Sender},
     io::{Read, Write},
     prelude::*,
-    sync::{self, Arc, RwLock, Sender},
+    sync::{Arc, RwLock},
     task,
 };
 use iroha_derive::{log, Io};
@@ -76,8 +77,9 @@ impl Write for RequestStream {
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<async_std::io::Result<()>> {
-        task::block_on(self.tx.send(self.bytes.clone()));
-        Poll::Ready(Ok(()))
+        let res = task::block_on(self.tx.send(self.bytes.clone()))
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
+        Poll::Ready(res)
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<async_std::io::Result<()>> {
@@ -104,14 +106,14 @@ impl Network {
 
     #[log]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
-        let (tx, rx) = sync::channel(100);
+        let (tx, rx) = channel::bounded(100);
         let mut stream = RequestStream {
             bytes: Vec::new(),
             tx,
         };
         let payload: Vec<u8> = request.into();
         stream.write_all(&payload).await?;
-        find_sender(server_url).send(stream).await;
+        find_sender(server_url).send(stream).await?;
         //TODO: return actual response
         Ok(Response::try_from(rx.recv().await.unwrap())?)
     }
@@ -129,7 +131,7 @@ impl Network {
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<()>>,
     {
-        let (tx, rx) = sync::channel(100);
+        let (tx, rx) = channel::bounded(100);
         unsafe {
             ENDPOINTS.push((server_url.to_string(), tx));
         }

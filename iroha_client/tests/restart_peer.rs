@@ -84,7 +84,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
 
     let _ = task::block_on(peer_handle.cancel());
 
-    let _ = peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir);
+    drop(peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir));
     thread::sleep(pipeline_time);
     let request = client::asset::by_account_id(account_id);
     let query_result = iroha_client
