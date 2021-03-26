@@ -37,6 +37,7 @@ namespace iroha::subscription {
     std::thread worker_;
     utils::WaitForSingleObject event_;
 
+    std::atomic<bool> is_busy_;
     std::thread::id id_;
 
    private:
@@ -95,12 +96,14 @@ namespace iroha::subscription {
       Task task;
       do {
         while (extractExpired(task, now())) {
+          is_busy_.store(true, std::memory_order_relaxed);
           try {
             if (task)
               task();
           } catch (...) {
           }
         }
+        is_busy_.store(false, std::memory_order_relaxed);
         event_.wait(untilFirst());
       } while (proceed_.test_and_set());
       return 0;
@@ -109,16 +112,24 @@ namespace iroha::subscription {
    public:
     ThreadHandler() {
       proceed_.test_and_set();
+      is_busy_.store(false);
       worker_ = std::thread(
           [](ThreadHandler *__this) { return __this->process(); }, this);
     }
 
     ~ThreadHandler() {}
 
-    void dispose() {
+    void dispose(bool waitForRelease = true) {
       proceed_.clear();
       event_.set();
-      worker_.join();
+      if (waitForRelease)
+        worker_.join();
+      else
+        worker_.detach();
+    }
+
+    bool isBusy() const {
+      return is_busy_.load();
     }
 
     template <typename F>

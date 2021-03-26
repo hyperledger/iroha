@@ -86,7 +86,7 @@ namespace iroha::subscription {
       return ++next_id_;
     }
 
-    template <typename Dispatcher::Tid kTid>
+    template <typename Dispatcher::Tid kTid = Dispatcher::kExecuteInPool>
     void subscribe(SubscriptionSetId id,
                    const typename Parent::EventType &key) {
       if (auto engine = engine_.lock()) {

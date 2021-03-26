@@ -23,13 +23,14 @@ namespace iroha::subscription {
    * selects the appropriate engine and calls notification in it.
    * @tparam kHandlersCount number of supported thread handlers
    */
-  template <uint32_t kHandlersCount>
-  class SubscriptionManager final : public std::enable_shared_from_this<
-                                        SubscriptionManager<kHandlersCount>>,
-                                    utils::NoMove,
-                                    utils::NoCopy {
+  template <uint32_t kHandlersCount, uint32_t kPoolSize>
+  class SubscriptionManager final
+      : public std::enable_shared_from_this<
+            SubscriptionManager<kHandlersCount, kPoolSize>>,
+        utils::NoMove,
+        utils::NoCopy {
    public:
-    using Dispatcher = subscription::Dispatcher<kHandlersCount>;
+    using Dispatcher = subscription::Dispatcher<kHandlersCount, kPoolSize>;
 
    private:
     using EngineHash = uint64_t;

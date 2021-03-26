@@ -52,8 +52,9 @@ namespace iroha {
     kOnTestOperationComplete
   };
 
-  using Subscription = subscription::SubscriptionManager<
-      SubscriptionEngineHandlers::kTotalCount>;
+  using Subscription =
+      subscription::SubscriptionManager<SubscriptionEngineHandlers::kTotalCount,
+                                        3u>;
   using SubscriptionDispatcher = typename Subscription::Dispatcher;
 
   template <typename ObjectType, typename... EventData>

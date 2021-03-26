@@ -16,7 +16,7 @@ class SubscriptionTest : public ::testing::Test {
  public:
   template <uint32_t ThreadsCount>
   auto createSubscriptionManager() {
-    using Manager = subscription::SubscriptionManager<ThreadsCount>;
+    using Manager = subscription::SubscriptionManager<ThreadsCount, 1u>;
     return std::make_shared<Manager>();
   }
 
@@ -43,7 +43,6 @@ class SubscriptionTest : public ::testing::Test {
           std::forward<F>(f)(obj, std::move(data));
         });
     subscriber->template subscribe<Tid>(0, Event);
-
     return subscriber;
   }
 
@@ -88,6 +87,66 @@ TEST_F(SubscriptionTest, SimpleExecutionTest) {
   manager->notify(1ul, test_value);
   ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
 
+  manager->dispose();
+}
+
+/**
+ * @given subscription engine
+ * @when subscriber is present in pool threads
+ * @and notification is called
+ * @then subscriber must receive correct data from notification
+ */
+TEST_F(SubscriptionTest, PoolSimpleExecutionTest) {
+  auto manager = createSubscriptionManager<1>();
+  utils::WaitForSingleObject complete;
+
+  std::string test_value = "the fast and the furious";
+  auto subscriber =
+      createSubscriber<std::numeric_limits<uint32_t>::max(), 1ul, std::string>(
+          manager, false, [&complete, test_value](auto, std::string value) {
+            ASSERT_EQ(test_value, value);
+            complete.set();
+          });
+
+  manager->notify(1ul, test_value);
+  ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+
+  manager->dispose();
+}
+
+/**
+ * @given subscription engine with busy pool
+ * @when subscriber is present in pool threads
+ * @and notification is called
+ * @then subscriber must receive correct data from notification
+ */
+TEST_F(SubscriptionTest, BusyPoolSimpleExecutionTest) {
+  auto manager = createSubscriptionManager<1>();
+
+  utils::WaitForSingleObject complete;
+  utils::WaitForSingleObject complete1;
+  auto subscriber1 =
+      createSubscriber<std::numeric_limits<uint32_t>::max(), 1ul, bool>(
+          manager, false, [&complete, &complete1](auto, auto) {
+            complete1.set();
+            complete.wait();
+            complete.set();
+          });
+
+  std::string test_value = "the fast and the furious";
+  auto subscriber2 =
+      createSubscriber<std::numeric_limits<uint32_t>::max(), 2ul, std::string>(
+          manager, false, [&complete, test_value](auto, std::string value) {
+            ASSERT_EQ(test_value, value);
+            complete.set();
+          });
+
+  manager->notify(1ul, false);
+  complete1.wait();
+  manager->notify(2ul, test_value);
+
+  ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+  complete.set();
   manager->dispose();
 }
 
