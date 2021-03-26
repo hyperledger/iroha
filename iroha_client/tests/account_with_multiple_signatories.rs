@@ -27,7 +27,7 @@ mod tests {
         );
 
         // Given
-        let _ = peer.start_with_config(configuration);
+        drop(peer.start_with_config(configuration));
         thread::sleep(pipeline_time);
 
         let domain_name = "wonderland";

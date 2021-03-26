@@ -23,7 +23,7 @@ fn query_requests(criterion: &mut Criterion) {
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    let _ = peer.start_with_config(configuration);
+    drop(peer.start_with_config(configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("query-reqeuests");
@@ -103,7 +103,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    let _ = peer.start_with_config(configuration);
+    drop(peer.start_with_config(configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("instruction-requests");

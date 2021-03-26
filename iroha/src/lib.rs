@@ -37,8 +37,9 @@ use crate::{
     torii::Torii,
 };
 use async_std::{
+    channel::{self, Receiver, Sender},
     prelude::*,
-    sync::{self, Receiver, RwLock, Sender},
+    sync::RwLock,
     task,
 };
 use iroha_data_model::prelude::*;
@@ -94,12 +95,12 @@ impl Iroha {
     pub fn new(config: &Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         log::info!("Configuration: {:?}", config);
-        let (transactions_sender, transactions_receiver) = sync::channel(100);
-        let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
-        let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
-        let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
-        let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
+        let (transactions_sender, transactions_receiver) = channel::bounded(100);
+        let (wsv_blocks_sender, wsv_blocks_receiver) = channel::bounded(100);
+        let (kura_blocks_sender, kura_blocks_receiver) = channel::bounded(100);
+        let (sumeragi_message_sender, sumeragi_message_receiver) = channel::bounded(100);
+        let (block_sync_message_sender, block_sync_message_receiver) = channel::bounded(100);
+        let (events_sender, events_receiver) = channel::bounded(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::from_config(
             config.wsv_configuration,
             World::with(

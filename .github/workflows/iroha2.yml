@@ -98,5 +98,5 @@ jobs:
         password: ${{ secrets.DOCKERHUB }}
         repository: hyperledger/iroha
         tags: iroha2-dev-cli
-        dockerfile: "./DockerfileCLI"
+        dockerfile: "./Dockerfile.cli"
 
