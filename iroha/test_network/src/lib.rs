@@ -71,7 +71,7 @@ impl Network {
         {
             let mut configuration = configuration.clone();
             configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-            let _ = genesis.start_with_config(configuration);
+            drop(genesis.start_with_config(configuration));
         }
 
         let rng = &mut rand::thread_rng();
@@ -81,7 +81,7 @@ impl Network {
             .choose_multiple(rng, online_peers)
             .zip(std::iter::repeat_with(|| configuration.clone()))
             .for_each(|(peer, configuration)| {
-                let _ = peer.start_with_config(configuration);
+                drop(peer.start_with_config(configuration));
             });
 
         Ok(Self { genesis, peers })

@@ -25,7 +25,7 @@ RUN set -ex; \
 
 COPY . /iroha/
 WORKDIR /iroha
-RUN cargo build
+RUN cargo build --bin iroha_client_cli --release
 
 FROM $BASE_IMAGE
 RUN set -ex; \
@@ -36,5 +36,5 @@ RUN set -ex; \
 COPY iroha/config.json .
 COPY iroha/trusted_peers.json .
 COPY iroha/genesis.json .
-COPY --from=builder /iroha/target/debug/iroha .
-CMD ["./iroha"]
+COPY --from=builder /iroha/target/release/iroha_client_cli .
+ENTRYPOINT ["./iroha_client_cli"]

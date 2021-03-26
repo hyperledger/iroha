@@ -78,10 +78,15 @@ pub enum Error {
     EncodePendingTransactions(#[source] iroha_version::error::Error),
     /// The sumeragi message channel is full. Dropping the incoming message.
     #[error("The sumeragi message channel is full. Dropping the incoming message.")]
-    SumeragiChannelFull(#[source] Box<async_std::sync::TrySendError<SumeragiMessage>>),
+    SumeragiChannelFull(#[source] Box<async_std::channel::TrySendError<SumeragiMessage>>),
     /// The block sync message channel is full. Dropping the incoming message.
     #[error("The block sync message channel is full. Dropping the incoming message.")]
-    BlockSyncChannelFull(#[source] Box<async_std::sync::TrySendError<BlockSyncMessage>>),
+    BlockSyncChannelFull(#[source] Box<async_std::channel::TrySendError<BlockSyncMessage>>),
+    /// The block sync message channel is full. Dropping the incoming message.
+    #[error("The accepted transaction channel is full. Dropping the incoming message.")]
+    AcceptedTransactionChannelFull(
+        #[source] Box<async_std::channel::SendError<VersionedAcceptedTransaction>>,
+    ),
     /// The block sync message channel is full. Dropping the incoming message.
     #[error("Transaction is too big")]
     TxTooBig,
@@ -100,6 +105,7 @@ impl iroha_http_server::http::HttpResponseError for Error {
             | DecodeRequestPendingTransactions(_)
             | EncodePendingTransactions(_)
             | SumeragiChannelFull(_)
+            | AcceptedTransactionChannelFull(_)
             | BlockSyncChannelFull(_) => iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR,
             TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) => {
                 iroha_http_server::http::HTTP_CODE_BAD_REQUEST
@@ -240,7 +246,9 @@ async fn handle_instructions(
         .write()
         .await
         .send(transaction)
-        .await;
+        .await
+        .map_err(Box::new)
+        .map_err(Error::AcceptedTransactionChannelFull)?;
     Ok(())
 }
 
@@ -570,7 +578,7 @@ mod tests {
 
     use super::*;
     use crate::config::Configuration;
-    use async_std::{future, sync};
+    use async_std::{channel, future};
     use futures::future::FutureExt;
     use iroha_data_model::account::Id;
     use std::{convert::TryInto, time::Duration};
@@ -587,11 +595,11 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        let (tx_tx, _) = sync::channel(100);
-        let (sumeragi_message_sender, _) = sync::channel(100);
-        let (block_sync_message_sender, _) = sync::channel(100);
-        let (block_sender, _) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
+        let (tx_tx, _) = channel::bounded(100);
+        let (sumeragi_message_sender, _) = channel::bounded(100);
+        let (block_sync_message_sender, _) = channel::bounded(100);
+        let (block_sender, _) = channel::bounded(100);
+        let (events_sender, events_receiver) = channel::bounded(100);
         let queue = Queue::from_configuration(&config.queue_configuration);
         let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
             ('a'..'z')

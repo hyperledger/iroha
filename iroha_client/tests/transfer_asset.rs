@@ -29,7 +29,7 @@ mod tests {
             Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
         // Given
-        let _ = peer.start_with_config(configuration);
+        drop(peer.start_with_config(configuration));
         thread::sleep(pipeline_time);
 
         let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)

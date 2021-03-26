@@ -62,7 +62,7 @@ impl BlockSynchronizer {
         let kura = self.kura.clone();
         let peer_id = self.peer_id.clone();
         let sumeragi = self.sumeragi.clone();
-        let _ = task::spawn(async move {
+        drop(task::spawn(async move {
             loop {
                 task::sleep(gossip_period).await;
                 let message =
@@ -80,7 +80,7 @@ impl BlockSynchronizer {
                     .await,
                 );
             }
-        });
+        }));
     }
 
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.

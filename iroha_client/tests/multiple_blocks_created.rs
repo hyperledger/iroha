@@ -128,7 +128,7 @@ mod tests {
             let peer_id = peer_ids[i].clone();
             let key_pair = peer_keys[i].clone();
             let (p2p_address, api_address) = addresses[i].clone();
-            let _ = task::spawn(async move {
+            drop(task::spawn(async move {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
                     .expect("Failed to load configuration.");
@@ -155,7 +155,7 @@ mod tests {
                 //Prevents temp_dir from clean up untill the end of the tests.
                 #[allow(clippy::empty_loop)]
                 loop {}
-            });
+            }));
             thread::sleep(std::time::Duration::from_millis(100));
         }
         addresses
