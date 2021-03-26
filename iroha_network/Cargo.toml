@@ -23,6 +23,6 @@ mock = []
 iroha_derive = { path = "../iroha_macro/iroha_derive" }
 iroha_macro = { path = "../iroha_macro" }
 iroha_error = { path = "../iroha_error" }
-async-std = { version = "=1.6.2", features = ["attributes", "unstable"] }
+async-std = { version = "=1.9.0", features = ["attributes"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
 log = "0.4.8"

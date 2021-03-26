@@ -25,7 +25,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    let _ = peer.start_with_config(configuration);
+    drop(peer.start_with_config(configuration));
     thread::sleep(pipeline_time);
 
     let domain_name = "wonderland";

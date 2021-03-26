@@ -24,7 +24,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    let _ = peer.start_with_config(configuration);
+    drop(peer.start_with_config(configuration));
     thread::sleep(pipeline_time);
 
     let domain_name = "wonderland";

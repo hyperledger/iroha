@@ -27,7 +27,7 @@ mod tests {
             Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
         // Given
-        let _ = peer.start_with_config(configuration.clone());
+        drop(peer.start_with_config(configuration.clone()));
         thread::sleep(pipeline_time);
 
         //When

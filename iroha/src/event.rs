@@ -3,8 +3,8 @@
 //! utilitary Iroha Special Instructions to work with them.
 
 use async_std::{
+    channel::{Receiver, Sender},
     future,
-    sync::{Receiver, Sender},
 };
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};

@@ -37,8 +37,9 @@ fn permissions_disallow_asset_transfer() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    let _ =
-        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions());
+    drop(
+        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions()),
+    );
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
@@ -107,8 +108,9 @@ fn permissions_disallow_asset_burn() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    let _ =
-        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions());
+    drop(
+        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions()),
+    );
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
