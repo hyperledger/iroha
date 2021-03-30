@@ -61,11 +61,12 @@ namespace iroha::subscription {
 
     void dispose() {
       if (!disposed_.test_and_set()) {
-        std::shared_lock lock(engines_cs_);
-        for (auto &descriptor : engines_)
-          std::reinterpret_pointer_cast<IDisposable>(descriptor.second)
-              ->dispose();
-
+        {
+          std::shared_lock lock(engines_cs_);
+          for (auto &descriptor : engines_)
+            std::reinterpret_pointer_cast<IDisposable>(descriptor.second)
+                ->dispose();
+        }
         dispatcher_->dispose();
       }
     }

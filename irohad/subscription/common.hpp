@@ -99,9 +99,10 @@ namespace iroha::utils {
     }
 
     void set() {
-      wait_m_.lock();
-      flag_ = false;
-      wait_m_.unlock();
+      {
+        std::unique_lock<std::mutex> _lock(wait_m_);
+        flag_ = false;
+      }
       wait_cv_.notify_one();
     }
   };

@@ -45,7 +45,7 @@ namespace iroha::subscription {
 
    private:
     inline void checkLocked() {
-      assert(!tasks_cs_.try_lock());
+      //assert(!tasks_cs_.try_lock());
     }
 
     inline Timepoint now() const {
