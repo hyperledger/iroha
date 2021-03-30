@@ -263,53 +263,31 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::env;
+    use iroha_config::derive::Configurable;
+    use serde::{Deserialize, Serialize};
 
-    use iroha_error::{Result, WrapErr};
-    use serde::Deserialize;
-
-    const BATCH_SIZE: &str = "BLOCK_SYNC_BATCH_SIZE";
-    const GOSSIP_PERIOD_MS: &str = "BLOCK_SYNC_GOSSIP_PERIOD_MS";
     const DEFAULT_BATCH_SIZE: u64 = 4;
     const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
 
     /// Configuration for `BlockSynchronizer`.
-    #[derive(Copy, Clone, Deserialize, Debug)]
+    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
+    #[serde(default)]
+    #[config(env_prefix = "BLOCK_SYNC_")]
     pub struct BlockSyncConfiguration {
         /// The time between peer sharing its latest block hash with other peers in milliseconds.
-        #[serde(default = "default_gossip_period")]
         pub gossip_period_ms: u64,
         /// The number of blocks, which can be send in one message.
         /// Underlying network (`iroha_network`) should support transferring messages this large.
-        #[serde(default = "default_batch_size")]
         pub batch_size: u64,
     }
 
-    impl BlockSyncConfiguration {
-        /// Load environment variables and replace predefined parameters with these variables
-        /// values.
-        ///
-        /// # Errors
-        /// Can fail deserializing values from json
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(batch_size) = env::var(BATCH_SIZE) {
-                self.batch_size =
-                    serde_json::from_str(&batch_size).wrap_err("Failed to parse batch size")?;
+    impl Default for BlockSyncConfiguration {
+        fn default() -> Self {
+            Self {
+                gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
+                batch_size: DEFAULT_BATCH_SIZE,
             }
-            if let Ok(gossip_period_ms) = env::var(GOSSIP_PERIOD_MS) {
-                self.gossip_period_ms = serde_json::from_str(&gossip_period_ms)
-                    .wrap_err("Failed to parse gossip period")?;
-            }
-            Ok(())
         }
-    }
-
-    const fn default_batch_size() -> u64 {
-        DEFAULT_BATCH_SIZE
-    }
-
-    const fn default_gossip_period() -> u64 {
-        DEFAULT_GOSSIP_PERIOD_MS
     }
 }

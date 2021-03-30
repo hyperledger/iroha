@@ -239,22 +239,17 @@ impl WorldStateView {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::env;
-
+    use iroha_config::derive::Configurable;
     use iroha_data_model::metadata::Limits as MetadataLimits;
-    use iroha_error::{Result, WrapErr};
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
-    const ASSET_MAX_STORE_LEN: &str = "ASSET_MAX_STORE_LEN";
-    const ASSET_MAX_STORE_ENTRY_BYTE_SIZE: &str = "ASSET_MAX_STORE_ENTRY_BYTE_SIZE";
-    const ACCOUNT_MAX_METADATA_LEN: &str = "ACCOUNT_MAX_METADATA_LEN";
-    const ACCOUNT_MAX_METADATA_ENTRY_BYTE_SIZE: &str = "ACCOUNT_MAX_METADATA_ENTRY_BYTE_SIZE";
     const DEFAULT_ASSET_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     const DEFAULT_ACCOUNT_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
 
     /// [`WorldStateView`](super::WorldStateView) configuration.
-    #[derive(Clone, Deserialize, Debug, Copy)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable)]
+    #[config(env_prefix = "WSV_")]
     #[serde(rename_all = "UPPERCASE")]
     pub struct Configuration {
         /// [`MetadataLimits`] for every asset with store.
@@ -271,49 +266,6 @@ pub mod config {
                 asset_metadata_limits: DEFAULT_ASSET_LIMITS,
                 account_metadata_limits: DEFAULT_ACCOUNT_LIMITS,
             }
-        }
-    }
-
-    impl Configuration {
-        /// Load environment variables and replace predefined parameters with these variables
-        /// values.
-        ///
-        /// # Errors
-        /// Can fail if parsing numbers from env variables fails.
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(asset_max_store_len) = env::var(ASSET_MAX_STORE_LEN) {
-                self.asset_metadata_limits.max_len =
-                    asset_max_store_len.parse::<u32>().wrap_err_with(|| {
-                        format!("Failed to parse env variable {}.", ASSET_MAX_STORE_LEN)
-                    })?;
-            }
-            if let Ok(asset_max_entry_byte_size) = env::var(ASSET_MAX_STORE_ENTRY_BYTE_SIZE) {
-                self.asset_metadata_limits.max_entry_byte_size =
-                    asset_max_entry_byte_size.parse::<u32>().wrap_err_with(|| {
-                        format!(
-                            "Failed to parse env variable {}.",
-                            ASSET_MAX_STORE_ENTRY_BYTE_SIZE
-                        )
-                    })?;
-            }
-            if let Ok(account_max_metadata_len) = env::var(ACCOUNT_MAX_METADATA_LEN) {
-                self.account_metadata_limits.max_len =
-                    account_max_metadata_len.parse::<u32>().wrap_err_with(|| {
-                        format!("Failed to parse env variable {}.", ACCOUNT_MAX_METADATA_LEN)
-                    })?;
-            }
-            if let Ok(account_max_entry_byte_size) = env::var(ACCOUNT_MAX_METADATA_ENTRY_BYTE_SIZE)
-            {
-                self.account_metadata_limits.max_entry_byte_size = account_max_entry_byte_size
-                    .parse::<u32>()
-                    .wrap_err_with(|| {
-                        format!(
-                            "Failed to parse env variable {}.",
-                            ACCOUNT_MAX_METADATA_ENTRY_BYTE_SIZE
-                        )
-                    })?;
-            }
-            Ok(())
         }
     }
 

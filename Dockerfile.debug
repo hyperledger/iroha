@@ -13,6 +13,7 @@ RUN set -ex; \
        build-essential \
        ca-certificates \
        clang \
+       git \
        llvm-dev \
        libssl-dev; \
     rm -rf /var/lib/apt/lists/*
@@ -25,7 +26,7 @@ RUN set -ex; \
 
 COPY . /iroha/
 WORKDIR /iroha
-RUN cargo build
+RUN cargo build --bin iroha
 
 FROM $BASE_IMAGE
 RUN set -ex; \
