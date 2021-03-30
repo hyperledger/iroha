@@ -7,6 +7,7 @@
 #define IROHA_SUBSCRIPTION_THREAD_HANDLER_HPP
 
 #include <assert.h>
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -15,6 +16,8 @@
 #include <thread>
 
 #include "subscription/common.hpp"
+
+//#define SE_SYNC_CALL_IF_SAME_THREAD
 
 namespace iroha::subscription {
 
@@ -36,6 +39,9 @@ namespace iroha::subscription {
     TaskContainer tasks_;
     std::thread worker_;
     utils::WaitForSingleObject event_;
+
+    std::atomic<bool> is_busy_;
+    std::thread::id id_;
 
    private:
     inline void checkLocked() {
@@ -81,7 +87,7 @@ namespace iroha::subscription {
         auto const &first = tasks_.front();
         if (first.timepoint > before) {
           return std::chrono::duration_cast<std::chrono::microseconds>(
-                     first.timepoint - before);
+              first.timepoint - before);
         }
         return std::chrono::microseconds(0ull);
       }
@@ -89,15 +95,18 @@ namespace iroha::subscription {
     }
 
     uint32_t process() {
+      id_ = std::this_thread::get_id();
       Task task;
       do {
         while (extractExpired(task, now())) {
+          is_busy_.store(true, std::memory_order_relaxed);
           try {
             if (task)
               task();
           } catch (...) {
           }
         }
+        is_busy_.store(false, std::memory_order_relaxed);
         event_.wait(untilFirst());
       } while (proceed_.test_and_set());
       return 0;
@@ -106,14 +115,24 @@ namespace iroha::subscription {
    public:
     ThreadHandler() {
       proceed_.test_and_set();
+      is_busy_.store(false);
       worker_ = std::thread(
           [](ThreadHandler *__this) { return __this->process(); }, this);
     }
 
-    ~ThreadHandler() {
+    ~ThreadHandler() {}
+
+    void dispose(bool waitForRelease = true) {
       proceed_.clear();
       event_.set();
-      worker_.join();
+      if (waitForRelease)
+        worker_.join();
+      else
+        worker_.detach();
+    }
+
+    bool isBusy() const {
+      return is_busy_.load();
     }
 
     template <typename F>
@@ -123,10 +142,19 @@ namespace iroha::subscription {
 
     template <typename F>
     void addDelayed(std::chrono::microseconds timeout, F &&f) {
-      auto const tp = now() + timeout;
-      std::lock_guard lock(tasks_cs_);
-      insert(after(tp), TimedTask{tp, std::forward<F>(f)});
-      event_.set();
+#ifdef SE_SYNC_CALL_IF_SAME_THREAD
+      if (timeout == std::chrono::microseconds(0ull)
+          && id_ == std::this_thread::get_id())
+        std::forward<F>(f)();
+      else {
+#endif  // SE_SYNC_CALL_IF_SAME_THREAD
+        auto const tp = now() + timeout;
+        std::lock_guard lock(tasks_cs_);
+        insert(after(tp), TimedTask{tp, std::forward<F>(f)});
+        event_.set();
+#ifdef SE_SYNC_CALL_IF_SAME_THREAD
+      }
+#endif  // SE_SYNC_CALL_IF_SAME_THREAD
     }
   };
 
