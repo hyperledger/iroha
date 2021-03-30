@@ -13,5 +13,5 @@ iroha = { path = "../../iroha" }
 iroha_data_model = { path = "../../iroha_data_model" }
 iroha_logger = { path = "../../iroha_logger" }
 iroha_error = { path = "../../iroha_error" }
-async-std = { version = "=1.9.0", features = ["attributes"] }
+async-std = { version = "=1.6.2", features = ["attributes"] }
 rand = "0.7.3"
