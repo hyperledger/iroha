@@ -1,6 +1,5 @@
 **/target/
 **/blocks/
-Cargo.lock
 **/*.rs.bk
 **/rusty-tags.vi
 

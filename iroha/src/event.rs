@@ -5,8 +5,8 @@
 use std::{fmt::Debug, time::Duration};
 
 use async_std::{
-    channel::{Receiver, Sender},
     future,
+    sync::{Receiver, Sender},
 };
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};

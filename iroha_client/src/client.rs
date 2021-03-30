@@ -131,12 +131,17 @@ impl Client {
         transaction.check_instruction_len(self.max_instruction_number)?;
         let hash = transaction.hash();
         let transaction: VersionedTransaction = transaction.into();
-        let transaction: Vec<u8> = transaction.encode_versioned()?;
+        let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post(
             &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
-            transaction.clone(),
+            transaction_bytes,
         )
-        .wrap_err_with(|| format!("Failed to send transaction: {:?}", &transaction))?;
+        .wrap_err_with(|| {
+            format!(
+                "Failed to send transaction with hash {:?}",
+                transaction.hash()
+            )
+        })?;
         if response.status() == StatusCode::OK {
             Ok(hash)
         } else {

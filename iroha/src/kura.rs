@@ -68,7 +68,7 @@ impl Kura {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 //TODO: shouldn't we add block hash to merkle tree here?
-                self.block_sender.send(block.clone().commit()).await?;
+                self.block_sender.send(block.clone().commit()).await;
                 self.blocks.push(block);
                 Ok(hash)
             }
@@ -239,7 +239,7 @@ pub mod config {
 mod tests {
     #![allow(clippy::cast_possible_truncation)]
 
-    use async_std::channel;
+    use async_std::sync;
     use iroha_crypto::KeyPair;
     use iroha_data_model::prelude::*;
     use tempfile::TempDir;
@@ -249,7 +249,7 @@ mod tests {
     #[async_std::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let (tx, _rx) = channel::bounded(100);
+        let (tx, _rx) = sync::channel(100);
         assert!(Kura::new(Mode::Strict, temp_dir.path(), tx)
             .init()
             .await
@@ -326,7 +326,7 @@ mod tests {
             .sign(&keypair)
             .expect("Failed to sign blocks.");
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = channel::bounded(100);
+        let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new(Mode::Strict, dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
         let _ = kura

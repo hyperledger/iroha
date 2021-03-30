@@ -324,7 +324,7 @@ impl Sumeragi {
             block.hash(),
         );
         for event in Vec::<Event>::from(&block.clone()) {
-            self.events_sender.send(event).await?;
+            self.events_sender.send(event).await;
         }
         if !network_topology.is_consensus_required() {
             self.commit_block(block).await;
@@ -422,14 +422,10 @@ impl Sumeragi {
         self.block_height = block.header().height;
 
         for event in Vec::<Event>::from(&block.clone().commit()) {
-            if let Err(e) = self.events_sender.send(event).await {
-                log::error!("Failed to transmit event: {:?}", e)
-            }
+            self.events_sender.send(event).await;
         }
 
-        if let Err(e) = self.blocks_sender.write().await.send(block).await {
-            log::error!("Failed to send block from Sumeragi to Kura: {:?}", e)
-        }
+        self.blocks_sender.write().await.send(block).await;
 
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
@@ -908,7 +904,7 @@ pub mod message {
                 return Ok(());
             }
             for event in Vec::<Event>::from(&self.block.clone()) {
-                sumeragi.events_sender.send(event).await?;
+                sumeragi.events_sender.send(event).await;
             }
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             if network_topology
@@ -1398,7 +1394,7 @@ pub mod message {
             sumeragi
                 .transactions_sender
                 .send(self.transaction.clone())
-                .await?;
+                .await;
             Ok(())
         }
     }
@@ -1816,7 +1812,7 @@ mod tests {
     #[cfg(feature = "network-mock")]
     use {
         crate::{config::Configuration, maintenance::System, queue::Queue, torii::Torii},
-        async_std::{channel, prelude::*, task},
+        async_std::{prelude::*, sync, task},
         network::*,
         std::time::Duration,
     };
@@ -1997,12 +1993,12 @@ mod tests {
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = channel::bounded(100);
-            let (transactions_sender, _transactions_receiver) = channel::bounded(100);
-            let (tx, _rx) = channel::bounded(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
-            let (block_sync_message_sender, _) = channel::bounded(100);
-            let (events_sender, events_receiver) = channel::bounded(100);
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (transactions_sender, _transactions_receiver) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             ))));
@@ -2125,12 +2121,12 @@ mod tests {
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = channel::bounded(100);
-            let (tx, _rx) = channel::bounded(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
-            let (block_sync_message_sender, _) = channel::bounded(100);
-            let (transactions_sender, _transactions_receiver) = channel::bounded(100);
-            let (events_sender, events_receiver) = channel::bounded(100);
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
+            let (transactions_sender, _transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             ))));
@@ -2277,12 +2273,12 @@ mod tests {
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = channel::bounded(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
-            let (block_sync_message_sender, _) = channel::bounded(100);
-            let (tx, _rx) = channel::bounded(100);
-            let (transactions_sender, mut transactions_receiver) = channel::bounded(100);
-            let (events_sender, events_receiver) = channel::bounded(100);
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (transactions_sender, mut transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             ))));
@@ -2443,12 +2439,12 @@ mod tests {
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = channel::bounded(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
-            let (block_sync_message_sender, _) = channel::bounded(100);
-            let (tx, _rx) = channel::bounded(100);
-            let (transactions_sender, mut transactions_receiver) = channel::bounded(100);
-            let (events_sender, events_receiver) = channel::bounded(100);
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (transactions_sender, mut transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             ))));
@@ -2605,12 +2601,12 @@ mod tests {
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = channel::bounded(100);
-            let (tx, _rx) = channel::bounded(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
-            let (block_sync_message_sender, _) = channel::bounded(100);
-            let (transactions_sender, _transactions_receiver) = channel::bounded(100);
-            let (events_sender, events_receiver) = channel::bounded(100);
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
+            let (transactions_sender, _transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             ))));
