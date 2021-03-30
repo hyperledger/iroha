@@ -13,7 +13,7 @@ use async_std::{
 use iroha_derive::*;
 use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{block::VersionedValidBlock, merkle::MerkleTree, prelude::*};
 
@@ -107,7 +107,7 @@ impl Kura {
 }
 
 /// Kura work mode.
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
@@ -184,18 +184,16 @@ impl BlockStore {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::{env, path::Path};
+    use std::path::Path;
 
-    use iroha_error::{Result, WrapErr};
-    use serde::Deserialize;
+    use iroha_config::derive::Configurable;
+    use serde::{Deserialize, Serialize};
 
     use super::Mode;
 
-    const KURA_INIT_MODE: &str = "KURA_INIT_MODE";
-    const KURA_BLOCK_STORE_PATH: &str = "KURA_BLOCK_STORE_PATH";
     const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
 
-    #[derive(Clone, Deserialize, Debug)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct KuraConfiguration {
         /// Possible modes: `strict`, `fast`.
@@ -204,6 +202,15 @@ pub mod config {
         /// Path to the existing block store folder or path to create new folder.
         #[serde(default = "default_kura_block_store_path")]
         pub kura_block_store_path: String,
+    }
+
+    impl Default for KuraConfiguration {
+        fn default() -> Self {
+            Self {
+                kura_init_mode: Mode::default(),
+                kura_block_store_path: default_kura_block_store_path(),
+            }
+        }
     }
 
     impl KuraConfiguration {
@@ -216,17 +223,6 @@ pub mod config {
                 .to_str()
                 .expect("Failed to yield slice from path")
                 .to_string();
-        }
-
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(kura_init_mode) = env::var(KURA_INIT_MODE) {
-                self.kura_init_mode = serde_json::from_str(&kura_init_mode)
-                    .wrap_err("Failed to parse Kura Init Mode")?;
-            }
-            if let Ok(kura_block_store_path) = env::var(KURA_BLOCK_STORE_PATH) {
-                self.kura_block_store_path = kura_block_store_path;
-            }
-            Ok(())
         }
     }
 

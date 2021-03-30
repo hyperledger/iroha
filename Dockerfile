@@ -25,7 +25,7 @@ RUN set -ex; \
 
 COPY . /iroha/
 WORKDIR /iroha
-RUN cargo build --release
+RUN cargo build --bin iroha --release
 
 FROM $BASE_IMAGE
 RUN set -ex; \

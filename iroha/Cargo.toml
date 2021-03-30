@@ -33,6 +33,7 @@ iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_http_server = { version = "=0.1.0", path = "../iroha_http_server" }
 iroha_version = { version = "=0.1.0", path = "../iroha_version", features = ["http_error"] }
 async-std = { version = "=1.6.2", features = ["attributes", "unstable"] }
+iroha_config = { version = "=0.1.0", path = "../iroha_config" }
 chrono = "0.4"
 clap = "2.33.0"
 futures = { version = "0.3.4", features = ["thread-pool"] }

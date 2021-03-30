@@ -1,0 +1,14 @@
+[package]
+name = "iroha_docs"
+version = "0.1.0"
+authors = ["i1i1"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iroha = { path = "../../iroha" }
+iroha_error = { path = "../../iroha_error" }
+iroha_config = { path = "../../iroha_config" }
+async-std = "1.6.2"
+serde_json = "1"
