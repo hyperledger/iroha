@@ -100,11 +100,14 @@ impl Network {
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
-        F: Future<Output = Result<()>>,
+        F: Future<Output = Result<()>> + Send + 'static,
     {
         let listener = TcpListener::bind(server_url).await?;
-        while let Some(stream) = listener.incoming().next().await {
-            handler(Arc::clone(&state), Box::new(stream?)).await?;
+        let mut incoming = listener.incoming();
+        while let Some(stream) = incoming.next().await {
+            let stream = Box::new(stream?);
+            let state = Arc::clone(&state);
+            let _drop = async_std::task::spawn(handler(state, stream));
         }
         Ok(())
     }
