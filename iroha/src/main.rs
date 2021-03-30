@@ -1,7 +1,6 @@
 //! Iroha peer command line
 
-use std::{thread, time::Duration};
-
+use async_std::task;
 use clap::{App, Arg};
 use iroha::{config::Configuration, permissions::AllowAll, Iroha};
 use iroha_error::Result;
@@ -27,7 +26,7 @@ async fn main() -> Result<()> {
         .get_matches();
 
     let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
-    configuration.load_environment()?;
+    configuration.load_environment().await?;
 
     let genesis_path_option = matches.value_of(GENESIS);
     if let Some(genesis_path) = genesis_path_option {
@@ -37,6 +36,6 @@ async fn main() -> Result<()> {
 
     Iroha::new(&configuration, AllowAll.into()).start().await?;
     loop {
-        thread::sleep(Duration::from_secs(10));
+        task::yield_now().await
     }
 }

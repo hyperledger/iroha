@@ -133,6 +133,8 @@ pub mod http {
     pub const GET_METHOD: &str = "GET";
     /// post method name
     pub const POST_METHOD: &str = "POST";
+    /// put method name
+    pub const PUT_METHOD: &str = "PUT";
     /// allow header
     pub const ALLOW_HEADER: &str = "Allow";
     /// upgrade header
@@ -143,6 +145,8 @@ pub mod http {
     pub const HTTP_CODE_OK: StatusCode = 200;
     /// http return code `INTERNAL_SERVER_ERROR`
     pub const HTTP_CODE_INTERNAL_SERVER_ERROR: StatusCode = 500;
+    /// http return code `FORBIDDEN`
+    pub const HTTP_CODE_FORBIDDEN: StatusCode = 403;
     /// http return code `NOT_FOUND`
     pub const HTTP_CODE_NOT_FOUND: StatusCode = 404;
     /// http return code `BAD_REQUEST`
@@ -182,6 +186,8 @@ pub mod http {
         Get(Box<dyn HttpHandler<State>>),
         /// Post method
         Post(Box<dyn HttpHandler<State>>),
+        /// Put method
+        Put(Box<dyn HttpHandler<State>>),
         //TODO: add other endpoints PUT, PATCH, DELETE and etc.
     }
 
@@ -389,8 +395,15 @@ pub mod http {
             } else {
                 let handler = match (self.method.as_ref(), endpoint) {
                     (GET_METHOD, Endpoint::Http(HttpEndpoint::Get(handler)))
-                    | (POST_METHOD, Endpoint::Http(HttpEndpoint::Post(handler))) => handler,
-                    _ => return Some(HttpResponse::method_not_allowed(&[GET_METHOD, POST_METHOD])),
+                    | (POST_METHOD, Endpoint::Http(HttpEndpoint::Post(handler)))
+                    | (PUT_METHOD, Endpoint::Http(HttpEndpoint::Put(handler))) => handler,
+                    _ => {
+                        return Some(HttpResponse::method_not_allowed(&[
+                            GET_METHOD,
+                            POST_METHOD,
+                            PUT_METHOD,
+                        ]))
+                    }
                 };
 
                 let response = handler
@@ -467,7 +480,13 @@ pub mod http {
 
     impl From<String> for HttpResponse {
         fn from(s: String) -> Self {
-            Self::ok(Headers::new(), s.into_bytes())
+            s.into_bytes().into()
+        }
+    }
+
+    impl From<Vec<u8>> for HttpResponse {
+        fn from(bytes: Vec<u8>) -> Self {
+            Self::ok(Headers::new(), bytes)
         }
     }
 
@@ -484,13 +503,14 @@ pub mod http {
                     .map_or(log.clone(), |err| log + &error_log(err))
             }
 
-            let err = match result.map(TryInto::try_into) {
+            let (err_log, resp) = match result.map(TryInto::try_into) {
                 Ok(Ok(ok)) => return ok,
-                Ok(Err(err)) => error_log(&err),
-                Err(err) => error_log(&err),
+                Ok(Err(err)) => (error_log(&err), err.error_response()),
+                Err(err) => (error_log(&err), err.error_response()),
             };
-            log::error!("Failed to handle request with error: {}", err);
-            err.into()
+
+            log::error!("Failed to handle request with error: {}", err_log);
+            resp
         }
     }
 
@@ -605,6 +625,49 @@ pub mod http {
                 (path, query_params)
             },
         )
+    }
+
+    /// Json wrapper which converts http request body to inner type
+    #[derive(Debug, Clone, Eq, PartialEq, Copy)]
+    pub struct Json<T>(pub T);
+
+    /// Error which handles json deserialization
+    #[derive(Debug)]
+    pub struct JsonError(serde_json::Error);
+
+    impl std::fmt::Display for JsonError {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl std::error::Error for JsonError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    impl HttpResponseError for JsonError {
+        fn status_code(&self) -> StatusCode {
+            HTTP_CODE_BAD_REQUEST
+        }
+        fn error_body(&self) -> Vec<u8> {
+            self.0.to_string().into()
+        }
+    }
+
+    impl<T: serde::de::DeserializeOwned> TryFrom<HttpRequest> for Json<T> {
+        type Error = JsonError;
+        fn try_from(req: HttpRequest) -> Result<Self, Self::Error> {
+            Ok(Self(serde_json::from_slice(&req.body).map_err(JsonError)?))
+        }
+    }
+
+    impl<T: serde::ser::Serialize> TryFrom<Json<T>> for HttpResponse {
+        type Error = JsonError;
+        fn try_from(Json(json): Json<T>) -> Result<Self, Self::Error> {
+            Ok(serde_json::to_vec(&json).map_err(JsonError)?.into())
+        }
     }
 }
 
@@ -765,6 +828,45 @@ where
                 &self.path,
                 Endpoint::Http(HttpEndpoint::Post(Box::new(
                     move |state, path: PathParams, query: QueryParams, req: HttpRequest| {
+                        let fut = move |state, path, query, req| {
+                            handler(state, path, query, req).map(|resp| match resp.try_into() {
+                                Ok(resp) => resp,
+                                Err(err) => err.error_response(),
+                            })
+                        };
+                        let path: Result<Path, _> = path.try_into();
+                        let query: Result<Query, _> = query.try_into();
+                        let req: Result<Req, _> = req.try_into();
+
+                        wrapper_handler(fut, state, path, query, req)
+                    },
+                ))),
+            );
+    }
+
+    /// Add PUT handler at the specified url.
+    pub fn put<Path, Query, Req, F, Fut>(&mut self, handler: F)
+    where
+        Path: TryFrom<PathParams> + Send + Sync + 'static,
+        Path::Error: HttpResponseError,
+        Query: TryFrom<QueryParams> + Send + Sync + 'static,
+        Query::Error: HttpResponseError,
+        Req: TryFrom<HttpRequest> + Send + Sync + 'static,
+        Req::Error: HttpResponseError,
+        F: Send + Sync + Copy + 'static + Fn(State, Path, Query, Req) -> Fut,
+        Fut: Future + Send + 'static,
+        Fut::Output: TryInto<HttpResponse> + 'static,
+        <Fut::Output as TryInto<HttpResponse>>::Error: HttpResponseError,
+    {
+        Arc::get_mut(&mut self.server.router)
+            .expect("Registering routes is not possible after the Server has started.")
+            .add(
+                &self.path,
+                Endpoint::Http(HttpEndpoint::Put(Box::new(
+                    move |state,
+                          path: http::PathParams,
+                          query: http::QueryParams,
+                          req: http::HttpRequest| {
                         let fut = move |state, path, query, req| {
                             handler(state, path, query, req).map(|resp| match resp.try_into() {
                                 Ok(resp) => resp,

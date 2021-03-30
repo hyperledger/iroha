@@ -1699,19 +1699,14 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::{collections::BTreeSet, env, fmt::Debug, fs::File, io::BufReader, path::Path};
+    use std::{collections::BTreeSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
+    use iroha_config::derive::Configurable;
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
     use iroha_error::{Result, WrapErr};
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
-    const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
-    const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
-    const MAX_FAULTY_PEERS: &str = "MAX_FAULTY_PEERS";
-    const MAX_INSTRUCTION_NUMBER: &str = "MAX_INSTRUCTION_NUMBER";
-    const COMMIT_TIME_MS: &str = "COMMIT_TIME_MS";
-    const TX_RECEIPT_TIME_MS: &str = "TX_RECEIPT_TIME_MS";
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
     const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
@@ -1721,77 +1716,49 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Clone, Debug, Deserialize)]
+    #[derive(Clone, Debug, Deserialize, Serialize, Configurable)]
+    #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "SUMERAGI_")]
     pub struct SumeragiConfiguration {
         /// Key pair of private and public keys.
         #[serde(skip)]
         pub key_pair: KeyPair,
         /// Current Peer Identification.
-        #[serde(default = "default_peer_id")]
         pub peer_id: PeerId,
         /// Amount of time peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
-        #[serde(default = "default_block_time_ms")]
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
-        #[serde(default = "default_empty_trusted_peers")]
         pub trusted_peers: TrustedPeers,
         /// Maximum amount of peers to fail and do not compromise the consensus.
-        #[serde(default = "default_max_faulty_peers")]
         pub max_faulty_peers: u32,
         /// Amount of time Peer waits for CommitMessage from the proxy tail.
-        #[serde(default = "default_commit_time_ms")]
         pub commit_time_ms: u64,
         /// Amount of time Peer waits for TxReceipt from the leader.
-        #[serde(default = "default_tx_receipt_time_ms")]
         pub tx_receipt_time_ms: u64,
         /// After N view changes topology will change tactic from shifting by one, to reshuffle.
-        #[serde(default = "default_n_topology_shifts_before_reshuffle")]
         pub n_topology_shifts_before_reshuffle: u32,
         /// Maximum instruction number per transaction
-        #[serde(default = "default_max_instruction_number")]
         pub max_instruction_number: usize,
     }
 
-    impl SumeragiConfiguration {
-        /// Load environment variables and replace predefined parameters with these variables
-        /// values.
-        ///
-        /// # Errors
-        /// Can fail due to parsing of config from environment
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(block_time_ms) = env::var(BLOCK_TIME_MS) {
-                self.block_time_ms = block_time_ms
-                    .parse::<u64>()
-                    .wrap_err("Failed to parse Block Build Time")?;
+    impl Default for SumeragiConfiguration {
+        fn default() -> Self {
+            Self {
+                key_pair: KeyPair::default(),
+                trusted_peers: default_empty_trusted_peers(),
+                peer_id: default_peer_id(),
+                block_time_ms: DEFAULT_BLOCK_TIME_MS,
+                max_faulty_peers: DEFAULT_MAX_FAULTY_PEERS,
+                commit_time_ms: DEFAULT_COMMIT_TIME_MS,
+                tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
+                n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
+                max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
             }
-            if let Ok(max_instruction_number) = env::var(MAX_INSTRUCTION_NUMBER) {
-                self.max_instruction_number = max_instruction_number
-                    .parse::<usize>()
-                    .wrap_err("Failed to parse maximum instruction number")?;
-            }
-            if let Ok(trusted_peers) = env::var(TRUSTED_PEERS) {
-                self.trusted_peers.peers = serde_json::from_str(&trusted_peers)
-                    .wrap_err("Failed to parse Trusted Peers")?;
-            }
-            if let Ok(max_faulty_peers) = env::var(MAX_FAULTY_PEERS) {
-                self.max_faulty_peers = max_faulty_peers
-                    .parse::<u32>()
-                    .wrap_err("Failed to parse Max Faulty Peers")?;
-            }
-            if let Ok(commit_time_ms) = env::var(COMMIT_TIME_MS) {
-                self.commit_time_ms = commit_time_ms
-                    .parse::<u64>()
-                    .wrap_err("Failed to parse Commit Time Ms")?;
-            }
-            if let Ok(tx_receipt_time_ms) = env::var(TX_RECEIPT_TIME_MS) {
-                self.tx_receipt_time_ms = tx_receipt_time_ms
-                    .parse::<u64>()
-                    .wrap_err("Failed to parse Tx Receipt Time Ms")?;
-            }
-            Ok(())
         }
+    }
 
+    impl SumeragiConfiguration {
         /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
         pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
             self.trusted_peers.peers = trusted_peers.into_iter().collect();
@@ -1810,11 +1777,11 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Clone, Debug, Deserialize)]
+    #[derive(Default, Clone, Debug, Deserialize, Serialize)]
     #[serde(rename_all = "UPPERCASE")]
+    #[serde(transparent)]
     pub struct TrustedPeers {
         /// Optional list of predefined trusted peers.
-        #[serde(default)]
         pub peers: BTreeSet<PeerId>,
     }
 
@@ -1839,30 +1806,6 @@ pub mod config {
             address: "".to_string(),
             public_key: PublicKey::default(),
         }
-    }
-
-    const fn default_block_time_ms() -> u64 {
-        DEFAULT_BLOCK_TIME_MS
-    }
-
-    const fn default_max_faulty_peers() -> u32 {
-        DEFAULT_MAX_FAULTY_PEERS
-    }
-
-    const fn default_commit_time_ms() -> u64 {
-        DEFAULT_COMMIT_TIME_MS
-    }
-
-    const fn default_tx_receipt_time_ms() -> u64 {
-        DEFAULT_TX_RECEIPT_TIME_MS
-    }
-
-    const fn default_max_instruction_number() -> usize {
-        DEFAULT_MAX_INSTRUCTION_NUMBER
-    }
-
-    const fn default_n_topology_shifts_before_reshuffle() -> u32 {
-        DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE
     }
 
     // Allowed because `BTreeSet::new()` is not const yet.
@@ -2095,7 +2038,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
+                Arc::new(RwLock::new(config.clone())),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2223,7 +2166,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
+                Arc::new(RwLock::new(config.clone())),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2375,7 +2318,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
+                Arc::new(RwLock::new(config.clone())),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2541,7 +2484,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
+                Arc::new(RwLock::new(config.clone())),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2703,7 +2646,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                &config.torii_configuration,
+                Arc::new(RwLock::new(config.clone())),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,

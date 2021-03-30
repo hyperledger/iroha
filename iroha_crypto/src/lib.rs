@@ -235,12 +235,18 @@ impl KeyPair {
 }
 
 /// Public Key used in signatures.
-#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash, Default)]
+#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash)]
 pub struct PublicKey {
     /// Digest function
     pub digest_function: String,
     /// payload of key
     pub payload: Vec<u8>,
+}
+
+impl Default for PublicKey {
+    fn default() -> Self {
+        (&Multihash::default()).try_into().unwrap()
+    }
 }
 
 impl Debug for PublicKey {

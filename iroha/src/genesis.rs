@@ -207,19 +207,16 @@ impl GenesisNetwork {
 
 /// This module contains all genesis configuration related logic.
 pub mod config {
-    use std::env;
-
+    use iroha_config::derive::Configurable;
     use iroha_crypto::{PrivateKey, PublicKey};
-    use iroha_error::{Result, WrapErr};
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
-    const GENESIS_ACCOUNT_PUBLIC_KEY: &str = "IROHA_GENESIS_ACCOUNT_PUBLIC_KEY";
-    const GENESIS_ACCOUNT_PRIVATE_KEY: &str = "IROHA_GENESIS_ACCOUNT_PRIVATE_KEY";
     const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
     const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
 
-    #[derive(Clone, Deserialize, Debug, Default)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Default, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "IROHA_")]
     /// Configuration of the genesis block and its submission process.
     pub struct GenesisConfiguration {
         /// Genesis account public key, should be supplied to all the peers.
@@ -236,27 +233,6 @@ pub mod config {
         /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
         #[serde(default = "default_wait_for_peers_retry_period_ms")]
         pub wait_for_peers_retry_period_ms: u64,
-    }
-
-    impl GenesisConfiguration {
-        /// Load environment variables and replace predefined parameters with these variables
-        /// values.
-        ///
-        /// # Errors
-        /// Can fail during decoding genesis keypair from env
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(genesis_account_public_key) = env::var(GENESIS_ACCOUNT_PUBLIC_KEY) {
-                self.genesis_account_public_key =
-                    serde_json::from_value(serde_json::json!(genesis_account_public_key))
-                        .wrap_err("Failed to parse Public Key of genesis account")?;
-            }
-            if let Ok(genesis_account_private_key) = env::var(GENESIS_ACCOUNT_PRIVATE_KEY) {
-                self.genesis_account_private_key =
-                    serde_json::from_str(&genesis_account_private_key)
-                        .wrap_err("Failed to parse Private Key of genesis account")?;
-            }
-            Ok(())
-        }
     }
 
     const fn default_wait_for_peers_retry_count() -> u64 {

@@ -18,6 +18,8 @@ iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 log = { version = "0.4", features = ["std", "serde"] }
 async-trait = "0.1.38"
 url = "2.1.1"
+serde = "1"
+serde_json = "1"
 
 [dev-dependencies]
 attohttpc = "0.16.3"
