@@ -48,9 +48,13 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     /// Fails if accepting one of client fails
     pub async fn start(&self, address: &str) -> iroha_error::Result<()> {
         let listener = TcpListener::bind(address).await?;
-        while let Some(stream) = listener.incoming().next().await {
-            let mut stream = stream?;
-            let router = self.router.clone();
+        loop {
+            let (mut stream, _) = match listener.accept().await {
+                Ok(ok) => ok,
+                Err(_) => continue,
+            };
+
+            let router = Arc::clone(&self.router);
             let state = self.state.clone();
             let _drop = task::spawn(async move {
                 let mut buffer = [0_u8; BUFFER_SIZE];
@@ -83,7 +87,6 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
                 }
             });
         }
-        Ok(())
     }
 }
 
@@ -346,7 +349,7 @@ pub mod http {
                     .map(Vec::as_slice)
                 {
                     if let Endpoint::WebSocket(handler) = endpoint {
-                        match async_tungstenite::accept_async(stream.clone()).await {
+                        match async_tungstenite::accept_async(stream).await {
                             Ok(stream) => {
                                 if let Err(err) =
                                     handler.call(state, path_params, query_params, stream).await

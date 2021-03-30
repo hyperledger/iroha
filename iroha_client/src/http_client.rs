@@ -34,7 +34,7 @@ where
         .bytes(body)
         .params(query_params)
         .send()
-        .wrap_err_with(|| format!("Failed to send http post request to {}", url))?;
+        .wrap_err_with(|| format!("Failed to send http get request to {}", url))?;
     ClientResponse(response).try_into()
 }
 
