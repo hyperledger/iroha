@@ -1,11 +1,12 @@
 //! This module contains `Configuration` structure and related implementation.
-use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
+use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
+use iroha_config::derive::Configurable;
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_error::{Result, WrapErr};
 use iroha_logger::config::LoggerConfiguration;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     block_sync::config::BlockSyncConfiguration,
@@ -17,33 +18,40 @@ use crate::{
     wsv::config::Configuration as WorldStateViewConfiguration,
 };
 
-const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
-const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
-
 /// Configuration parameters container.
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
+#[config(env_prefix = "IROHA_")]
 pub struct Configuration {
     /// Public key of this peer.
+    #[config(serde_as_str)]
     pub public_key: PublicKey,
     /// Private key of this peer.
     pub private_key: PrivateKey,
     /// `Kura` related configuration.
+    #[config(inner)]
     pub kura_configuration: KuraConfiguration,
     /// `Sumeragi` related configuration.
+    #[config(inner)]
     pub sumeragi_configuration: SumeragiConfiguration,
     /// `Torii` related configuration.
+    #[config(inner)]
     pub torii_configuration: ToriiConfiguration,
     /// `BlockSynchronizer` configuration.
+    #[config(inner)]
     pub block_sync_configuration: BlockSyncConfiguration,
     /// `Queue` configuration.
+    #[config(inner)]
     pub queue_configuration: QueueConfiguration,
     /// `Logger` configuration.
+    #[config(inner)]
     pub logger_configuration: LoggerConfiguration,
     /// Configuration for `GenesisBlock`.
+    #[config(inner)]
     pub genesis_configuration: GenesisConfiguration,
     /// Configuration for [`WorldStateView`](crate::wsv::WorldStateView).
     #[serde(default)]
+    #[config(inner)]
     pub wsv_configuration: WorldStateViewConfiguration,
 }
 
@@ -70,28 +78,11 @@ impl Configuration {
         Ok(configuration)
     }
 
-    /// Load environment variables and replace existing parameters with these variables values.
-    ///
+    /// Loads configuration from environment
     /// # Errors
-    /// Fail if some configuration loading fails
-    /// Can fail during decoding key pair
-    pub fn load_environment(&mut self) -> Result<()> {
-        self.torii_configuration.load_environment()?;
-        self.kura_configuration.load_environment()?;
-        self.sumeragi_configuration.load_environment()?;
-        self.block_sync_configuration.load_environment()?;
-        self.queue_configuration.load_environment()?;
-        self.logger_configuration.load_environment()?;
-        self.genesis_configuration.load_environment()?;
-        self.wsv_configuration.load_environment()?;
-        if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
-            self.public_key = serde_json::from_value(serde_json::json!(public_key))
-                .wrap_err("Failed to parse Public Key")?;
-        }
-        if let Ok(private_key) = env::var(IROHA_PRIVATE_KEY) {
-            self.private_key =
-                serde_json::from_str(&private_key).wrap_err("Failed to parse Private Key")?;
-        }
+    /// Fails if fails to deserialize configuration from env variables
+    pub async fn load_environment(&mut self) -> Result<()> {
+        iroha_config::Configurable::load_environment(self).await?;
         self.sumeragi_configuration.key_pair = KeyPair {
             public_key: self.public_key.clone(),
             private_key: self.private_key.clone(),

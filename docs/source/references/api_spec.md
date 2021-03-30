@@ -70,6 +70,32 @@ Server sends `Event` and expects `EventReceived` after each, before sending the 
 - 200 OK - Metrics Calculated Successfully. Body: `Metrics`
 - 500 Internal Server Error - Failed to get metrics
 
+### Configuration
+
+**Protocol**: HTTP
+
+**Encoding**: Json
+
+**Endpoint**: `/configuration`
+
+**Method**: `GET` or `PUT`
+
+**Expects** on `GET`:
+Query parameter "docs" can be set to boolean (indecates whether should return documentation or field value)
+Request body is json with field "field", which is array of strings.
+
+**Responses** on `GET`:
+- 200 OK - Field was found and either doc or value is returned in json body.
+- 404 Not Found - Field wasn't found
+
+**Expects** on `PUT`:
+Json body with fields "field" (array of strings) and "value" which can be anything.
+
+**Responses** on `PUT`:
+- 200 OK - Field was found and value is valid
+- 400 Bad Request - Value for field is invalid
+- 404 Not Found - Field wasn't found
+
 ### Health
 
 **Protocol**: HTTP

@@ -307,9 +307,7 @@ pub mod query {
                 .ok_or_else(|| error!("No account with id: {} found.", &id))?
                 .into_iter()
                 .cloned()
-                .map(Box::new)
-                .map(IdentifiableBox::Asset)
-                .map(Value::Identifiable)
+                .map(Value::from)
                 .collect();
             Ok(Value::Vec(vec))
         }
@@ -364,9 +362,7 @@ pub mod query {
                 .into_iter()
                 .filter(|asset| asset.id.definition_id == asset_id)
                 .cloned()
-                .map(Box::new)
-                .map(IdentifiableBox::Asset)
-                .map(Value::Identifiable)
+                .map(Value::from)
                 .collect();
             Ok(Value::Vec(vec))
         }

@@ -131,64 +131,36 @@ impl Queue {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::env;
+    use iroha_config::derive::Configurable;
+    use serde::{Deserialize, Serialize};
 
-    use iroha_error::{Result, WrapErr};
-    use serde::Deserialize;
-
-    const MAXIMUM_TRANSACTIONS_IN_BLOCK: &str = "MAXIMUM_TRANSACTIONS_IN_BLOCK";
     const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(13);
-    const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
     // 24 hours
     const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
-    const MAXIMUM_TRANSACTIONS_IN_QUEUE: &str = "MAXIMUM_TRANSACTIONS_IN_QUEUE";
     const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
 
     /// Configuration for `Queue`.
-    #[derive(Copy, Clone, Deserialize, Debug)]
+    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
+    #[serde(default)]
+    #[config(env_prefix = "QUEUE_")]
     pub struct QueueConfiguration {
         /// The upper limit of the number of transactions per block.
-        #[serde(default = "default_maximum_transactions_in_block")]
         pub maximum_transactions_in_block: u32,
         /// The upper limit of the number of transactions waiting in this queue.
-        #[serde(default = "default_maximum_transactions_in_queue")]
         pub maximum_transactions_in_queue: u32,
         /// The transaction will be dropped after this time if it is still in a `Queue`.
-        #[serde(default = "default_transaction_time_to_live_ms")]
         pub transaction_time_to_live_ms: u64,
     }
 
-    impl QueueConfiguration {
-        /// Load environment variables and replace predefined parameters with these variables
-        /// values.
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(max_block_tx) = env::var(MAXIMUM_TRANSACTIONS_IN_BLOCK) {
-                self.maximum_transactions_in_block = serde_json::from_str(&max_block_tx)
-                    .wrap_err("Failed to parse maximum number of transactions per block")?;
+    impl Default for QueueConfiguration {
+        fn default() -> Self {
+            Self {
+                maximum_transactions_in_block: DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK,
+                maximum_transactions_in_queue: DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE,
+                transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
             }
-            if let Ok(max_queue_tx) = env::var(MAXIMUM_TRANSACTIONS_IN_QUEUE) {
-                self.maximum_transactions_in_queue = serde_json::from_str(&max_queue_tx)
-                    .wrap_err("Failed to parse maximum number of transactions in a queue")?;
-            }
-            if let Ok(transaction_ttl_ms) = env::var(TRANSACTION_TIME_TO_LIVE_MS) {
-                self.transaction_time_to_live_ms = serde_json::from_str(&transaction_ttl_ms)
-                    .wrap_err("Failed to parse transaction's ttl")?;
-            }
-            Ok(())
         }
-    }
-
-    const fn default_maximum_transactions_in_block() -> u32 {
-        DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK
-    }
-
-    const fn default_transaction_time_to_live_ms() -> u64 {
-        DEFAULT_TRANSACTION_TIME_TO_LIVE_MS
-    }
-
-    const fn default_maximum_transactions_in_queue() -> u32 {
-        DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE
     }
 }
 

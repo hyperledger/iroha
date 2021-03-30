@@ -83,68 +83,36 @@ pub fn init(configuration: &config::LoggerConfiguration) -> Result<(), SetLogger
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::env;
-
-    use iroha_error::{Result, WrapErr};
+    use iroha_config::derive::Configurable;
     pub use log::LevelFilter;
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
-    const MAX_LOG_LEVEL: &str = "MAX_LOG_LEVEL";
     const DEFAULT_MAX_LOG_LEVEL: LevelFilter = LevelFilter::Info;
-    const TERMINAL_COLOR_ENABLED: &str = "TERMINAL_COLOR_ENABLED";
     const DEFAULT_TERMINAL_COLOR_ENABLED: bool = false;
-    const DATE_TIME_FORMAT: &str = "DATE_TIME_FORMAT";
     const DEFAULT_DATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S:%f";
 
     /// Configuration for `Logger`.
-    #[derive(Clone, Deserialize, Debug)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
+    #[serde(default)]
     pub struct LoggerConfiguration {
         /// Maximum log level
-        #[serde(default = "default_max_log_level")]
+        #[config(serde_as_str)]
         pub max_log_level: LevelFilter,
         /// Should we enable colors?
-        #[serde(default = "default_terminal_color_enabled")]
         pub terminal_color_enabled: bool,
         /// Format of date and time
-        #[serde(default = "default_date_time_format")]
         pub date_time_format: String,
     }
 
-    impl LoggerConfiguration {
-        /// Load environment variables and replace predefined parameters with these variables
-        /// values.
-        ///
-        /// # Errors
-        /// Will fail if fails to decode:
-        /// * max log level from `MAX_LOG_LEVEL` env variable
-        /// * Bool from `TERMINAL_COLOR_ENABLED` env variable
-        pub fn load_environment(&mut self) -> Result<()> {
-            if let Ok(max_log_level) = env::var(MAX_LOG_LEVEL) {
-                self.max_log_level = serde_json::from_str(&max_log_level)
-                    .wrap_err("Failed to parse maximum log level")?;
+    impl Default for LoggerConfiguration {
+        fn default() -> Self {
+            Self {
+                max_log_level: DEFAULT_MAX_LOG_LEVEL,
+                terminal_color_enabled: DEFAULT_TERMINAL_COLOR_ENABLED,
+                date_time_format: DEFAULT_DATE_TIME_FORMAT.to_owned(),
             }
-            if let Ok(terminal_color_enabled) = env::var(TERMINAL_COLOR_ENABLED) {
-                self.terminal_color_enabled = serde_json::from_str(&terminal_color_enabled)
-                    .wrap_err("Failed to parse terminal color enabled")?;
-            }
-            if let Ok(date_time_format) = env::var(DATE_TIME_FORMAT) {
-                self.date_time_format = date_time_format;
-            }
-            Ok(())
         }
-    }
-
-    const fn default_terminal_color_enabled() -> bool {
-        DEFAULT_TERMINAL_COLOR_ENABLED
-    }
-
-    const fn default_max_log_level() -> LevelFilter {
-        DEFAULT_MAX_LOG_LEVEL
-    }
-
-    fn default_date_time_format() -> String {
-        DEFAULT_DATE_TIME_FORMAT.to_string()
     }
 }
 

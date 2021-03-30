@@ -32,6 +32,12 @@ pub enum DigestFunction {
     Bls12381G2Pub = 0xeb,
 }
 
+impl Default for DigestFunction {
+    fn default() -> Self {
+        Self::Ed25519Pub
+    }
+}
+
 impl Display for DigestFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -92,6 +98,15 @@ pub struct Multihash {
     pub digest_function: DigestFunction,
     /// hash payload
     pub payload: Vec<u8>,
+}
+
+impl Default for Multihash {
+    fn default() -> Self {
+        Self {
+            digest_function: DigestFunction::default(),
+            payload: Vec::new(),
+        }
+    }
 }
 
 impl TryFrom<Vec<u8>> for Multihash {

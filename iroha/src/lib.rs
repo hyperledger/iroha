@@ -97,6 +97,7 @@ impl Iroha {
     pub fn new(config: &Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
         iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
         log::info!("Configuration: {:?}", config);
+
         let (transactions_sender, transactions_receiver) = sync::channel(100);
         let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
         let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
@@ -125,7 +126,8 @@ impl Iroha {
             .expect("Failed to initialize Sumeragi."),
         ));
         let torii = Torii::from_configuration(
-            &config.torii_configuration,
+            // TODO: change to real config and make configuration everywhere mutable
+            Arc::new(RwLock::new(config.clone())),
             Arc::clone(&world_state_view),
             transactions_sender,
             sumeragi_message_sender,
