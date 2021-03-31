@@ -60,7 +60,7 @@ PostgresOptions::PostgresOptions(const std::string &pg_opt,
           extractField(pg_opt, "user"),
           extractField(pg_opt, "password"),
           extractOptionalField(pg_opt, "dbname").value_or(default_dbname),
-          extractField(pg_opt, "user"),
+          extractOptionalField(pg_opt, "maintenance_dbname").value_or("postgres"),
           std::move(log)) {}
 
 PostgresOptions::PostgresOptions(const std::string &host,
@@ -80,15 +80,14 @@ PostgresOptions::PostgresOptions(const std::string &host,
   if (working_dbname_ == maintenance_dbname_) {
     log->warn(
         "Working database has the same name with maintenance database: '{}'. "
-        "This may cause failures.",
+        "This will cause failures.",
         working_dbname_);
   }
 }
 
 std::string PostgresOptions::connectionStringWithoutDbName() const {
   return (boost::format("host=%1% port=%2% user=%3% password=%4%") % host_
-          % port_ % user_ % password_)
-      .str();
+          % port_ % user_ % password_).str();
 }
 
 std::string PostgresOptions::workingConnectionString() const {
