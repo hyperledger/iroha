@@ -7,6 +7,7 @@
 
 #include <boost/functional/hash.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "common/irohad_version.hpp"
@@ -133,17 +134,18 @@ PgConnectionInit::prepareWorkingDatabase(
     const PostgresOptions &options) {
   return getMaintenanceSession(options) | [&](auto maintenance_sql) {
     int work_db_exists;
-    *maintenance_sql<<"select exists("
+    *maintenance_sql << "select exists("
                         "SELECT datname FROM pg_catalog.pg_database "
-                        "WHERE datname = '"+ options.workingDbName() +"');"
-        ,soci::into(work_db_exists);
-    if(not work_db_exists){
+                        "WHERE datname = '"
+                        + options.workingDbName() + "');"
+                        , soci::into(work_db_exists);
+    if (not work_db_exists) {
       return createSchema(options);
     }
     if (startup_wsv_data_policy == StartupWsvDataPolicy::kDrop) {
       return dropWorkingDatabase(options) |
-             [&] { return createSchema(options); };
-    }else{  // StartupWsvDataPolicy::kReuse
+          [&] { return createSchema(options); };
+    } else {  // StartupWsvDataPolicy::kReuse
       return isSchemaCompatible(options) | [&](bool is_compatible)
                  -> iroha::expected::Result<void, std::string> {
         if (not is_compatible) {
@@ -447,13 +449,13 @@ CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
 }
 
 iroha::expected::Result<void, std::string>
-PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options)
-try{
+PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) 
+try {
   auto maintenance_sql = soci::session(*soci::factory_postgresql(),
                                        options.maintenanceConnectionString());
   maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName() << ";";
   return iroha::expected::Value<void>{};
-}catch(const std::exception &e){
+} catch (const std::exception &e) {
   return e.what();
 }
 
