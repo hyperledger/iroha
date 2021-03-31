@@ -12,6 +12,7 @@
 #include <thread>
 #include <prometheus/registry.h>
 #include <prometheus/exposer.h>
+#include <prometheus/gateway.h>
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "main/subscription.hpp"
@@ -19,63 +20,36 @@
 #include "ametsuchi/wsv_query.hpp"
 #include "ametsuchi/storage.hpp"
 #include "logger/logger_fwd.hpp"
+//#include "boost/asiofwd.hpp"
 
+//namespace boost { namespace asio { class io_context; }}
 
-/// ToDo consider using asio::io_context
-struct MetricsRunner {//: std::thread {
-//  using std::thread::thread;  // Does not inherit move ctor?
-////  using std::thread::operator=;
-//  MetricsRunner(MetricsRunner&&m)noexcept
-//      : std::thread(std::move(m))
-////      , proceed_(std::move(std::move(m).proceed_))
-//  {}
-//  MetricsRunner& operator=(MetricsRunner&&m)noexcept{
-//    return *this = std::move(static_cast<std::thread&&>(std::move(m)));
-//  }
-  MetricsRunner() = default;
-  MetricsRunner(std::thread && t)
-    : t_(std::move(t)) {}
-  MetricsRunner(MetricsRunner&&mr){
-    *this = std::move(mr);
-  }
-  MetricsRunner&operator=(MetricsRunner&&mr){
-    this->t_ = std::move(mr).t_;
-    bool prev = mr.proceed_.test_and_set();
-    if(prev) {
-      this->proceed_.test_and_set();
-    }else{
-      this->proceed_.clear();
-      mr.proceed_.clear();
-    }
-    return *this;
-  }
-  ~MetricsRunner(){ stop(); t_.join(); }
-  void stop(){ proceed_.clear(); }
-  bool is_proceed(){ return proceed_.test_and_set(); }
-private:
-  std::thread t_;
-  std::atomic_flag proceed_ {true};
-};
+struct io_worker;
 
-class Metrics {
+class Metrics : public std::enable_shared_from_this<Metrics> {
   using OnProposalSubscription = iroha::BaseSubscriber<
       bool,iroha::network::OrderingEvent>;  //FixMe subscribtion ≠ subscriber
   using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
   using BlockSubscriber = iroha::BaseSubscriber<bool,BlockPtr>;
 
   std::string listen_addr_port_;
+  std::string push_addr_;
+  std::string push_port_;
   std::shared_ptr<prometheus::Exposer> exposer_;
   std::shared_ptr<prometheus::Registry> registry_;
+  std::shared_ptr<prometheus::Gateway> gateway_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage_;
 //  std::shared_ptr<iroha::ametsuchi::WsvQuery> wsv_;
   std::shared_ptr<BlockSubscriber> block_subscriber_;
   std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
   logger::LoggerPtr logger_;
-//  MetricsRunner runner_;
+  std::shared_ptr<io_worker> io_worker_;  // want to use unique_ptr but it does not allow incomplete types.
+  std::shared_ptr<std::function<void(void)>> handler_gateway_push_wrapper_;
 
  public:
   Metrics(
       std::string const& listen_addr,
+      std::string const& metrics_push_addr,
       std::shared_ptr<iroha::ametsuchi::Storage> storage,
       logger::LoggerPtr const& logger
   );

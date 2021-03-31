@@ -88,6 +88,7 @@ struct IrohadConfig {
   boost::optional<Crypto> crypto;
 
   std::string metrics_addr_port;
+  std::string metrics_push_addr_port;
 };
 
 /**

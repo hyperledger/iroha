@@ -110,6 +110,8 @@ DEFINE_validator(verbosity, &validateVerbosity);
 /// Metrics. ToDo validator
 DEFINE_string(metrics_addr, "127.0.0.1", "Prometeus HTTP server listen address");
 DEFINE_string(metrics_port, "", "Prometeus HTTP server listens port, disabled by default");
+DEFINE_string(metrics_push_addr, "127.0.0.1", "Prometeus address to push metrics");
+DEFINE_string(metrics_push_port, "9091", "Prometeus post to push metrics");
 
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
@@ -433,17 +435,22 @@ int main(int argc, char *argv[]) {
     }
 
     std::shared_ptr<Metrics> metrics;  // Must be a pointer because 'this' is captured to lambdas in constructor.
-    std::string metrics_addr;
+    std::string metrics_addr, metrics_push_addr;
     if(FLAGS_metrics_port.size()) {
       metrics_addr = FLAGS_metrics_addr + ":" + FLAGS_metrics_port;
     }else if(config.metrics_addr_port.size()){
       metrics_addr = config.metrics_addr_port;
     }
+    if(FLAGS_metrics_push_port.size()) {
+      metrics_push_addr = FLAGS_metrics_push_addr + ":" + FLAGS_metrics_push_port;
+    }else if(config.metrics_push_addr_port.size()){
+      metrics_push_addr = config.metrics_push_addr_port;
+    }
     if(metrics_addr.empty()) {
       log->info("Skiping Metrics initialization.");
     }else {
       metrics = std::make_shared<Metrics>(
-          metrics_addr,
+          metrics_addr, metrics_push_addr,
           irohad->storage,
           log_manager->getChild("Metrics")->getLogger());
       if (metrics->valid()){
