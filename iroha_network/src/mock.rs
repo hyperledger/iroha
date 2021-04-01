@@ -18,7 +18,7 @@ use iroha_derive::{log, Io};
 use iroha_error::{Error, Result};
 use parity_scale_codec::{Decode, Encode};
 
-const BUFFER_SIZE: usize = 2048;
+const BUFFER_SIZE: usize = 2_usize.pow(11);
 static mut ENDPOINTS: Vec<(String, Sender<RequestStream>)> = Vec::new();
 
 fn find_sender(server_url: &str) -> Sender<RequestStream> {

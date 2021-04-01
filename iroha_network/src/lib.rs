@@ -24,7 +24,7 @@ use iroha_derive::{log, Io};
 use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 
-const BUFFER_SIZE: usize = 4096;
+const BUFFER_SIZE: usize = 2_usize.pow(12);
 const REQUEST_TIMEOUT_MILLIS: u64 = 500;
 
 /// State type alias
