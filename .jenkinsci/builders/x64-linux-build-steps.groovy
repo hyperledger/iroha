@@ -83,7 +83,7 @@ def buildSteps(int parallelism, String compiler, String build_type, boolean buil
       """
       postgresIP = sh(script: "docker inspect ${env.IROHA_POSTGRES_HOST} --format '{{ (index .NetworkSettings.Networks \"${env.IROHA_NETWORK}\").IPAddress  }}'", returnStdout: true).trim()
 
-      def referenceBranchOrCommit = 'master'
+      def referenceBranchOrCommit = 'main'
       if (scmVars.GIT_LOCAL_BRANCH == referenceBranchOrCommit && scmVars.GIT_PREVIOUS_COMMIT) {
         referenceBranchOrCommit = scmVars.GIT_PREVIOUS_COMMIT
       }

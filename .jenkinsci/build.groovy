@@ -50,7 +50,7 @@ def sonarScanner(scmVars, environment) {
           -Dsonar.projectVersion=${BUILD_TAG} \
           -Dsonar.github.oauth=${SORABOT_TOKEN}  ${sonar_option}
       """
-      if (scmVars.GIT_BRANCH == "master" )
+      if (scmVars.GIT_BRANCH == "main" )
         // push analysis results to sonar
         sh """
           sonar-scanner \
