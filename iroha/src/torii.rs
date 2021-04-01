@@ -509,8 +509,8 @@ pub mod config {
     const TORII_MAX_INSTRUCTION_NUMBER: &str = "TORII_MAX_INSTRUCTION_NUMBER";
     const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
     const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-    const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 32768;
-    const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: usize = 4096;
+    const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
+    const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Debug)]

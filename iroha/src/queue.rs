@@ -137,14 +137,12 @@ pub mod config {
     use serde::Deserialize;
 
     const MAXIMUM_TRANSACTIONS_IN_BLOCK: &str = "MAXIMUM_TRANSACTIONS_IN_BLOCK";
-    // 2^13
-    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 8_192;
+    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(13);
     const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
     // 24 hours
     const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
     const MAXIMUM_TRANSACTIONS_IN_QUEUE: &str = "MAXIMUM_TRANSACTIONS_IN_QUEUE";
-    // 2^16
-    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 65_536;
+    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
 
     /// Configuration for `Queue`.
     #[derive(Copy, Clone, Deserialize, Debug)]
