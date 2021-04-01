@@ -16,7 +16,7 @@ const ACCOUNT_ID: &str = "IROHA_CLIENT_ACCOUNT_ID";
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 3000;
-const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 4096;
+const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 // TODO: design macro to load config from env.
