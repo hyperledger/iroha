@@ -18,6 +18,7 @@ static const logger::LoggerPtr test_log =
     getTestLoggerManager()->getChild("PostgresOptions")->getLogger();
 
 static const std::string default_working_dbname{"working_dbname"};
+static const std::string default_maintenance_dbname{"postgres"};
 
 /**
  * Check that the given connection string contains field=value entry.
@@ -120,9 +121,8 @@ TEST(PostgresOptionsTest, DBnameParamExist) {
               "1991",
               "petya",
               "friend",
-              dbname,  // TODO 2019.06.26 mboldyrev IR-556 change dbname
-                       // to default_working_dbname
-              "petya");
+              dbname,
+              default_maintenance_dbname);
 }
 
 /**
@@ -140,7 +140,7 @@ TEST(PostgresOptionsTest, DBnameParamNotExist) {
       PostgresOptions(pg_opt_string, default_working_dbname, test_log);
 
   checkPgOpts(
-      pg_opt, "down", "1991", "crab", "friend", default_working_dbname, "crab");
+      pg_opt, "down", "1991", "crab", "friend", default_working_dbname, default_maintenance_dbname);
 }
 
 /**
