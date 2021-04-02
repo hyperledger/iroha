@@ -189,8 +189,13 @@ impl Request {
     ///
     /// let request = Request::new("/instructions".to_string(), "some_message".to_string().into_bytes());
     /// ```
-    pub fn new(uri_path: String, payload: Vec<u8>) -> Request {
+    pub fn new(uri_path: impl Into<String>, payload: Vec<u8>) -> Request {
+        let uri_path = uri_path.into();
         Request { uri_path, payload }
+    }
+
+    pub fn empty(uri_path: impl Into<String>) -> Request {
+        Request::new(uri_path, Vec::new())
     }
 
     pub fn url(&self) -> &str {
