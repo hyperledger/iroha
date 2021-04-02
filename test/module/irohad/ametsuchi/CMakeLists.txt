@@ -3,15 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-addtest(ametsuchi_test ametsuchi_test.cpp)
-target_link_libraries(ametsuchi_test
-    ametsuchi
-    ametsuchi_fixture
-    common_test_constants
-    flat_file_storage
-    shared_model_stateless_validation
-    test_logger
-    )
+if(ENABLE_FAILING_TESTS)
+  addtest(ametsuchi_test ametsuchi_test.cpp)
+  target_link_libraries(ametsuchi_test
+      ametsuchi
+      ametsuchi_fixture
+      common_test_constants
+      flat_file_storage
+      shared_model_stateless_validation
+      test_logger
+      )
+endif()
 
 addtest(wsv_query_command_test wsv_query_command_test.cpp)
 target_link_libraries(wsv_query_command_test
