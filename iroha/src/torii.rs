@@ -289,7 +289,7 @@ async fn handle_pending_transactions_on_leader(
                     .leader()
                     .address
                     .as_ref(),
-                Request::new(uri::PENDING_TRANSACTIONS_URI.to_string(), Vec::new()),
+                Request::empty(uri::PENDING_TRANSACTIONS_URI),
             )
             .await
             .map_err(Error::RequestPendingTransactions)?

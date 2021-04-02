@@ -240,8 +240,14 @@ impl Request {
     ///
     /// let request = Request::new("/metrics".to_string(), "some_message".to_string().into_bytes());
     /// ```
-    pub fn new(uri_path: String, payload: Vec<u8>) -> Request {
+    pub fn new(uri_path: impl Into<String>, payload: Vec<u8>) -> Request {
+        let uri_path = uri_path.into();
         Request { uri_path, payload }
+    }
+
+    /// Creates a request with empty body
+    pub fn empty(uri_path: impl Into<String>) -> Request {
+        Request::new(uri_path, Vec::new())
     }
 
     /// getter for url
@@ -370,7 +376,7 @@ mod tests {
             Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        match Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
+        match Network::send_request_to("127.0.0.1:7878", Request::empty("/ping"))
             .await
             .expect("Failed to send request to.")
         {
@@ -398,7 +404,7 @@ mod tests {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        match Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
+        match Network::send_request_to("127.0.0.1:7870", Request::empty("/ping"))
             .await
             .expect("Failed to send request to.")
         {

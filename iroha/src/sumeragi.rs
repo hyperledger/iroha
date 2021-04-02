@@ -862,7 +862,7 @@ pub mod message {
         pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             match Network::send_request_to(
                 &peer.address,
-                Request::new(uri::CONSENSUS_URI.to_string(), self.encode_versioned()?),
+                Request::new(uri::CONSENSUS_URI, self.encode_versioned()?),
             )
             .await
             .wrap_err_with(|| format!("Failed to send to peer {} with error", peer.address))?

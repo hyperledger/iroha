@@ -1,0 +1,15 @@
+mod account_with_multiple_signatories;
+mod add_asset;
+mod add_asset_should_propagate_to_another_peer;
+mod asset_amount_should_be_the_same_on_a_recently_added_peer;
+mod events;
+mod genesis_submission_with_offline_peers;
+mod multiple_blocks_created;
+mod multisignature_transaction;
+mod pagination;
+mod permissions;
+mod restart_peer;
+mod transfer_asset;
+mod tx_history;
+mod tx_rollback;
+mod unstable_network;

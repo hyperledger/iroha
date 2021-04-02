@@ -3311,7 +3311,7 @@ checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
 [[package]]
 name = "unique_port"
 version = "0.1.0"
-source = "git+https://github.com/soramitsu/iroha2-unique_port#d7b15cfcf1edf1b469c1f93cec72da5efa1f13bd"
+source = "git+https://github.com/soramitsu/iroha2-unique_port#a75b10420ff592125272891d1c9d43131cbc4b5f"
 dependencies = [
  "once_cell",
 ]
