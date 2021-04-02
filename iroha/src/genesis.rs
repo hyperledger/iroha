@@ -138,7 +138,7 @@ impl GenesisNetwork {
                         } else {
                             match Network::send_request_to(
                                 &peer.address,
-                                Request::new(uri::HEALTH_URI.to_string(), Vec::new()),
+                                Request::empty(uri::HEALTH_URI),
                             )
                             .await
                             {
