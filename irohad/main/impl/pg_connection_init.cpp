@@ -5,9 +5,6 @@
 
 #include "main/impl/pg_connection_init.hpp"
 
-#include <boost/functional/hash.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "common/irohad_version.hpp"

@@ -771,6 +771,7 @@ TEST_F(PreparedBlockTest, PrepareBlockNoStateChanged) {
   validateAccountAsset(sql_query, kUserId, kAssetId, base_balance);
 }
 
+#if ENABLE_FAILING_TESTS  // This test requires max_prepared_transactions>0 which is not default
 /**
  * @given Storage with prepared state
  * @when prepared state is applied
@@ -801,6 +802,7 @@ TEST_F(PreparedBlockTest, CommitPreparedStateChanged) {
   EXPECT_EQ(top_block_info->height, ledger_state->top_block_info.height);
   EXPECT_EQ(top_block_info->top_hash, ledger_state->top_block_info.top_hash);
 }
+#endif
 
 /**
  * @given Storage with prepared state
