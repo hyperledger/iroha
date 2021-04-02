@@ -5,6 +5,11 @@
 
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+#include <soci/postgresql/soci-postgresql.h>
+#include <soci/soci.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <iterator>
@@ -15,10 +20,6 @@
 #include <string_view>
 #include <vector>
 
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
-#include <soci/postgresql/soci-postgresql.h>
-#include <soci/soci.h>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
 #include "common/result.hpp"
@@ -114,8 +115,8 @@ class PostgresBurrowStorageTest : public testing::Test {
       TestDbManager::createWithRandomDbName(
           1, getTestLoggerManager()->getChild("TestDbManager"))
           .assumeValue()};
-  std::unique_ptr<soci::session> sql_{test_db_manager_->getSession()};
-  PostgresBurrowStorage storage_{*sql_, kTxHash, kCmdIdx};
+  std::shared_ptr<soci::session> sql_{test_db_manager_->makeSession()};
+  PostgresBurrowStorage storage_{sql_, kTxHash, kCmdIdx};
 };
 
 TEST_F(PostgresBurrowStorageTest, Store2LogsWithNoTopics) {

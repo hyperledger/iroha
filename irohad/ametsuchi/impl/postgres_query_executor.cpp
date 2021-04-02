@@ -7,6 +7,7 @@
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/size.hpp>
+
 #include "ametsuchi/specific_query_executor.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "interfaces/queries/blocks_query.hpp"
@@ -19,12 +20,12 @@ namespace iroha {
   namespace ametsuchi {
 
     PostgresQueryExecutor::PostgresQueryExecutor(
-        std::unique_ptr<soci::session> sql,
+        std::shared_ptr<soci::session> const &sql,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
         std::shared_ptr<SpecificQueryExecutor> specific_query_executor,
         logger::LoggerPtr log)
-        : sql_(std::move(sql)),
+        : sql_(sql),
           specific_query_executor_(std::move(specific_query_executor)),
           query_response_factory_{std::move(response_factory)},
           log_(std::move(log)) {}

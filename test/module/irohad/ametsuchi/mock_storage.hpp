@@ -6,12 +6,13 @@
 #ifndef IROHA_MOCK_STORAGE_HPP
 #define IROHA_MOCK_STORAGE_HPP
 
-#include "ametsuchi/storage.hpp"
-
 #include <gmock/gmock.h>
+
 #include <rxcpp/rx-lite.hpp>
+
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/mutable_storage.hpp"
+#include "ametsuchi/storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 
 namespace iroha {
@@ -46,6 +47,7 @@ namespace iroha {
           (const, override));
       MOCK_METHOD1(doCommit, CommitResult(MutableStorage *storage));
       MOCK_CONST_METHOD0(preparedCommitEnabled, bool());
+      MOCK_CONST_METHOD0(preparedBlocksEnabled, bool());
       MOCK_METHOD1(
           commitPrepared,
           CommitResult(std::shared_ptr<const shared_model::interface::Block>));

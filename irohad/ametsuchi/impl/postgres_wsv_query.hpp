@@ -6,19 +6,24 @@
 #ifndef IROHA_POSTGRES_WSV_QUERY_HPP
 #define IROHA_POSTGRES_WSV_QUERY_HPP
 
-#include "ametsuchi/wsv_query.hpp"
-
 #include <soci/soci.h>
+
+#include "ametsuchi/wsv_query.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
   namespace ametsuchi {
     class PostgresWsvQuery : public WsvQuery {
      public:
-      PostgresWsvQuery(soci::session &sql, logger::LoggerPtr log);
+      PostgresWsvQuery(std::weak_ptr<soci::session> const &wsql,
+                       logger::LoggerPtr log)
+          : wsql_(wsql), log_(std::move(log)) {}
 
-      PostgresWsvQuery(std::unique_ptr<soci::session> sql,
-                       logger::LoggerPtr log);
+      PostgresWsvQuery(std::shared_ptr<soci::session> &&ssql,
+                       logger::LoggerPtr log)
+          : shared_sql_(std::move(ssql)),
+            wsql_(shared_sql_),
+            log_(std::move(log)) {}
 
       boost::optional<std::vector<std::string>> getSignatories(
           const shared_model::interface::types::AccountIdType &account_id)
@@ -45,9 +50,14 @@ namespace iroha {
 
       // TODO andrei 24.09.2018: IR-1718 Consistent soci::session fields in
       // storage classes
-      std::unique_ptr<soci::session> psql_;
-      soci::session &sql_;
+      std::shared_ptr<soci::session> shared_sql_;  // used in storage_impl
+
+      std::weak_ptr<soci::session> wsql_;
       logger::LoggerPtr log_;
+
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(wsql_);
+      }
     };
   }  // namespace ametsuchi
 }  // namespace iroha

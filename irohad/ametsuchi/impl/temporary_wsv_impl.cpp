@@ -8,6 +8,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "interfaces/commands/command.hpp"
@@ -19,14 +20,18 @@
 namespace iroha {
   namespace ametsuchi {
     TemporaryWsvImpl::TemporaryWsvImpl(
-        std::shared_ptr<PostgresCommandExecutor> command_executor,
+        std::shared_ptr<PostgresCommandExecutor> &&command_executor,
         logger::LoggerManagerTreePtr log_manager)
         : sql_(command_executor->getSession()),
           transaction_executor_(std::make_unique<TransactionExecutor>(
               std::move(command_executor))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
-      sql_ << "BEGIN";
+      *sql() << "BEGIN";
+    }
+
+    std::shared_ptr<soci::session> TemporaryWsvImpl::sql() const {
+      return std::shared_ptr<soci::session>(sql_);
     }
 
     expected::Result<void, validation::CommandError>
@@ -54,7 +59,7 @@ namespace iroha {
 
       try {
         auto keys_range_size = boost::size(keys_range);
-        sql_ << (query % keys).str(), soci::into(signatories_valid),
+        *sql() << (query % keys).str(), soci::into(signatories_valid),
             soci::use(keys_range_size, "signatures_count"),
             soci::use(transaction.creatorAccountId(), "account_id");
       } catch (const std::exception &e) {
@@ -113,7 +118,7 @@ namespace iroha {
 
     TemporaryWsvImpl::~TemporaryWsvImpl() {
       try {
-        sql_ << "ROLLBACK";
+        *sql() << "ROLLBACK";
       } catch (std::exception &e) {
         log_->error("Rollback did not happen: {}", e.what());
       }
@@ -127,19 +132,24 @@ namespace iroha {
           savepoint_name_{std::move(savepoint_name)},
           is_released_{false},
           log_(std::move(log)) {
-      sql_ << "SAVEPOINT " + savepoint_name_ + ";";
+      *sql() << "SAVEPOINT " + savepoint_name_ + ";";
     }
 
     void TemporaryWsvImpl::SavepointWrapperImpl::release() {
       is_released_ = true;
     }
 
+    std::shared_ptr<soci::session> TemporaryWsvImpl::SavepointWrapperImpl::sql()
+        const {
+      return std::shared_ptr<soci::session>{sql_};
+    }
+
     TemporaryWsvImpl::SavepointWrapperImpl::~SavepointWrapperImpl() {
       try {
         if (not is_released_) {
-          sql_ << "ROLLBACK TO SAVEPOINT " + savepoint_name_ + ";";
+          *sql() << "ROLLBACK TO SAVEPOINT " + savepoint_name_ + ";";
         } else {
-          sql_ << "RELEASE SAVEPOINT " + savepoint_name_ + ";";
+          *sql() << "RELEASE SAVEPOINT " + savepoint_name_ + ";";
         }
       } catch (std::exception &e) {
         log_->error("SQL error. Reason: {}", e.what());

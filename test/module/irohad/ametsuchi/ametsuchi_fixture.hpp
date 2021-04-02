@@ -9,9 +9,11 @@
 #include <gtest/gtest.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <soci/soci.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -92,7 +94,7 @@ namespace iroha {
            sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
                                                  pgopt_);
            sql_query =
-               std::make_unique<framework::ametsuchi::SqlQuery>(*sql, factory);
+               std::make_unique<framework::ametsuchi::SqlQuery>(sql, factory);
 
            if (wsv_is_dirty and not keep_wsv_data) {
              truncateWsv();
@@ -186,7 +188,7 @@ namespace iroha {
       // this is for resolving private visibility issues
 #define PROXY_STORAGE_IMPL_FUNCTION(function)                               \
   template <typename... T>                                                  \
-  auto function(T &&... args)                                               \
+  auto function(T &&...args)                                                \
       ->decltype(                                                           \
           std::declval<StorageImpl>().function(std::forward<T>(args)...)) { \
     return storage->function(std::forward<T>(args)...);                     \

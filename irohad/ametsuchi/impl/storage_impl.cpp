@@ -5,14 +5,11 @@
 
 #include "ametsuchi/impl/storage_impl.hpp"
 
+#include <soci/postgresql/soci-postgresql.h>
+
+#include <boost/format.hpp>
 #include <utility>
 
-#include <soci/callbacks.h>
-#include <soci/postgresql/soci-postgresql.h>
-#include <boost/algorithm/string.hpp>
-#include <boost/format.hpp>
-#include <boost/range/algorithm/replace_if.hpp>
-#include <boost/tuple/tuple.hpp>
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
@@ -29,9 +26,7 @@
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
-#include "common/byteutils.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -87,7 +82,7 @@ namespace iroha {
       // if we create temporary storage, then we intend to validate a new
       // proposal. this means that any state prepared before that moment is
       // not needed and must be removed to prevent locking
-      tryRollback(postgres_command_executor->getSession());
+      tryRollback(*postgres_command_executor->getSession());
       return std::make_unique<TemporaryWsvImpl>(
           std::move(postgres_command_executor),
           log_manager_->getChild("TemporaryWorldStateView"));
@@ -128,13 +123,13 @@ namespace iroha {
       if (not connection_) {
         return "createQueryExecutor: connection to database is not initialised";
       }
-      auto sql = std::make_unique<soci::session>(*connection_);
+      auto sql = std::make_shared<soci::session>(*connection_);
       auto log_manager = log_manager_->getChild("QueryExecutor");
       return std::make_unique<PostgresQueryExecutor>(
-          std::move(sql),
+          sql,
           response_factory,
           std::make_shared<PostgresSpecificQueryExecutor>(
-              *sql,
+              sql,
               *block_store_,
               std::move(pending_txs_storage),
               response_factory,
@@ -163,7 +158,7 @@ namespace iroha {
     expected::Result<void, std::string> StorageImpl::insertPeer(
         const shared_model::interface::Peer &peer) {
       log_->info("Insert peer {}", peer.pubkey());
-      soci::session sql(*connection_);
+      auto sql = std::make_shared<soci::session>(*connection_);
       PostgresWsvCommand wsv_command(sql);
       return wsv_command.insertPeer(peer);
     }
@@ -174,12 +169,12 @@ namespace iroha {
       if (connection_ == nullptr) {
         return expected::makeError("Connection was closed");
       }
-      auto sql = std::make_unique<soci::session>(*connection_);
+      auto sql = std::make_shared<soci::session>(*connection_);
       return std::make_unique<PostgresCommandExecutor>(
-          std::move(sql),
+          sql,
           perm_converter_,
           std::make_shared<PostgresSpecificQueryExecutor>(
-              *sql,
+              sql,
               *block_store_,
               pending_txs_storage_,
               query_response_factory_,
@@ -200,7 +195,7 @@ namespace iroha {
       // if we create mutable storage, then we intend to mutate wsv
       // this means that any state prepared before that moment is not needed
       // and must be removed to prevent locking
-      tryRollback(postgres_command_executor->getSession());
+      tryRollback(*postgres_command_executor->getSession());
       return std::make_unique<MutableStorageImpl>(
           ledger_state_,
           std::move(postgres_command_executor),
@@ -263,7 +258,8 @@ namespace iroha {
         size_t pool_size) {
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
       {
-        soci::session sql{*pool_wrapper->connection_pool_};
+        auto sql =
+            std::make_shared<soci::session>(*pool_wrapper->connection_pool_);
         PostgresWsvQuery wsv_query(
             sql, log_manager->getChild("WsvQuery")->getLogger());
 
@@ -317,6 +313,10 @@ namespace iroha {
       return prepared_blocks_enabled_ and block_is_prepared_;
     }
 
+    bool StorageImpl::preparedBlocksEnabled() const {
+      return prepared_blocks_enabled_;
+    }
+
     CommitResult StorageImpl::commitPrepared(
         std::shared_ptr<const shared_model::interface::Block> block) {
       if (not prepared_blocks_enabled_) {
@@ -342,8 +342,8 @@ namespace iroha {
           return fmt::format("Failed to insert block {}", *block);
         }
 
-        soci::session sql(*connection_);
-        sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
+        auto sql = std::make_shared<soci::session>(*connection_);
+        *sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
         PostgresBlockIndex block_index(
             std::make_unique<PostgresIndexer>(sql),
             log_manager_->getChild("BlockIndex")->getLogger());
@@ -387,7 +387,7 @@ namespace iroha {
         return nullptr;
       }
       return std::make_shared<PostgresWsvQuery>(
-          std::make_unique<soci::session>(*connection_),
+          std::make_shared<soci::session>(*connection_),
           log_manager_->getChild("WsvQuery")->getLogger());
     }
 
@@ -434,14 +434,13 @@ namespace iroha {
             "Refusing to add new prepared state, because there already is one. "
             "Multiple prepared states are not yet supported.");
       } else {
-        soci::session &sql = wsv_impl.sql_;
+        soci::session &sql = *wsv_impl.sql();
         try {
           sql << "PREPARE TRANSACTION '" + prepared_block_name_ + "';";
           block_is_prepared_ = true;
         } catch (const std::exception &e) {
           log_->warn("failed to prepare state: {}", e.what());
         }
-
         log_->info("state prepared successfully");
       }
     }

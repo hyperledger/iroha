@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ametsuchi/impl/postgres_setting_query.hpp"
-
 #include <gmock/gmock.h>
+
+#include "ametsuchi/impl/postgres_setting_query.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/result_gtest_checkers.hpp"
@@ -29,7 +29,7 @@ namespace iroha {
                                             pgopt_),
             perm_converter,
             std::make_shared<PostgresSpecificQueryExecutor>(
-                *sql,
+                sql,
                 *block_storage_,
                 std::make_shared<MockPendingTransactionStorage>(),
                 std::make_shared<

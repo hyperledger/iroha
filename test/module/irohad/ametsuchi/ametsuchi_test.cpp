@@ -752,7 +752,10 @@ class PreparedBlockTest : public AmetsuchiTest {
     apply(storage, genesis_block);
     temp_wsv = storage->createTemporaryWsv(command_executor);
   }
-
+  void TearDown() override {
+    temp_wsv.reset();
+    AmetsuchiTest::TearDown();
+  }
   std::unique_ptr<shared_model::proto::Transaction> initial_tx;
   std::shared_ptr<const shared_model::interface::Block> genesis_block;
   std::unique_ptr<iroha::ametsuchi::TemporaryWsv> temp_wsv;
@@ -780,6 +783,9 @@ TEST_F(PreparedBlockTest, PrepareBlockNoStateChanged) {
  * @then state of the ledger is changed
  */
 TEST_F(PreparedBlockTest, CommitPreparedStateChanged) {
+  if (not storage->preparedBlocksEnabled())
+    GTEST_SKIP();
+
   auto other_tx = createAddAsset("5.00");
 
   auto block = createBlock({other_tx}, 2);
@@ -797,7 +803,7 @@ TEST_F(PreparedBlockTest, CommitPreparedStateChanged) {
 
   auto ledger_state = std::move(commited_res).assumeValue();
   ASSERT_NE(ledger_state, nullptr);
-  PostgresWsvQuery wsv_query{*sql, getTestLogger("WsvQuery")};
+  PostgresWsvQuery wsv_query{sql, getTestLogger("WsvQuery")};
   auto top_block_info =
       iroha::expected::resultToOptionalValue(wsv_query.getTopBlockInfo());
   ASSERT_TRUE(top_block_info) << "Failed to get top block info.";

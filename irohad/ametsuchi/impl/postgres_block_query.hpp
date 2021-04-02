@@ -20,11 +20,11 @@ namespace iroha {
      */
     class PostgresBlockQuery : public BlockQuery {
      public:
-      PostgresBlockQuery(soci::session &sql,
+      PostgresBlockQuery(std::weak_ptr<soci::session> &&sql,
                          BlockStorage &block_storage,
                          logger::LoggerPtr log);
 
-      PostgresBlockQuery(std::unique_ptr<soci::session> sql,
+      PostgresBlockQuery(std::shared_ptr<soci::session> &&sql,
                          BlockStorage &block_storage,
                          logger::LoggerPtr log);
 
@@ -39,10 +39,14 @@ namespace iroha {
           const shared_model::crypto::Hash &hash) override;
 
      private:
-      std::unique_ptr<soci::session> psql_;
-      soci::session &sql_;
+      std::shared_ptr<soci::session> psql_;
+      std::weak_ptr<soci::session> wsql_;
       BlockStorage &block_storage_;
       logger::LoggerPtr log_;
+
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(wsql_);
+      }
     };
   }  // namespace ametsuchi
 }  // namespace iroha

@@ -6,10 +6,11 @@
 #ifndef IROHA_POSTGRES_SETTING_QUERY_HPP
 #define IROHA_POSTGRES_SETTING_QUERY_HPP
 
-#include "ametsuchi/setting_query.hpp"
-
 #include <soci/soci.h>
+
 #include <boost/optional.hpp>
+
+#include "ametsuchi/setting_query.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -20,7 +21,7 @@ namespace iroha {
      */
     class PostgresSettingQuery : public SettingQuery {
      public:
-      PostgresSettingQuery(std::unique_ptr<soci::session> sql,
+      PostgresSettingQuery(std::shared_ptr<soci::session> &&sql,
                            logger::LoggerPtr log);
 
       expected::Result<
@@ -34,10 +35,14 @@ namespace iroha {
           std::string>
       update(std::unique_ptr<shared_model::validation::Settings> base);
 
-      std::unique_ptr<soci::session> psql_;
-      soci::session &sql_;
+      std::shared_ptr<soci::session> psql_;
+      std::weak_ptr<soci::session> wsql_;
 
       logger::LoggerPtr log_;
+
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(wsql_);
+      }
     };
   }  // namespace ametsuchi
 }  // namespace iroha

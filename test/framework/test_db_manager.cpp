@@ -80,7 +80,7 @@ TestDbManager::createWithRandomDbName(
 
 TestDbManager::~TestDbManager() = default;
 
-std::unique_ptr<soci::session> TestDbManager::getSession() {
+std::unique_ptr<soci::session> TestDbManager::makeSession() {
   return std::make_unique<soci::session>(*connection_pool_);
 }
 

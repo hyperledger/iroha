@@ -7,8 +7,8 @@
 #define IROHA_POSTGRES_COMMAND_EXECUTOR_HPP
 
 #include <optional>
-#include "ametsuchi/command_executor.hpp"
 
+#include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 
 namespace soci {
@@ -50,7 +50,7 @@ namespace iroha {
     class PostgresCommandExecutor final : public CommandExecutor {
      public:
       PostgresCommandExecutor(
-          std::unique_ptr<soci::session> sql,
+          std::shared_ptr<soci::session> const &sql,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           std::shared_ptr<PostgresSpecificQueryExecutor>
@@ -67,7 +67,7 @@ namespace iroha {
           shared_model::interface::types::CommandIndexType cmd_index,
           bool do_validation) override;
 
-      soci::session &getSession();
+      std::shared_ptr<soci::session> const &getSession() const;
 
       CommandResult operator()(
           const shared_model::interface::AddAssetQuantity &command,
@@ -236,11 +236,11 @@ namespace iroha {
       void initStatements();
 
       std::unique_ptr<CommandStatements> makeCommandStatements(
-          const std::unique_ptr<soci::session> &session,
+          std::weak_ptr<soci::session> session,
           const std::string &base_statement,
           const std::vector<std::string> &permission_checks);
 
-      std::unique_ptr<soci::session> sql_;
+      std::shared_ptr<soci::session> sql_;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;

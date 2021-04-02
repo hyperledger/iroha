@@ -36,6 +36,7 @@ target_link_libraries(shepherd
     irohad_version
     logger
     logger_manager
+    shared_model_interfaces
     )
 
 install(TARGETS shepherd

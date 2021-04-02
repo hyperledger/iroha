@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_setting_query.hpp"
 
 #include <boost/lexical_cast.hpp>
+
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
 
@@ -29,9 +30,9 @@ namespace {
   }
 }  // namespace
 
-PostgresSettingQuery::PostgresSettingQuery(std::unique_ptr<soci::session> sql,
+PostgresSettingQuery::PostgresSettingQuery(std::shared_ptr<soci::session> &&sql,
                                            logger::LoggerPtr log)
-    : psql_(std::move(sql)), sql_(*psql_), log_(std::move(log)) {}
+    : psql_(std::move(sql)), wsql_(psql_), log_(std::move(log)) {}
 
 iroha::expected::Result<
     std::unique_ptr<const shared_model::validation::Settings>,
@@ -48,7 +49,8 @@ PostgresSettingQuery::update(
   auto get_and_log =
       [this](const shared_model::interface::types::SettingKeyType &key,
              auto &destination) {
-        if (getValueFromDb(sql_, key, destination)) {
+        auto psql = sql();
+        if (getValueFromDb(*psql, key, destination)) {
           log_->info("Updated value for " + key + ": {}", destination);
         } else {
           log_->info("Kept value for " + key + ": {}", destination);

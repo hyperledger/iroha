@@ -6,6 +6,7 @@
 #include "integration/executor/executor_fixture_param_postgres.hpp"
 
 #include <soci/soci.h>
+
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
@@ -55,18 +56,18 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
 
   executor_itf_target_ =
       createPostgresExecutorItfTarget(*db_manager_, *vm_caller_);
-  burrow_storage_session_ = db_manager_->getSession();
+  burrow_storage_session_ = db_manager_->makeSession();
 
-  block_indexer_session_ = db_manager_->getSession();
+  block_indexer_session_ = db_manager_->makeSession();
   block_indexer_ = std::make_shared<PostgresBlockIndex>(
-      std::make_unique<PostgresIndexer>(*block_indexer_session_),
+      std::make_unique<PostgresIndexer>(block_indexer_session_),
       getTestLogger("PostgresIndexer"));
 }
 
 PostgresExecutorTestParam::~PostgresExecutorTestParam() = default;
 
 void PostgresExecutorTestParam::clearBackendState() {
-  auto session = db_manager_->getSession();
+  auto session = db_manager_->makeSession();
   assert(session);
   iroha::ametsuchi::truncateWsv(*session);
 }
@@ -80,7 +81,7 @@ PostgresExecutorTestParam::makeBurrowStorage(
     std::string const &tx_hash,
     shared_model::interface::types::CommandIndexType cmd_index) const {
   return std::make_unique<PostgresBurrowStorage>(
-      *burrow_storage_session_, tx_hash, cmd_index);
+      burrow_storage_session_, tx_hash, cmd_index);
 }
 
 std::shared_ptr<iroha::ametsuchi::BlockIndex>
@@ -99,35 +100,30 @@ executor_testing::getExecutorTestParamPostgres() {
 }
 
 namespace {
-  struct SessionHolder {
-    SessionHolder(std::unique_ptr<soci::session> session)
-        : session(std::move(session)) {}
-    std::unique_ptr<soci::session> session;
-  };
 
   class PostgresSpecificQueryExecutorWrapper
-      : private SessionHolder,
-        public PostgresSpecificQueryExecutor {
+      : public PostgresSpecificQueryExecutor {
    public:
     PostgresSpecificQueryExecutorWrapper(
-        std::unique_ptr<soci::session> &&session,
-        std::unique_ptr<BlockStorage> block_storage,
+        std::shared_ptr<soci::session> &&sql,
+        std::unique_ptr<BlockStorage> &&block_storage,
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         logger::LoggerPtr log)
-        : SessionHolder(std::move(session)),
-          PostgresSpecificQueryExecutor(*SessionHolder::session,
+        : PostgresSpecificQueryExecutor({sql},
                                         *block_storage,
                                         std::move(pending_txs_storage),
                                         std::move(response_factory),
                                         std::move(perm_converter),
                                         std::move(log)),
+          sql_(std::move(sql)),
           block_storage_(std::move(block_storage)) {}
 
    private:
+    std::shared_ptr<soci::session> sql_;
     std::unique_ptr<BlockStorage> block_storage_;
   };
 
@@ -136,7 +132,7 @@ namespace {
     ExecutorItfTarget target;
     auto postgres_query_executor =
         std::make_shared<PostgresSpecificQueryExecutorWrapper>(
-            db_manager.getSession(),
+            db_manager.makeSession(),
             std::make_unique<MockBlockStorage>(),
             std::make_shared<MockPendingTransactionStorage>(),
             std::make_shared<shared_model::proto::ProtoQueryResponseFactory>(),
@@ -145,7 +141,7 @@ namespace {
                 ->getChild("SpecificQueryExecutor")
                 ->getLogger());
     target.command_executor = std::make_shared<PostgresCommandExecutor>(
-        db_manager.getSession(),
+        db_manager.makeSession(),
         std::make_shared<shared_model::proto::ProtoPermissionToString>(),
         postgres_query_executor,
         vm_caller);

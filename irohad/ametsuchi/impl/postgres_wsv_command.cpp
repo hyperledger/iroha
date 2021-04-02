@@ -5,10 +5,11 @@
 
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 
+#include <fmt/core.h>
+
+#include <boost/format.hpp>
 #include <numeric>
 
-#include <fmt/core.h>
-#include <boost/format.hpp>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -33,11 +34,9 @@ namespace iroha {
       }
     }
 
-    PostgresWsvCommand::PostgresWsvCommand(soci::session &sql) : sql_(sql) {}
-
     WsvCommandResult PostgresWsvCommand::insertRole(
         const shared_model::interface::types::RoleIdType &role_name) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO role(role_id) VALUES (:role_id)";
       st.exchange(soci::use(role_name));
       auto msg = [&] {
@@ -49,7 +48,7 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::insertAccountRole(
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::RoleIdType &role_name) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO account_has_roles(account_id, role_id) VALUES "
              "(:account_id, :role_id)";
       st.exchange(soci::use(account_id));
@@ -67,7 +66,7 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::deleteAccountRole(
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::RoleIdType &role_name) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "DELETE FROM account_has_roles WHERE account_id=:account_id "
              "AND role_id=:role_id";
       st.exchange(soci::use(account_id));
@@ -87,7 +86,7 @@ namespace iroha {
         const shared_model::interface::types::RoleIdType &role_id,
         const shared_model::interface::RolePermissionSet &permissions) {
       auto perm_str = permissions.toBitstring();
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO role_has_permissions(role_id, permission) VALUES "
              "(:id, :perm)";
       st.exchange(soci::use(role_id));
@@ -117,7 +116,7 @@ namespace iroha {
       const auto perm_str =
           shared_model::interface::GrantablePermissionSet({permission})
               .toBitstring();
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO account_has_grantable_permissions as "
              "has_perm(permittee_account_id, account_id, permission) VALUES "
              "(:permittee_account_id, :account_id, :perm) ON CONFLICT "
@@ -152,7 +151,7 @@ namespace iroha {
                                 .setAll()
                                 .unset(permission)
                                 .toBitstring();
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "UPDATE account_has_grantable_permissions as has_perm SET "
              // SELECT will end up with a error, if the permission doesn't
              // exists
@@ -179,7 +178,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::insertAccount(
         const shared_model::interface::Account &account) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO account(account_id, domain_id, quorum,"
              "data) VALUES (:id, :domain_id, :quorum, :data)";
       uint32_t quorum = account.quorum();
@@ -204,7 +203,7 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::insertAsset(
         const shared_model::interface::Asset &asset) {
       auto precision = asset.precision();
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO asset(asset_id, domain_id, \"precision\") "
              "VALUES (:id, :domain_id, :precision)";
       st.exchange(soci::use(asset.assetId()));
@@ -223,7 +222,7 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::upsertAccountAsset(
         const shared_model::interface::AccountAsset &asset) {
       auto balance = asset.balance().toStringRepr();
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO account_has_asset(account_id, asset_id, amount) "
              "VALUES (:account_id, :asset_id, :amount) ON CONFLICT "
              "(account_id, asset_id) DO UPDATE SET "
@@ -245,7 +244,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::insertSignatory(
         shared_model::interface::types::PublicKeyHexStringView signatory) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO signatory(public_key) VALUES (lower(:pk)) ON "
              "CONFLICT DO NOTHING;";
       st.exchange(soci::use(signatory));
@@ -260,7 +259,7 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::insertAccountSignatory(
         const shared_model::interface::types::AccountIdType &account_id,
         shared_model::interface::types::PublicKeyHexStringView signatory) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO account_has_signatory(account_id, public_key) "
              "VALUES (:account_id, lower(:pk))";
       st.exchange(soci::use(account_id));
@@ -279,7 +278,7 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::deleteAccountSignatory(
         const shared_model::interface::types::AccountIdType &account_id,
         shared_model::interface::types::PublicKeyHexStringView signatory) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "DELETE FROM account_has_signatory WHERE account_id = "
              ":account_id AND public_key = lower(:pk)";
       st.exchange(soci::use(account_id));
@@ -297,7 +296,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::deleteSignatory(
         shared_model::interface::types::PublicKeyHexStringView signatory) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "DELETE FROM signatory WHERE public_key = lower(:pk) AND NOT "
              "EXISTS (SELECT 1 FROM account_has_signatory WHERE public_key = "
              "lower(:pk)) AND NOT EXISTS (SELECT 1 FROM peer WHERE public_key "
@@ -313,22 +312,21 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::insertPeer(
         const shared_model::interface::Peer &peer) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO peer(public_key, address, tls_certificate)"
              " VALUES (lower(:pk), :address, :tls_certificate)";
       st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
       st.exchange(soci::use(peer.tlsCertificate()));
-
-      auto msg = [&] {
+      auto errfunc = [&] {
         return (boost::format("failed to insert %s") % peer.toString()).str();
       };
-      return execute(st, msg);
+      return execute(st, errfunc);
     }
 
     WsvCommandResult PostgresWsvCommand::deletePeer(
         const shared_model::interface::Peer &peer) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "DELETE FROM peer WHERE public_key = lower(:pk) AND address = "
              ":address";
       st.exchange(soci::use(peer.pubkey()));
@@ -345,7 +343,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::insertDomain(
         const shared_model::interface::Domain &domain) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "INSERT INTO domain(domain_id, default_role) VALUES (:id, "
              ":role)";
       st.exchange(soci::use(domain.domainId()));
@@ -362,7 +360,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::updateAccount(
         const shared_model::interface::Account &account) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "UPDATE account SET quorum=:quorum WHERE account_id=:account_id";
       uint32_t quorum = account.quorum();
       st.exchange(soci::use(quorum));
@@ -382,7 +380,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_account_id,
         const std::string &key,
         const std::string &val) {
-      soci::statement st = sql_.prepare
+      soci::statement st = sql()->prepare
           << "UPDATE account SET data = jsonb_set("
              "CASE WHEN data ?:creator_account_id THEN data ELSE "
              "jsonb_set(data, :json, :empty_json) END, "
@@ -412,10 +410,10 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::setTopBlockInfo(
         const TopBlockInfo &top_block_info) const {
       try {
-        sql_ << "insert into top_block_info (height, hash) "
-                "values (:height, :hash) "
-                "on conflict (lock) do update "
-                "set height = :height, hash = :hash;",
+        *sql() << "insert into top_block_info (height, hash) "
+                  "values (:height, :hash) "
+                  "on conflict (lock) do update "
+                  "set height = :height, hash = :hash;",
             soci::use(top_block_info.height, "height"),
             soci::use(top_block_info.top_hash.hex(), "hash");
         return expected::Value<void>{};

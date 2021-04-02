@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 
 #include <soci/boost-tuple.h>
+
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -35,14 +36,6 @@ namespace iroha {
     using shared_model::interface::types::AddressType;
     using shared_model::interface::types::TLSCertificateType;
 
-    PostgresWsvQuery::PostgresWsvQuery(soci::session &sql,
-                                       logger::LoggerPtr log)
-        : sql_(sql), log_(std::move(log)) {}
-
-    PostgresWsvQuery::PostgresWsvQuery(std::unique_ptr<soci::session> sql,
-                                       logger::LoggerPtr log)
-        : psql_(std::move(sql)), sql_(*psql_), log_(std::move(log)) {}
-
     template <typename T, typename F>
     auto PostgresWsvQuery::execute(F &&f) -> boost::optional<soci::rowset<T>> {
       try {
@@ -57,7 +50,7 @@ namespace iroha {
         const AccountIdType &account_id) {
       using T = boost::tuple<std::string>;
       auto result = execute<T>([&] {
-        return (sql_.prepare
+        return (sql()->prepare
                     << "SELECT public_key FROM account_has_signatory WHERE "
                        "account_id = :account_id",
                 soci::use(account_id));
@@ -72,7 +65,7 @@ namespace iroha {
       using T = boost::
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       auto result = execute<T>([&] {
-        return (sql_.prepare
+        return (sql()->prepare
                 << "SELECT public_key, address, tls_certificate FROM peer");
       });
 
@@ -86,7 +79,7 @@ namespace iroha {
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       std::string target_public_key{public_key};
       auto result = execute<T>([&] {
-        return (sql_.prepare << R"(
+        return (sql()->prepare << R"(
             SELECT public_key, address, tls_certificate
             FROM peer
             WHERE public_key = :public_key)",
@@ -108,7 +101,7 @@ namespace iroha {
     PostgresWsvQuery::getTopBlockInfo() const {
       try {
         soci::rowset<boost::tuple<size_t, std::string>> rowset(
-            sql_.prepare << "select height, hash from top_block_info;");
+            sql()->prepare << "select height, hash from top_block_info;");
         auto range = boost::make_iterator_range(rowset.begin(), rowset.end());
         if (range.empty()) {
           return "No top block information in WSV.";

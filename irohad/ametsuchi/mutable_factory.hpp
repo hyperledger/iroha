@@ -6,9 +6,9 @@
 #ifndef IROHA_MUTABLE_FACTORY_HPP
 #define IROHA_MUTABLE_FACTORY_HPP
 
+#include <boost/optional.hpp>
 #include <memory>
 
-#include <boost/optional.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/commit_result.hpp"
 #include "common/result_fwd.hpp"
@@ -48,6 +48,9 @@ namespace iroha {
 
       /// Check if prepared commits are enabled.
       virtual bool preparedCommitEnabled() const = 0;
+
+      /// Check if prepared blocks are enabled.
+      virtual bool preparedBlocksEnabled() const = 0;
 
       /**
        * Try to apply prepared block to Ametsuchi.

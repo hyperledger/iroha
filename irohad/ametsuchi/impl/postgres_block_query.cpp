@@ -14,16 +14,18 @@
 
 namespace iroha {
   namespace ametsuchi {
-    PostgresBlockQuery::PostgresBlockQuery(soci::session &sql,
+    PostgresBlockQuery::PostgresBlockQuery(std::weak_ptr<soci::session> &&sql,
                                            BlockStorage &block_storage,
                                            logger::LoggerPtr log)
-        : sql_(sql), block_storage_(block_storage), log_(std::move(log)) {}
+        : wsql_(std::move(sql)),
+          block_storage_(block_storage),
+          log_(std::move(log)) {}
 
-    PostgresBlockQuery::PostgresBlockQuery(std::unique_ptr<soci::session> sql,
+    PostgresBlockQuery::PostgresBlockQuery(std::shared_ptr<soci::session> &&sql,
                                            BlockStorage &block_storage,
                                            logger::LoggerPtr log)
         : psql_(std::move(sql)),
-          sql_(*psql_),
+          wsql_(psql_),
           block_storage_(block_storage),
           log_(std::move(log)) {}
 
@@ -54,7 +56,7 @@ namespace iroha {
       const auto &hash_str = hash.hex();
 
       try {
-        sql_ << "SELECT status FROM tx_status_by_hash WHERE hash = :hash",
+        *sql() << "SELECT status FROM tx_status_by_hash WHERE hash = :hash",
             soci::into(res), soci::use(hash_str);
       } catch (const std::exception &e) {
         log_->error("Failed to execute query: {}", e.what());

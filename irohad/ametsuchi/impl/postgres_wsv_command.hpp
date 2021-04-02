@@ -6,9 +6,8 @@
 #ifndef IROHA_POSTGRES_WSV_COMMAND_HPP
 #define IROHA_POSTGRES_WSV_COMMAND_HPP
 
-#include "ametsuchi/wsv_command.hpp"
-
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "ametsuchi/wsv_command.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 
 namespace iroha {
@@ -16,7 +15,9 @@ namespace iroha {
 
     class PostgresWsvCommand : public WsvCommand {
      public:
-      explicit PostgresWsvCommand(soci::session &sql);
+      explicit PostgresWsvCommand(std::weak_ptr<soci::session> const &wsql)
+          : wsql_{wsql} {}
+
       WsvCommandResult insertRole(
           const shared_model::interface::types::RoleIdType &role_name) override;
 
@@ -82,7 +83,10 @@ namespace iroha {
           const TopBlockInfo &top_block_info) const override;
 
      private:
-      soci::session &sql_;
+      std::weak_ptr<soci::session> wsql_;
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(wsql_);
+      }
     };
   }  // namespace ametsuchi
 }  // namespace iroha

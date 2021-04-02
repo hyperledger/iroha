@@ -6,6 +6,7 @@
 #include "framework/sql_query.hpp"
 
 #include <soci/boost-tuple.h>
+
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
@@ -54,10 +55,12 @@ namespace framework {
     }
 
     SqlQuery::SqlQuery(
-        soci::session &sql,
+        std::weak_ptr<soci::session> &&wsql,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         logger::LoggerPtr log)
-        : sql_{sql}, factory_{std::move(factory)}, log_{std::move(log)} {}
+        : wsql_{std::move(wsql)},
+          factory_{std::move(factory)},
+          log_{std::move(log)} {}
 
     bool SqlQuery::hasAccountGrantablePermission(
         const AccountIdType &permitee_account_id,
@@ -68,7 +71,7 @@ namespace framework {
               .toBitstring();
       using T = boost::tuple<int>;
       auto result = execute<T>([&] {
-        return (sql_.prepare
+        return (sql()->prepare
                     << "SELECT count(*) FROM "
                        "account_has_grantable_permissions WHERE "
                        "permittee_account_id = :permittee_account_id AND "
@@ -90,8 +93,8 @@ namespace framework {
         const AccountIdType &account_id) {
       using T = boost::tuple<RoleIdType>;
       auto result = execute<T>([&] {
-        return (sql_.prepare << "SELECT role_id FROM account_has_roles WHERE "
-                                "account_id = :account_id",
+        return (sql()->prepare << "SELECT role_id FROM account_has_roles WHERE "
+                                  "account_id = :account_id",
                 soci::use(account_id));
       });
 
@@ -104,7 +107,7 @@ namespace framework {
       using iroha::operator|;
       using T = boost::tuple<std::string>;
       auto result = execute<T>([&] {
-        return (sql_.prepare
+        return (sql()->prepare
                     << "SELECT permission FROM role_has_permissions WHERE "
                        "role_id = :role_name",
                 soci::use(role_name));
@@ -128,7 +131,7 @@ namespace framework {
     boost::optional<std::vector<RoleIdType>> SqlQuery::getRoles() {
       using T = boost::tuple<RoleIdType>;
       auto result = execute<T>(
-          [&] { return (sql_.prepare << "SELECT role_id FROM role"); });
+          [&] { return (sql()->prepare << "SELECT role_id FROM role"); });
 
       return mapValues<std::vector<RoleIdType>>(
           result, [&](auto &role_id) { return role_id; });
@@ -138,9 +141,9 @@ namespace framework {
     SqlQuery::getAccount(const AccountIdType &account_id) {
       using T = boost::tuple<DomainIdType, QuorumType, JsonType>;
       auto result = execute<T>([&] {
-        return (sql_.prepare << "SELECT domain_id, quorum, data "
-                                "FROM account WHERE account_id = "
-                                ":account_id",
+        return (sql()->prepare << "SELECT domain_id, quorum, data "
+                                  "FROM account WHERE account_id = "
+                                  ":account_id",
                 soci::use(account_id, "account_id"));
       });
 
@@ -163,7 +166,7 @@ namespace framework {
         // retrieve all values for a specified account
         std::string empty_json = "{}";
         result = execute<T>([&] {
-          return (sql_.prepare
+          return (sql()->prepare
                       << "SELECT data#>>:empty_json FROM account WHERE "
                          "account_id = "
                          ":account_id;",
@@ -175,7 +178,7 @@ namespace framework {
         // writer
         std::string filled_json = "{\"" + writer + "\"" + ", \"" + key + "\"}";
         result = execute<T>([&] {
-          return (sql_.prepare
+          return (sql()->prepare
                       << "SELECT json_build_object(:writer::text, "
                          "json_build_object(:key::text, (SELECT data #>> "
                          ":filled_json "
@@ -189,7 +192,7 @@ namespace framework {
         // retrieve values added by the writer under all keys
         result = execute<T>([&] {
           return (
-              sql_.prepare
+              sql()->prepare
                   << "SELECT json_build_object(:writer::text, (SELECT data -> "
                      ":writer FROM account WHERE account_id = :account_id));",
               soci::use(writer, "writer"),
@@ -199,7 +202,7 @@ namespace framework {
         // retrieve values from all writers under the key
         result = execute<T>([&] {
           return (
-              sql_.prepare
+              sql()->prepare
                   << "SELECT json_object_agg(key, value) AS json FROM (SELECT "
                      "json_build_object(kv.key, json_build_object(:key::text, "
                      "kv.value -> :key)) FROM jsonb_each((SELECT data FROM "
@@ -221,9 +224,9 @@ namespace framework {
         const SettingKeyType &setting_key) {
       using T = boost::tuple<SettingValueType>;
       auto result = execute<T>([&] {
-        return (sql_.prepare << "SELECT setting_value "
-                                "FROM setting WHERE setting_key = "
-                                ":setting_key",
+        return (sql()->prepare << "SELECT setting_value "
+                                  "FROM setting WHERE setting_key = "
+                                  ":setting_key",
                 soci::use(setting_key, "setting_key"));
       });
 
@@ -238,7 +241,7 @@ namespace framework {
       using T = boost::tuple<DomainIdType, PrecisionType>;
       auto result = execute<T>([&] {
         return (
-            sql_.prepare
+            sql()->prepare
                 << "SELECT domain_id, precision FROM asset WHERE asset_id = "
                    ":asset_id",
             soci::use(asset_id));
@@ -257,7 +260,7 @@ namespace framework {
     SqlQuery::getAccountAssets(const AccountIdType &account_id) {
       using T = boost::tuple<AssetIdType, std::string>;
       auto result = execute<T>([&] {
-        return (sql_.prepare
+        return (sql()->prepare
                     << "SELECT asset_id, amount FROM account_has_asset "
                        "WHERE account_id = :account_id",
                 soci::use(account_id));
@@ -277,7 +280,7 @@ namespace framework {
       using T = boost::tuple<std::string>;
       auto result = execute<T>([&] {
         return (
-            sql_.prepare
+            sql()->prepare
                 << "SELECT amount FROM account_has_asset WHERE account_id = "
                    ":account_id AND asset_id = :asset_id",
             soci::use(account_id),
@@ -296,8 +299,8 @@ namespace framework {
     SqlQuery::getDomain(const DomainIdType &domain_id) {
       using T = boost::tuple<RoleIdType>;
       auto result = execute<T>([&] {
-        return (sql_.prepare << "SELECT default_role FROM domain "
-                                "WHERE domain_id = :id LIMIT 1",
+        return (sql()->prepare << "SELECT default_role FROM domain "
+                                  "WHERE domain_id = :id LIMIT 1",
                 soci::use(domain_id));
       });
 

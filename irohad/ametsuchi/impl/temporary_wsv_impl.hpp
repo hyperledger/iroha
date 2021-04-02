@@ -6,10 +6,10 @@
 #ifndef IROHA_TEMPORARY_WSV_IMPL_HPP
 #define IROHA_TEMPORARY_WSV_IMPL_HPP
 
-#include "ametsuchi/temporary_wsv.hpp"
-
 #include <soci/soci.h>
+
 #include "ametsuchi/command_executor.hpp"
+#include "ametsuchi/temporary_wsv.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 
@@ -39,14 +39,17 @@ namespace iroha {
         ~SavepointWrapperImpl() override;
 
        private:
-        soci::session &sql_;
+        std::shared_ptr<soci::session> sql() const;
+
+       private:
+        std::weak_ptr<soci::session> sql_;
         std::string savepoint_name_;
         bool is_released_;
         logger::LoggerPtr log_;
       };
 
       TemporaryWsvImpl(
-          std::shared_ptr<PostgresCommandExecutor> command_executor,
+          std::shared_ptr<PostgresCommandExecutor> &&command_executor,
           logger::LoggerManagerTreePtr log_manager);
 
       expected::Result<void, validation::CommandError> apply(
@@ -58,6 +61,8 @@ namespace iroha {
       ~TemporaryWsvImpl() override;
 
      private:
+      std::shared_ptr<soci::session> sql() const;
+
       /**
        * Verifies whether transaction has at least quorum signatures and they
        * are a subset of creator account signatories
@@ -65,7 +70,7 @@ namespace iroha {
       expected::Result<void, validation::CommandError> validateSignatures(
           const shared_model::interface::Transaction &transaction);
 
-      soci::session &sql_;
+      std::weak_ptr<soci::session> sql_;
       std::unique_ptr<TransactionExecutor> transaction_executor_;
 
       logger::LoggerManagerTreePtr log_manager_;

@@ -5,15 +5,15 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
-#include <tuple>
-#include <unordered_map>
-
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
+#include <tuple>
+#include <unordered_map>
+
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -258,7 +258,7 @@ namespace iroha {
   namespace ametsuchi {
 
     PostgresSpecificQueryExecutor::PostgresSpecificQueryExecutor(
-        soci::session &sql,
+        std::weak_ptr<soci::session> wsql,
         BlockStorage &block_store,
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
@@ -266,7 +266,7 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         logger::LoggerPtr log)
-        : sql_(sql),
+        : sql_(std::move(wsql)),
           block_store_(block_store),
           pending_txs_storage_(std::move(pending_txs_storage)),
           query_response_factory_{std::move(response_factory)},
@@ -342,7 +342,6 @@ namespace iroha {
       try {
         soci::rowset<T> st = std::forward<QueryExecutor>(query_executor)();
         auto range = boost::make_iterator_range(st.begin(), st.end());
-
         return iroha::ametsuchi::apply(
             viewPermissions<PermissionTuple>(range.front()),
             [this, range, &response_creator, &perms_err_response, &query_hash](
@@ -378,7 +377,7 @@ namespace iroha {
       using T = boost::tuple<int>;
       try {
         soci::rowset<T> st =
-            (sql_.prepare << fmt::format(
+            (sql()->prepare << fmt::format(
                  R"({})", getAccountRolePermissionCheckSql(permission)),
              soci::use(account_id, "role_account_id"));
         return st.begin()->get<0>();
@@ -602,7 +601,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(q.accountId(), "target_account_id"));
           },
           query_hash,
@@ -687,7 +686,7 @@ namespace iroha {
                                                Role::kGetDomainSignatories));
 
       return executeQuery<QueryTuple, PermissionTuple>(
-          [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
+          [&] { return (sql()->prepare << cmd, soci::use(q.accountId())); },
           query_hash,
           [this, &q, &query_hash](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
@@ -727,12 +726,12 @@ namespace iroha {
       auto apply_query = [&](const auto &query) {
         return [&] {
           if (first_hash) {
-            return (sql_.prepare << query,
+            return (sql()->prepare << query,
                     soci::use(q.accountId()),
                     soci::use(first_hash->hex()),
                     soci::use(query_size));
           } else {
-            return (sql_.prepare << query,
+            return (sql()->prepare << query,
                     soci::use(q.accountId()),
                     soci::use(query_size));
           }
@@ -766,7 +765,7 @@ namespace iroha {
       std::string hash_str = boost::algorithm::join(
           q.transactionHashes()
               | boost::adaptors::transformed(
-                    [](const auto &h) { return "lower('" + h.hex() + "')"; }),
+                  [](const auto &h) { return "lower('" + h.hex() + "')"; }),
           ", ");
 
       using QueryTuple =
@@ -789,7 +788,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd, soci::use(creator_id, "account_id"));
+            return (sql()->prepare << cmd, soci::use(creator_id, "account_id"));
           },
           query_hash,
           [&](auto range, auto &my_perm, auto &all_perm) {
@@ -858,13 +857,13 @@ namespace iroha {
       auto apply_query = [&](const auto &query) {
         return [&] {
           if (first_hash) {
-            return (sql_.prepare << query,
+            return (sql()->prepare << query,
                     soci::use(q.accountId()),
                     soci::use(q.assetId()),
                     soci::use(first_hash->hex()),
                     soci::use(query_size));
           } else {
-            return (sql_.prepare << query,
+            return (sql()->prepare << query,
                     soci::use(q.accountId()),
                     soci::use(q.assetId()),
                     soci::use(query_size));
@@ -968,7 +967,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(q.accountId(), "account_id"),
                     soci::use(req_first_asset_id, "first_asset_id"),
                     soci::use(req_page_size, "page_size"));
@@ -1135,7 +1134,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(q.accountId(), "account_id"),
                     soci::use(writer, "writer"),
                     soci::use(key, "key"),
@@ -1251,7 +1250,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(creator_id, "role_account_id"));
           },
           query_hash,
@@ -1288,7 +1287,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(creator_id, "role_account_id"),
                     soci::use(q.roleId(), "role_name"));
           },
@@ -1333,7 +1332,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(creator_id, "role_account_id"),
                     soci::use(q.assetId(), "asset_id"));
           },
@@ -1445,7 +1444,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
+            return (sql()->prepare << cmd,
                     soci::use(creator_id, "role_account_id"));
           },
           query_hash,
@@ -1526,7 +1525,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd, soci::use(q.txHash(), "tx_hash"));
+            return (sql()->prepare << cmd, soci::use(q.txHash(), "tx_hash"));
           },
           query_hash,
           [&](auto range, auto &) {
@@ -1640,7 +1639,7 @@ namespace iroha {
                              table_name,
                              key_name,
                              value);
-      soci::rowset<ReturnValueType> result = this->sql_.prepare << cmd;
+      soci::rowset<ReturnValueType> result = this->sql()->prepare << cmd;
       return result.begin() != result.end();
     }
 

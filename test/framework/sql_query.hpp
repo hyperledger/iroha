@@ -6,10 +6,11 @@
 #ifndef IROHA_SQL_QUERY_HPP
 #define IROHA_SQL_QUERY_HPP
 
+#include <soci/soci.h>
+
+#include <boost/optional.hpp>
 #include <string>
 
-#include <soci/soci.h>
-#include <boost/optional.hpp>
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
@@ -33,7 +34,7 @@ namespace framework {
      */
     class SqlQuery {
      public:
-      SqlQuery(soci::session &sql,
+      SqlQuery(std::weak_ptr<soci::session> &&wsql,
                std::shared_ptr<shared_model::interface::CommonObjectsFactory>
                    factory,
                logger::LoggerPtr log = getTestLogger("SqlQuery"));
@@ -143,9 +144,13 @@ namespace framework {
           const shared_model::interface::types::SettingKeyType &setting_key);
 
      private:
-      soci::session &sql_;
+      std::weak_ptr<soci::session> wsql_;
       std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;
       logger::LoggerPtr log_;
+
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(wsql_);
+      }
 
       /**
        * Executes given lambda of type F, catches exceptions if any, logs the

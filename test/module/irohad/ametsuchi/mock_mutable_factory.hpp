@@ -6,9 +6,9 @@
 #ifndef IROHA_MOCK_MUTABLE_FACTORY_HPP
 #define IROHA_MOCK_MUTABLE_FACTORY_HPP
 
-#include "ametsuchi/mutable_factory.hpp"
-
 #include <gmock/gmock.h>
+
+#include "ametsuchi/mutable_factory.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -27,6 +27,7 @@ namespace iroha {
       }
 
       MOCK_CONST_METHOD0(preparedCommitEnabled, bool());
+      MOCK_CONST_METHOD0(preparedBlocksEnabled, bool());
       MOCK_METHOD1(
           commitPrepared,
           CommitResult(std::shared_ptr<const shared_model::interface::Block>));

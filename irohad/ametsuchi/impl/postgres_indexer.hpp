@@ -6,10 +6,10 @@
 #ifndef AMETSUCHI_POSTGRES_INDEXER_HPP
 #define AMETSUCHI_POSTGRES_INDEXER_HPP
 
-#include "ametsuchi/indexer.hpp"
-
 #include <string>
 #include <vector>
+
+#include "ametsuchi/indexer.hpp"
 
 namespace soci {
   class session;
@@ -20,7 +20,8 @@ namespace iroha {
 
     class PostgresIndexer final : public Indexer {
      public:
-      PostgresIndexer(soci::session &sql);
+      PostgresIndexer(std::weak_ptr<soci::session> wsql)
+          : wsql_(std::move(wsql)) {}
 
       void committedTxHash(const shared_model::interface::types::HashType
                                &committed_tx_hash) override;
@@ -59,8 +60,12 @@ namespace iroha {
       void txHashStatus(const shared_model::interface::types::HashType &tx_hash,
                         bool is_committed);
 
-      soci::session &sql_;
+      std::weak_ptr<soci::session> wsql_;
       std::string cache_;
+
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(wsql_);
+      }
     };
 
   }  // namespace ametsuchi

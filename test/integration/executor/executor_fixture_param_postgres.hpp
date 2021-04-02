@@ -52,8 +52,8 @@ namespace executor_testing {
    private:
     std::unique_ptr<iroha::integration_framework::TestDbManager> db_manager_;
     iroha::integration_framework::ExecutorItfTarget executor_itf_target_;
-    std::unique_ptr<soci::session> burrow_storage_session_;
-    std::unique_ptr<soci::session> block_indexer_session_;
+    std::shared_ptr<soci::session> burrow_storage_session_;
+    std::shared_ptr<soci::session> block_indexer_session_;
     std::shared_ptr<iroha::ametsuchi::BlockIndex> block_indexer_;
   };
 

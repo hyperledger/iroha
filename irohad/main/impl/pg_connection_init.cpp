@@ -5,9 +5,6 @@
 
 #include "main/impl/pg_connection_init.hpp"
 
-#include <boost/functional/hash.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "common/irohad_version.hpp"
@@ -137,8 +134,8 @@ PgConnectionInit::prepareWorkingDatabase(
     *maintenance_sql << "select exists("
                         "SELECT datname FROM pg_catalog.pg_database "
                         "WHERE datname = '"
-                        + options.workingDbName() + "');"
-                        , soci::into(work_db_exists);
+            + options.workingDbName() + "');",
+        soci::into(work_db_exists);
     if (not work_db_exists) {
       return createSchema(options);
     }
@@ -269,7 +266,8 @@ PgConnectionInit::initializeConnectionPool(
   auto init_failover_callback = [&](soci::session &session) {
     static size_t connection_index = 0;
     auto restore_session = [initialize_session](soci::session &s) {
-      return initialize_session(s, [](auto &) {}, [](auto &) {});
+      return initialize_session(
+          s, [](auto &) {}, [](auto &) {});
     };
 
     auto &callback = callback_factory.makeFailoverCallback(
@@ -289,7 +287,8 @@ PgConnectionInit::initializeConnectionPool(
   initialize_session(connection_pool.at(0), init_db, init_failover_callback);
   for (size_t i = 1; i != pool_size; i++) {
     soci::session &session = connection_pool.at(i);
-    initialize_session(session, [](auto &) {}, init_failover_callback);
+    initialize_session(
+        session, [](auto &) {}, init_failover_callback);
   }
   return expected::Value<void>();
 }
@@ -449,11 +448,11 @@ CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
 }
 
 iroha::expected::Result<void, std::string>
-PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) 
-try {
+PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) try {
   auto maintenance_sql = soci::session(*soci::factory_postgresql(),
                                        options.maintenanceConnectionString());
-  maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName() << ";";
+  maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName()
+                  << ";";
   return iroha::expected::Value<void>{};
 } catch (const std::exception &e) {
   return e.what();

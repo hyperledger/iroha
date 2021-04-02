@@ -42,7 +42,7 @@ namespace iroha {
       ~TestDbManager();
 
       /// Get a session.
-      std::unique_ptr<soci::session> getSession();
+      std::unique_ptr<soci::session> makeSession();
 
      private:
       class DbDropper;

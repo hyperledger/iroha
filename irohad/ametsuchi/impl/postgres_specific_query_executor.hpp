@@ -6,9 +6,9 @@
 #ifndef IROHA_POSTGRES_SPECIFIC_QUERY_EXECUTOR_HPP
 #define IROHA_POSTGRES_SPECIFIC_QUERY_EXECUTOR_HPP
 
-#include "ametsuchi/specific_query_executor.hpp"
-
 #include <soci/soci.h>
+
+#include "ametsuchi/specific_query_executor.hpp"
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
@@ -51,7 +51,7 @@ namespace iroha {
     class PostgresSpecificQueryExecutor : public SpecificQueryExecutor {
      public:
       PostgresSpecificQueryExecutor(
-          soci::session &sql,
+          std::weak_ptr<soci::session> sql,
           BlockStorage &block_store,
           std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
@@ -260,7 +260,11 @@ namespace iroha {
             error_message = "";
       };
 
-      soci::session &sql_;
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(sql_);
+      }
+
+      std::weak_ptr<soci::session> sql_;
       BlockStorage &block_store_;
       std::shared_ptr<PendingTransactionStorage> pending_txs_storage_;
       std::shared_ptr<shared_model::interface::QueryResponseFactory>

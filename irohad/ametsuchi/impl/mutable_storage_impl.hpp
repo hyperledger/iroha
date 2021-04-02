@@ -6,10 +6,10 @@
 #ifndef IROHA_MUTABLE_STORAGE_IMPL_HPP
 #define IROHA_MUTABLE_STORAGE_IMPL_HPP
 
-#include "ametsuchi/mutable_storage.hpp"
-
 #include <soci/soci.h>
+
 #include "ametsuchi/block_storage.hpp"
+#include "ametsuchi/mutable_storage.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
@@ -51,6 +51,11 @@ namespace iroha {
       ~MutableStorageImpl() override;
 
      private:
+      std::shared_ptr<soci::session> sql() const {
+        return std::shared_ptr<soci::session>(sql_);
+      }
+
+     private:
       /**
        * Performs a function inside savepoint, does a rollback if function
        * returned false, and removes the savepoint otherwise. Returns function
@@ -68,7 +73,7 @@ namespace iroha {
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 
-      soci::session &sql_;
+      std::weak_ptr<soci::session> sql_;
       std::unique_ptr<PostgresWsvCommand> wsv_command_;
       std::unique_ptr<PeerQuery> peer_query_;
       std::unique_ptr<BlockIndex> block_index_;

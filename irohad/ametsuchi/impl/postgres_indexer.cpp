@@ -7,13 +7,13 @@
 
 #include <fmt/core.h>
 #include <soci/soci.h>
+
 #include <boost/format.hpp>
+
 #include "cryptography/hash.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
-
-PostgresIndexer::PostgresIndexer(soci::session &sql) : sql_(sql) {}
 
 void PostgresIndexer::txHashStatus(const HashType &tx_hash, bool is_committed) {
   tx_hash_status_.hash.emplace_back(tx_hash.hex());
@@ -103,7 +103,7 @@ iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
     }
 
     if (!cache_.empty())
-      sql_ << cache_;
+      *sql() << cache_;
   } catch (const std::exception &e) {
     return e.what();
   }

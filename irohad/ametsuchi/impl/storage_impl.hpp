@@ -6,19 +6,19 @@
 #ifndef IROHA_STORAGE_IMPL_HPP
 #define IROHA_STORAGE_IMPL_HPP
 
-#include "ametsuchi/storage.hpp"
+#include <soci/soci.h>
 
 #include <atomic>
-#include <shared_mutex>
-
-#include <soci/soci.h>
 #include <boost/optional.hpp>
 #include <rxcpp/rx-lite.hpp>
+#include <shared_mutex>
+
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
+#include "ametsuchi/storage.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -102,6 +102,7 @@ namespace iroha {
           std::unique_ptr<MutableStorage> mutable_storage) override;
 
       bool preparedCommitEnabled() const override;
+      bool preparedBlocksEnabled() const override;
 
       CommitResult commitPrepared(
           std::shared_ptr<const shared_model::interface::Block> block) override;

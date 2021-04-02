@@ -5,15 +5,14 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 
+#include <fmt/core.h>
+
+#include <boost/algorithm/string/join.hpp>
+#include <boost/format.hpp>
 #include <exception>
 #include <forward_list>
 #include <memory>
 
-#include <fmt/core.h>
-#include <soci/postgresql/soci-postgresql.h>
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/join.hpp>
-#include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
@@ -349,31 +348,29 @@ namespace iroha {
   namespace ametsuchi {
     class PostgresCommandExecutor::CommandStatements {
      public:
-      CommandStatements(soci::session &session,
+      CommandStatements(std::weak_ptr<soci::session> sql,
                         const std::string &base_statement,
                         const std::vector<std::string> &permission_checks)
           : statement_with_validation([&] {
               // Create query with validation
               auto with_validation_str = boost::format(base_statement);
-
               // append all necessary checks to the query
               for (const auto &check : permission_checks) {
                 with_validation_str = with_validation_str % check;
               }
-
-              return (session.prepare << with_validation_str);
+              return (std::shared_ptr<soci::session>(sql)->prepare
+                      << with_validation_str);
             }()),
             statement_without_validation([&] {
               // Create query without validation
               auto without_validation_str = boost::format(base_statement);
-
               // since checks are not needed, append empty strings to their
               // place
               for (size_t i = 0; i < permission_checks.size(); i++) {
                 without_validation_str = without_validation_str % "";
               }
-
-              return (session.prepare << without_validation_str);
+              return (std::shared_ptr<soci::session>(sql)->prepare
+                      << without_validation_str);
             }()) {}
 
       soci::statement &getStatement(bool with_validation) {
@@ -491,14 +488,15 @@ namespace iroha {
 
     std::unique_ptr<PostgresCommandExecutor::CommandStatements>
     PostgresCommandExecutor::makeCommandStatements(
-        const std::unique_ptr<soci::session> &session,
+        std::weak_ptr<soci::session> wsql,
         const std::string &base_statement,
         const std::vector<std::string> &permission_checks) {
       return std::make_unique<CommandStatements>(
-          *session, base_statement, permission_checks);
+          std::move(wsql), base_statement, permission_checks);
     }
 
     void PostgresCommandExecutor::initStatements() {
+      assert(sql_);
       // TODO [IR-1830] Akvinikym 31.10.18: make benchmarks to compare exception
       // parsing vs nested queries
       // 14.09.18 nickaleks: IR-1708 Load SQL from separate files
@@ -553,10 +551,10 @@ namespace iroha {
           END AS result;)",
           {(boost::format(R"(has_perm AS (%s),)")
             % checkAccountDomainRoleOrGlobalRolePermission(
-                  Role::kAddAssetQty,
-                  Role::kAddDomainAssetQty,
-                  ":creator",
-                  ":asset_id"))
+                Role::kAddAssetQty,
+                Role::kAddDomainAssetQty,
+                ":creator",
+                ":asset_id"))
                .str(),
            "AND (SELECT * from has_perm)",
            "WHEN NOT (SELECT * from has_perm) THEN 2"});
@@ -730,7 +728,7 @@ namespace iroha {
               )")
             % checkAccountRolePermission(Role::kSetDetail, ":creator")
             % checkAccountGrantablePermission(
-                  Grantable::kSetMyAccountDetail, ":creator", ":target")
+                Grantable::kSetMyAccountDetail, ":creator", ":target")
             % hasQueryPermission(":creator",
                                  ":target",
                                  Role::kGetMyAccDetail,
@@ -1137,7 +1135,7 @@ namespace iroha {
               )")
             % checkAccountRolePermission(Role::kSetDetail, ":creator")
             % checkAccountGrantablePermission(
-                  Grantable::kSetMyAccountDetail, ":creator", ":target"))
+                Grantable::kSetMyAccountDetail, ":creator", ":target"))
                .str(),
            R"( AND (SELECT * FROM has_perm))",
            R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"});
@@ -1255,10 +1253,10 @@ namespace iroha {
           {(boost::format(R"(
                has_perm AS (%s),)")
             % checkAccountDomainRoleOrGlobalRolePermission(
-                  Role::kSubtractAssetQty,
-                  Role::kSubtractDomainAssetQty,
-                  ":creator",
-                  ":asset_id"))
+                Role::kSubtractAssetQty,
+                Role::kSubtractDomainAssetQty,
+                ":creator",
+                ":asset_id"))
                .str(),
            R"( AND (SELECT * FROM has_perm))",
            R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"});
@@ -1371,9 +1369,8 @@ namespace iroha {
               ),
               )")
             % checkAccountRolePermission(Role::kTransfer, ":creator")
-            % checkAccountGrantablePermission(Grantable::kTransferMyAssets,
-                                              ":creator",
-                                              ":source_account_id")
+            % checkAccountGrantablePermission(
+                Grantable::kTransferMyAssets, ":creator", ":source_account_id")
             % checkAccountRolePermission(Role::kReceive, ":dest_account_id"))
                .str(),
            R"( AND (SELECT * FROM has_perm))",
@@ -1395,12 +1392,12 @@ namespace iroha {
     }
 
     PostgresCommandExecutor::PostgresCommandExecutor(
-        std::unique_ptr<soci::session> sql,
+        std::shared_ptr<soci::session> const &sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
-        : sql_(std::move(sql)),
+        : sql_(sql),
           perm_converter_{std::move(perm_converter)},
           specific_query_executor_{std::move(specific_query_executor)},
           vm_caller_{std::move(vm_caller)} {
@@ -1424,8 +1421,9 @@ namespace iroha {
           cmd.get());
     }
 
-    soci::session &PostgresCommandExecutor::getSession() {
-      return *sql_;
+    std::shared_ptr<soci::session> const &PostgresCommandExecutor::getSession()
+        const {
+      return sql_;
     }
 
     CommandResult PostgresCommandExecutor::operator()(
@@ -1534,7 +1532,7 @@ namespace iroha {
           }
 
           using namespace shared_model::interface::types;
-          PostgresBurrowStorage burrow_storage(*sql_, tx_hash, cmd_index);
+          PostgresBurrowStorage burrow_storage(sql_, tx_hash, cmd_index);
           return vm_caller_->get()
               .call(
                   tx_hash,
