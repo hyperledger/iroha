@@ -3,8 +3,8 @@
 #![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
 
 //TODO: do we need TLS/SSL?
-use std::convert::{Into, TryFrom, TryInto};
-use std::{borrow::Borrow, sync::Arc};
+use std::convert::{TryFrom, TryInto};
+use std::sync::Arc;
 
 use async_std::{
     net::{TcpListener, TcpStream},
@@ -16,7 +16,7 @@ use http::{HttpEndpoint, HttpRequest, HttpResponse, HttpResponseError, PathParam
 use route_recognizer::Router;
 use web_socket::WebSocketHandler;
 
-const BUFFER_SIZE: usize = 4096;
+const BUFFER_SIZE: usize = 2_usize.pow(18);
 
 /// Http and websocket server
 #[allow(missing_debug_implementations)]
@@ -42,6 +42,41 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         }
     }
 
+    /// Handles http/websocket connection
+    async fn start_handle(
+        state: State,
+        mut stream: TcpStream,
+        router: Arc<Router<Endpoint<State>>>,
+    ) {
+        let mut buffer = vec![0; BUFFER_SIZE];
+        let read_size = stream
+            .peek(&mut buffer)
+            .await
+            .expect("Request read failed.");
+
+        let response = match HttpRequest::try_from(&buffer[..read_size]) {
+            Ok(request) => {
+                let response = request
+                    .process(state, router.as_ref(), stream.clone())
+                    .await;
+                if response.is_some() {
+                    // Consume peeked data.
+                    consume_bytes(&mut stream, read_size as u64).await;
+                }
+                response
+            }
+            Err(err) => {
+                log::error!("Failed to parse incoming HTTP request: {:?}", err);
+                //TODO: return `not supported` for the features that are not supported instead of bad request.
+                Some(HttpResponse::bad_request())
+            }
+        };
+        if let Some(response) = response {
+            if let Err(err) = stream.write_all(&Vec::from(&response)).await {
+                log::error!("Failed to write back HTTP response: {}", err);
+            }
+        }
+    }
     /// Starts server at `address`
     ///
     /// # Errors
@@ -49,43 +84,16 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     pub async fn start(&self, address: &str) -> iroha_error::Result<()> {
         let listener = TcpListener::bind(address).await?;
         loop {
-            let (mut stream, _) = match listener.accept().await {
-                Ok(ok) => ok,
+            let (stream, _) = match listener.accept().await {
+                Ok(stream) => stream,
                 Err(_) => continue,
             };
 
-            let router = Arc::clone(&self.router);
-            let state = self.state.clone();
-            let _drop = task::spawn(async move {
-                let mut buffer = [0_u8; BUFFER_SIZE];
-                let read_size = stream
-                    .peek(&mut buffer)
-                    .await
-                    .expect("Request read failed.");
-                let response = match HttpRequest::try_from(&buffer[..]) {
-                    Ok(request) => {
-                        let response = request
-                            .process(state, router.as_ref(), stream.clone())
-                            .await;
-                        if response.is_some() {
-                            // Consume peeked data.
-                            consume_bytes(&mut stream, read_size as u64).await;
-                        }
-                        response
-                    }
-                    Err(err) => {
-                        log::error!("Failed to parse incoming HTTP request: {}", err);
-                        //TODO: return `not supported` for the features that are not supported instead of bad request.
-                        Some(HttpResponse::bad_request())
-                    }
-                };
-                if let Some(response) = response {
-                    let bytes: Vec<u8> = response.borrow().into();
-                    if let Err(err) = stream.write_all(&bytes).await {
-                        log::error!("Failed to write back HTTP response: {}", err);
-                    }
-                }
-            });
+            let _drop = task::spawn(Self::start_handle(
+                self.state.clone(),
+                stream,
+                Arc::clone(&self.router),
+            ));
         }
     }
 }
@@ -336,67 +344,59 @@ pub mod http {
             State: Clone + Send + Sync + 'static,
         {
             let (path, query_params) = strip_query_params(self.path.as_ref());
-            if let Ok(route_match) = router.recognize(path) {
-                let endpoint = route_match.handler;
-                let path_params: PathParams = route_match
-                    .params
-                    .iter()
-                    .map(|(key, value)| (key.to_string(), value.to_string()))
-                    .collect();
-                if let Some(WEB_SOCKET_UPGRADE) = self
-                    .headers
-                    .get(&UPGRADE_HEADER.to_lowercase())
-                    .map(Vec::as_slice)
-                {
-                    if let Endpoint::WebSocket(handler) = endpoint {
-                        match async_tungstenite::accept_async(stream).await {
-                            Ok(stream) => {
-                                if let Err(err) =
-                                    handler.call(state, path_params, query_params, stream).await
-                                {
-                                    log::error!("Failed to handle web socket stream: {}", err)
-                                }
-                                None
-                            }
-                            Err(err) => {
-                                log::error!(
-                                    "Failed to handle web socket request {:?} with error: {}",
-                                    self,
-                                    err
-                                );
-                                Some(HttpResponse::internal_server_error())
-                            }
-                        }
-                    } else {
-                        Some(HttpResponse::upgrade_required(WEB_SOCKET_UPGRADE))
-                    }
+
+            let route_match = if let Ok(route_match) = router.recognize(path) {
+                route_match
+            } else {
+                return Some(HttpResponse::not_found());
+            };
+
+            let endpoint = route_match.handler;
+            let path_params: PathParams = route_match
+                .params
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+            if let Some(WEB_SOCKET_UPGRADE) = self
+                .headers
+                .get(&UPGRADE_HEADER.to_lowercase())
+                .map(Vec::as_slice)
+            {
+                let handler = if let Endpoint::WebSocket(handler) = endpoint {
+                    handler
                 } else {
-                    match self.method.as_ref() {
-                        GET_METHOD => {
-                            if let Endpoint::Http(HttpEndpoint::Get(handler)) = endpoint {
-                                let response = handler
-                                    .call(state, path_params, query_params, self.clone())
-                                    .await;
-                                Some(response)
-                            } else {
-                                Some(HttpResponse::method_not_allowed(&[GET_METHOD]))
-                            }
+                    return Some(HttpResponse::upgrade_required(WEB_SOCKET_UPGRADE));
+                };
+
+                match async_tungstenite::accept_async(stream).await {
+                    Ok(stream) => {
+                        if let Err(err) =
+                            handler.call(state, path_params, query_params, stream).await
+                        {
+                            log::error!("Failed to handle web socket stream: {}", err)
                         }
-                        POST_METHOD => {
-                            if let Endpoint::Http(HttpEndpoint::Post(handler)) = endpoint {
-                                let response = handler
-                                    .call(state, path_params, query_params, self.clone())
-                                    .await;
-                                Some(response)
-                            } else {
-                                Some(HttpResponse::method_not_allowed(&[POST_METHOD]))
-                            }
-                        }
-                        _ => Some(HttpResponse::method_not_allowed(&[GET_METHOD, POST_METHOD])),
+                        None
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "Failed to handle web socket request {:?} with error: {}",
+                            self,
+                            err
+                        );
+                        Some(HttpResponse::internal_server_error())
                     }
                 }
             } else {
-                Some(HttpResponse::not_found())
+                let handler = match (self.method.as_ref(), endpoint) {
+                    (GET_METHOD, Endpoint::Http(HttpEndpoint::Get(handler)))
+                    | (POST_METHOD, Endpoint::Http(HttpEndpoint::Post(handler))) => handler,
+                    _ => return Some(HttpResponse::method_not_allowed(&[GET_METHOD, POST_METHOD])),
+                };
+
+                let response = handler
+                    .call(state, path_params, query_params, self.clone())
+                    .await;
+                Some(response)
             }
         }
     }
@@ -465,6 +465,12 @@ pub mod http {
         }
     }
 
+    impl From<String> for HttpResponse {
+        fn from(s: String) -> Self {
+            Self::ok(Headers::new(), s.into_bytes())
+        }
+    }
+
     impl<E, T> From<Result<T, E>> for HttpResponse
     where
         E: StdError + HttpResponseError,
@@ -472,28 +478,19 @@ pub mod http {
         T::Error: StdError + HttpResponseError,
     {
         fn from(result: Result<T, E>) -> Self {
-            fn print_error(err: &(impl StdError + ?Sized)) {
-                log::error!("\t{}", err);
-                if let Some(err) = err.source() {
-                    print_error(err);
-                } else {
-                    log::error!("");
-                }
+            fn error_log(err: &(impl StdError + ?Sized)) -> String {
+                let log = format!("\t{}\n", err);
+                err.source()
+                    .map_or(log.clone(), |err| log + &error_log(err))
             }
 
-            match result.map(TryInto::try_into) {
-                Ok(Ok(ok)) => ok,
-                Ok(Err(err)) => {
-                    log::error!("Failed to handle request with error:");
-                    print_error(&err);
-                    err.error_response()
-                }
-                Err(err) => {
-                    log::error!("Failed to handle request with error:");
-                    print_error(&err);
-                    err.error_response()
-                }
-            }
+            let err = match result.map(TryInto::try_into) {
+                Ok(Ok(ok)) => return ok,
+                Ok(Err(err)) => error_log(&err),
+                Err(err) => error_log(&err),
+            };
+            log::error!("Failed to handle request with error: {}", err);
+            err.into()
         }
     }
 
@@ -793,10 +790,9 @@ where
 }
 
 async fn consume_bytes(stream: &mut TcpStream, length: u64) {
-    let mut buffer = Vec::new();
     let _ = stream
         .take(length)
-        .read_to_end(&mut buffer)
+        .read_to_end(&mut Vec::new())
         .await
         .expect("Failed to consume data.");
 }

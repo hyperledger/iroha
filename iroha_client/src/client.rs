@@ -247,8 +247,9 @@ impl Client {
             response.body().clone().try_into().map_err(Error::msg)
         } else {
             Err(error!(
-                "Failed to make query request with HTTP status: {}",
-                response.status()
+                "Failed to make query request with HTTP status: {}, {}",
+                response.status(),
+                std::str::from_utf8(response.body()).unwrap_or(""),
             ))
         }
     }
@@ -316,8 +317,9 @@ impl Client {
                 thread::sleep(retry_in)
             } else {
                 return Err(error!(
-                    "Failed to make query request with HTTP status: {}",
-                    response.status()
+                    "Failed to make query request with HTTP status: {}, {}",
+                    response.status(),
+                    std::str::from_utf8(response.body()).unwrap_or(""),
                 ));
             }
         }

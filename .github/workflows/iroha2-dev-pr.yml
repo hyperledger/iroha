@@ -48,7 +48,7 @@ jobs:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
       - name: Run tests
-        run: cargo test --workspace --verbose -- --test-threads=1
+        run: cargo test --workspace --verbose
   test-iroha_network-mock:
     runs-on: ubuntu-latest
     steps:
@@ -58,9 +58,9 @@ jobs:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
       - name: Run iroha_network mock tests
-        run: cd ./iroha_network && cargo test --features mock --verbose -- --test-threads=1
+        run: cd ./iroha_network && cargo test --features mock --verbose
       - name: Run iroha tests with network mock
-        run: cd ./iroha && cargo test --features network-mock --verbose -- --test-threads=1
+        run: cd ./iroha && cargo test --features network-mock --verbose
   test-docker:
     runs-on: ubuntu-latest
     steps:
