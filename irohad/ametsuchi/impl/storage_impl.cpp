@@ -36,6 +36,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -308,6 +309,10 @@ namespace iroha {
             return fmt::format("Failed to fetch block {}", height);
           }
           notifier_.get_subscriber().on_next(*std::move(maybe_block));
+          getSubscription()->notify(
+              EventTypes::kOnBlock,
+              std::shared_ptr<const shared_model::interface::Block>(
+                  *std::move(maybe_block)));
         }
         return expected::makeValue(std::move(commit_result.ledger_state));
       };
@@ -357,6 +362,9 @@ namespace iroha {
         }
 
         notifier_.get_subscriber().on_next(block);
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(block));
 
         decltype(std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
         {
@@ -455,6 +463,9 @@ namespace iroha {
         std::shared_ptr<const shared_model::interface::Block> block) {
       if (block_store_->insert(block)) {
         notifier_.get_subscriber().on_next(block);
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(block));
         return {};
       }
       return expected::makeError("Block insertion to storage failed");
