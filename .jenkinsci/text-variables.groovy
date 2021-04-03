@@ -202,7 +202,7 @@ cmd_description = """
       </ul>
    </li>
    <li>
-      <p><strong>doxygen</strong> = false (or = true if master ) </p>
+      <p><strong>doxygen</strong> = false (or = true if main ) </p>
       <ul>
          <li>
             <p>Build doxygen, docs will be uploaded to jenkins,</p>
@@ -246,7 +246,7 @@ cmd_description = """
       </ul>
    </li>
    <li>
-      <p><strong>pushDockerTag</strong> = 'not-supposed-to-be-pushed'(or = master if master)</p>
+      <p><strong>pushDockerTag</strong> = 'not-supposed-to-be-pushed'(or = main if main)</p>
       <ul>
          <li>
             <p>if&nbsp;packagePush=true&nbsp;it the name of docker tag that will be pushed</p>
@@ -257,7 +257,7 @@ cmd_description = """
       </ul>
    </li>
    <li>
-      <p><strong>packagePush</strong> = false (or = true if master )</p>
+      <p><strong>packagePush</strong> = false (or = true if main )</p>
       <ul>
          <li>
             <p>push all packages and docker to the artifactory and docker hub</p>
@@ -312,7 +312,7 @@ cmd_description = """
       </ul>
    </li>
    <li>
-      <p><strong>specialBranch</strong> = false (or = true if master ),</p>
+      <p><strong>specialBranch</strong> = false (or = true if main ),</p>
       <ul>
          <li>
             <p>Not recommended to set, it used to decide push&nbsp;doxygen&nbsp;and&nbsp;iroha:develop-build&nbsp;or not, and force to run&nbsp;build_type = 'Release'</p>
