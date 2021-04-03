@@ -5,7 +5,6 @@
 
 #include "main/subscription.hpp"
 
-#include <fstream>
 #include <mutex>
 
 namespace iroha {

@@ -75,6 +75,18 @@ namespace iroha::subscription {
     DispatcherPtr dispatcher_;
 
    public:
+    /**
+     * Stores Subscriber object to retrieve later notifications
+     * @tparam kTid Thread ID in which subscribers callback will be executed
+     * @param set_id subscription set id is a group identifier in multiple
+     * subscriptions
+     * @param key notification event key that will be listened by this
+     * subscriber
+     * @param ptr subscriber weak pointer
+     * @return a position in an internal container with subscribers(!!! it must
+     * be keep safe in a case the other subscriber will be deleted from this
+     * container)
+     */
     template <typename Dispatcher::Tid kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
@@ -89,6 +101,11 @@ namespace iroha::subscription {
           std::make_tuple(kTid, set_id, std::move(ptr)));
     }
 
+    /**
+     * Removes subscriber from listening events
+     * @param key notification event, that must be unsubscribed
+     * @param it_remove iterator to subscribers position
+     */
     void unsubscribe(const EventKeyType &key, const IteratorType &it_remove) {
       std::unique_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
@@ -101,6 +118,11 @@ namespace iroha::subscription {
       }
     }
 
+    /**
+     * Number of subscribers which listens current notification event
+     * @param key notification event
+     * @return number of subscribers
+     */
     size_t size(const EventKeyType &key) const {
       std::shared_lock lock(subscribers_map_cs_);
       if (auto it = subscribers_map_.find(key); it != subscribers_map_.end()) {
@@ -111,6 +133,10 @@ namespace iroha::subscription {
       return 0ull;
     }
 
+    /**
+     * Number of subscribers which listens all notification events
+     * @return number of subscribers
+     */
     size_t size() const {
       std::shared_lock lock(subscribers_map_cs_);
       size_t count = 0ull;
@@ -122,11 +148,24 @@ namespace iroha::subscription {
       return count;
     }
 
+    /**
+     * Execute notification and execute it subscribers
+     * @tparam EventParams notification event type
+     * @param key notification event that executed
+     * @param args event data to transmit
+     */
     template <typename... EventParams>
     void notify(const EventKeyType &key, EventParams const &... args) {
       notifyDelayed(std::chrono::microseconds(0ull), key, args...);
     }
 
+    /**
+     * Execute notification and execute it subscribers after a delay
+     * @tparam EventParams notification event type
+     * @param timeout value, when elapsed subscribers will be called
+     * @param key notification event that executed
+     * @param args event data to transmit
+     */
     template <typename... EventParams>
     void notifyDelayed(std::chrono::microseconds timeout,
                        const EventKeyType &key,

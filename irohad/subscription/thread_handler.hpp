@@ -17,6 +17,10 @@
 
 #include "subscription/common.hpp"
 
+/**
+ * If you need to execute task, that was made in this thread and want to be
+ * executed in the same thread without delay - you need to uncomment this define
+ */
 //#define SE_SYNC_CALL_IF_SAME_THREAD
 
 namespace iroha::subscription {
@@ -45,7 +49,8 @@ namespace iroha::subscription {
 
    private:
     inline void checkLocked() {
-      //assert(!tasks_cs_.try_lock());
+      /// Need to check that we a re locked in debug.
+      assert(!tasks_cs_.try_lock());
     }
 
     inline Timepoint now() const {

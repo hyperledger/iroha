@@ -45,7 +45,7 @@ namespace iroha::subscription {
 
    private:
     template <typename... Args>
-    static constexpr EngineHash getSubscriptionType() {
+    static constexpr EngineHash getSubscriptionHash() {
 #ifdef _WIN32
       constexpr EngineHash value = CT_MURMUR2(__FUNCSIG__);
 #else   //_WIN32
@@ -59,6 +59,9 @@ namespace iroha::subscription {
       disposed_.clear();
     }
 
+    /**
+     * Ditaches dispatcher from all engines and stops thread handlers execution.
+     */
     void dispose() {
       if (!disposed_.test_and_set()) {
         {
@@ -71,13 +74,20 @@ namespace iroha::subscription {
       }
     }
 
+    /**
+     * Method returns the engine corresponding to current arguments set
+     * transmission.
+     * @tparam EventKey typeof event enum
+     * @tparam Args arguments list of transmitted event data types
+     * @return engine object
+     */
     template <typename EventKey, typename... Args>
     auto getEngine() {
       using EngineType =
           SubscriptionEngine<EventKey,
                              Dispatcher,
                              Subscriber<EventKey, Dispatcher, Args...>>;
-      constexpr auto engineId = getSubscriptionType<Args...>();
+      constexpr auto engineId = getSubscriptionHash<Args...>();
       {
         std::shared_lock lock(engines_cs_);
         if (auto it = engines_.find(engineId); it != engines_.end()) {
@@ -88,16 +98,39 @@ namespace iroha::subscription {
       if (auto it = engines_.find(engineId); it != engines_.end()) {
         return std::reinterpret_pointer_cast<EngineType>(it->second);
       }
+
+      static_assert(std::is_base_of_v<IDisposable, EngineType>,
+                    "Engine type must be derived from IDisposable.");
+      assert(uintptr_t(reinterpret_cast<EngineType *>(0x1))
+             == uintptr_t(static_cast<IDisposable *>(
+                    reinterpret_cast<EngineType *>(0x1))));
+
       auto obj = std::make_shared<EngineType>(dispatcher_);
       engines_[engineId] = std::reinterpret_pointer_cast<void>(obj);
       return obj;
     }
 
+    /**
+     * Make event notification to subscribers that are listening this event
+     * @tparam EventKey typeof event enum
+     * @tparam Args arguments list of transmitted event data types
+     * @param key event key
+     * @param args transmitted data
+     */
     template <typename EventKey, typename... Args>
     void notify(const EventKey &key, Args const &... args) {
       notifyDelayed(std::chrono::microseconds(0ull), key, args...);
     }
 
+    /**
+     * Make event notification to subscribers that are listening this event
+     * after a delay
+     * @tparam EventKey typeof event enum
+     * @tparam Args arguments list of transmitted event data types
+     * @param timeout value makes a delay before subscribers will be called
+     * @param key event key
+     * @param args transmitted data
+     */
     template <typename EventKey, typename... Args>
     void notifyDelayed(std::chrono::microseconds timeout,
                        const EventKey &key,
@@ -106,7 +139,7 @@ namespace iroha::subscription {
           SubscriptionEngine<EventKey,
                              Dispatcher,
                              Subscriber<EventKey, Dispatcher, Args...>>;
-      constexpr auto engineId = getSubscriptionType<Args...>();
+      constexpr auto engineId = getSubscriptionHash<Args...>();
       std::shared_ptr<EngineType> engine;
       {
         std::shared_lock lock(engines_cs_);
@@ -119,6 +152,10 @@ namespace iroha::subscription {
       engine->notifyDelayed(timeout, key, args...);
     }
 
+    /**
+     * Getter to retrieve a dispatcher.
+     * @return dispatcher object
+     */
     DispatcherPtr dispatcher() const {
       return dispatcher_;
     }
