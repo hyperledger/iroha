@@ -16,40 +16,71 @@
 #include "interfaces/iroha_internal/block.hpp"
 #include "main/subscription.hpp"
 #include "network/ordering_gate_common.hpp"
+#include "ametsuchi/wsv_query.hpp"
+#include "ametsuchi/storage.hpp"
+#include "logger/logger_fwd.hpp"
 
-//struct MetricsRunner : std::thread {
-////  metrics_runner(std::thread&&t):t_(t){};
+
+/// ToDo consider using asio::io_context
+struct MetricsRunner {//: std::thread {
 //  using std::thread::thread;  // Does not inherit move ctor?
+////  using std::thread::operator=;
 //  MetricsRunner(MetricsRunner&&m)noexcept
 //      : std::thread(std::move(m))
-//      ,
+////      , proceed_(std::move(std::move(m).proceed_))
 //  {}
-//  ~MetricsRunner(){ stop(); join(); }
-//  void stop(){ proceed_.clear(); };
-// private:
-////  std::thread t_;
-//  std::atomic_flag proceed_ {true};
-//};
+//  MetricsRunner& operator=(MetricsRunner&&m)noexcept{
+//    return *this = std::move(static_cast<std::thread&&>(std::move(m)));
+//  }
+  MetricsRunner() = default;
+  MetricsRunner(std::thread && t)
+    : t_(std::move(t)) {}
+  MetricsRunner(MetricsRunner&&mr){
+    *this = std::move(mr);
+  }
+  MetricsRunner&operator=(MetricsRunner&&mr){
+    this->t_ = std::move(mr).t_;
+    bool prev = mr.proceed_.test_and_set();
+    if(prev) {
+      this->proceed_.test_and_set();
+    }else{
+      this->proceed_.clear();
+      mr.proceed_.clear();
+    }
+    return *this;
+  }
+  ~MetricsRunner(){ stop(); t_.join(); }
+  void stop(){ proceed_.clear(); }
+  bool is_proceed(){ return proceed_.test_and_set(); }
+private:
+  std::thread t_;
+  std::atomic_flag proceed_ {true};
+};
+
 class Metrics {
-  std::shared_ptr<prometheus::Registry> registry;
-  std::shared_ptr<prometheus::Exposer> exposer;
-//  MetricsRunner runner;
-
-  using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
-  using BlockSubscriber = iroha::BaseSubscriber<bool,BlockPtr>;
-  std::shared_ptr<BlockSubscriber> block_subscriber;
-
   using OnProposalSubscription = iroha::BaseSubscriber<
       bool,iroha::network::OrderingEvent>;  //FixMe subscribtion ≠ subscriber
+  using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
+  using BlockSubscriber = iroha::BaseSubscriber<bool,BlockPtr>;
+
+  std::string listen_addr_port_;
+  std::shared_ptr<prometheus::Exposer> exposer_;
+  std::shared_ptr<prometheus::Registry> registry_;
+  std::shared_ptr<iroha::ametsuchi::Storage> storage_;
+//  std::shared_ptr<iroha::ametsuchi::WsvQuery> wsv_;
+  std::shared_ptr<BlockSubscriber> block_subscriber_;
   std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
+  logger::LoggerPtr logger_;
+//  MetricsRunner runner_;
+
  public:
   Metrics(
       std::string const& listen_addr,
-      shared_model::interface::types::HeightType);
-
+      std::shared_ptr<iroha::ametsuchi::Storage> storage,
+      logger::LoggerPtr const& logger
+  );
+  std::string const& getListenAddress()const{ return listen_addr_port_; }
   bool valid()const;
 };
-std::optional<Metrics> maintenance_metrics_init(
-    std::string const& listen_addr, shared_model::interface::types::HeightType);
 
 #endif //IROHA_MAINTENANCE_METRICS_HPP
