@@ -101,8 +101,9 @@ Metrics::Metrics(
               //todo domains_removed += boost::get<RemoveDomain>(&cmd.get()) != nullptr;
             }
           }
+#if 1
           domains_number_value.Increment(domain_created);
-#if 0
+#else  // no need to querry DB but here is a way to do
           if(domain_created){
             assert(storage_);
             assert(storage_->getWsvQuery());

@@ -1014,11 +1014,11 @@ Irohad::RunResult Irohad::run() {
     storage->on_commit().subscribe(
         ordering_init.commit_notifier.get_subscriber());
 
-    ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
+    std::shared_ptr<const shared_model::interface::Block> sh_block {std::move(block)};
+    ordering_init.commit_notifier.get_subscriber().on_next(sh_block);
     getSubscription()->notify(
         EventTypes::kOnBlock,  //kOnInitialBlock
-        std::shared_ptr<const shared_model::interface::Block>(
-            std::move(block)));
+        sh_block);
 
     ordering_init.sync_event_notifier.get_subscriber().on_next(
         synchronizer::SynchronizationEvent{
