@@ -15,6 +15,7 @@
 #include <prometheus/counter.h>
 #include <prometheus/exposer.h>
 #include <prometheus/registry.h>
+#include <prometheus/gateway.h>
 
 #include <array>
 #include <chrono>
@@ -86,19 +87,22 @@ Metrics::Metrics(
   block_subscriber_ = std::make_shared<BlockSubscriber>(
       getSubscription()->getEngine<EventTypes,BlockPtr>());
   block_subscriber_->setCallback(
-        [this,&block_height_value,&domains_number_value] //Values are stored in registry_
+        [&block_height_value,&domains_number_value] //Values are stored in registry_
         (auto, auto&receiver, auto const event, auto pblock){
           // block_height_value is captured by reference because it is stored inside registry_, which is shared_ptr
           assert(!!pblock);
           block_height_value.Set(pblock->height());
-          //---
+          ///---
           int domain_created = 0;
           for(auto const& trx : pblock->transactions()){
             for(auto const& cmd : trx.commands()){
               using shared_model::interface::CreateDomain;
               domain_created += boost::get<CreateDomain>(&cmd.get()) != nullptr;
+              //todo domains_removed += boost::get<RemoveDomain>(&cmd.get()) != nullptr;
             }
           }
+          domains_number_value.Increment(domain_created);
+#if 0
           if(domain_created){
             assert(storage_);
             assert(storage_->getWsvQuery());
@@ -108,6 +112,9 @@ Metrics::Metrics(
             else
               logger_->warn("Cannot getNumberOfDomains() from WSV");
           }
+#endif
+          ///---
+          
         });
   block_subscriber_->subscribe<SubscriptionEngineHandlers::kMetrics>(
       EventTypes::kOnBlock);
@@ -123,17 +130,4 @@ Metrics::Metrics(
       });
   on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kMetrics>(
       EventTypes::kOnProposal);
-
-//  runner_ = std::thread{
-//      [this,&domains_number_value](){
-//        while(runner_.is_proceed()){
-//          std::this_thread::sleep_for(std::chrono::seconds(1));
-//          auto opt_n_domains = storage_->getWsvQuery()->getNumberOfDomains();
-//          if(opt_n_domains)
-//            logger_->warn("Cannot getNumberOfDomains() from WSV");
-//          else
-//            domains_number_value.Set(*opt_n_domains);
-//        }
-//      }
-//  };
 }
