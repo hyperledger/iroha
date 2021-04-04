@@ -20,9 +20,6 @@
 #include "ametsuchi/storage.hpp"
 #include "logger/logger_fwd.hpp"
 
-
-struct io_worker;
-
 class Metrics : public std::enable_shared_from_this<Metrics> {
   using OnProposalSubscription = iroha::BaseSubscriber<
       bool,iroha::network::OrderingEvent>;  //FixMe subscribtion ≠ subscriber
@@ -33,7 +30,6 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   std::shared_ptr<prometheus::Exposer> exposer_;
   std::shared_ptr<prometheus::Registry> registry_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage_;
-//  std::shared_ptr<iroha::ametsuchi::WsvQuery> wsv_;
   std::shared_ptr<BlockSubscriber> block_subscriber_;
   std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
   logger::LoggerPtr logger_;

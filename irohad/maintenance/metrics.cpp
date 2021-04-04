@@ -82,24 +82,33 @@ Metrics::Metrics(
       .Help("Total number of domains in WSV")
       //.Labels({{"label","a_metter"}})
       .Register(*registry_);
-  auto&domains_number_value = domains_number_gauge.Add({});//{{"valueP", "any"}});
+  auto&domains_number_value = domains_number_gauge.Add({});
 
+  auto&number_of_signatures_in_last_block_gauge = BuildGauge()
+      .Name("number_of_signatures_in_last_block")
+      .Help("Number of signatures in last block")
+          //.Labels({{"label","a_metter"}})
+      .Register(*registry_);
+  auto&number_of_signatures_in_last_block = number_of_signatures_in_last_block_gauge.Add({});
+  
   block_subscriber_ = std::make_shared<BlockSubscriber>(
       getSubscription()->getEngine<EventTypes,BlockPtr>());
   block_subscriber_->setCallback(
-        [&block_height_value,&domains_number_value] //Values are stored in registry_
-        (auto, auto&receiver, auto const event, auto pblock){
+        [&] //Values are stored in registry_
+        (auto, auto&receiver, auto const event, BlockPtr pblock){
           // block_height_value is captured by reference because it is stored inside registry_, which is shared_ptr
           assert(pblock);
           block_height_value.Set(pblock->height());
           ///---
           int domain_created = 0;
+          unsigned signatures_num = 0;
           for(auto const& trx : pblock->transactions()){
             for(auto const& cmd : trx.commands()){
               using shared_model::interface::CreateDomain;
-              domain_created += boost::get<CreateDomain>(&cmd.get()) != nullptr;
-              //todo domains_removed += boost::get<RemoveDomain>(&cmd.get()) != nullptr;
+              domain_created += boost::get<CreateDomain>(&cmd.get()) != nullptr;  // Check if command is CreateDomain
+              //todo domain_created -= boost::get<RemoveDomain>(&cmd.get()) != nullptr;
             }
+            signatures_num += boost::size(trx.signatures());
           }
 #if 1
           domains_number_value.Increment(domain_created);
@@ -115,7 +124,7 @@ Metrics::Metrics(
           }
 #endif
           ///---
-          
+          number_of_signatures_in_last_block.Set(signatures_num);
         });
   block_subscriber_->subscribe<SubscriptionEngineHandlers::kMetrics>(
       0,EventTypes::kOnBlock); //FIXME: I am not sure what is ID and why 0
@@ -125,7 +134,7 @@ Metrics::Metrics(
   on_proposal_subscription_->setCallback(
       [&peers_number_value]
       (auto, auto, auto key, network::OrderingEvent const &oe) {
-        // block_height_value can be captured by reference because it is stored inside registry_
+        // peers_number_value can be captured by reference because it is stored inside registry_
         assert(EventTypes::kOnProposal == key);
         peers_number_value.Set(oe.ledger_state->ledger_peers.size());
       });
