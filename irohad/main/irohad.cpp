@@ -432,18 +432,26 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    std::optional<Metrics> metrics;
-    auto blocks_height = irohad->storage->getBlockQuery()->getTopBlockHeight();
+    std::shared_ptr<Metrics> metrics;  // Must be a pointer because 'this' is captured to lambdas in constructor.
+    std::string metrics_addr;
     if(FLAGS_metrics_port.size()) {
-      metrics = Metrics(
-          FLAGS_metrics_addr + ":" + FLAGS_metrics_port, blocks_height);
+      metrics_addr = FLAGS_metrics_addr + ":" + FLAGS_metrics_port;
     }else if(config.metrics_addr_port.size()){
-      metrics = Metrics(
-          config.metrics_addr_port, blocks_height);
+      metrics_addr = config.metrics_addr_port;
     }
-    if(metrics and not metrics->valid()) {
-      log->warn("Failed to initialize metrics.");
-      metrics = std::nullopt;
+    if(metrics_addr.empty()) {
+      log->info("Skiping Metrics initialization.");
+    }else {
+      metrics = std::make_shared<Metrics>(
+          metrics_addr,
+          irohad->storage,
+          log_manager->getChild("Metrics")->getLogger());
+      if (metrics->valid()){
+        log->info("Metrics listens on {}",metrics->getListenAddress());
+      }else{
+        log->warn("Failed to initialize Metrics.");
+        metrics = nullptr;
+      }
     }
 
     // init pipeline components
