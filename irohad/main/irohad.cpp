@@ -260,12 +260,6 @@ int main(int argc, char *argv[]) {
           log_manager);
     }
 
-    if(FLAGS_metrics_port.size()) {
-      maintenance_metrics_init(FLAGS_metrics_addr + ":" + FLAGS_metrics_port);
-    }else if(config.metrics_addr_port.size()){
-      maintenance_metrics_init(config.metrics_addr_port);
-    }
-
     daemon_status_notifier->notify(
         ::iroha::utility_service::Status::kInitialization);
 
@@ -375,6 +369,13 @@ int main(int argc, char *argv[]) {
 
         // clear previous storage if any
         irohad->dropStorage();
+        // Check if iroha daemon storage was successfully re-initialized
+        if (not irohad->storage) {
+          // Abort execution if not
+          log->error("Failed to re-initialize storage");
+          daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
+          return EXIT_FAILURE;
+        }
 
         const auto txs_num = block->transactions().size();
         if (auto e = iroha::expected::resultToOptionalError(
@@ -429,6 +430,20 @@ int main(int argc, char *argv[]) {
           "enough disk space. Try to specify --genesis_block and "
           "--overwrite_ledger parameters at the same time.");
       return EXIT_FAILURE;
+    }
+
+    std::optional<Metrics> metrics;
+    auto blocks_height = irohad->storage->getBlockQuery()->getTopBlockHeight();
+    if(FLAGS_metrics_port.size()) {
+      metrics = Metrics(
+          FLAGS_metrics_addr + ":" + FLAGS_metrics_port, blocks_height);
+    }else if(config.metrics_addr_port.size()){
+      metrics = Metrics(
+          config.metrics_addr_port, blocks_height);
+    }
+    if(metrics and not metrics->valid()) {
+      log->warn("Failed to initialize metrics.");
+      metrics = std::nullopt;
     }
 
     // init pipeline components
