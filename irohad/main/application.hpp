@@ -20,6 +20,7 @@
 #include "main/impl/on_demand_ordering_init.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "main/startup_params.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
