@@ -84,6 +84,13 @@ Metrics::Metrics(
       .Register(*registry_);
   auto&domains_number_value = domains_number_gauge.Add({});
 
+  auto&total_number_of_transactions_gauge = BuildGauge()
+      .Name("number_of_signatures_in_last_block")
+      .Help("Number of signatures in last block")
+          //.Labels({{"label","a_metter"}})
+      .Register(*registry_);
+  auto&total_number_of_transactions = total_number_of_transactions_gauge.Add({});
+  
   auto&number_of_signatures_in_last_block_gauge = BuildGauge()
       .Name("number_of_signatures_in_last_block")
       .Help("Number of signatures in last block")
@@ -110,6 +117,8 @@ Metrics::Metrics(
             }
             signatures_num += boost::size(trx.signatures());
           }
+          unsigned transactions_from_last_block = boost::size(pblock->transactions());
+          total_number_of_transactions.Increment(transactions_from_last_block); 
 #if 1
           domains_number_value.Increment(domain_created);
 #else  // no need to querry DB but here is a way to do
