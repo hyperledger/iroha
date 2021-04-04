@@ -90,7 +90,7 @@ Metrics::Metrics(
         [&block_height_value,&domains_number_value] //Values are stored in registry_
         (auto, auto&receiver, auto const event, auto pblock){
           // block_height_value is captured by reference because it is stored inside registry_, which is shared_ptr
-          assert(!!pblock);
+          assert(pblock);
           block_height_value.Set(pblock->height());
           ///---
           int domain_created = 0;
@@ -117,7 +117,7 @@ Metrics::Metrics(
           
         });
   block_subscriber_->subscribe<SubscriptionEngineHandlers::kMetrics>(
-      EventTypes::kOnBlock);
+      0,EventTypes::kOnBlock); //FIXME: I am not sure what is ID and why 0
   
   on_proposal_subscription_ = std::make_shared<OnProposalSubscription>(
       getSubscription()->getEngine<EventTypes, network::OrderingEvent>());
@@ -129,5 +129,5 @@ Metrics::Metrics(
         peers_number_value.Set(oe.ledger_state->ledger_peers.size());
       });
   on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kMetrics>(
-      EventTypes::kOnProposal);
+      0,EventTypes::kOnProposal); //FIXME: I am not sure what is ID and why 0
 }
