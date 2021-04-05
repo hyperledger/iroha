@@ -80,8 +80,8 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     #[log]
-    pub fn submit(&mut self, instruction: Instruction) -> Result<Hash> {
-        self.submit_all(vec![instruction])
+    pub fn submit(&mut self, instruction: impl Into<Instruction> + Debug) -> Result<Hash> {
+        self.submit_all(vec![instruction.into()])
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
