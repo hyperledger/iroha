@@ -7,22 +7,17 @@
 #include "main/subscription.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
-#include "network/ordering_gate_common.hpp"
 #include "interfaces/transaction.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/create_domain.hpp"
+#include "interfaces/commands/add_peer.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 
 #include <prometheus/counter.h>
 #include <prometheus/exposer.h>
 #include <prometheus/registry.h>
-#include <prometheus/gateway.h>
 
-#include <array>
-#include <chrono>
-#include <cstdlib>
 #include <memory>
-#include <string>
-#include <future>
 #include <regex>
 
 using namespace iroha;
@@ -67,22 +62,22 @@ Metrics::Metrics(
                                 .Help("Total number of blocks in chain")
                                 //.Labels({{"label","a_metter"}})
                                 .Register(*registry_);
-  auto&block_height_value = block_height_gauge.Add({});//{{"value", "some"}});
-  block_height_value.Set(storage_->getBlockQuery()->getTopBlockHeight());
+  auto&block_height = block_height_gauge.Add({});//{{"value", "some"}});
+  block_height.Set(storage_->getBlockQuery()->getTopBlockHeight());
 
   auto&peers_number_gauge = BuildGauge()
       .Name("peers_number")
       .Help("Total number peers to send transactions and request proposals")
       //.Labels({{"label","a_metter"}})
       .Register(*registry_);
-  auto&peers_number_value = peers_number_gauge.Add({});//{{"valueP", "any"}});
+  auto&number_of_peers = peers_number_gauge.Add({});//{{"valueP", "any"}});
 
   auto&domains_number_gauge = BuildGauge()
       .Name("number_of_domains")
       .Help("Total number of domains in WSV")
       //.Labels({{"label","a_metter"}})
       .Register(*registry_);
-  auto&domains_number_value = domains_number_gauge.Add({});
+  auto&domains_number = domains_number_gauge.Add({});
 
   auto&total_number_of_transactions_gauge = BuildGauge()
       .Name("number_of_signatures_in_last_block")
@@ -103,50 +98,40 @@ Metrics::Metrics(
   block_subscriber_->setCallback(
         [&] //Values are stored in registry_
         (auto, auto&receiver, auto const event, BlockPtr pblock){
-          // block_height_value is captured by reference because it is stored inside registry_, which is shared_ptr
+          // block_height is captured by reference because it is stored inside registry_, which is shared_ptr
           assert(pblock);
-          block_height_value.Set(pblock->height());
+          block_height.Set(pblock->height());
           ///---
-          int domain_created = 0;
+          int domains_diff = 0, peers_diff=0;
           unsigned signatures_num = 0;
           for(auto const& trx : pblock->transactions()){
             for(auto const& cmd : trx.commands()){
-              using shared_model::interface::CreateDomain;
-              domain_created += boost::get<CreateDomain>(&cmd.get()) != nullptr;  // Check if command is CreateDomain
-              //todo domain_created -= boost::get<RemoveDomain>(&cmd.get()) != nullptr;
+              using namespace shared_model::interface;
+              domains_diff += boost::get<CreateDomain>(&cmd.get()) != nullptr;  // Check if command is CreateDomain
+              //do it later: domains_diff -= boost::get<RemoveDomain>(&cmd.get()) != nullptr;
+              peers_diff += boost::get<AddPeer>(&cmd.get()) != nullptr;  // Check if command is AddPeer
+              peers_diff -= boost::get<RemovePeer>(&cmd.get()) != nullptr;
             }
             signatures_num += boost::size(trx.signatures());
           }
-          unsigned transactions_from_last_block = boost::size(pblock->transactions());
-          total_number_of_transactions.Increment(transactions_from_last_block); 
+          number_of_signatures_in_last_block.Set(signatures_num);
+          unsigned transactions_in_last_block = pblock->txsNumber(); //or boost::size(pblock->transactions());
+          total_number_of_transactions.Increment(transactions_in_last_block);
+          number_of_peers.Increment(peers_diff);
 #if 1
-          domains_number_value.Increment(domain_created);
+          domains_number.Increment(domains_diff);
 #else  // no need to querry DB but here is a way to do
-          if(domain_created){
+          if(domains_diff){
             assert(storage_);
             assert(storage_->getWsvQuery());
             auto opt_n_domains = storage_->getWsvQuery()->getNumberOfDomains();
             if(opt_n_domains)
-              domains_number_value.Set(*opt_n_domains);
+              domains_number.Set(*opt_n_domains);
             else
               logger_->warn("Cannot getNumberOfDomains() from WSV");
           }
 #endif
-          ///---
-          number_of_signatures_in_last_block.Set(signatures_num);
         });
   block_subscriber_->subscribe<SubscriptionEngineHandlers::kMetrics>(
       0,EventTypes::kOnBlock); //FIXME: I am not sure what is ID and why 0
-  
-  on_proposal_subscription_ = std::make_shared<OnProposalSubscription>(
-      getSubscription()->getEngine<EventTypes, network::OrderingEvent>());
-  on_proposal_subscription_->setCallback(
-      [&peers_number_value]
-      (auto, auto, auto key, network::OrderingEvent const &oe) {
-        // peers_number_value can be captured by reference because it is stored inside registry_
-        assert(EventTypes::kOnProposal == key);
-        peers_number_value.Set(oe.ledger_state->ledger_peers.size());
-      });
-  on_proposal_subscription_->subscribe<SubscriptionEngineHandlers::kMetrics>(
-      0,EventTypes::kOnProposal); //FIXME: I am not sure what is ID and why 0
 }
