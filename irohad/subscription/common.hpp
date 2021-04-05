@@ -10,7 +10,7 @@
 #include <mutex>
 #include <shared_mutex>
 
-#if __clang__
+#ifdef _LIBCPP_VERSION
 namespace std {
 
   template <typename To, typename From>
@@ -20,7 +20,7 @@ namespace std {
   }
 
 }  // namespace std
-#endif
+#endif  //_LIBCPP_VERSION
 
 namespace iroha::utils {
 
