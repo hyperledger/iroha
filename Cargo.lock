@@ -3113,6 +3113,7 @@ version = "0.1.0"
 dependencies = [
  "async-std",
  "iroha",
+ "iroha_client",
  "iroha_data_model",
  "iroha_error",
  "iroha_logger",

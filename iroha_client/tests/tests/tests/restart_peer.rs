@@ -44,7 +44,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);
     let _ = iroha_client
-        .submit(create_asset.into())
+        .submit(create_asset)
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
     //When
@@ -57,7 +57,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         )),
     );
     let _ = iroha_client
-        .submit(mint_asset.into())
+        .submit(mint_asset)
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
     //Then
