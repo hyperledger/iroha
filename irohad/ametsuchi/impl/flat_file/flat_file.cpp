@@ -20,8 +20,11 @@
 #include "logger/logger.hpp"
 
 #ifdef _WIN32
+// We skip format here because of strong including order
+// clang-format off
 #include <windows.h>
 #include <fileapi.h>
+// clang-format on
 #endif
 
 using namespace iroha::ametsuchi;
