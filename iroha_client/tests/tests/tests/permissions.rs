@@ -1,17 +1,11 @@
-use std::{thread, time::Duration};
+use std::thread;
 
 use iroha::config::Configuration;
-use iroha_client::{
-    client::{self, Client},
-    config::Configuration as ClientConfiguration,
-};
+use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain;
 use test_network::Peer as TestPeer;
-
-const CONFIGURATION_PATH: &str = "tests/test_config.json";
-const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-const GENESIS_PATH: &str = "tests/genesis.json";
+use test_network::*;
 
 fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Value> {
     let request = client::asset::by_account_id(id.clone());
@@ -27,52 +21,35 @@ fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Value> {
 
 #[test]
 fn permissions_disallow_asset_transfer() {
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-    let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers.peers =
-        std::iter::once(peer.id.clone()).collect();
-
-    let pipeline_time =
-        Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+    let (_, mut iroha_client) =
+        TestPeer::start_test_with_permissions(public_blockchain::default_permissions());
+    let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    drop(
-        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions()),
-    );
-    thread::sleep(pipeline_time * 5);
-
-    let domain_name = "wonderland";
-    let alice_id = AccountId::new("alice", domain_name);
-    let bob_id = AccountId::new("bob", domain_name);
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
-    let register_bob = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::new(bob_id.clone()).into(),
-    ));
-    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-        .expect("Failed to load configuration.");
-    client_config.torii_api_url = peer.api_address;
-    let mut iroha_client = Client::new(&client_config);
+    let alice_id = AccountId::new("alice", "wonderland");
+    let bob_id = AccountId::new("bob", "wonderland");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
+    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
+        asset_definition_id.clone(),
+    )));
+    let register_bob = RegisterBox::new(IdentifiableBox::from(NewAccount::new(bob_id.clone())));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
-
-    let _ = iroha_client
+    iroha_client
         .submit_all(vec![create_asset.into(), register_bob.into()])
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
+
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
     let _ = iroha_client
-        .submit(mint_asset.into())
+        .submit(mint_asset)
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
+
     //When
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id)),
@@ -98,49 +75,36 @@ fn permissions_disallow_asset_transfer() {
 
 #[test]
 fn permissions_disallow_asset_burn() {
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-    let peer = TestPeer::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers.peers =
-        std::iter::once(peer.id.clone()).collect();
-
-    let pipeline_time =
-        Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+    let (_, mut iroha_client) =
+        TestPeer::start_test_with_permissions(public_blockchain::default_permissions());
+    let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    drop(
-        peer.start_with_config_permissions(configuration, public_blockchain::default_permissions()),
-    );
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
     let alice_id = AccountId::new("alice", domain_name);
     let bob_id = AccountId::new("bob", domain_name);
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
-    let register_bob = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::new(bob_id.clone()).into(),
-    ));
-    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-        .expect("Failed to load configuration.");
-    client_config.torii_api_url = peer.api_address;
-    let mut iroha_client = Client::new(&client_config);
+    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
+        asset_definition_id.clone(),
+    )));
+    let register_bob = RegisterBox::new(IdentifiableBox::from(NewAccount::new(bob_id.clone())));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
 
-    let _ = iroha_client
+    iroha_client
         .submit_all(vec![create_asset.into(), register_bob.into()])
         .expect("Failed to prepare state.");
+
     thread::sleep(pipeline_time * 2);
+
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
-    let _ = iroha_client
+    iroha_client
         .submit_all(vec![mint_asset.into()])
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
@@ -149,6 +113,7 @@ fn permissions_disallow_asset_burn() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, bob_id)),
     );
+
     let err = iroha_client
         .submit_blocking(burn_asset.into())
         .expect_err("Transaction was not rejected.");

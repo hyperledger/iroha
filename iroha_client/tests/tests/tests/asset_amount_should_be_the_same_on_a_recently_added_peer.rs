@@ -1,108 +1,58 @@
 #[cfg(test)]
 mod tests {
-    use std::{thread, time::Duration};
+    use std::thread;
 
-    use iroha::{config::Configuration, prelude::*};
-    use iroha_client::{
-        client::{self, Client},
-        config::Configuration as ClientConfiguration,
-    };
+    use iroha::config::Configuration;
+    use iroha::prelude::*;
+    use iroha_client::client;
     use iroha_data_model::prelude::*;
-    use test_network::Peer as TestPeer;
-
-    const CONFIGURATION_PATH: &str = "tests/test_config.json";
-    const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-    const N_PEERS: usize = 4;
-    const MAX_FAULTS: u32 = 1;
+    use iroha_error::Result;
+    use test_network::*;
 
     #[test]
-    fn asset_amount_should_be_the_same_on_a_recently_added_peer() {
+    fn asset_amount_should_be_the_same_on_a_recently_added_peer() -> Result<()> {
         // Given
-        let mut configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration.sumeragi_configuration.max_faulty_peers = MAX_FAULTS;
-
-        let pipeline_time =
-            Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
-
-        let network = test_network::Network::new(Some(configuration.clone()), N_PEERS)
-            .expect("Failed to init peers");
+        let (network, mut iroha_client) = Network::start_test(4, 1);
+        let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time * 3);
 
-        let domain_name = "domain";
-        let create_domain =
-            RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
-        let account_name = "account";
-        let account_id = AccountId::new(account_name, domain_name);
+        let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
+        let account_id = AccountId::new("account", "domain");
         let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-            NewAccount::with_signatory(
-                account_id.clone(),
-                KeyPair::generate()
-                    .expect("Failed to generate KeyPair.")
-                    .public_key,
-            )
-            .into(),
+            NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
         ));
-        let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+        let asset_definition_id = AssetDefinitionId::new("xor", "domain");
         let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
             AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
         ));
-        let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-            .expect("Failed to load configuration.");
-        client_configuration.torii_api_url = network.genesis.api_address.clone();
-        let mut iroha_client = Client::new(&client_configuration);
-        let _ = iroha_client
-            .submit_all(vec![
-                create_domain.into(),
-                create_account.into(),
-                create_asset.into(),
-            ])
-            .expect("Failed to prepare state.");
+        iroha_client.submit_all(vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ])?;
         thread::sleep(pipeline_time * 2);
         //When
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
             Value::U32(quantity),
-            IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
+            IdBox::AssetId(AssetId::new(
+                asset_definition_id.clone(),
+                account_id.clone(),
+            )),
         );
-        let _ = iroha_client
-            .submit(mint_asset.into())
-            .expect("Failed to create asset.");
+        iroha_client.submit(mint_asset)?;
         thread::sleep(pipeline_time * 2);
 
-        let peer = TestPeer::new().expect("Failed to create new peer");
-        configuration.sumeragi_configuration.trusted_peers.peers = network.ids().collect();
-
-        drop(peer.start_with_config(configuration));
-
-        thread::sleep(pipeline_time * 2);
-        let add_peer = RegisterBox::new(IdentifiableBox::Peer(Peer::new(peer.id).into()));
-        let _ = iroha_client
-            .submit(add_peer.into())
-            .expect("Failed to add new peer.");
+        let (_, mut iroha_client) = network.add_peer();
         thread::sleep(pipeline_time * 8);
+
         //Then
-        let mut client_configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-            .expect("Failed to load configuration.");
-        //The address of a new peer.
-        client_configuration.torii_api_url = peer.api_address;
-        let mut iroha_client = Client::new(&client_configuration);
-        let request = client::asset::by_account_id(account_id);
-        let query_result = iroha_client
-            .request(&request)
-            .expect("Failed to execute request.");
-        if let QueryResult(Value::Vec(assets)) = query_result {
-            assert!(!assets.is_empty());
-            if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
-                assets.first().expect("Asset should exist.")
-            {
-                assert_eq!(AssetValue::Quantity(quantity), asset.value);
-            } else {
-                panic!("Wrong Query Result Type.")
-            }
-        } else {
-            panic!("Wrong Query Result Type.");
-        }
+        iroha_client.poll_request(&client::asset::by_account_id(account_id), |result| {
+            result
+                .find_asset_by_id(&asset_definition_id)
+                .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
+        });
+        Ok(())
     }
 }

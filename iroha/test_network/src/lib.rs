@@ -1,14 +1,22 @@
 //! Module for starting peers and networks. Used only for tests
 
-#![allow(clippy::missing_errors_doc, clippy::module_name_repetitions)]
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::module_name_repetitions,
+    unused_results,
+    missing_docs,
+    clippy::cast_possible_truncation
+)]
 
-use std::thread;
+use std::{fmt::Debug, thread, time::Duration};
 
 use async_std::task;
 use iroha::{
     config::Configuration, permissions::PermissionsValidatorBox, prelude::*,
     sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
 };
+use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
+use iroha_data_model::peer::Peer as DataModelPeer;
 use iroha_data_model::prelude::*;
 use iroha_error::{Error, Result};
 use iroha_logger::config::{LevelFilter, LoggerConfiguration};
@@ -46,10 +54,66 @@ impl std::cmp::PartialEq for Peer {
 impl std::cmp::Eq for Peer {}
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 const GENESIS_PATH: &str = "tests/genesis.json";
 
 impl Network {
+    /// Starts network with peers with default configuration and specified options.
+    /// Returns its info and client for connecting to it.
+    #[allow(clippy::clippy::cast_possible_truncation)]
+    pub fn start_test(n_peers: usize, maximum_transactions_in_block: u32) -> (Self, Client) {
+        let mut configuration = Configuration::test();
+        // Calculates max faulty peers based on consensus requirements
+        configuration.sumeragi_configuration.max_faulty_peers = ((n_peers - 1) / 3) as u32;
+        configuration
+            .queue_configuration
+            .maximum_transactions_in_block = maximum_transactions_in_block;
+        let network =
+            Network::new(Some(configuration), n_peers).expect("Failed to initialize peers.");
+        let client = Client::test(&network.genesis.api_address);
+        (network, client)
+    }
+
+    /// Starts network with peers with default configuration and specified options.
+    /// Returns its info and client for connecting to it.
+    #[allow(clippy::clippy::cast_possible_truncation)]
+    pub fn start_test_with_offline(
+        n_peers: usize,
+        maximum_transactions_in_block: u32,
+        offline_peers: usize,
+    ) -> (Self, Client) {
+        let mut configuration = Configuration::test();
+        // Reverse consensus
+        configuration.sumeragi_configuration.max_faulty_peers = ((n_peers - 1) / 3) as u32;
+        configuration
+            .queue_configuration
+            .maximum_transactions_in_block = maximum_transactions_in_block;
+        let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
+            .expect("Failed to init peers");
+        let client = Client::test(&network.genesis.api_address);
+        (network, client)
+    }
+
+    /// Adds peer to network
+    pub fn add_peer(&self) -> (Peer, Client) {
+        let mut client = Client::test(&self.genesis.api_address);
+        let peer = Peer::new().expect("Failed to create new peer");
+        let mut config = Configuration::test();
+        config.sumeragi_configuration.trusted_peers.peers = self.ids().collect();
+        config.sumeragi_configuration.max_faulty_peers = (self.peers.len() / 3) as u32;
+        peer.start_with_config(config);
+        thread::sleep(Configuration::pipeline_time() * 2);
+        let add_peer = RegisterBox::new(IdentifiableBox::Peer(
+            DataModelPeer::new(peer.id.clone()).into(),
+        ));
+        client.submit(add_peer).expect("Failed to add new peer.");
+        let client = Client::test(&peer.api_address);
+        (peer, client)
+    }
+
     /// Creates new network with some ofline peers
+    /// # Panics
+    /// Panics if fails to find or decode default configuration
     pub fn new_with_offline_peers(
         default_configuration: Option<Configuration>,
         n_peers: usize,
@@ -61,8 +125,11 @@ impl Network {
             .map(|_| Peer::new())
             .collect::<Result<Vec<_>>>()?;
 
-        let mut configuration =
-            default_configuration.unwrap_or(Configuration::from_path(CONFIGURATION_PATH)?);
+        let mut configuration = default_configuration.unwrap_or_else(|| {
+            Configuration::from_path(CONFIGURATION_PATH)
+                .expect("Failed to load default configuration")
+        });
+        configuration.genesis_configuration.genesis_block_path = None;
         configuration.sumeragi_configuration.trusted_peers.peers = peers
             .iter()
             .chain(std::iter::once(&genesis))
@@ -209,6 +276,218 @@ impl Peer {
             key_pair,
             p2p_address,
             api_address,
+        })
+    }
+
+    /// Starts peer with default configuration.
+    /// Returns its info and client for connecting to it.
+    pub fn start_test() -> (Self, Client) {
+        let mut configuration = Configuration::test();
+        let peer = Self::new().expect("Failed to create peer");
+        configuration.sumeragi_configuration.trusted_peers.peers =
+            std::iter::once(peer.id.clone()).collect();
+        peer.start_with_config(configuration.clone());
+        let client = Client::test(&peer.api_address);
+        thread::sleep(Duration::from_millis(
+            configuration.sumeragi_configuration.pipeline_time_ms(),
+        ));
+        (peer, client)
+    }
+
+    /// Starts peer with default configuration and specified permissions.
+    /// Returns its info and client for connecting to it.
+    pub fn start_test_with_permissions(permissions: PermissionsValidatorBox) -> (Self, Client) {
+        let mut configuration = Configuration::test();
+        let peer = Self::new().expect("Failed to create peer");
+        configuration.sumeragi_configuration.trusted_peers.peers =
+            std::iter::once(peer.id.clone()).collect();
+        peer.start_with_config_permissions(configuration.clone(), permissions);
+        let client = Client::test(&peer.api_address);
+        thread::sleep(Duration::from_millis(
+            configuration.sumeragi_configuration.pipeline_time_ms(),
+        ));
+        (peer, client)
+    }
+}
+
+pub trait TestConfiguration {
+    /// Creates test configuration
+    fn test() -> Self;
+    /// Returns default pipeline time
+    fn pipeline_time() -> Duration;
+}
+
+pub trait TestClientConfiguration {
+    /// Creates test client configuration
+    fn test(api_url: &str) -> Self;
+}
+
+pub trait TestClient: Sized {
+    /// Creates test client from api url
+    fn test(api_url: &str) -> Self;
+
+    /// Creates test client from api url and keypair
+    fn test_with_key(api_url: &str, keys: KeyPair) -> Self;
+
+    /// Creates test client from api url, keypair, and account id
+    fn test_with_account(api_url: &str, keys: KeyPair, account_id: &AccountId) -> Self;
+
+    /// loops for events with filter and handler function
+    fn loop_on_events(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
+
+    /// Submits instruction with polling
+    fn submit_till(
+        &mut self,
+        instruction: impl Into<Instruction> + Debug,
+        request: &QueryRequest,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult;
+
+    /// Submits instructions with polling
+    fn submit_all_till(
+        &mut self,
+        instructions: Vec<Instruction>,
+        request: &QueryRequest,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult;
+
+    /// Polls request till predicate `f` is satisfied
+    fn poll_request(
+        &mut self,
+        request: &QueryRequest,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult;
+
+    /// Polls request till predicate `f` is satisfied but also multiplies pipeline time with multiplier
+    fn poll_request_with_multiplier(
+        &mut self,
+        request: &QueryRequest,
+        multiplier: u32,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult;
+}
+
+pub trait TestQueryResult {
+    /// Tries to find asset by id
+    fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
+}
+
+impl TestConfiguration for Configuration {
+    fn test() -> Self {
+        let mut configuration =
+            Self::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+        configuration
+    }
+
+    fn pipeline_time() -> Duration {
+        Duration::from_millis(Self::test().sumeragi_configuration.pipeline_time_ms())
+    }
+}
+
+impl TestClientConfiguration for ClientConfiguration {
+    fn test(api_url: &str) -> Self {
+        let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
+            .expect("Failed to load configuration.");
+        configuration.torii_api_url = api_url.to_owned();
+        configuration
+    }
+}
+
+impl TestClient for Client {
+    fn test(api_url: &str) -> Self {
+        Client::new(&ClientConfiguration::test(api_url))
+    }
+
+    fn test_with_key(api_url: &str, keys: KeyPair) -> Self {
+        let mut configuration = ClientConfiguration::test(api_url);
+        configuration.public_key = keys.public_key;
+        configuration.private_key = keys.private_key;
+        Client::new(&configuration)
+    }
+
+    fn test_with_account(api_url: &str, keys: KeyPair, account_id: &AccountId) -> Self {
+        let mut configuration = ClientConfiguration::test(api_url);
+        configuration.account_id = account_id.clone();
+        configuration.public_key = keys.public_key;
+        configuration.private_key = keys.private_key;
+        Client::new(&configuration)
+    }
+
+    fn loop_on_events(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
+        for event in self
+            .listen_for_events(event_filter)
+            .expect("Failed to create event iterator")
+        {
+            f(event)
+        }
+    }
+
+    fn submit_till(
+        &mut self,
+        instruction: impl Into<Instruction> + Debug,
+        request: &QueryRequest,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult {
+        self.submit(instruction)
+            .expect("Failed to submit instruction");
+        self.poll_request(request, f)
+    }
+
+    fn submit_all_till(
+        &mut self,
+        instructions: Vec<Instruction>,
+        request: &QueryRequest,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult {
+        self.submit_all(instructions)
+            .expect("Failed to submit instruction");
+        self.poll_request(request, f)
+    }
+
+    fn poll_request_with_multiplier(
+        &mut self,
+        request: &QueryRequest,
+        multiplier: u32,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult {
+        let tries = 10;
+        let pipeline_time = Configuration::pipeline_time() * multiplier / tries;
+        for _ in 0..tries {
+            thread::sleep(pipeline_time);
+            if let Ok(result) = self.request(request) {
+                if f(&result) {
+                    return result;
+                }
+            }
+        }
+
+        panic!("Failed to wait till consensus")
+    }
+
+    fn poll_request(
+        &mut self,
+        request: &QueryRequest,
+        f: impl Fn(&QueryResult) -> bool,
+    ) -> QueryResult {
+        self.poll_request_with_multiplier(request, 2, f)
+    }
+}
+
+impl TestQueryResult for QueryResult {
+    fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
+        let assets = if let QueryResult(Value::Vec(assets)) = self {
+            assets
+        } else {
+            panic!("Wrong Query Result Type.");
+        };
+        assets.iter().find_map(|asset| {
+            if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
+                if &asset.id.definition_id == asset_id {
+                    return Some(asset.as_ref());
+                }
+            }
+            None
         })
     }
 }

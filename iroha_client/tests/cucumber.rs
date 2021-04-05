@@ -121,7 +121,6 @@ mod asset_steps {
                                     .into()
                                 ),
                             )
-                            .into()
                         )
                     .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
@@ -150,7 +149,6 @@ mod asset_steps {
                                 AccountId::new(account_name, account_domain)),
                             )
                         )
-                            .into()
                     )
                     .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
@@ -241,7 +239,7 @@ mod account_steps {
                     let register_account = RegisterBox::new(
                          IdentifiableBox::Account(Account::new(AccountId::new(account_name, domain_name)).into()),
                     );
-                    let _ = world.client.submit(register_account.into())
+                    let _ = world.client.submit(register_account)
                         .expect("Failed to register an account.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
                     world
@@ -275,7 +273,7 @@ mod account_steps {
                                         account_domain_name
                                     ))
                                 )
-                            ).into()
+                            )
                         ).expect("Failed to submit Mint instruction.");
                     thread::sleep(Duration::from_millis(world.block_build_time));
                     world
@@ -319,7 +317,7 @@ mod domain_steps {
                         RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
                     let _ = world
                         .client
-                        .submit(add_domain.into())
+                        .submit(add_domain)
                         .expect("Failed to add the domain.");
                     thread::sleep(Duration::from_millis(world.block_build_time * 2));
                     world
@@ -583,7 +581,6 @@ mod peer_steps {
                                         trusted_peer_url,
                                         &public_key)).into()),
                                         )
-                            .into(),
                             )
                 .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
@@ -604,7 +601,6 @@ mod peer_steps {
                             Value::Parameter(Parameter::MaximumFaultyPeersAmount(maximum_faulty_peers_amount)),
                             IdBox::WorldId
                         )
-                            .into(),
                     )
                     .expect("Failed to execute request.");
                 thread::sleep(Duration::from_millis(world.block_build_time * 2));
@@ -626,7 +622,6 @@ mod peer_steps {
                                 Value::Parameter(Parameter::CommitTime(commit_time_milliseconds)),
                                 IdBox::WorldId
                                 )
-                            .into(),
                             )
 
                 .expect("Failed to execute request.");
@@ -649,7 +644,6 @@ mod peer_steps {
                                 Value::Parameter(Parameter::TransactionReceiptTime(transaction_receipt_time_milliseconds)),
                                 IdBox::WorldId
                                 )
-                            .into(),
                             )
 
                 .expect("Failed to execute request.");
@@ -672,7 +666,6 @@ mod peer_steps {
                                 Value::Parameter(Parameter::BlockTime(block_time_milliseconds)),
                                 IdBox::WorldId
                                 )
-                            .into(),
                             )
 
                 .expect("Failed to execute request.");

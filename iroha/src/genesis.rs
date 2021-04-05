@@ -22,6 +22,9 @@ use crate::{
     Identifiable,
 };
 
+type Online = Vec<PeerId>;
+type Offline = Vec<PeerId>;
+
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 
@@ -121,6 +124,93 @@ impl GenesisNetwork {
             .await
     }
 
+    /// Checks which peers are online and which are offline
+    /// Returns (online, offline) peers respectively
+    async fn check_peers(
+        this_peer_id: &PeerId,
+        network_topology: &InitializedNetworkTopology,
+    ) -> (Online, Offline) {
+        let futures = network_topology
+            .sorted_peers()
+            .iter()
+            .cloned()
+            .map(|peer| async {
+                let reached = if &peer == this_peer_id {
+                    true
+                } else {
+                    match Network::send_request_to(&peer.address, Request::empty(uri::HEALTH_URI))
+                        .await
+                    {
+                        Ok(Response::Ok(_)) => true,
+                        Ok(Response::InternalError) => {
+                            log::info!(
+                                "Failed to send message - Internal Error on peer: {}.",
+                                &peer.address.as_str()
+                            );
+                            false
+                        }
+                        Err(_) => {
+                            log::info!(
+                                "Failed to send message - Peer offline: {}.",
+                                &peer.address.as_str(),
+                            );
+                            false
+                        }
+                    }
+                };
+                (peer, reached)
+            });
+        let (online, offline): (Vec<_>, Vec<_>) = future::join_all(futures)
+            .await
+            .into_iter()
+            .partition(|(_, reached)| *reached);
+        let online = online.into_iter().map(|(peer, _)| peer).collect();
+        let offline = offline.into_iter().map(|(peer, _)| peer).collect();
+        (online, offline)
+    }
+
+    async fn try_wait_for_peers(
+        this_peer_id: &PeerId,
+        network_topology: &InitializedNetworkTopology,
+    ) -> Result<InitializedNetworkTopology> {
+        let (online_peers, offline_peers) = Self::check_peers(this_peer_id, network_topology).await;
+
+        let set_a_len = network_topology.min_votes_for_commit() as usize;
+
+        if online_peers.len() < set_a_len {
+            return Err(error!("Not enough online peers for consensus"));
+        }
+
+        let genesis_topology = if network_topology.sorted_peers().len() == 1 {
+            network_topology.clone()
+        } else {
+            let online_peers: Vec<_> = online_peers
+                .into_iter()
+                .filter(|peer| peer != this_peer_id)
+                .collect();
+            let mut set_a = online_peers[..(set_a_len - 1)].to_vec();
+            let set_b: Vec<_> = online_peers[(set_a_len - 1)..]
+                .iter()
+                .cloned()
+                .chain(offline_peers.into_iter())
+                .collect();
+            let leader = this_peer_id.clone();
+            let proxy_tail = set_a.pop().expect("Failed to get last peer.");
+            let validating_peers: Vec<_> = set_a;
+            let observing_peers: Vec<_> = set_b;
+            InitializedNetworkTopology::from_roles(
+                leader,
+                validating_peers,
+                proxy_tail,
+                observing_peers,
+                network_topology.max_faults(),
+            )?
+        };
+
+        log::info!("Waiting for active peers finished.");
+        Ok(genesis_topology)
+    }
+
     /// Waits for a minimum number of `peers` needed for consensus to be online.
     /// Returns [`InitializedNetworkTopology`] with the set A consisting of online peers.
     async fn wait_for_peers(
@@ -130,71 +220,8 @@ impl GenesisNetwork {
     ) -> Result<InitializedNetworkTopology> {
         log::info!("Waiting for active peers.",);
         for i in 0..self.wait_for_peers_retry_count {
-            let (online_peers, offline_peers): (Vec<_>, Vec<_>) =
-                future::join_all(network_topology.sorted_peers().iter().cloned().map(
-                    |peer| async {
-                        let reached = if peer == this_peer_id.clone() {
-                            true
-                        } else {
-                            match Network::send_request_to(
-                                &peer.address,
-                                Request::empty(uri::HEALTH_URI),
-                            )
-                            .await
-                            {
-                                Ok(Response::Ok(_)) => true,
-                                Ok(Response::InternalError) => {
-                                    log::info!(
-                                        "Failed to send message - Internal Error on peer: {}.",
-                                        &peer.address.as_str()
-                                    );
-                                    false
-                                }
-                                Err(_) => {
-                                    log::info!(
-                                        "Failed to send message - Peer offline: {}.",
-                                        &peer.address.as_str(),
-                                    );
-                                    false
-                                }
-                            }
-                        };
-                        (peer, reached)
-                    },
-                ))
-                .await
-                .into_iter()
-                .partition(|(_, reached)| *reached);
-            let set_a_len = network_topology.min_votes_for_commit() as usize;
-            if online_peers.len() >= set_a_len {
-                let genesis_topology = if network_topology.sorted_peers().len() == 1 {
-                    network_topology
-                } else {
-                    let online_peers: Vec<_> = online_peers
-                        .into_iter()
-                        .filter(|(peer, _)| peer != &this_peer_id)
-                        .collect();
-                    let mut set_a = online_peers[..(set_a_len - 1)].to_vec();
-                    let set_b: Vec<_> = online_peers[(set_a_len - 1)..]
-                        .iter()
-                        .cloned()
-                        .chain(offline_peers.into_iter())
-                        .collect();
-                    let leader = this_peer_id.clone();
-                    let (proxy_tail, _) = set_a.pop().expect("Failed to get last peer.");
-                    let validating_peers: Vec<_> =
-                        set_a.into_iter().map(|(peer, _)| peer).collect();
-                    let observing_peers: Vec<_> = set_b.into_iter().map(|(peer, _)| peer).collect();
-                    InitializedNetworkTopology::from_roles(
-                        leader,
-                        validating_peers,
-                        proxy_tail,
-                        observing_peers,
-                        network_topology.max_faults(),
-                    )?
-                };
-                log::info!("Waiting for active peers finished.");
-                return Ok(genesis_topology);
+            if let Ok(topology) = Self::try_wait_for_peers(&this_peer_id, &network_topology).await {
+                return Ok(topology);
             }
 
             let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;

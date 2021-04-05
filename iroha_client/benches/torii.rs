@@ -142,7 +142,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                     account_id.clone(),
                 )),
             );
-            match iroha_client.submit(mint_asset.into()) {
+            match iroha_client.submit(mint_asset) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
                     eprintln!("Failed to execute instruction: {}", e);

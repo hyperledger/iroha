@@ -10,7 +10,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use async_std::sync::RwLock;
+use async_std::{sync::RwLock, task};
+use futures::future;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_derive::*;
@@ -195,16 +196,15 @@ impl Sumeragi {
     }
 
     /// Forwards transactions to the leader and waits for receipts.
-    ///
-    /// # Errors
-    ///
     pub async fn forward_transactions_to_leader(
         &mut self,
         transactions: &[VersionedAcceptedTransaction],
     ) {
         log::info!(
-            "{:?} - Forwarding transactions to leader. Number of transactions to forward: {}",
+            "{:?} - {} - Forwarding transactions to leader({}). Number of transactions to forward: {}",
             self.network_topology.role(&self.peer_id),
+            self.peer_id.address,
+            self.network_topology.leader().address,
             transactions.len(),
         );
         let mut send_futures = Vec::new();
@@ -243,8 +243,8 @@ impl Sumeragi {
             let transaction_hash = transaction.hash();
             let peer_id = self.peer_id.clone();
             let tx_receipt_time = self.tx_receipt_time;
-            drop(async_std::task::spawn(async move {
-                async_std::task::sleep(tx_receipt_time).await;
+            drop(task::spawn(async move {
+                task::sleep(tx_receipt_time).await;
                 if transactions_awaiting_receipts
                     .write()
                     .await
@@ -261,8 +261,8 @@ impl Sumeragi {
                             );
                         }
                     }
-                    let results = futures::future::join_all(send_futures).await;
-                    results
+                    future::join_all(send_futures)
+                        .await
                         .into_iter()
                         .filter_map(Result::err)
                         .for_each(|error| {
@@ -274,15 +274,12 @@ impl Sumeragi {
                 }
             }));
         }
-        let results = futures::future::join_all(send_futures).await;
-        results
-            .iter()
-            .filter(|result| result.is_err())
-            .for_each(|error_result| {
-                log::error!(
-                    "Failed to send transactions to the leader: {:?}",
-                    error_result
-                )
+        future::join_all(send_futures)
+            .await
+            .into_iter()
+            .filter_map(Result::err)
+            .for_each(|error| {
+                log::error!("Failed to send transactions to the leader: {:?}", error)
             });
     }
 
@@ -311,7 +308,7 @@ impl Sumeragi {
                 }
             }
         }
-        let results = futures::future::join_all(send_futures).await;
+        let results = future::join_all(send_futures).await;
         results
             .into_iter()
             .filter_map(Result::err)
@@ -386,8 +383,8 @@ impl Sumeragi {
         let recipient_peers = self.network_topology.sorted_peers.clone();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
-        drop(async_std::task::spawn(async move {
-            async_std::task::sleep(commit_time).await;
+        drop(task::spawn(async move {
+            task::sleep(commit_time).await;
             if let Some(voting_block) = voting_block.write().await.clone() {
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
                 if voting_block.block.hash() == old_voting_block.block.hash() {
@@ -406,7 +403,7 @@ impl Sumeragi {
                             send_futures.push(message.clone().send_to(peer));
                         }
                     }
-                    futures::future::join_all(send_futures)
+                    future::join_all(send_futures)
                         .await
                         .into_iter()
                         .filter_map(Result::err)
@@ -1380,8 +1377,8 @@ pub mod message {
                     .clone()
                     .sign(&sumeragi.key_pair)
                     .expect("Failed to sign.");
-                drop(async_std::task::spawn(async move {
-                    async_std::task::sleep(tx_receipt_time).await;
+                drop(task::spawn(async move {
+                    task::sleep(tx_receipt_time).await;
                     if pending_forwarded_tx_hashes
                         .write()
                         .await
@@ -1545,8 +1542,8 @@ pub mod message {
                     .await
                     .insert(tx_hash);
                 let recipient_peers = sumeragi.network_topology.sorted_peers.clone();
-                drop(async_std::task::spawn(async move {
-                    async_std::task::sleep(block_time).await;
+                drop(task::spawn(async move {
+                    task::sleep(block_time).await;
                     // Suspect leader if the block was not yet created
                     if transactions_awaiting_created_block
                         .write()
@@ -2065,12 +2062,12 @@ mod tests {
                 }
             }));
         }
-        async_std::task::sleep(Duration::from_millis(2000)).await;
+        task::sleep(Duration::from_millis(2000)).await;
         // First peer is a leader in this particular case.
         let leader = peers
             .iter()
             .find(|peer| {
-                async_std::task::block_on(async {
+                task::block_on(async {
                     let peer = peer.write().await;
                     peer.network_topology.role(&peer.peer_id) == Role::Leader
                 })
@@ -2092,7 +2089,7 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(2000)).await;
+        task::sleep(Duration::from_millis(2000)).await;
         for block_counter in block_counters {
             assert_eq!(*block_counter.write().await, 1);
         }
@@ -2200,12 +2197,12 @@ mod tests {
                 }
             }));
         }
-        async_std::task::sleep(Duration::from_millis(2000)).await;
+        task::sleep(Duration::from_millis(2000)).await;
         // First peer is a leader in this particular case.
         let leader = peers
             .iter()
             .find(|peer| {
-                async_std::task::block_on(async {
+                task::block_on(async {
                     let peer = peer.write().await;
                     peer.network_topology.role(&peer.peer_id) == Role::Leader
                 })
@@ -2227,7 +2224,7 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(
+        task::sleep(Duration::from_millis(
             config.sumeragi_configuration.pipeline_time_ms() + 2000,
         ))
         .await;
@@ -2373,7 +2370,7 @@ mod tests {
         let peer = peers
             .iter()
             .find(|peer| {
-                async_std::task::block_on(async {
+                task::block_on(async {
                     let peer = peer.write().await;
                     peer.network_topology.role(&peer.peer_id) != Role::Leader
                 })
@@ -2687,7 +2684,7 @@ mod tests {
         let leader = peers
             .iter()
             .find(|peer| {
-                async_std::task::block_on(async {
+                task::block_on(async {
                     let peer = peer.write().await;
                     peer.network_topology.role(&peer.peer_id) == Role::Leader
                 })
