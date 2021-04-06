@@ -20,8 +20,9 @@ use async_std::{
     prelude::*,
     sync::RwLock,
 };
-use iroha_derive::{log, Io};
+use iroha_derive::Io;
 use iroha_error::{error, Result};
+use iroha_logger::log;
 use parity_scale_codec::{Decode, Encode};
 
 const BUFFER_SIZE: usize = 2_usize.pow(12);

@@ -66,14 +66,14 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
                 response
             }
             Err(err) => {
-                log::error!("Failed to parse incoming HTTP request: {:?}", err);
+                iroha_logger::error!("Failed to parse incoming HTTP request: {:?}", err);
                 //TODO: return `not supported` for the features that are not supported instead of bad request.
                 Some(HttpResponse::bad_request())
             }
         };
         if let Some(response) = response {
             if let Err(err) = stream.write_all(&Vec::from(&response)).await {
-                log::error!("Failed to write back HTTP response: {}", err);
+                iroha_logger::error!("Failed to write back HTTP response: {}", err);
             }
         }
     }
@@ -379,12 +379,12 @@ pub mod http {
                         if let Err(err) =
                             handler.call(state, path_params, query_params, stream).await
                         {
-                            log::error!("Failed to handle web socket stream: {}", err)
+                            iroha_logger::error!("Failed to handle web socket stream: {}", err)
                         }
                         None
                     }
                     Err(err) => {
-                        log::error!(
+                        iroha_logger::error!(
                             "Failed to handle web socket request {:?} with error: {}",
                             self,
                             err
@@ -509,7 +509,7 @@ pub mod http {
                 Err(err) => (error_log(&err), err.error_response()),
             };
 
-            log::error!("Failed to handle request with error: {}", err_log);
+            iroha_logger::error!("Failed to handle request with error: {}", err_log);
             resp
         }
     }

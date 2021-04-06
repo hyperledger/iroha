@@ -107,8 +107,8 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Account related implementations.
 pub mod query {
-    use iroha_derive::*;
     use iroha_error::{error, Result, WrapErr};
+    use iroha_logger::log;
 
     use super::*;
     use crate::expression::Evaluate;

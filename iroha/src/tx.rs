@@ -450,13 +450,12 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 /// Query module provides [`IrohaQuery`] Transaction related implementations.
 pub mod query {
     use iroha_data_model::prelude::*;
-    use iroha_derive::*;
     use iroha_error::Result;
 
     use super::*;
 
     impl Query for FindTransactionsByAccountId {
-        #[log]
+        #[iroha_logger::log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             let id = self
                 .account_id
