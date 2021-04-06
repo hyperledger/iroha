@@ -10,7 +10,6 @@ use async_std::{
     fs::{metadata, File},
     prelude::*,
 };
-use iroha_derive::*;
 use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::{Deserialize, Serialize};
@@ -63,7 +62,7 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    #[log]
+    #[iroha_logger::log]
     pub async fn store(&mut self, block: VersionedValidBlock) -> Result<Hash> {
         match self.block_store.write(&block).await {
             Ok(hash) => {

@@ -19,7 +19,8 @@ use iroha_client::{client::Client, config::Configuration as ClientConfiguration}
 use iroha_data_model::peer::Peer as DataModelPeer;
 use iroha_data_model::prelude::*;
 use iroha_error::{Error, Result};
-use iroha_logger::config::{LevelFilter, LoggerConfiguration};
+use iroha_logger::config::{LevelEnv, LoggerConfiguration};
+use iroha_logger::InstrumentFutures;
 use rand::seq::SliceRandom;
 use tempfile::TempDir;
 
@@ -182,12 +183,10 @@ impl Peer {
                 ..configuration.torii_configuration
             },
             logger_configuration: LoggerConfiguration {
-                terminal_color_enabled: true,
-                date_time_format: format!("{} %Y-%m-%d %H:%M:%S:%f", self.p2p_address),
                 #[cfg(profile = "bench")]
-                max_log_level: LevelFilter::Off,
+                max_log_level: LevelEnv::ERROR,
                 #[cfg(not(profile = "bench"))]
-                max_log_level: LevelFilter::Info,
+                max_log_level: LevelEnv::INFO,
             },
             public_key: self.key_pair.public_key.clone(),
             private_key: self.key_pair.private_key.clone(),
@@ -206,14 +205,19 @@ impl Peer {
         configuration
             .kura_configuration
             .kura_block_store_path(temp_dir.path());
-        let join_handle = task::spawn(async move {
-            let iroha = Iroha::new(&configuration, permissions.into());
-            iroha.start().await.expect("Failed to start Iroha.");
-            //Prevents temp_dir from clean up untill the end of the tests.
-            loop {
-                task::yield_now().await;
+        let info_span = iroha_logger::info_span!("test-peer", "{}", &self.api_address);
+        let join_handle = task::spawn(
+            async move {
+                let iroha = Iroha::new(&configuration, permissions.into());
+                iroha.start().await.expect("Failed to start Iroha.");
+                //Prevents temp_dir from clean up untill the end of the tests.
+                loop {
+                    task::yield_now().await;
+                    //
+                }
             }
-        });
+            .instrument(info_span),
+        );
 
         thread::sleep(std::time::Duration::from_millis(100));
         join_handle
@@ -227,19 +231,23 @@ impl Peer {
     ) -> task::JoinHandle<()> {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let mut configuration = self.get_config(configuration);
-        let join_handle = task::spawn(async move {
-            let temp_dir = temp_dir;
-            configuration
-                .kura_configuration
-                .kura_block_store_path(temp_dir.path());
+        let info_span = iroha_logger::info_span!("test-peer", "{}", &self.api_address);
+        let join_handle = task::spawn(
+            async move {
+                let temp_dir = temp_dir;
+                configuration
+                    .kura_configuration
+                    .kura_block_store_path(temp_dir.path());
 
-            let iroha = Iroha::new(&configuration, permissions.into());
-            iroha.start().await.expect("Failed to start Iroha.");
-            //Prevents temp_dir from clean up untill the end of the tests.
-            loop {
-                task::yield_now().await;
+                let iroha = Iroha::new(&configuration, permissions.into());
+                iroha.start().await.expect("Failed to start Iroha.");
+                //Prevents temp_dir from clean up untill the end of the tests.
+                loop {
+                    task::yield_now().await;
+                }
             }
-        });
+            .instrument(info_span),
+        );
 
         thread::sleep(std::time::Duration::from_millis(100));
         join_handle

@@ -73,8 +73,8 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
     use iroha_data_model::prelude::*;
-    use iroha_derive::*;
     use iroha_error::Result;
+    use iroha_logger::log;
 
     use super::*;
 
