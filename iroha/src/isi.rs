@@ -1,7 +1,6 @@
 //! This module contains enumeration of all possible Iroha Special Instructions `Instruction`,
 //! generic instruction types and related implementations.
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
-use iroha_derive::log;
 use iroha_error::{error, Result};
 
 use crate::{expression::Evaluate, prelude::*};
@@ -43,7 +42,7 @@ impl Execute for Instruction {
 }
 
 impl Execute for RegisterBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -70,7 +69,7 @@ impl Execute for RegisterBox {
 }
 
 impl Execute for UnregisterBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -94,7 +93,7 @@ impl Execute for UnregisterBox {
 }
 
 impl Execute for MintBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -132,7 +131,7 @@ impl Execute for MintBox {
 }
 
 impl Execute for BurnBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -161,7 +160,7 @@ impl Execute for BurnBox {
 }
 
 impl Execute for TransferBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -192,7 +191,7 @@ impl Execute for TransferBox {
 }
 
 impl Execute for SetKeyValueBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -218,7 +217,7 @@ impl Execute for SetKeyValueBox {
 }
 
 impl Execute for RemoveKeyValueBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -242,7 +241,7 @@ impl Execute for RemoveKeyValueBox {
 }
 
 impl Execute for If {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -261,7 +260,7 @@ impl Execute for If {
 }
 
 impl Execute for Pair {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -278,7 +277,7 @@ impl Execute for Pair {
 }
 
 impl Execute for SequenceBox {
-    #[log]
+    #[iroha_logger::log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -293,7 +292,7 @@ impl Execute for SequenceBox {
 }
 
 impl Execute for FailBox {
-    #[log]
+    #[iroha_logger::log(skip(_authority, _world_state_view))]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,

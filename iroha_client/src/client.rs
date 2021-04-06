@@ -8,9 +8,9 @@ use std::{
 
 use http_client::WebSocketStream;
 use iroha_crypto::{Hash, KeyPair};
-use iroha_derive::log;
 use iroha_dsl::prelude::*;
 use iroha_error::{error, Error, Result, WrapErr};
+use iroha_logger::log;
 use iroha_version::prelude::*;
 
 use crate::{

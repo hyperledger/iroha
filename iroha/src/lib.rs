@@ -34,6 +34,7 @@ use async_std::{
 };
 use iroha_data_model::prelude::*;
 use iroha_error::Result;
+use iroha_logger::InstrumentFutures;
 use permissions::PermissionsValidatorBox;
 
 use crate::{
@@ -95,8 +96,8 @@ pub struct Iroha {
 impl Iroha {
     /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
     pub fn new(config: &Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
-        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
-        log::info!("Configuration: {:?}", config);
+        iroha_logger::init(config.logger_configuration);
+        iroha_logger::info!(?config, "Loaded configuration");
 
         let (transactions_sender, transactions_receiver) = sync::channel(100);
         let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
@@ -179,7 +180,7 @@ impl Iroha {
     /// Can fail if initing kura fails
     #[allow(clippy::eval_order_dependence, clippy::too_many_lines)]
     pub async fn start(&self) -> Result<()> {
-        log::info!("Starting Iroha.");
+        iroha_logger::info!("Starting Iroha.");
         //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
         let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
@@ -195,90 +196,117 @@ impl Iroha {
             .init(&kura.read().await.blocks);
         sumeragi.write().await.update_network_topology().await;
         let torii = Arc::clone(&self.torii);
-        let torii_handle = task::spawn(async move {
-            if let Err(e) = torii.write().await.start().await {
-                log::error!("Failed to start Torii: {}", e);
+        let torii_handle = task::spawn(
+            async move {
+                if let Err(e) = torii.write().await.start().await {
+                    iroha_logger::error!("Failed to start Torii: {}", e);
+                }
             }
-        });
+            .in_current_span(),
+        );
         self.block_sync.read().await.start();
         let transactions_receiver = Arc::clone(&self.transactions_receiver);
         let queue = Arc::clone(&self.queue);
-        let tx_handle = task::spawn(async move {
-            while let Some(transaction) = transactions_receiver.write().await.next().await {
-                if let Err(e) = queue.write().await.push_pending_transaction(transaction) {
-                    log::error!("Failed to put transaction into queue of pending tx: {}", e)
+        let tx_handle = task::spawn(
+            async move {
+                while let Some(transaction) = transactions_receiver.write().await.next().await {
+                    if let Err(e) = queue.write().await.push_pending_transaction(transaction) {
+                        iroha_logger::error!(
+                            "Failed to put transaction into queue of pending tx: {}",
+                            e
+                        )
+                    }
                 }
             }
-        });
+            .in_current_span(),
+        );
         let queue = Arc::clone(&self.queue);
         let world_state_view = Arc::clone(&self.world_state_view);
-        let voting_handle = task::spawn(async move {
-            loop {
-                if !sumeragi.write().await.voting_in_progress().await {
-                    let is_leader = sumeragi.read().await.is_leader();
-                    let transactions = queue
-                        .write()
-                        .await
-                        .get_pending_transactions(is_leader, &*world_state_view.read().await);
-                    sumeragi
-                        .write()
-                        .await
-                        .round(transactions)
-                        .await
-                        .expect("Round failed")
+        let voting_handle = task::spawn(
+            async move {
+                loop {
+                    if !sumeragi.write().await.voting_in_progress().await {
+                        let is_leader = sumeragi.read().await.is_leader();
+                        let transactions = queue
+                            .write()
+                            .await
+                            .get_pending_transactions(is_leader, &*world_state_view.read().await);
+                        sumeragi
+                            .write()
+                            .await
+                            .round(transactions)
+                            .await
+                            .expect("Round failed")
+                    }
+                    task::sleep(TX_RETRIEVAL_INTERVAL).await;
                 }
-                task::sleep(TX_RETRIEVAL_INTERVAL).await;
             }
-        });
+            .in_current_span(),
+        );
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
         let sumeragi = Arc::clone(&self.sumeragi);
         let block_sync = Arc::clone(&self.block_sync);
-        let wsv_handle = task::spawn(async move {
-            while let Some(block) = wsv_blocks_receiver.write().await.next().await {
-                world_state_view.write().await.apply(&block);
-                sumeragi.write().await.update_network_topology().await;
-                block_sync.write().await.continue_sync().await;
-            }
-        });
-        let sumeragi_message_receiver = Arc::clone(&self.sumeragi_message_receiver);
-        let sumeragi = Arc::clone(&self.sumeragi);
-        let sumeragi_message_handle = task::spawn(async move {
-            while let Some(message) = sumeragi_message_receiver.write().await.next().await {
-                if let Err(e) = message.handle(&mut *sumeragi.write().await).await {
-                    log::error!("Handle message failed: {}", e);
+        let wsv_handle = task::spawn(
+            async move {
+                while let Some(block) = wsv_blocks_receiver.write().await.next().await {
+                    world_state_view.write().await.apply(&block);
+                    sumeragi.write().await.update_network_topology().await;
+                    block_sync.write().await.continue_sync().await;
                 }
             }
-        });
+            .in_current_span(),
+        );
+        let sumeragi_message_receiver = Arc::clone(&self.sumeragi_message_receiver);
+        let sumeragi = Arc::clone(&self.sumeragi);
+        let sumeragi_message_handle = task::spawn(
+            async move {
+                while let Some(message) = sumeragi_message_receiver.write().await.next().await {
+                    if let Err(e) = message.handle(&mut *sumeragi.write().await).await {
+                        iroha_logger::error!("Handle message failed: {}", e);
+                    }
+                }
+            }
+            .in_current_span(),
+        );
         let block_sync_message_receiver = Arc::clone(&self.block_sync_message_receiver);
         let block_sync = Arc::clone(&self.block_sync);
-        let block_sync_message_handle = task::spawn(async move {
-            while let Some(message) = block_sync_message_receiver.write().await.next().await {
-                message.handle(&mut *block_sync.write().await).await;
+        let block_sync_message_handle = task::spawn(
+            async move {
+                while let Some(message) = block_sync_message_receiver.write().await.next().await {
+                    message.handle(&mut *block_sync.write().await).await;
+                }
             }
-        });
+            .in_current_span(),
+        );
         let kura_blocks_receiver = Arc::clone(&self.kura_blocks_receiver);
         let kura = Arc::clone(&self.kura);
-        let kura_handle = task::spawn(async move {
-            while let Some(block) = kura_blocks_receiver.write().await.next().await {
-                let _hash = kura
-                    .write()
-                    .await
-                    .store(block)
-                    .await
-                    .expect("Failed to write block.");
+        let kura_handle = task::spawn(
+            async move {
+                while let Some(block) = kura_blocks_receiver.write().await.next().await {
+                    let _hash = kura
+                        .write()
+                        .await
+                        .store(block)
+                        .await
+                        .expect("Failed to write block.");
+                }
             }
-        });
+            .in_current_span(),
+        );
 
         let sumeragi = Arc::clone(&self.sumeragi);
         let genesis_network = self.genesis_network.clone();
-        let genesis_network_handle = task::spawn(async move {
-            if let Some(genesis_network) = genesis_network {
-                if let Err(err) = genesis_network.submit_transactions(sumeragi).await {
-                    log::error!("Failed to submit genesis transactions: {}", err)
+        let genesis_network_handle = task::spawn(
+            async move {
+                if let Some(genesis_network) = genesis_network {
+                    if let Err(err) = genesis_network.submit_transactions(sumeragi).await {
+                        iroha_logger::error!("Failed to submit genesis transactions: {}", err)
+                    }
                 }
             }
-        });
+            .in_current_span(),
+        );
 
         futures::join!(
             torii_handle,

@@ -2,7 +2,6 @@
 //! instructions implementations.
 
 use iroha_data_model::prelude::*;
-use iroha_derive::log;
 
 use crate::{isi::prelude::*, prelude::*};
 
@@ -11,6 +10,7 @@ use crate::{isi::prelude::*, prelude::*};
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
     use iroha_error::{error, Result};
+    use iroha_logger::log;
 
     use super::*;
 
@@ -191,7 +191,7 @@ pub mod isi {
     }
 
     impl Execute for Transfer<Asset, u32, Asset> {
-        #[log]
+        #[log(skip(_authority))]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -237,6 +237,7 @@ pub mod isi {
 /// Query module provides `IrohaQuery` Asset related implementations.
 pub mod query {
     use iroha_error::{error, Result, WrapErr};
+    use iroha_logger::log;
 
     use super::*;
     use crate::expression::Evaluate;

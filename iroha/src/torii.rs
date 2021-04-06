@@ -7,9 +7,9 @@ use async_std::{prelude::*, sync::RwLock, task};
 use iroha_config::derive::Error as ConfigError;
 use iroha_config::Configurable;
 use iroha_data_model::prelude::*;
-use iroha_derive::*;
 use iroha_error::{derive::Error, error};
 use iroha_http_server::{http::Json, prelude::*, web_socket::WebSocketStream, Server};
+use iroha_logger::InstrumentFutures;
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
@@ -437,7 +437,7 @@ async fn handle_metrics(
     match state.read().await.system.read().await.scrape_metrics() {
         Ok(metrics) => Ok(HttpResponse::ok(Headers::new(), metrics.into())),
         Err(e) => {
-            log::error!("Failed to scrape metrics: {}", e);
+            iroha_logger::error!("Failed to scrape metrics: {}", e);
             Ok(HttpResponse::internal_server_error())
         }
     }
@@ -461,9 +461,10 @@ async fn handle_requests(
     let state_arc = Arc::clone(&state);
     task::spawn(async {
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
-            log::error!("Failed to handle message: {}", e);
+            iroha_logger::error!("Failed to handle message: {}", e);
         }
     })
+    .in_current_span()
     .await;
     Ok(())
 }
@@ -473,19 +474,21 @@ async fn consume_events(
     consumers: Arc<RwLock<Vec<Consumer>>>,
 ) {
     while let Some(change) = events_receiver.next().await {
-        log::trace!("Event occurred: {:?}", change);
+        iroha_logger::trace!("Event occurred: {:?}", change);
         let mut open_connections = Vec::new();
         for connection in consumers.write().await.drain(..) {
             match connection.consume(&change).await {
                 Ok(consumer) => open_connections.push(consumer),
-                Err(err) => log::error!("Failed to notify client: {}. Closed connection.", err),
+                Err(err) => {
+                    iroha_logger::error!("Failed to notify client: {}. Closed connection.", err)
+                }
             }
         }
         consumers.write().await.append(&mut open_connections);
     }
 }
 
-#[log("TRACE")]
+#[iroha_logger::log("TRACE")]
 async fn handle_request(
     state: State<ToriiState>,
     request: Request,
@@ -502,14 +505,14 @@ async fn handle_request(
                     .torii_configuration
                     .torii_max_sumeragi_message_size =>
         {
-            log::error!("Message is too big. Droping");
+            iroha_logger::error!("Message is too big. Droping");
             Ok(Response::InternalError)
         }
         uri::CONSENSUS_URI => {
             let message = match SumeragiVersionedMessage::decode_versioned(request.payload()) {
                 Ok(message) => message,
                 Err(e) => {
-                    log::error!("Failed to decode peer message: {}", e);
+                    iroha_logger::error!("Failed to decode peer message: {}", e);
                     return Ok(Response::InternalError);
                 }
             };
@@ -528,7 +531,7 @@ async fn handle_request(
             let message = match BlockSyncVersionedMessage::decode_versioned(request.payload()) {
                 Ok(message) => message.into_inner_v1(),
                 Err(e) => {
-                    log::error!("Failed to decode peer message: {}", e);
+                    iroha_logger::error!("Failed to decode peer message: {}", e);
                     return Ok(Response::InternalError);
                 }
             };
@@ -561,7 +564,7 @@ async fn handle_request(
             ))
         }
         non_supported_uri => {
-            log::error!("URI not supported: {}.", &non_supported_uri);
+            iroha_logger::error!("URI not supported: {}.", &non_supported_uri);
             Ok(Response::InternalError)
         }
     }

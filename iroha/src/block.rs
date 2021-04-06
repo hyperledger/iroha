@@ -173,7 +173,7 @@ impl ChainedBlock {
             ) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(transaction) => {
-                    log::warn!(
+                    iroha_logger::warn!(
                         "Transaction validation failed: {}",
                         transaction.as_inner_v1().rejection_reason
                     );

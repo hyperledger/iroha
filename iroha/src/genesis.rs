@@ -116,7 +116,7 @@ impl GenesisNetwork {
             self.wait_for_peers(sumeragi.peer_id.clone(), sumeragi.network_topology.clone())
                 .await?
         };
-        log::info!("Initializing iroha using the genesis block.");
+        iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
             .write()
             .await
@@ -143,14 +143,14 @@ impl GenesisNetwork {
                     {
                         Ok(Response::Ok(_)) => true,
                         Ok(Response::InternalError) => {
-                            log::info!(
+                            iroha_logger::info!(
                                 "Failed to send message - Internal Error on peer: {}.",
                                 &peer.address.as_str()
                             );
                             false
                         }
                         Err(_) => {
-                            log::info!(
+                            iroha_logger::info!(
                                 "Failed to send message - Peer offline: {}.",
                                 &peer.address.as_str(),
                             );
@@ -207,7 +207,7 @@ impl GenesisNetwork {
             )?
         };
 
-        log::info!("Waiting for active peers finished.");
+        iroha_logger::info!("Waiting for active peers finished.");
         Ok(genesis_topology)
     }
 
@@ -218,14 +218,14 @@ impl GenesisNetwork {
         this_peer_id: PeerId,
         network_topology: InitializedNetworkTopology,
     ) -> Result<InitializedNetworkTopology> {
-        log::info!("Waiting for active peers.",);
+        iroha_logger::info!("Waiting for active peers.",);
         for i in 0..self.wait_for_peers_retry_count {
             if let Ok(topology) = Self::try_wait_for_peers(&this_peer_id, &network_topology).await {
                 return Ok(topology);
             }
 
             let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;
-            log::info!("Retrying to connect in {} ms.", reconnect_in_ms);
+            iroha_logger::info!("Retrying to connect in {} ms.", reconnect_in_ms);
             task::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
         Err(error!("Waiting for peers failed."))

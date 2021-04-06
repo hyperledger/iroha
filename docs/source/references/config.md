@@ -43,9 +43,7 @@ Configuration of iroha is done via options in the following document. Here is de
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000
   },
   "LOGGER_CONFIGURATION": {
-    "MAX_LOG_LEVEL": "INFO",
-    "TERMINAL_COLOR_ENABLED": false,
-    "DATE_TIME_FORMAT": "%Y-%m-%d %H:%M:%S:%f"
+    "MAX_LOG_LEVEL": "DEBUG"
   },
   "GENESIS_CONFIGURATION": {
     "GENESIS_ACCOUNT_PUBLIC_KEY": "ed0100",
@@ -207,40 +205,18 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 
 ```json
 {
-  "DATE_TIME_FORMAT": "%Y-%m-%d %H:%M:%S:%f",
-  "MAX_LOG_LEVEL": "INFO",
-  "TERMINAL_COLOR_ENABLED": false
+  "MAX_LOG_LEVEL": "DEBUG"
 }
-```
-
-### `logger_configuration.date_time_format`
-
-Format of date and time
-
-Has type `String`. Can be configured via environment variable `DATE_TIME_FORMAT`
-
-```json
-"%Y-%m-%d %H:%M:%S:%f"
 ```
 
 ### `logger_configuration.max_log_level`
 
 Maximum log level
 
-Has type `LevelFilter`. Can be configured via environment variable `MAX_LOG_LEVEL`
+Has type `LevelEnv`. Can be configured via environment variable `MAX_LOG_LEVEL`
 
 ```json
-"INFO"
-```
-
-### `logger_configuration.terminal_color_enabled`
-
-Should we enable colors?
-
-Has type `bool`. Can be configured via environment variable `TERMINAL_COLOR_ENABLED`
-
-```json
-false
+"DEBUG"
 ```
 
 ## `private_key`
