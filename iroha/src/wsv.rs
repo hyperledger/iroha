@@ -50,7 +50,7 @@ impl WorldStateView {
     pub fn apply(&mut self, block: &VersionedCommittedBlock) {
         for transaction in &block.as_inner_v1().transactions {
             if let Err(e) = &transaction.proceed(self) {
-                log::warn!("Failed to proceed transaction on WSV: {}", e);
+                iroha_logger::warn!("Failed to proceed transaction on WSV: {}", e);
             }
             let _ = self.transactions.insert(
                 transaction.hash(),

@@ -14,7 +14,6 @@ use async_std::{sync::RwLock, task};
 use futures::future;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
-use iroha_derive::*;
 use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -200,7 +199,7 @@ impl Sumeragi {
         &mut self,
         transactions: &[VersionedAcceptedTransaction],
     ) {
-        log::info!(
+        iroha_logger::info!(
             "{:?} - {} - Forwarding transactions to leader({}). Number of transactions to forward: {}",
             self.network_topology.role(&self.peer_id),
             self.peer_id.address,
@@ -266,7 +265,7 @@ impl Sumeragi {
                         .into_iter()
                         .filter_map(Result::err)
                         .for_each(|error| {
-                            log::error!(
+                            iroha_logger::error!(
                                 "Failed to send NoTransactionReceiptReceived message to peers: {:?}",
                                 error
                             )
@@ -279,14 +278,14 @@ impl Sumeragi {
             .into_iter()
             .filter_map(Result::err)
             .for_each(|error| {
-                log::error!("Failed to send transactions to the leader: {:?}", error)
+                iroha_logger::error!("Failed to send transactions to the leader: {:?}", error)
             });
     }
 
     /// Gossip transactions to other peers.
     ///
     pub async fn gossip_transactions(&mut self, transactions: &[VersionedAcceptedTransaction]) {
-        log::debug!(
+        iroha_logger::debug!(
             "{:?} - Gossiping transactions. Number of transactions to forward: {}",
             self.network_topology.role(&self.peer_id),
             transactions.len(),
@@ -312,7 +311,7 @@ impl Sumeragi {
         results
             .into_iter()
             .filter_map(Result::err)
-            .for_each(|error| log::error!("Failed to gossip transactions: {:?}", error));
+            .for_each(|error| iroha_logger::error!("Failed to gossip transactions: {:?}", error));
     }
 
     /// Should be called by a leader to start the consensus round with `BlockCreated` message.
@@ -323,7 +322,7 @@ impl Sumeragi {
         let wsv = self.world_state_view.clone();
         let block = block.validate(&*wsv.read().await, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
-        log::info!(
+        iroha_logger::info!(
             "{:?} - Created a block with hash {}.",
             network_topology.role(&self.peer_id),
             block.hash(),
@@ -354,7 +353,7 @@ impl Sumeragi {
             .into_iter()
             .filter_map(Result::err)
             .for_each(|error_result| {
-                log::error!(
+                iroha_logger::error!(
                     "Failed to send BlockCreated messages from {}: {:?}",
                     this_peer.address,
                     error_result
@@ -370,7 +369,7 @@ impl Sumeragi {
     }
 
     /// Starts countdown for a period in which the `voting_block` should be committed.
-    #[log]
+    #[iroha_logger::log(skip(self, voting_block))]
     pub async fn start_commit_countdown(
         &self,
         voting_block: VotingBlock,
@@ -408,7 +407,10 @@ impl Sumeragi {
                         .into_iter()
                         .filter_map(Result::err)
                         .for_each(|error| {
-                            log::error!("Failed to send CommitTimeout messages: {:?}", error)
+                            iroha_logger::error!(
+                                "Failed to send CommitTimeout messages: {:?}",
+                                error
+                            )
                         });
                 }
             }
@@ -416,7 +418,7 @@ impl Sumeragi {
     }
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
-    #[log]
+    #[iroha_logger::log(skip(self, block))]
     pub async fn commit_block(&mut self, block: VersionedValidBlock) {
         let block_hash = block.hash();
         self.latest_block_hash = block_hash;
@@ -437,7 +439,7 @@ impl Sumeragi {
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
             .sort_peers_by_hash(Some(self.latest_block_hash));
-        log::info!(
+        iroha_logger::info!(
             "{:?} - Commiting block with hash {}. New role: {:?}. New height: {}",
             previous_role,
             block_hash,
@@ -466,7 +468,7 @@ impl Sumeragi {
         }
         *self.voting_block.write().await = None;
         self.number_of_view_changes += 1;
-        log::info!(
+        iroha_logger::info!(
             "{} - {:?} - Changing view at block with hash {}. New role: {:?}. Number of view changes (including this): {}",
             self.peer_id.address,
             previous_role,
@@ -488,7 +490,7 @@ impl Sumeragi {
     ) -> InitializedNetworkTopology {
         if block.header().is_genesis() && self.block_height == 0 {
             if let Some(genesis_topology) = block.header().genesis_topology.clone() {
-                log::info!("Using network topology from genesis block.");
+                iroha_logger::info!("Using network topology from genesis block.");
                 genesis_topology
             } else {
                 self.network_topology.clone()
@@ -855,7 +857,7 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         /// # Errors
         /// Fails if network sending fails
-        #[log]
+        #[iroha_logger::log(skip(self))]
         pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             match Network::send_request_to(
                 &peer.address,
@@ -906,7 +908,7 @@ pub mod message {
         /// Handles this message as part of `Sumeragi` consensus.
         /// # Errors
         /// Fails if message handling fails
-        #[log]
+        #[iroha_logger::log(skip(self, sumeragi))]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             match self {
                 Message::BlockCreated(block_created) => block_created.handle(sumeragi).await,
@@ -960,7 +962,7 @@ pub mod message {
                 .filter_signatures_by_roles(&[Role::Leader], &self.block.verified_signatures())
                 .is_empty()
             {
-                log::error!(
+                iroha_logger::error!(
                     "{:?} - Rejecting Block as it is not signed by leader.",
                     sumeragi.network_topology.role(&sumeragi.peer_id),
                 );
@@ -991,12 +993,12 @@ pub mod message {
                         .send_to(network_topology.proxy_tail())
                         .await
                         {
-                            log::error!(
+                            iroha_logger::error!(
                                 "Failed to send BlockSigned message to the proxy tail: {:?}",
                                 e
                             );
                         } else {
-                            log::info!(
+                            iroha_logger::info!(
                                 "{:?} - Signed block candidate with hash {}.",
                                 network_topology.role(&sumeragi.peer_id),
                                 self.block.hash(),
@@ -1069,7 +1071,7 @@ pub mod message {
                     &[Role::ValidatingPeer, Role::Leader],
                     &entry.verified_signatures(),
                 );
-                log::info!(
+                iroha_logger::info!(
                     "{:?} - Recieved a vote for block with hash {}. Now it has {} signatures out of {} required (not counting ProxyTail signature).",
                     network_topology.role(&sumeragi.peer_id),
                     block_hash,
@@ -1082,7 +1084,7 @@ pub mod message {
                     let mut block = entry.clone();
                     block.as_mut_inner_v1().signatures = signatures;
                     let block = block.sign(&sumeragi.key_pair)?;
-                    log::info!(
+                    iroha_logger::info!(
                         "{:?} - Block reached required number of votes. Block hash {}.",
                         network_topology.role(&sumeragi.peer_id),
                         block_hash,
@@ -1102,7 +1104,7 @@ pub mod message {
                         .iter()
                         .filter(|result| result.is_err())
                         .for_each(|error_result| {
-                            log::error!(
+                            iroha_logger::error!(
                                 "Failed to send BlockCommitted messages: {:?}",
                                 error_result
                             )
@@ -1260,7 +1262,7 @@ pub mod message {
                 .len()
                 >= sumeragi.network_topology.min_votes_for_view_change() as usize
             {
-                log::info!(
+                iroha_logger::info!(
                     "{:?} - Block creation timeout verified by voting. Previous block hash: {}.",
                     sumeragi.network_topology.role(&sumeragi.peer_id),
                     sumeragi.latest_block_hash,
@@ -1346,7 +1348,7 @@ pub mod message {
                 .len()
                 >= sumeragi.network_topology.min_votes_for_view_change() as usize
             {
-                log::info!(
+                iroha_logger::info!(
                     "{:?} - Faulty leader not sending tx receipts verified by voting. Previous block hash: {}.",
                     sumeragi.network_topology.role(&sumeragi.peer_id),
                     sumeragi.latest_block_hash,
@@ -1434,7 +1436,7 @@ pub mod message {
                 .send_to(&self.peer)
                 .await
                 {
-                    log::error!(
+                    iroha_logger::error!(
                         "{:?} - Failed to send a transaction receipt to peer {}: {}",
                         sumeragi.network_topology.role(&sumeragi.peer_id),
                         self.peer.address,
@@ -1645,7 +1647,7 @@ pub mod message {
                 sumeragi
                     .invalidated_blocks_hashes
                     .push(self.voting_block_hash);
-                log::info!(
+                iroha_logger::info!(
                     "{:?} - Block commit timeout verified by voting. Previous block hash: {}.",
                     sumeragi.network_topology.role(&sumeragi.peer_id),
                     sumeragi.latest_block_hash,
@@ -1679,7 +1681,7 @@ pub mod message {
                                     .into_iter()
                                     .filter_map(Result::err)
                                     .for_each(|error| {
-                                        log::error!(
+                                        iroha_logger::error!(
                                             "Failed to send CommitTimeout messages: {:?}",
                                             error
                                         )
@@ -1996,7 +1998,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
+        iroha_logger::init(config.logger_configuration);
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2123,7 +2125,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
+        iroha_logger::init(config.logger_configuration);
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2275,7 +2277,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
+        iroha_logger::init(config.logger_configuration);
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2359,7 +2361,7 @@ mod tests {
                             .round(vec![transaction])
                             .await
                         {
-                            log::error!("{}", e);
+                            iroha_logger::error!("{}", e);
                         }
                     }
                     task::sleep(Duration::from_millis(500)).await;
@@ -2441,7 +2443,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
+        iroha_logger::init(config.logger_configuration);
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2522,7 +2524,7 @@ mod tests {
                             .round(vec![transaction])
                             .await
                         {
-                            log::error!("{}", e);
+                            iroha_logger::error!("{}", e);
                         }
                     }
                     task::sleep(Duration::from_millis(500)).await;
@@ -2604,7 +2606,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
+        iroha_logger::init(config.logger_configuration);
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;

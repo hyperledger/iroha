@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_std::{sync::RwLock, task};
 use iroha_data_model::prelude::*;
-use iroha_derive::*;
+use iroha_logger::{log, InstrumentFutures};
 
 use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
@@ -64,31 +64,36 @@ impl BlockSynchronizer {
         let kura = self.kura.clone();
         let peer_id = self.peer_id.clone();
         let sumeragi = self.sumeragi.clone();
-        drop(task::spawn(async move {
-            loop {
-                task::sleep(gossip_period).await;
-                let message =
-                    Message::LatestBlock(kura.read().await.latest_block_hash(), peer_id.clone());
-                drop(
-                    futures::future::join_all(
-                        sumeragi
-                            .read()
-                            .await
-                            .network_topology
-                            .sorted_peers()
-                            .iter()
-                            .map(|peer| message.clone().send_to(peer)),
-                    )
-                    .await,
-                );
+        drop(task::spawn(
+            async move {
+                loop {
+                    task::sleep(gossip_period).await;
+                    let message = Message::LatestBlock(
+                        kura.read().await.latest_block_hash(),
+                        peer_id.clone(),
+                    );
+                    drop(
+                        futures::future::join_all(
+                            sumeragi
+                                .read()
+                                .await
+                                .network_topology
+                                .sorted_peers()
+                                .iter()
+                                .map(|peer| message.clone().send_to(peer)),
+                        )
+                        .await,
+                    );
+                }
             }
-        }));
+            .in_current_span(),
+        ));
     }
 
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.
     pub async fn continue_sync(&mut self) {
         if let State::InProgress(blocks, peer_id) = self.state.clone() {
-            log::info!(
+            iroha_logger::info!(
                 "Synchronizing blocks, {} blocks left in this batch.",
                 blocks.len()
             );
@@ -133,7 +138,7 @@ impl BlockSynchronizer {
                 .send_to(&peer_id)
                 .await
                 {
-                    log::error!("Failed to request next batch of blocks. {}", e)
+                    iroha_logger::error!("Failed to request next batch of blocks. {}", e)
                 }
             }
         }
@@ -146,6 +151,7 @@ pub mod message {
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_error::{error, Result};
+    use iroha_logger::log;
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -203,13 +209,15 @@ pub mod message {
                                 .send_to(peer)
                                 .await
                         {
-                            log::warn!("Failed to request blocks: {:?}", err)
+                            iroha_logger::warn!("Failed to request blocks: {:?}", err)
                         }
                     }
                 }
                 Message::GetBlocksAfter(hash, peer) => {
                     if block_sync.batch_size == 0 {
-                        log::warn!("Error: not sending any blocks as batch_size is equal to zero.");
+                        iroha_logger::warn!(
+                            "Error: not sending any blocks as batch_size is equal to zero."
+                        );
                         return;
                     }
 
@@ -225,11 +233,13 @@ pub mod message {
                             .send_to(peer)
                             .await
                             {
-                                log::error!("Failed to send blocks: {:?}", err)
+                                iroha_logger::error!("Failed to send blocks: {:?}", err)
                             }
                         }
                     } else {
-                        log::error!("Error: there are no blocks after the requested block hash.")
+                        iroha_logger::error!(
+                            "Error: there are no blocks after the requested block hash."
+                        )
                     }
                 }
                 Message::ShareBlocks(blocks, peer_id) => {
