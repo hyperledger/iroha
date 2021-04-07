@@ -1588,13 +1588,13 @@ dependencies = [
  "iroha_network",
  "iroha_version",
  "log",
+ "maplit",
  "parity-scale-codec",
  "rand 0.7.3",
  "serde",
  "serde_json",
  "tempfile",
  "unique_port",
- "url",
  "ursa",
 ]
 

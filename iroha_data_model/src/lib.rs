@@ -45,7 +45,9 @@ pub trait TryAsRef<T> {
 }
 
 /// Represents Iroha Configuration parameters.
-#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[derive(
+    Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, PartialOrd, Ord,
+)]
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
     MaximumFaultyPeersAmount(u32),
@@ -58,7 +60,19 @@ pub enum Parameter {
 }
 
 /// Sized container for all possible identifications.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    FromVariant,
+    PartialOrd,
+    Ord,
+)]
 pub enum IdBox {
     /// `AccountId` variant.
     AccountId(account::Id),
@@ -75,7 +89,19 @@ pub enum IdBox {
 }
 
 /// Sized container for all possible entities.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    FromVariant,
+    PartialOrd,
+    Ord,
+)]
 pub enum IdentifiableBox {
     /// `Account` variant.
     Account(Box<account::Account>),
@@ -97,7 +123,19 @@ pub enum IdentifiableBox {
 pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    FromVariant,
+    PartialOrd,
+    Ord,
+)]
 #[allow(clippy::pub_enum_variant_names)]
 pub enum Value {
     /// `u32` integer.
@@ -330,15 +368,49 @@ pub mod world {
 pub mod permissions {
     //! Structures, traits and impls related to `Permission`s.
 
-    /// Raw byte representation of Permission.
-    pub type PermissionRaw = Vec<u8>;
+    use std::collections::BTreeMap;
+
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use crate::{Name, Value};
+
+    /// Stored proof of the account having a permission for a certain action.
+    #[derive(
+        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode,
+    )]
+    pub struct PermissionToken {
+        /// Name of the permission rule given to account.
+        pub name: Name,
+        /// Params identifying how this rule applies.
+        pub params: BTreeMap<Name, Value>,
+    }
+
+    impl PermissionToken {
+        /// Constructor.
+        pub fn new(name: impl Into<Name>, params: BTreeMap<Name, Value>) -> Self {
+            PermissionToken {
+                name: name.into(),
+                params,
+            }
+        }
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
+    pub mod prelude {
+        pub use super::PermissionToken;
+    }
 }
 
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
     #![allow(clippy::default_trait_access)]
 
-    use std::{collections::BTreeMap, fmt, iter::FromIterator};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fmt,
+        iter::FromIterator,
+    };
 
     //TODO: get rid of it?
     use iroha_crypto::prelude::*;
@@ -352,7 +424,7 @@ pub mod account {
         domain::GENESIS_DOMAIN_NAME,
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         metadata::Metadata,
-        permissions::PermissionRaw,
+        permissions::PermissionToken,
         Identifiable, Name, PublicKey, Value,
     };
 
@@ -360,7 +432,7 @@ pub mod account {
     /// (`Account`) pairs.
     pub type AccountsMap = BTreeMap<Id, Account>;
     type Signatories = Vec<PublicKey>;
-    type Permissions = Vec<PermissionRaw>;
+    type Permissions = BTreeSet<PermissionToken>;
 
     /// Genesis account name.
     pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
@@ -391,7 +463,9 @@ pub mod account {
     }
 
     /// Condition which checks if the account has the right signatures.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, PartialOrd, Ord,
+    )]
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
     impl SignatureCheckCondition {
@@ -422,7 +496,9 @@ pub mod account {
     }
 
     /// Type which is used for registering `Account`
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, PartialOrd, Ord,
+    )]
     pub struct NewAccount {
         /// An Identification of the `NewAccount`.
         pub id: Id,
@@ -444,7 +520,7 @@ pub mod account {
                 signatories,
                 metadata,
                 assets: AssetsMap::new(),
-                permissions: Permissions::new(),
+                permission_tokens: Permissions::new(),
                 signature_check_condition: SignatureCheckCondition::default(),
             }
         }
@@ -480,8 +556,8 @@ pub mod account {
         pub assets: AssetsMap,
         /// `Account`'s signatories.
         pub signatories: Signatories,
-        /// Permissions of this account
-        pub permissions: Permissions,
+        /// Permissions tokens of this account
+        pub permission_tokens: Permissions,
         /// Condition which checks if the account has the right signatures.
         #[serde(default)]
         pub signature_check_condition: SignatureCheckCondition,
@@ -538,7 +614,7 @@ pub mod account {
                 id,
                 assets: AssetsMap::new(),
                 signatories: Signatories::new(),
-                permissions: Permissions::new(),
+                permission_tokens: Permissions::new(),
                 signature_check_condition: Default::default(),
                 metadata: Metadata::new(),
             }
@@ -551,7 +627,7 @@ pub mod account {
                 id,
                 assets: AssetsMap::new(),
                 signatories,
-                permissions: Permissions::new(),
+                permission_tokens: Permissions::new(),
                 signature_check_condition: Default::default(),
                 metadata: Metadata::new(),
             }
@@ -1918,7 +1994,19 @@ pub mod metadata {
     }
 
     /// Collection of parameters by their names with checked insertion.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, Default)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Serialize,
+        Deserialize,
+        Default,
+        PartialOrd,
+        Ord,
+    )]
     #[serde(transparent)]
     pub struct Metadata {
         map: BTreeMap<Name, Value>,
@@ -2025,6 +2113,6 @@ pub mod prelude {
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        query::prelude::*,
+        permissions::prelude::*, query::prelude::*,
     };
 }
