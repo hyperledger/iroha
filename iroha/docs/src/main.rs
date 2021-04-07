@@ -1,13 +1,14 @@
 //! Cli for generating documentation for iroha configuraion
 
+use std::fmt::Debug;
+use std::io::Result;
+use std::io::{stdout, BufWriter, Write};
+
 use async_std::task;
 use iroha::config::Configuration;
 use iroha_config::Configurable;
 use iroha_error::WrapErr;
 use serde_json::{Map, Value};
-use std::fmt::Debug;
-use std::io::Result;
-use std::io::{stdout, BufWriter, Write};
 
 fn main() -> iroha_error::Result<()> {
     Configuration::get_md(&mut BufWriter::new(stdout()))
