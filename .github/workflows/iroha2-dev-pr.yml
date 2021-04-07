@@ -26,14 +26,18 @@ jobs:
           free -h
       - name: Install cargo-lints
         run: cargo install --debug --git https://github.com/i1i1/cargo-lints
+      - name: Install nightly for rustfmt
+        run: rustup install --profile default nightly-2021-03-24
       - name: Format check
-        run: cargo fmt --all --verbose -- --check
+        run: cargo +nightly-2021-03-24 fmt --all --verbose -- --check
       - name: Static analysis without features
         run: cargo lints clippy --all --benches --tests
       - name: Static analysis with all features enabled
         run: cargo lints clippy --all --benches --tests --all-features
       - name: Documentation check
-        run: cargo doc --no-deps --verbose
+        run: |
+          cargo doc --no-deps --verbose
+          ./scripts/check_docs.sh
       - name: Archive documentation
         uses: actions/upload-artifact@v1
         with:
