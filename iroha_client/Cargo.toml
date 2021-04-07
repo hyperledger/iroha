@@ -47,10 +47,6 @@ iroha_permissions_validators = { version = "=0.1.0", path = "../iroha_permission
 rand = "0.7.3"
 unique_port = { git = "https://github.com/soramitsu/iroha2-unique_port" }
 
-[[test]]
-name = "cucumber"
-harness = false
-
 [[bench]]
 name = "torii"
 harness = false
