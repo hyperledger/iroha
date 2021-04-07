@@ -2,14 +2,100 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::convert::TryInto;
+use std::{collections::BTreeMap, convert::TryInto};
 
 use iroha::{
     expression::Evaluate,
-    permissions::{prelude::*, PermissionsValidator, PermissionsValidatorBuilder},
+    permissions::{
+        prelude::*, GrantedTokenValidator, PermissionsValidator, PermissionsValidatorBuilder,
+        ValidatorApplyOr,
+    },
     prelude::*,
 };
 use iroha_data_model::{isi::*, prelude::*};
+
+macro_rules! impl_from_item_for_validator_box {
+    ( $ty:ty ) => {
+        impl From<$ty> for PermissionsValidatorBox {
+            fn from(permissions: $ty) -> Self {
+                Box::new(permissions)
+            }
+        }
+    };
+}
+macro_rules! try_into_or_exit {
+    ( $ident:ident ) => {
+        if let Ok(into) = $ident.try_into() {
+            into
+        } else {
+            return Ok(());
+        }
+    };
+}
+
+/// Permission checks asociated with use cases that can be summarized as private blockchains (e.g. CBDC).
+pub mod private_blockchain {
+
+    use super::*;
+
+    /// A preconfigured set of permissions for simple use cases.
+    pub fn default_permissions() -> PermissionsValidatorBox {
+        PermissionsValidatorBuilder::new()
+            .with_recursive_validator(
+                register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
+            )
+            .build()
+    }
+
+    pub mod register {
+        //! Module with permissions for registering.
+
+        use std::collections::BTreeMap;
+
+        use super::*;
+
+        /// Can register domains permission token name.
+        pub const CAN_REGISTER_DOMAINS_TOKEN: &str = "can_register_domains";
+
+        /// Prohibits registering domains.
+        #[derive(Debug, Copy, Clone)]
+        pub struct ProhibitRegisterDomains;
+
+        impl_from_item_for_validator_box!(ProhibitRegisterDomains);
+
+        impl PermissionsValidator for ProhibitRegisterDomains {
+            fn check_instruction(
+                &self,
+                _authority: AccountId,
+                instruction: Instruction,
+                _wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let _register_box: RegisterBox = try_into_or_exit!(instruction);
+                Err("Domain registration is prohibited.".to_string())
+            }
+        }
+
+        /// Validator that allows to register domains for accounts with the corresponding permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantedAllowedRegisterDomains;
+
+        impl_from_item_for_validator_box!(GrantedAllowedRegisterDomains);
+
+        impl GrantedTokenValidator for GrantedAllowedRegisterDomains {
+            fn should_have_token(
+                &self,
+                _authority: AccountId,
+                _instruction: Instruction,
+                _wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                Ok(PermissionToken::new(
+                    CAN_REGISTER_DOMAINS_TOKEN,
+                    BTreeMap::new(),
+                ))
+            }
+        }
+    }
+}
 
 /// Permission checks asociated with use cases that can be summarized as public blockchains.
 pub mod public_blockchain {
@@ -30,35 +116,21 @@ pub mod public_blockchain {
             .build()
     }
 
-    macro_rules! from_boxed_unit {
-        ( $ty:ty ) => {
-            impl From<$ty> for PermissionsValidatorBox {
-                fn from(permissions: $ty) -> Self {
-                    Box::new(permissions)
-                }
-            }
-        };
-    }
-    macro_rules! try_into_or_exit {
-        ( $ident:ident ) => {
-            if let Ok(into) = $ident.try_into() {
-                into
-            } else {
-                return Ok(());
-            }
-        };
-    }
-
     pub mod transfer {
         //! Module with permission for transfering
 
         use super::*;
 
+        /// Can transfer user's assets permission token name.
+        pub const CAN_TRANSFER_USER_ASSETS_TOKEN: &str = "can_transfer_user_assets";
+        /// Origin asset id param for the [`CAN_TRANSFER_USER_ASSETS_TOKEN`] permission.
+        pub const ASSET_ID_TOKEN_PARAM_NAME: &str = "asset_id";
+
         /// Checks that account transfers only the assets that he owns.
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyOwnedAssets;
 
-        from_boxed_unit!(OnlyOwnedAssets);
+        impl_from_item_for_validator_box!(OnlyOwnedAssets);
 
         impl PermissionsValidator for OnlyOwnedAssets {
             fn check_instruction(
@@ -68,16 +140,49 @@ pub mod public_blockchain {
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
                 let transfer_box: TransferBox = try_into_or_exit!(instruction);
-                let transfer_box = transfer_box
+                let source_id = transfer_box
                     .source_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let source_id: AssetId = try_into_or_exit!(transfer_box);
+                let source_id: AssetId = try_into_or_exit!(source_id);
 
                 if source_id.account_id != authority {
                     return Err("Can't transfer assets of the other account.".to_owned());
                 }
                 Ok(())
+            }
+        }
+
+        /// Allows transfering user's assets from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantedAssets;
+
+        impl_from_item_for_validator_box!(GrantedAssets);
+
+        impl GrantedTokenValidator for GrantedAssets {
+            fn should_have_token(
+                &self,
+                _authority: AccountId,
+                instruction: Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let transfer_box: TransferBox = if let Ok(transfer_box) = instruction.try_into() {
+                    transfer_box
+                } else {
+                    return Err("Instruction is not transfer.".to_string());
+                };
+                let source_id = transfer_box
+                    .source_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let source_id: AssetId = if let Ok(source_id) = source_id.try_into() {
+                    source_id
+                } else {
+                    return Err("Source id is not an AssetId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), source_id.into());
+                Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN, params))
             }
         }
     }
@@ -91,7 +196,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyAssetsCreatedByThisAccount;
 
-        from_boxed_unit!(OnlyAssetsCreatedByThisAccount);
+        impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
 
         impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
@@ -101,11 +206,11 @@ pub mod public_blockchain {
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
                 let instruction: UnregisterBox = try_into_or_exit!(instruction);
-                let instruction = instruction
+                let object_id = instruction
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_definition_id: AssetDefinitionId = try_into_or_exit!(instruction);
+                let asset_definition_id: AssetDefinitionId = try_into_or_exit!(object_id);
 
                 let low_authority = wsv
                     .read_asset_definition_entry(&asset_definition_id)
@@ -130,7 +235,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyAssetsCreatedByThisAccount;
 
-        from_boxed_unit!(OnlyAssetsCreatedByThisAccount);
+        impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
 
         impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
@@ -140,11 +245,11 @@ pub mod public_blockchain {
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
                 let instruction: MintBox = try_into_or_exit!(instruction);
-                let instruction = instruction
+                let destination_id = instruction
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(instruction);
+                let asset_id: AssetId = try_into_or_exit!(destination_id);
 
                 let low_authority = wsv
                     .read_asset_definition_entry(&asset_id.definition_id)
@@ -169,7 +274,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyAssetsCreatedByThisAccount;
 
-        from_boxed_unit!(OnlyAssetsCreatedByThisAccount);
+        impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
 
         impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
@@ -179,11 +284,11 @@ pub mod public_blockchain {
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
                 let instruction: BurnBox = try_into_or_exit!(instruction);
-                let instruction = instruction
+                let destination_id = instruction
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(instruction);
+                let asset_id: AssetId = try_into_or_exit!(destination_id);
 
                 let low_authority = wsv
                     .read_asset_definition_entry(&asset_id.definition_id)
@@ -201,7 +306,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyOwnedAssets;
 
-        from_boxed_unit!(OnlyOwnedAssets);
+        impl_from_item_for_validator_box!(OnlyOwnedAssets);
 
         impl PermissionsValidator for OnlyOwnedAssets {
             fn check_instruction(
@@ -211,11 +316,11 @@ pub mod public_blockchain {
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
                 let instruction: BurnBox = try_into_or_exit!(instruction);
-                let instruction = instruction
+                let destination_id = instruction
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(instruction);
+                let asset_id: AssetId = try_into_or_exit!(destination_id);
                 if asset_id.account_id != authority {
                     return Err("Can't burn assets from another account.".to_owned());
                 }
@@ -233,7 +338,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AssetSetOnlyForSignerAccount;
 
-        from_boxed_unit!(AssetSetOnlyForSignerAccount);
+        impl_from_item_for_validator_box!(AssetSetOnlyForSignerAccount);
 
         impl PermissionsValidator for AssetSetOnlyForSignerAccount {
             fn check_instruction(
@@ -261,7 +366,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AccountSetOnlyForSignerAccount;
 
-        from_boxed_unit!(AccountSetOnlyForSignerAccount);
+        impl_from_item_for_validator_box!(AccountSetOnlyForSignerAccount);
 
         impl PermissionsValidator for AccountSetOnlyForSignerAccount {
             fn check_instruction(
@@ -289,7 +394,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AssetRemoveOnlyForSignerAccount;
 
-        from_boxed_unit!(AssetRemoveOnlyForSignerAccount);
+        impl_from_item_for_validator_box!(AssetRemoveOnlyForSignerAccount);
 
         impl PermissionsValidator for AssetRemoveOnlyForSignerAccount {
             fn check_instruction(
@@ -317,7 +422,7 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AccountRemoveOnlyForSignerAccount;
 
-        from_boxed_unit!(AccountRemoveOnlyForSignerAccount);
+        impl_from_item_for_validator_box!(AccountRemoveOnlyForSignerAccount);
 
         impl PermissionsValidator for AccountRemoveOnlyForSignerAccount {
             fn check_instruction(
@@ -367,6 +472,39 @@ pub mod public_blockchain {
             assert!(transfer::OnlyOwnedAssets
                 .check_instruction(bob_id, transfer, &wsv)
                 .is_err());
+        }
+
+        #[test]
+        fn transfer_granted_assets() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let alice_xor_id =
+                <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+            let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
+                btreemap! {
+                    transfer::ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                },
+            ));
+            let _ = domain.accounts.insert(bob_id.clone(), bob_account);
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let transfer = Instruction::Transfer(TransferBox {
+                source_id: IdBox::AssetId(alice_xor_id).into(),
+                object: Value::U32(10).into(),
+                destination_id: IdBox::AssetId(bob_xor_id).into(),
+            });
+            let validator: PermissionsValidatorBox =
+                transfer::OnlyOwnedAssets.or(transfer::GrantedAssets).into();
+            assert!(validator
+                .check_instruction(alice_id, transfer.clone(), &wsv)
+                .is_ok());
+            assert!(validator.check_instruction(bob_id, transfer, &wsv).is_ok());
         }
 
         #[test]
