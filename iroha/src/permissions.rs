@@ -12,9 +12,12 @@ use crate::prelude::*;
 pub type DenialReason = String;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-#[allow(clippy::missing_errors_doc)]
 pub trait PermissionsValidator {
     /// Checks if the `authority` is allowed to perform `instruction` given the current state of `wsv`.
+    ///
+    /// # Errors
+    /// In the case when the execution of `instruction` under given `authority` with the current state of `wsv`
+    /// is unallowed.
     fn check_instruction(
         &self,
         authority: AccountId,
@@ -25,6 +28,56 @@ pub trait PermissionsValidator {
 
 /// Box with `PermissionChecker`
 pub type PermissionsValidatorBox = Box<dyn PermissionsValidator + Send + Sync>;
+
+/// Trait for joining validators with `or` method, autoimplemented for all types which convert to `PermissionsValidatorBox`.
+pub trait ValidatorApplyOr {
+    /// Combines two validators into [`OrPermissionsValidator`].
+    fn or(self, another: impl Into<PermissionsValidatorBox>) -> OrPermissionsValidator;
+}
+
+impl<V: Into<PermissionsValidatorBox>> ValidatorApplyOr for V {
+    fn or(self, another: impl Into<PermissionsValidatorBox>) -> OrPermissionsValidator {
+        OrPermissionsValidator {
+            first: self.into(),
+            second: another.into(),
+        }
+    }
+}
+
+/// `check_instruction` will succeed if either `first` or `second` validator succeeds.
+#[allow(missing_debug_implementations)]
+pub struct OrPermissionsValidator {
+    first: PermissionsValidatorBox,
+    second: PermissionsValidatorBox,
+}
+
+impl PermissionsValidator for OrPermissionsValidator {
+    fn check_instruction(
+        &self,
+        authority: AccountId,
+        instruction: Instruction,
+        wsv: &WorldStateView,
+    ) -> Result<(), DenialReason> {
+        self.first
+            .check_instruction(authority.clone(), instruction.clone(), wsv)
+            .or_else(|first_error| {
+                self.second
+                    .check_instruction(authority.clone(), instruction.clone(), wsv)
+                    .map_err(|second_error| {
+                        format!(
+                            "Failed to pass first check with {} and second check with {}.",
+                            first_error, second_error
+                        )
+                    })
+            })
+    }
+}
+
+impl From<OrPermissionsValidator> for PermissionsValidatorBox {
+    fn from(validator: OrPermissionsValidator) -> Self {
+        Box::new(validator)
+    }
+}
 
 /// Wraps validator to check nested permissions.
 /// Pay attention to wrap only validators that do not check nested intructions by themselves.
@@ -172,6 +225,46 @@ impl From<AllowAll> for PermissionsValidatorBox {
     }
 }
 
+/// Trait that should be implemented by
+pub trait GrantedTokenValidator {
+    /// This function should return the token that `authority` should possess, given the `instruction`
+    /// they are planning to execute on the current state of `wsv`
+    ///
+    /// # Errors
+    /// In the case when it is impossible to deduce the required token given current data
+    /// (e.g. unexistent account or unaplicable instruction).
+    fn should_have_token(
+        &self,
+        authority: AccountId,
+        instruction: Instruction,
+        wsv: &WorldStateView,
+    ) -> Result<PermissionToken, String>;
+}
+
+impl<V: GrantedTokenValidator> PermissionsValidator for V {
+    fn check_instruction(
+        &self,
+        authority: AccountId,
+        instruction: Instruction,
+        wsv: &WorldStateView,
+    ) -> Result<(), DenialReason> {
+        let account = wsv
+            .read_account(&authority)
+            .ok_or("Couldn't find authority account.")?;
+        let permission_token = self
+            .should_have_token(authority.clone(), instruction, wsv)
+            .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
+        if account.permission_tokens.contains(&permission_token) {
+            Ok(())
+        } else {
+            Err(format!(
+                "Account does not have the needed permission token: {:?}.",
+                permission_token
+            ))
+        }
+    }
+}
+
 pub mod prelude {
     //! Exports common types for permissions.
 
@@ -180,7 +273,10 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use iroha_data_model::isi::*;
+    use maplit::{btreemap, btreeset};
 
     use super::*;
 
@@ -220,6 +316,19 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+    }
+
+    struct GrantedToken;
+
+    impl GrantedTokenValidator for GrantedToken {
+        fn should_have_token(
+            &self,
+            _authority: AccountId,
+            _instruction: Instruction,
+            _wsv: &WorldStateView,
+        ) -> Result<PermissionToken, String> {
+            Ok(PermissionToken::new("token", BTreeMap::new()))
         }
     }
 
@@ -280,5 +389,29 @@ mod tests {
         assert!(permissions_validator
             .check_instruction(account_alice, nested_instruction_sequence, &wsv)
             .is_err());
+    }
+
+    #[test]
+    pub fn granted_permission() {
+        let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+        let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+        let alice_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+        let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
+        let mut domain = Domain::new("test");
+        let mut bob_account = Account::new(bob_id.clone());
+        let _ = bob_account
+            .permission_tokens
+            .insert(PermissionToken::new("token", btreemap! {}));
+        let _ = domain.accounts.insert(bob_id.clone(), bob_account);
+        let domains = btreemap! {
+            "test".to_string() => domain
+        };
+        let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+        assert!(GrantedToken
+            .check_instruction(alice_id, instruction_burn.clone(), &wsv)
+            .is_err());
+        assert!(GrantedToken
+            .check_instruction(bob_id, instruction_burn, &wsv)
+            .is_ok());
     }
 }
