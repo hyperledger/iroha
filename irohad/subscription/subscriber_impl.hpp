@@ -44,12 +44,13 @@ namespace iroha::subscription {
         Dispatcher,
         Subscriber<typename Parent::EventType, Dispatcher, Arguments...>>;
     using SubscriptionEnginePtr = std::shared_ptr<SubscriptionEngineType>;
+    using SubscriptionEngineWPtr = std::weak_ptr<SubscriptionEngineType>;
 
     using CallbackFnType =
         std::function<void(SubscriptionSetId,
                            ReceiverType &,
                            const typename Parent::EventType &,
-                           const Arguments &...)>;
+                           Arguments &&...)>;
 
    private:
     using SubscriptionsContainer =
@@ -59,12 +60,21 @@ namespace iroha::subscription {
         std::unordered_map<SubscriptionSetId, SubscriptionsContainer>;
 
     std::atomic<SubscriptionSetId> next_id_;
-    SubscriptionEnginePtr engine_;
+
+    /// Subscription engine weak pointer
+    SubscriptionEngineWPtr engine_;
+
+    /// Internal object stored in subscriber and available in notification
+    /// call
     ReceiverType object_;
 
     std::mutex subscriptions_cs_;
+
+    /// Associative container with all active subscriptions:
+    /// subscription set_id -> notification event -> subscription iterator
     SubscriptionsSets subscriptions_sets_;
 
+    /// Stored notification callback
     CallbackFnType on_notify_callback_;
 
    public:
@@ -75,11 +85,7 @@ namespace iroha::subscription {
           engine_(ptr),
           object_(std::forward<SubscriberConstructorArgs>(args)...) {}
 
-    ~SubscriberImpl() {
-      // Unsubscribe all
-      for (auto &[_, subscriptions] : subscriptions_sets_)
-        for (auto &[key, it] : subscriptions) engine_->unsubscribe(key, it);
-    }
+    ~SubscriberImpl() {}
 
     void setCallback(CallbackFnType &&f) {
       on_notify_callback_ = std::move(f);
@@ -89,18 +95,20 @@ namespace iroha::subscription {
       return ++next_id_;
     }
 
-    template <typename Dispatcher::Tid kTid>
+    template <typename Dispatcher::Tid kTid = Dispatcher::kExecuteInPool>
     void subscribe(SubscriptionSetId id,
                    const typename Parent::EventType &key) {
-      std::lock_guard lock(subscriptions_cs_);
-      auto &&[it, inserted] = subscriptions_sets_[id].emplace(
-          key, typename SubscriptionEngineType::IteratorType{});
+      if (auto engine = engine_.lock()) {
+        std::lock_guard lock(subscriptions_cs_);
+        auto &&[it, inserted] = subscriptions_sets_[id].emplace(
+            key, typename SubscriptionEngineType::IteratorType{});
 
-      /// Here we check first local subscriptions because of strong connection
-      /// with SubscriptionEngine.
-      if (inserted)
-        it->second = engine_->template subscribe<kTid>(
-            id, key, Parent::weak_from_this());
+        /// Here we check first local subscriptions because of strong connection
+        /// with SubscriptionEngine.
+        if (inserted)
+          it->second = engine->template subscribe<kTid>(
+              id, key, Parent::weak_from_this());
+      }
     }
 
     /**
@@ -116,7 +124,8 @@ namespace iroha::subscription {
         auto &subscriptions = set_it->second;
         auto it = subscriptions.find(key);
         if (subscriptions.end() != it) {
-          engine_->unsubscribe(key, it->second);
+          if (auto engine = engine_.lock())
+            engine->unsubscribe(key, it->second);
           subscriptions.erase(it);
           return true;
         }
@@ -132,8 +141,10 @@ namespace iroha::subscription {
       std::lock_guard<std::mutex> lock(subscriptions_cs_);
       if (auto set_it = subscriptions_sets_.find(id);
           set_it != subscriptions_sets_.end()) {
-        auto &subscriptions = set_it->second;
-        for (auto &[key, it] : subscriptions) engine_->unsubscribe(key, it);
+        if (auto engine = engine_.lock()) {
+          auto &subscriptions = set_it->second;
+          for (auto &[key, it] : subscriptions) engine->unsubscribe(key, it);
+        }
 
         subscriptions_sets_.erase(set_it);
         return true;
@@ -143,8 +154,9 @@ namespace iroha::subscription {
 
     void unsubscribe() {
       std::lock_guard<std::mutex> lock(subscriptions_cs_);
-      for (auto &[_, subscriptions] : subscriptions_sets_)
-        for (auto &[key, it] : subscriptions) engine_->unsubscribe(key, it);
+      if (auto engine = engine_.lock())
+        for (auto &[_, subscriptions] : subscriptions_sets_)
+          for (auto &[key, it] : subscriptions) engine->unsubscribe(key, it);
 
       subscriptions_sets_.clear();
     }
