@@ -5,10 +5,11 @@
 
 #include "ametsuchi/impl/postgres_options.hpp"
 
+#include <gtest/gtest.h>
+
+#include <boost/format.hpp>
 #include <regex>
 
-#include <gtest/gtest.h>
-#include <boost/format.hpp>
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
 
@@ -139,8 +140,13 @@ TEST(PostgresOptionsTest, DBnameParamNotExist) {
   auto pg_opt =
       PostgresOptions(pg_opt_string, default_working_dbname, test_log);
 
-  checkPgOpts(
-      pg_opt, "down", "1991", "crab", "friend", default_working_dbname, default_maintenance_dbname);
+  checkPgOpts(pg_opt,
+              "down",
+              "1991",
+              "crab",
+              "friend",
+              default_working_dbname,
+              default_maintenance_dbname);
 }
 
 /**
