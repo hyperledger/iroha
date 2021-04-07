@@ -6,6 +6,7 @@ deny = [
     'clippy::all',
     'clippy::nursery',
     'clippy::pedantic',
+    'clippy::dbg_macro',
     'future_incompatible',
     'missing_copy_implementations',
     'missing_debug_implementations',
