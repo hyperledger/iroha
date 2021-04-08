@@ -1710,7 +1710,7 @@ pub mod config {
     const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
-    const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 4096;
+    const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u32 = 1;
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`

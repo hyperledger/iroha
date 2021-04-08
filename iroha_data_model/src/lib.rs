@@ -3,6 +3,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+use std::ops::RangeInclusive;
 use std::{convert::TryFrom, fmt::Debug};
 
 use iroha_crypto::PublicKey;
@@ -301,6 +302,28 @@ pub trait Identifiable: Debug + Clone {
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
 }
 
+/// Limits of length of the identifiers (e.g. in [`Domain`], [`NewAccount`], [`AssetDefinition`]) in bytes
+#[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
+pub struct LengthLimits {
+    /// Minimal length in bytes (inclusive).
+    min: u32,
+    /// Maximal length in bytes (inclusive).
+    max: u32,
+}
+
+impl LengthLimits {
+    /// Constructor.
+    pub const fn new(min: u32, max: u32) -> Self {
+        Self { min, max }
+    }
+}
+
+impl From<LengthLimits> for RangeInclusive<usize> {
+    fn from(limits: LengthLimits) -> Self {
+        RangeInclusive::new(limits.min as usize, limits.max as usize)
+    }
+}
+
 pub mod world {
     //! Structures, traits and impls related to `World`.
 
@@ -406,6 +429,7 @@ pub mod account {
     //! Structures, traits and impls related to `Account`s.
     #![allow(clippy::default_trait_access)]
 
+    use std::ops::RangeInclusive;
     use std::{
         collections::{BTreeMap, BTreeSet},
         fmt,
@@ -543,6 +567,23 @@ pub mod account {
                 id,
                 signatories,
                 metadata: Metadata::default(),
+            }
+        }
+
+        /// Checks the length of the id in bytes is in a valid range
+        ///
+        /// # Errors
+        /// Fails if limit check fails
+        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
+            let range = range.into();
+            if range.contains(&self.id.name.len()) {
+                Ok(())
+            } else {
+                Err(error!(
+                    "Length of the account name must be in range {}-{}",
+                    &range.start(),
+                    &range.end()
+                ))
             }
         }
     }
@@ -723,6 +764,7 @@ pub mod asset {
     //! This module contains `Asset` structure, it's implementation and related traits and
     //! instructions implementations.
 
+    use std::ops::RangeInclusive;
     use std::{
         cmp::Ordering,
         collections::BTreeMap,
@@ -969,6 +1011,23 @@ pub mod asset {
         pub const fn new_store(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Store)
         }
+
+        /// Checks the length of the id in bytes is in a valid range
+        ///
+        /// # Errors
+        /// Fails if limit check fails
+        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
+            let range = range.into();
+            if range.contains(&self.id.name.len()) {
+                Ok(())
+            } else {
+                Err(error!(
+                    "Length of the asset defenition name must be in range {}-{}",
+                    &range.start(),
+                    &range.end()
+                ))
+            }
+        }
     }
 
     impl Asset {
@@ -1144,10 +1203,12 @@ pub mod asset {
 pub mod domain {
     //! This module contains `Domain` structure and related implementations and trait implementations.
 
+    use std::ops::RangeInclusive;
     use std::{cmp::Ordering, collections::BTreeMap, iter, iter::FromIterator};
 
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
+    use iroha_error::{error, Result};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1223,6 +1284,23 @@ pub mod domain {
                 name: name.to_string(),
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
+            }
+        }
+
+        /// Checks the length of the id in bytes is in a valid range
+        ///
+        /// # Errors
+        /// Fails if limit check fails
+        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
+            let range = range.into();
+            if range.contains(&self.name.len()) {
+                Ok(())
+            } else {
+                Err(error!(
+                    "Length of the domain name must be in range {}-{}",
+                    &range.start(),
+                    &range.end()
+                ))
             }
         }
     }
@@ -1344,7 +1422,7 @@ pub mod transaction {
     use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
 
     /// Maximum number of instructions and expressions per transaction
-    pub const MAX_INSTRUCTION_NUMBER: usize = 4096;
+    pub const MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
 
     declare_versioned!(VersionedTransaction 1..2);
 
