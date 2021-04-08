@@ -5,12 +5,12 @@
 
 #include "ametsuchi/impl/postgres_options.hpp"
 
+#include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
 #include <cctype>
 #include <limits>
 #include <regex>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/format.hpp>
 #include "logger/logger.hpp"
 
 using namespace iroha::ametsuchi;
@@ -55,13 +55,13 @@ PostgresOptions::PostgresOptions(const std::string &pg_opt,
                                  std::string default_dbname,
                                  logger::LoggerPtr log)
     : PostgresOptions(
-          extractField(pg_opt, "host"),
-          getPort(extractField(pg_opt, "port")),
-          extractField(pg_opt, "user"),
-          extractField(pg_opt, "password"),
-          extractOptionalField(pg_opt, "dbname").value_or(default_dbname),
-          extractOptionalField(pg_opt, "maintenance_dbname").value_or("postgres"),
-          std::move(log)) {}
+        extractField(pg_opt, "host"),
+        getPort(extractField(pg_opt, "port")),
+        extractField(pg_opt, "user"),
+        extractField(pg_opt, "password"),
+        extractOptionalField(pg_opt, "dbname").value_or(default_dbname),
+        extractOptionalField(pg_opt, "maintenance_dbname").value_or("postgres"),
+        std::move(log)) {}
 
 PostgresOptions::PostgresOptions(const std::string &host,
                                  uint16_t port,
@@ -87,7 +87,8 @@ PostgresOptions::PostgresOptions(const std::string &host,
 
 std::string PostgresOptions::connectionStringWithoutDbName() const {
   return (boost::format("host=%1% port=%2% user=%3% password=%4%") % host_
-          % port_ % user_ % password_).str();
+          % port_ % user_ % password_)
+      .str();
 }
 
 std::string PostgresOptions::workingConnectionString() const {

@@ -17,6 +17,10 @@
 
 namespace iroha::subscription {
 
+  struct IDisposable {
+    virtual void dispose() = 0;
+  };
+
   /**
    * @tparam EventKey - the type of a specific event from event set (e. g. a key
    * from a storage or a particular kind of event from an enumeration)
@@ -26,7 +30,8 @@ namespace iroha::subscription {
    */
   template <typename EventKey, typename Dispatcher, typename Receiver>
   class SubscriptionEngine final
-      : public std::enable_shared_from_this<
+      : public IDisposable,
+        public std::enable_shared_from_this<
             SubscriptionEngine<EventKey, Dispatcher, Receiver>>,
         utils::NoMove,
         utils::NoCopy {
@@ -53,7 +58,12 @@ namespace iroha::subscription {
     }
     ~SubscriptionEngine() = default;
 
+    void dispose() override {
+      dispatcher_.reset();
+    }
+
    private:
+    /// List of subscribers for a single event key
     struct SubscriptionContext final {
       std::mutex subscribers_list_cs;
       SubscribersContainer subscribers_list;
@@ -62,10 +72,25 @@ namespace iroha::subscription {
         std::unordered_map<EventKeyType, SubscriptionContext>;
 
     mutable std::shared_mutex subscribers_map_cs_;
+
+    /// Associative container with lists of subscribers by the event key
     KeyValueContainer subscribers_map_;
+
+    /// Thread handlers dispatcher
     DispatcherPtr dispatcher_;
 
    public:
+    /**
+     * Stores Subscriber object to retrieve later notifications
+     * @tparam kTid Thread ID in which subscribers callback will be executed
+     * @param set_id subscription set id is a group identifier in multiple
+     * subscriptions
+     * @param key notification event key that this subscriber will listen to
+     * @param ptr subscriber weak pointer
+     * @return a position in an internal container with subscribers(!!! it must
+     * be kept valid in case the other subscriber will be deleted from this
+     * container)
+     */
     template <typename Dispatcher::Tid kTid>
     IteratorType subscribe(SubscriptionSetId set_id,
                            const EventKeyType &key,
@@ -80,6 +105,11 @@ namespace iroha::subscription {
           std::make_tuple(kTid, set_id, std::move(ptr)));
     }
 
+    /**
+     * Stops the subscriber from listening to events
+     * @param key notification event that must be unsubscribed
+     * @param it_remove iterator to the subscribers position
+     */
     void unsubscribe(const EventKeyType &key, const IteratorType &it_remove) {
       std::unique_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
@@ -92,6 +122,11 @@ namespace iroha::subscription {
       }
     }
 
+    /**
+     * Number of subscribers which listen to the current notification event
+     * @param key notification event
+     * @return number of subscribers
+     */
     size_t size(const EventKeyType &key) const {
       std::shared_lock lock(subscribers_map_cs_);
       if (auto it = subscribers_map_.find(key); it != subscribers_map_.end()) {
@@ -102,6 +137,10 @@ namespace iroha::subscription {
       return 0ull;
     }
 
+    /**
+     * Number of subscribers which listen to all notification events
+     * @return number of subscribers
+     */
     size_t size() const {
       std::shared_lock lock(subscribers_map_cs_);
       size_t count = 0ull;
@@ -113,15 +152,32 @@ namespace iroha::subscription {
       return count;
     }
 
+    /**
+     * Notify the event subscribers without delay
+     * @tparam EventParams notification event type
+     * @param key notification event to be executed
+     * @param args event data to transmit
+     */
     template <typename... EventParams>
     void notify(const EventKeyType &key, EventParams const &... args) {
       notifyDelayed(std::chrono::microseconds(0ull), key, args...);
     }
 
+    /**
+     * Notify the event subscribers after a specified delay
+     * @tparam EventParams notification event type
+     * @param timeout delay before subscribers will be notified
+     * @param key notification event to be executed
+     * @param args event data to transmit
+     */
     template <typename... EventParams>
     void notifyDelayed(std::chrono::microseconds timeout,
                        const EventKeyType &key,
                        EventParams const &... args) {
+      auto dispatcher = dispatcher_;
+      if (!dispatcher)
+        return;
+
       std::shared_lock lock(subscribers_map_cs_);
       auto it = subscribers_map_.find(key);
       if (subscribers_map_.end() == it)
@@ -134,21 +190,21 @@ namespace iroha::subscription {
         auto wsub = std::get<2>(*it_sub);
         auto id = std::get<1>(*it_sub);
 
-        if (auto sub = wsub.lock()) {
-          dispatcher_->addDelayed(std::get<0>(*it_sub),
-                                  timeout,
-                                  [wsub(std::move(wsub)),
-                                   id(id),
-                                   key(key),
-                                   args = std::make_tuple(args...)]() mutable {
-                                    if (auto sub = wsub.lock())
-                                      std::apply(
-                                          [&](auto &&... args) {
-                                            sub->on_notify(
-                                                id, key, std::move(args)...);
-                                          },
-                                          std::move(args));
-                                  });
+        if (!wsub.expired()) {
+          dispatcher->addDelayed(std::get<0>(*it_sub),
+                                 timeout,
+                                 [wsub(std::move(wsub)),
+                                  id(id),
+                                  key(key),
+                                  args = std::make_tuple(args...)]() mutable {
+                                   if (auto sub = wsub.lock())
+                                     std::apply(
+                                         [&](auto &&... args) {
+                                           sub->on_notify(
+                                               id, key, std::move(args)...);
+                                         },
+                                         std::move(args));
+                                 });
           ++it_sub;
         } else {
           it_sub = subscribers_container.subscribers_list.erase(it_sub);
