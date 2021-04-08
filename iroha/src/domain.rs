@@ -18,6 +18,7 @@ pub mod isi {
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let account = self.object;
+            account.validate_len(world_state_view.config.length_limits)?;
             let domain = world_state_view
                 .domain(&account.id.domain_name)
                 .ok_or_else(|| error!("Failed to find domain."))?;
@@ -57,6 +58,7 @@ pub mod isi {
         ) -> Result<WorldStateView> {
             let mut world_state_view = world_state_view.clone();
             let asset_definition = self.object;
+            asset_definition.validate_len(world_state_view.config.length_limits)?;
             let _ = world_state_view
                 .domain(&asset_definition.id.domain_name)
                 .ok_or_else(|| error!("Failed to find domain."))?
