@@ -241,23 +241,24 @@ impl WorldStateView {
 pub mod config {
     use iroha_config::derive::Configurable;
     use iroha_data_model::metadata::Limits as MetadataLimits;
+    use iroha_data_model::LengthLimits;
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_ASSET_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     const DEFAULT_ACCOUNT_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
-
+    const DEFAULT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
     /// [`WorldStateView`](super::WorldStateView) configuration.
     #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable)]
     #[config(env_prefix = "WSV_")]
-    #[serde(rename_all = "UPPERCASE")]
+    #[serde(rename_all = "UPPERCASE", default)]
     pub struct Configuration {
         /// [`MetadataLimits`] for every asset with store.
-        #[serde(default = "default_asset_limits")]
         pub asset_metadata_limits: MetadataLimits,
         /// [`MetadataLimits`] of any account's metadata.
-        #[serde(default = "default_account_limits")]
         pub account_metadata_limits: MetadataLimits,
+        /// [`LengthLimits`] of identifiers in bytes that can be stored in the WSV.
+        pub length_limits: LengthLimits,
     }
 
     impl Default for Configuration {
@@ -265,15 +266,8 @@ pub mod config {
             Configuration {
                 asset_metadata_limits: DEFAULT_ASSET_LIMITS,
                 account_metadata_limits: DEFAULT_ACCOUNT_LIMITS,
+                length_limits: DEFAULT_LENGTH_LIMITS,
             }
         }
-    }
-
-    const fn default_asset_limits() -> MetadataLimits {
-        DEFAULT_ASSET_LIMITS
-    }
-
-    const fn default_account_limits() -> MetadataLimits {
-        DEFAULT_ACCOUNT_LIMITS
     }
 }

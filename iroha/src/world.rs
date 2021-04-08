@@ -36,11 +36,13 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<WorldStateView> {
+            let domain = self.object;
+            domain.validate_len(world_state_view.config.length_limits)?;
             let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .world()
                 .domains
-                .insert(self.object.name.clone(), self.object);
+                .insert(domain.name.clone(), domain);
             Ok(world_state_view)
         }
     }

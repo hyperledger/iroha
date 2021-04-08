@@ -60,6 +60,10 @@ Configuration of iroha is done via options in the following document. Here is de
     "ACCOUNT_METADATA_LIMITS": {
       "max_len": 1048576,
       "max_entry_byte_size": 4096
+    },
+    "LENGTH_LIMITS": {
+      "min": 1,
+      "max": 128
     }
   }
 }
@@ -488,6 +492,10 @@ Has type `WorldStateViewConfiguration`. Can be configured via environment variab
   "ASSET_METADATA_LIMITS": {
     "max_entry_byte_size": 4096,
     "max_len": 1048576
+  },
+  "LENGTH_LIMITS": {
+    "max": 128,
+    "min": 1
   }
 }
 ```
@@ -515,6 +523,19 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET
 {
   "max_entry_byte_size": 4096,
   "max_len": 1048576
+}
+```
+
+### `wsv_configuration.length_limits`
+
+[`LengthLimits`] of identifiers in bytes that can be stored in the WSV.
+
+Has type `LengthLimits`. Can be configured via environment variable `WSV_LENGTH_LIMITS`
+
+```json
+{
+  "max": 128,
+  "min": 1
 }
 ```
 
