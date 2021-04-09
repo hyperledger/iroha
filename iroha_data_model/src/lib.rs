@@ -13,6 +13,10 @@ use iroha_macro::error::ErrorTryFromEnum;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+use crate::{
+    account::SignatureCheckCondition, permissions::PermissionToken, transaction::TransactionValue,
+};
+
 pub mod events;
 pub mod expression;
 pub mod isi;
@@ -156,9 +160,11 @@ pub enum Value {
     /// Iroha `Parameter` variant.
     Parameter(Parameter),
     /// Signature check condition.
-    SignatureCheckCondition(account::SignatureCheckCondition),
+    SignatureCheckCondition(SignatureCheckCondition),
     /// Committed or rejected transactions
-    TransactionValue(transaction::TransactionValue),
+    TransactionValue(TransactionValue),
+    /// Permission token.
+    PermissionToken(PermissionToken),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -169,7 +175,7 @@ impl Value {
 
         match self {
             U32(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | TransactionValue(_) => 1,
+            | String(_) | TransactionValue(_) | PermissionToken(_) => 1,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1,
             SignatureCheckCondition(s) => s.0.len(),
         }

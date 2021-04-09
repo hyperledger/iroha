@@ -103,6 +103,21 @@ pub mod isi {
             Ok(world_state_view)
         }
     }
+
+    impl Execute for Grant<Account, PermissionToken> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &WorldStateView,
+        ) -> Result<WorldStateView> {
+            let mut world_state_view = world_state_view.clone();
+            let account = world_state_view
+                .account(&self.destination_id)
+                .ok_or_else(|| error!("Failed to find account."))?;
+            let _ = account.permission_tokens.insert(self.permission_token);
+            Ok(world_state_view)
+        }
+    }
 }
 
 /// Query module provides `IrohaQuery` Account related implementations.
