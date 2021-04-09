@@ -65,7 +65,7 @@ fn permissions_disallow_asset_transfer() {
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
             NotPermittedFail {
-                reason: "Can\'t transfer assets of the other account.".to_owned(),
+                reason: "Failed to pass first check with Can\'t transfer assets of the other account. and second check with Account does not have the needed permission token: PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..".to_owned(),
             }
         ))
     );

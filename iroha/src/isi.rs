@@ -37,6 +37,7 @@ impl Execute for Instruction {
             RemoveKeyValue(remove_key_value) => {
                 remove_key_value.execute(authority, world_state_view)
             }
+            Grant(grant_box) => grant_box.execute(authority, world_state_view),
         }
     }
 }
@@ -299,6 +300,26 @@ impl Execute for FailBox {
         _world_state_view: &WorldStateView,
     ) -> Result<WorldStateView> {
         Err(error!("Execution failed: {}.", self.message))
+    }
+}
+
+impl Execute for GrantBox {
+    #[iroha_logger::log]
+    fn execute(
+        self,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &WorldStateView,
+    ) -> Result<WorldStateView> {
+        let context = Context::new();
+        match self.destination_id.evaluate(world_state_view, &context)? {
+            IdBox::AccountId(account_id) => {
+                let permission_token =
+                    self.permission_token.evaluate(world_state_view, &context)?;
+                Grant::<Account, PermissionToken>::new(permission_token, account_id)
+                    .execute(authority, world_state_view)
+            }
+            _ => Err(error!("Unsupported instruction.")),
+        }
     }
 }
 
