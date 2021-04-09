@@ -276,6 +276,7 @@ pub mod pipeline {
                 Unregister(_) => "unregister",
                 SetKeyValue(_) => "set key-value pair",
                 RemoveKeyValue(_) => "remove key-value pair",
+                Grant(_) => "grant",
             };
             write!(
                 f,

@@ -108,6 +108,7 @@ impl PermissionsValidator for RecursivePermissionsValidator {
             | Instruction::SetKeyValue(_)
             | Instruction::RemoveKeyValue(_)
             | Instruction::Transfer(_)
+            | Instruction::Grant(_)
             | Instruction::Fail(_) => self
                 .validator
                 .check_instruction(authority, instruction, wsv),
@@ -138,13 +139,13 @@ impl From<RecursivePermissionsValidator> for PermissionsValidatorBox {
     }
 }
 
-/// A container for multiple permissions validators. It will check all their conditions.
+/// A container for multiple permissions validators. It will succeed if all validators succeed.
 #[allow(missing_debug_implementations)]
-pub struct CombinedPermissionsValidator {
+pub struct AllShouldSucceed {
     validators: Vec<PermissionsValidatorBox>,
 }
 
-impl PermissionsValidator for CombinedPermissionsValidator {
+impl PermissionsValidator for AllShouldSucceed {
     fn check_instruction(
         &self,
         authority: AccountId,
@@ -158,8 +159,43 @@ impl PermissionsValidator for CombinedPermissionsValidator {
     }
 }
 
-impl From<CombinedPermissionsValidator> for PermissionsValidatorBox {
-    fn from(validator: CombinedPermissionsValidator) -> Self {
+impl From<AllShouldSucceed> for PermissionsValidatorBox {
+    fn from(validator: AllShouldSucceed) -> Self {
+        Box::new(validator)
+    }
+}
+
+/// A container for multiple permissions validators. It will succeed if any validator succeeds.
+#[allow(missing_debug_implementations)]
+pub struct AnyShouldSucceed {
+    name: String,
+    validators: Vec<PermissionsValidatorBox>,
+}
+
+impl PermissionsValidator for AnyShouldSucceed {
+    fn check_instruction(
+        &self,
+        authority: AccountId,
+        instruction: Instruction,
+        wsv: &WorldStateView,
+    ) -> Result<(), DenialReason> {
+        for validator in &self.validators {
+            if validator
+                .check_instruction(authority.clone(), instruction.clone(), wsv)
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "None of the instructions succeeded in Any permission check block with name: {}",
+            self.name
+        ))
+    }
+}
+
+impl From<AnyShouldSucceed> for PermissionsValidatorBox {
+    fn from(validator: AnyShouldSucceed) -> Self {
         Box::new(validator)
     }
 }
@@ -180,24 +216,33 @@ impl PermissionsValidatorBuilder {
     }
 
     /// Adds a validator to the list.
-    pub fn with_validator(self, validator: PermissionsValidatorBox) -> Self {
+    pub fn with_validator(self, validator: impl Into<PermissionsValidatorBox>) -> Self {
         PermissionsValidatorBuilder {
             validators: self
                 .validators
                 .into_iter()
-                .chain(iter::once(validator))
+                .chain(iter::once(validator.into()))
                 .collect(),
         }
     }
 
     /// Adds a validator to the list and wraps it with `RecursivePermissionValidator` to check nested permissions.
     pub fn with_recursive_validator(self, validator: impl Into<PermissionsValidatorBox>) -> Self {
-        self.with_validator(RecursivePermissionsValidator::new(validator.into()).into())
+        self.with_validator(RecursivePermissionsValidator::new(validator.into()))
     }
 
-    /// Returns a `CombinedPermissionsValidator` that will check all the checks of previously supplied validators.
-    pub fn build(self) -> PermissionsValidatorBox {
-        CombinedPermissionsValidator {
+    /// Returns [`AllShouldSucceed`] that will check all the checks of previously supplied validators.
+    pub fn all_should_succeed(self) -> PermissionsValidatorBox {
+        AllShouldSucceed {
+            validators: self.validators,
+        }
+        .into()
+    }
+
+    /// Returns [`AnyShouldSucceed`] that will succeed if any of the checks of previously supplied validators succeds.
+    pub fn any_should_succeed(self, check_name: impl Into<String>) -> PermissionsValidatorBox {
+        AnyShouldSucceed {
+            name: check_name.into(),
             validators: self.validators,
         }
         .into()
@@ -225,6 +270,9 @@ impl From<AllowAll> for PermissionsValidatorBox {
     }
 }
 
+/// Boxed validator implementing [`GrantedTokenValidator`] trait.
+pub type GrantedTokenValidatorBox = Box<dyn GrantedTokenValidator + Send + Sync>;
+
 /// Trait that should be implemented by
 pub trait GrantedTokenValidator {
     /// This function should return the token that `authority` should possess, given the `instruction`
@@ -241,7 +289,7 @@ pub trait GrantedTokenValidator {
     ) -> Result<PermissionToken, String>;
 }
 
-impl<V: GrantedTokenValidator> PermissionsValidator for V {
+impl PermissionsValidator for GrantedTokenValidatorBox {
     fn check_instruction(
         &self,
         authority: AccountId,
@@ -265,10 +313,56 @@ impl<V: GrantedTokenValidator> PermissionsValidator for V {
     }
 }
 
+// TODO: rewrite when specialization reaches stable
+// Currently we simply can't do the following:
+// impl <T: GrantInstructionValidator> PermissionsValidator for T {}
+// when we have
+// impl <T: GrantedTokenValidator> PermissionsValidator for T {}
+/// Boxed validator implementing [`GrantInstructionValidator`] trait.
+pub type GrantInstructionValidatorBox = Box<dyn GrantInstructionValidator + Send + Sync>;
+
+/// Checks the [`GrantBox`] instruction.
+pub trait GrantInstructionValidator {
+    /// Checks the [`GrantBox`] instruction.
+    ///
+    /// # Errors
+    /// Should return error if this particular validator does not approve this Grant instruction.
+    fn check_grant(
+        &self,
+        authority: AccountId,
+        instruction: GrantBox,
+        wsv: &WorldStateView,
+    ) -> Result<(), DenialReason>;
+}
+
+impl PermissionsValidator for GrantInstructionValidatorBox {
+    fn check_instruction(
+        &self,
+        authority: AccountId,
+        instruction: Instruction,
+        wsv: &WorldStateView,
+    ) -> Result<(), DenialReason> {
+        if let Instruction::Grant(instruction) = instruction {
+            self.check_grant(authority, instruction, wsv)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl From<GrantInstructionValidatorBox> for PermissionsValidatorBox {
+    fn from(validator: GrantInstructionValidatorBox) -> Self {
+        Box::new(validator)
+    }
+}
+
 pub mod prelude {
     //! Exports common types for permissions.
 
-    pub use super::{AllowAll, DenialReason, PermissionsValidatorBox};
+    pub use super::{
+        AllowAll, DenialReason, GrantInstructionValidator, GrantInstructionValidatorBox,
+        GrantedTokenValidatorBox, PermissionsValidatorBox,
+    };
 }
 
 #[cfg(test)]
@@ -304,6 +398,12 @@ mod tests {
 
     struct DenyAlice;
 
+    impl From<DenyAlice> for PermissionsValidatorBox {
+        fn from(permissions: DenyAlice) -> Self {
+            Box::new(permissions)
+        }
+    }
+
     impl PermissionsValidator for DenyAlice {
         fn check_instruction(
             &self,
@@ -335,9 +435,9 @@ mod tests {
     #[test]
     pub fn multiple_validators_combined() {
         let permissions_validator = PermissionsValidatorBuilder::new()
-            .with_validator(Box::new(DenyBurn))
-            .with_validator(Box::new(DenyAlice))
-            .build();
+            .with_validator(DenyBurn)
+            .with_validator(DenyAlice)
+            .all_should_succeed();
         let instruction_burn: Instruction = BurnBox::new(
             Value::U32(10),
             IdBox::AssetId(AssetId::from_names("xor", "test", "alice", "test")),
@@ -367,7 +467,7 @@ mod tests {
     pub fn recursive_validator() {
         let permissions_validator = PermissionsValidatorBuilder::new()
             .with_recursive_validator(DenyBurn)
-            .build();
+            .all_should_succeed();
         let instruction_burn: Instruction = BurnBox::new(
             Value::U32(10),
             IdBox::AssetId(AssetId::from_names("xor", "test", "alice", "test")),
@@ -407,10 +507,11 @@ mod tests {
             "test".to_string() => domain
         };
         let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
-        assert!(GrantedToken
+        let validator: GrantedTokenValidatorBox = Box::new(GrantedToken);
+        assert!(validator
             .check_instruction(alice_id, instruction_burn.clone(), &wsv)
             .is_err());
-        assert!(GrantedToken
+        assert!(validator
             .check_instruction(bob_id, instruction_burn, &wsv)
             .is_ok());
     }
