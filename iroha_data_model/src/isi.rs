@@ -35,6 +35,8 @@ pub enum Instruction {
     SetKeyValue(SetKeyValueBox),
     /// `RemoveKeyValue` variant.
     RemoveKeyValue(RemoveKeyValueBox),
+    /// `Grant` variant.
+    Grant(GrantBox),
 }
 
 impl Instruction {
@@ -54,6 +56,7 @@ impl Instruction {
             Fail(fail_box) => fail_box.len(),
             SetKeyValue(set_key_value) => set_key_value.len(),
             RemoveKeyValue(remove_key_value) => remove_key_value.len(),
+            Grant(grant_box) => grant_box.len(),
         }
     }
 }
@@ -162,6 +165,15 @@ pub struct FailBox {
     pub message: String,
 }
 
+/// Sized structure for all possible Grants.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+pub struct GrantBox {
+    /// Permission token to grant.
+    pub permission_token: EvaluatesTo<PermissionToken>,
+    /// Entity to which to grant this token.
+    pub destination_id: EvaluatesTo<IdBox>,
+}
+
 /// Generic instruction to set value to the object.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Set<O>
@@ -258,6 +270,19 @@ where
     /// Object which should be transfered.
     pub object: O,
     /// Destination object `Id`.
+    pub destination_id: D::Id,
+}
+
+/// Generic instruction for granting permission to an entity.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Grant<D, O>
+where
+    D: Identifiable,
+    O: ValueMarker,
+{
+    /// Permission token to grant.
+    pub permission_token: O,
+    /// Entity to which to grant this token.
     pub destination_id: D::Id,
 }
 
@@ -358,6 +383,38 @@ where
             source_id,
             object,
             destination_id,
+        }
+    }
+}
+
+impl<D, O> Grant<D, O>
+where
+    D: Identifiable,
+    O: ValueMarker,
+{
+    /// Constructor.
+    pub fn new(permission_token: O, destination_id: D::Id) -> Self {
+        Grant {
+            permission_token,
+            destination_id,
+        }
+    }
+}
+
+impl GrantBox {
+    /// Calculates number of contained instructions and expressions.
+    pub fn len(&self) -> usize {
+        self.permission_token.len() + self.destination_id.len() + 1
+    }
+
+    /// Constructor.
+    pub fn new<P: Into<EvaluatesTo<PermissionToken>>, I: Into<EvaluatesTo<IdBox>>>(
+        permission_token: P,
+        destination_id: I,
+    ) -> Self {
+        Self {
+            destination_id: destination_id.into(),
+            permission_token: permission_token.into(),
         }
     }
 }
@@ -647,8 +704,8 @@ mod tests {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, FailBox, If as IfInstruction, Instruction, Mint, MintBox, Pair, Register,
-        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, SequenceBox, SetKeyValue, SetKeyValueBox,
-        Transfer, TransferBox, Unregister, UnregisterBox,
+        Burn, BurnBox, FailBox, Grant, GrantBox, If as IfInstruction, Instruction, Mint, MintBox,
+        Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, SequenceBox, SetKeyValue,
+        SetKeyValueBox, Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }

@@ -17,12 +17,47 @@ use iroha_data_model::{isi::*, prelude::*};
 macro_rules! impl_from_item_for_validator_box {
     ( $ty:ty ) => {
         impl From<$ty> for PermissionsValidatorBox {
-            fn from(permissions: $ty) -> Self {
-                Box::new(permissions)
+            fn from(validator: $ty) -> Self {
+                Box::new(validator)
             }
         }
     };
 }
+
+macro_rules! impl_from_item_for_granted_token_validator_box {
+    ( $ty:ty ) => {
+        impl From<$ty> for GrantedTokenValidatorBox {
+            fn from(validator: $ty) -> Self {
+                Box::new(validator)
+            }
+        }
+
+        impl From<$ty> for PermissionsValidatorBox {
+            fn from(validator: $ty) -> Self {
+                let validator: GrantedTokenValidatorBox = validator.into();
+                Box::new(validator)
+            }
+        }
+    };
+}
+
+macro_rules! impl_from_item_for_grant_instruction_validator_box {
+    ( $ty:ty ) => {
+        impl From<$ty> for GrantInstructionValidatorBox {
+            fn from(validator: $ty) -> Self {
+                Box::new(validator)
+            }
+        }
+
+        impl From<$ty> for PermissionsValidatorBox {
+            fn from(validator: $ty) -> Self {
+                let validator: GrantInstructionValidatorBox = validator.into();
+                Box::new(validator)
+            }
+        }
+    };
+}
+
 macro_rules! try_into_or_exit {
     ( $ident:ident ) => {
         if let Ok(into) = $ident.try_into() {
@@ -44,7 +79,25 @@ pub mod private_blockchain {
             .with_recursive_validator(
                 register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
             )
-            .build()
+            .all_should_succeed()
+    }
+
+    /// Prohibits using `Grant` instruction at runtime.
+    /// This means `Grant` instruction will only be used in genesis to specify rights.
+    #[derive(Debug, Copy, Clone)]
+    pub struct ProhibitGrant;
+
+    impl_from_item_for_grant_instruction_validator_box!(ProhibitGrant);
+
+    impl GrantInstructionValidator for ProhibitGrant {
+        fn check_grant(
+            &self,
+            _authority: AccountId,
+            _instruction: GrantBox,
+            _wsv: &WorldStateView,
+        ) -> Result<(), DenialReason> {
+            Err("Granting at runtime is prohibited.".to_string())
+        }
     }
 
     pub mod register {
@@ -79,7 +132,7 @@ pub mod private_blockchain {
         #[derive(Debug, Clone, Copy)]
         pub struct GrantedAllowedRegisterDomains;
 
-        impl_from_item_for_validator_box!(GrantedAllowedRegisterDomains);
+        impl_from_item_for_granted_token_validator_box!(GrantedAllowedRegisterDomains);
 
         impl GrantedTokenValidator for GrantedAllowedRegisterDomains {
             fn should_have_token(
@@ -103,8 +156,13 @@ pub mod public_blockchain {
 
     /// A preconfigured set of permissions for simple use cases.
     pub fn default_permissions() -> PermissionsValidatorBox {
+        // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
+        let grant_instruction_validator = PermissionsValidatorBuilder::new()
+            .with_validator(transfer::GrantMyAssetAccess)
+            .any_should_succeed("Grant instruction validator.");
         PermissionsValidatorBuilder::new()
-            .with_recursive_validator(transfer::OnlyOwnedAssets)
+            .with_recursive_validator(grant_instruction_validator)
+            .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedAssets))
             .with_recursive_validator(unregister::OnlyAssetsCreatedByThisAccount)
             .with_recursive_validator(mint::OnlyAssetsCreatedByThisAccount)
             .with_recursive_validator(burn::OnlyOwnedAssets)
@@ -113,7 +171,7 @@ pub mod public_blockchain {
             .with_recursive_validator(keyvalue::AccountRemoveOnlyForSignerAccount)
             .with_recursive_validator(keyvalue::AssetSetOnlyForSignerAccount)
             .with_recursive_validator(keyvalue::AssetRemoveOnlyForSignerAccount)
-            .build()
+            .all_should_succeed()
     }
 
     pub mod transfer {
@@ -157,7 +215,7 @@ pub mod public_blockchain {
         #[derive(Debug, Clone, Copy)]
         pub struct GrantedAssets;
 
-        impl_from_item_for_validator_box!(GrantedAssets);
+        impl_from_item_for_granted_token_validator_box!(GrantedAssets);
 
         impl GrantedTokenValidator for GrantedAssets {
             fn should_have_token(
@@ -183,6 +241,45 @@ pub mod public_blockchain {
                 let mut params = BTreeMap::new();
                 let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), source_id.into());
                 Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN, params))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyAssetAccess;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
+
+        impl GrantInstructionValidator for GrantMyAssetAccess {
+            fn check_grant(
+                &self,
+                authority: AccountId,
+                instruction: GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id = if let Value::Id(IdBox::AssetId(asset_id)) = permission_token
+                    .params
+                    .get(ASSET_ID_TOKEN_PARAM_NAME)
+                    .ok_or(format!(
+                        "Failed to find permission param {}.",
+                        ASSET_ID_TOKEN_PARAM_NAME
+                    ))? {
+                    asset_id
+                } else {
+                    return Err(format!(
+                        "Permission param {} is not an AssetId.",
+                        ASSET_ID_TOKEN_PARAM_NAME
+                    ));
+                };
+                if asset_id.account_id != authority {
+                    return Err("Can not grant asset access for another account.".to_string());
+                }
+                Ok(())
             }
         }
     }
@@ -505,6 +602,31 @@ pub mod public_blockchain {
                 .check_instruction(alice_id, transfer.clone(), &wsv)
                 .is_ok());
             assert!(validator.check_instruction(bob_id, transfer, &wsv).is_ok());
+        }
+
+        #[test]
+        fn grant_transfer_of_my_assets() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let alice_xor_id =
+                <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+            let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
+            let permission_token_to_alice = PermissionToken::new(
+                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
+                btreemap! {
+                    transfer::ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.into(),
+                },
+            );
+            let wsv = WorldStateView::new(World::new());
+            let grant = Instruction::Grant(GrantBox {
+                permission_token: permission_token_to_alice.into(),
+                destination_id: IdBox::AssetId(bob_xor_id).into(),
+            });
+            let validator: PermissionsValidatorBox = transfer::GrantMyAssetAccess.into();
+            assert!(validator
+                .check_instruction(alice_id, grant.clone(), &wsv)
+                .is_ok());
+            assert!(validator.check_instruction(bob_id, grant, &wsv).is_err());
         }
 
         #[test]
