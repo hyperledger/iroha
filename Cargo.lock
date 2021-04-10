@@ -1781,6 +1781,7 @@ dependencies = [
 name = "iroha_logger"
 version = "0.1.0"
 dependencies = [
+ "async-std",
  "chrono",
  "iroha_config",
  "iroha_error",
@@ -1788,6 +1789,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "tracing-core",
  "tracing-futures",
  "tracing-subscriber",
 ]

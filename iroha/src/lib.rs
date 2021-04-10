@@ -101,7 +101,8 @@ impl Iroha {
         config: &Configuration,
         permissions_validator: PermissionsValidatorBox,
     ) -> Result<Self> {
-        iroha_logger::init(config.logger_configuration);
+        // TODO: use channel for prometheus/telemetry endpoint
+        let telemetry = iroha_logger::init(config.logger_configuration);
         iroha_logger::info!(?config, "Loaded configuration");
 
         let (transactions_sender, transactions_receiver) = sync::channel(100);
@@ -141,6 +142,7 @@ impl Iroha {
             Arc::clone(&queue),
             Arc::clone(&sumeragi),
             (events_sender, events_receiver),
+            telemetry,
         );
         let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender)?;
         let kura = Arc::new(RwLock::new(kura));
