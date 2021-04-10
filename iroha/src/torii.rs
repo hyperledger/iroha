@@ -3,14 +3,18 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use async_std::{prelude::*, sync::RwLock, task};
+use async_std::{
+    prelude::*,
+    sync::{Receiver, RwLock},
+    task,
+};
 use config::ToriiConfiguration;
 use iroha_config::derive::Error as ConfigError;
 use iroha_config::Configurable;
 use iroha_data_model::prelude::*;
 use iroha_error::{derive::Error, error};
 use iroha_http_server::{http::Json, prelude::*, web_socket::WebSocketStream, Server};
-use iroha_logger::InstrumentFutures;
+use iroha_logger::{telemetry::Telemetry, InstrumentFutures};
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
@@ -43,6 +47,7 @@ pub struct Torii {
     events_receiver: EventsReceiver,
     transactions_queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
+    telemetry: Option<Arc<Receiver<Telemetry>>>,
 }
 
 /// Errors of torii
@@ -116,6 +121,7 @@ impl Torii {
         transactions_queue: Arc<RwLock<Queue>>,
         sumeragi: Arc<RwLock<Sumeragi>>,
         (events_sender, events_receiver): (EventsSender, EventsReceiver),
+        telemetry: Option<Receiver<Telemetry>>,
     ) -> Self {
         Torii {
             config,
@@ -128,6 +134,7 @@ impl Torii {
             events_receiver,
             transactions_queue,
             sumeragi,
+            telemetry: telemetry.map(Arc::new),
         }
     }
 
@@ -181,6 +188,10 @@ impl Torii {
         server
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
+        if let Some(telemetry) = &self.telemetry {
+            let _drop = task::spawn(Self::handle_telemetry(Arc::clone(telemetry)));
+        }
+
         let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
             Network::listen(
                 Arc::clone(&state),
@@ -188,11 +199,17 @@ impl Torii {
                 handle_requests
             ),
             server.start(&self.config.torii_api_url),
-            consume_events(self.events_receiver.clone(), connections)
+            consume_events(self.events_receiver.clone(), connections),
         );
         handle_requests_result?;
         http_server_result?;
         Ok(())
+    }
+
+    async fn handle_telemetry(telemetry: Arc<Receiver<Telemetry>>) {
+        while let Ok(telemetry) = telemetry.recv().await {
+            iroha_logger::info!(recieved_telemetry = ?telemetry);
+        }
     }
 }
 
@@ -617,6 +634,7 @@ mod tests {
             Arc::new(RwLock::new(queue)),
             Arc::new(RwLock::new(sumeragi)),
             (events_sender, events_receiver),
+            None,
         )
     }
 

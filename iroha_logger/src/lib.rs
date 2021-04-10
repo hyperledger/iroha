@@ -2,37 +2,119 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use async_std::sync::Receiver;
+use layer::LevelFilter;
 use once_cell::sync::Lazy;
+use telemetry::{Telemetry, TelemetryLayer};
 pub use tracing::instrument as log;
+use tracing::subscriber::set_global_default;
 pub use tracing::Instrument;
 pub use tracing::Level;
 pub use tracing::{debug, error, info, trace, warn};
 pub use tracing::{debug_span, error_span, info_span, trace_span, warn_span};
 pub use tracing_futures::Instrument as InstrumentFutures;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::layer::SubscriberExt;
+
+pub mod layer;
+pub mod telemetry;
 
 static LOGGER_SET: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
 /// Initializes `Logger` with given `LoggerConfiguration`.
 /// After the initialization `log` macros will print with the use of this `Logger`.
-pub fn init(configuration: config::LoggerConfiguration) {
+pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telemetry>> {
     if LOGGER_SET
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-        .is_ok()
+        .is_err()
     {
-        #[cfg(not(test))]
-        let subscriber = tracing_subscriber::fmt()
-            .compact()
-            .finish()
-            .with(LevelFilter::from(configuration.max_log_level));
-        #[cfg(test)]
-        let subscriber = tracing_subscriber::fmt()
-            .finish()
-            .with(LevelFilter::from(configuration.max_log_level));
-        #[allow(clippy::expect_used)]
-        tracing::subscriber::set_global_default(subscriber).expect("Failed to init logger");
+        return None;
     }
+
+    if configuration.compact_mode {
+        let fmt = tracing_subscriber::fmt().compact().finish();
+        let level = configuration.max_log_level.into();
+        let (subscriber, receiver) = TelemetryLayer::from_capacity(
+            LevelFilter::new(level, fmt),
+            configuration.telemetry_capacity,
+        );
+
+        #[allow(clippy::expect_used)]
+        set_global_default(subscriber).expect("Failed to init logger");
+        Some(receiver)
+    } else {
+        let fmt = tracing_subscriber::fmt().finish();
+        let level = configuration.max_log_level.into();
+        let (subscriber, receiver) = TelemetryLayer::from_capacity(
+            LevelFilter::new(level, fmt),
+            configuration.telemetry_capacity,
+        );
+
+        #[allow(clippy::expect_used)]
+        set_global_default(subscriber).expect("Failed to init logger");
+        Some(receiver)
+    }
+}
+
+/// Macro for sending telemetry info
+#[macro_export]
+macro_rules! telemetry {
+    // All arguments match arms are from info macro
+    () => {
+        $crate::info!(target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),)
+    };
+    ($($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            $($k).+ = $($field)*
+        )
+    );
+    (?$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            ?$($k).+ = $($field)*
+        )
+    );
+    (%$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            %$($k).+ = $($field)*
+        )
+    );
+    ($($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            $($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            ?$($k).+, $($field)*
+        )
+    );
+    (%$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            %$($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            ?$($k).+
+        )
+    );
+    (%$($k:ident).+) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            %$($k).+
+        )
+    );
+    ($($k:ident).+) => (
+        $crate::info!(
+            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+            $($k).+
+        )
+    );
 }
 
 /// This module contains all configuration related logic.
@@ -86,12 +168,29 @@ pub mod config {
     }
 
     /// Configuration for `Logger`.
-    #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable, Default)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     pub struct LoggerConfiguration {
         /// Maximum log level
         #[config(serde_as_str)]
         pub max_log_level: LevelEnv,
+        /// Capacity (or batch size) for telemetry channel
+        pub telemetry_capacity: usize,
+        /// Compact mode (no spans from telemetry)
+        pub compact_mode: bool,
+    }
+
+    const TELEMETRY_CAPACITY: usize = 1000;
+    const DEFAULT_COMPACT_MODE: bool = false;
+
+    impl Default for LoggerConfiguration {
+        fn default() -> Self {
+            Self {
+                max_log_level: LevelEnv::default(),
+                telemetry_capacity: TELEMETRY_CAPACITY,
+                compact_mode: DEFAULT_COMPACT_MODE,
+            }
+        }
     }
 }
