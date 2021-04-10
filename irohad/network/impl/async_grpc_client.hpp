@@ -34,12 +34,18 @@ namespace iroha {
         void *got_tag;
         auto ok = false;
         while (cq_.Next(&got_tag, &ok)) {
-          auto call = static_cast<AsyncClientCall *>(got_tag);
+          std::unique_ptr<AsyncClientCall> call(
+              static_cast<AsyncClientCall *>(got_tag));
+          assert(call);
           if (not call->status.ok()) {
             log_->warn("RPC failed: {}", call->status.error_message());
           }
-          call->onResponse();
-          delete call;
+          try {
+            call->onResponse();
+          } catch (std::exception const &e) {
+            log_->warn("Response callback exception: {}", e.what());
+          } catch (...) {
+          }
         }
       }
 
