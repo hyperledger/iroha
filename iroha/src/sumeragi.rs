@@ -1985,7 +1985,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(config.logger_configuration);
+        drop(iroha_logger::init(config.logger_configuration));
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2033,6 +2033,7 @@ mod tests {
                 queue,
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
+                None,
             );
             drop(task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -2112,7 +2113,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(config.logger_configuration);
+        drop(iroha_logger::init(config.logger_configuration));
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2161,6 +2162,7 @@ mod tests {
                 queue,
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
+                None,
             );
             drop(task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -2264,7 +2266,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(config.logger_configuration);
+        drop(iroha_logger::init(config.logger_configuration));
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2313,6 +2315,7 @@ mod tests {
                 queue,
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
+                None,
             );
             drop(task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -2430,7 +2433,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(config.logger_configuration);
+        drop(iroha_logger::init(config.logger_configuration));
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2479,6 +2482,7 @@ mod tests {
                 queue,
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
+                None,
             );
             drop(task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -2593,7 +2597,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        iroha_logger::init(config.logger_configuration);
+        drop(iroha_logger::init(config.logger_configuration));
         config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
@@ -2641,6 +2645,7 @@ mod tests {
                 queue,
                 sumeragi.clone(),
                 (events_sender.clone(), events_receiver),
+                None,
             );
             drop(task::spawn(async move {
                 torii.start().await.expect("Torii failed.");

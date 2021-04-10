@@ -43,7 +43,9 @@ Configuration of iroha is done via options in the following document. Here is de
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000
   },
   "LOGGER_CONFIGURATION": {
-    "MAX_LOG_LEVEL": "DEBUG"
+    "MAX_LOG_LEVEL": "DEBUG",
+    "TELEMETRY_CAPACITY": 1000,
+    "COMPACT_MODE": false
   },
   "GENESIS_CONFIGURATION": {
     "GENESIS_ACCOUNT_PUBLIC_KEY": "ed0100",
@@ -209,8 +211,20 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 
 ```json
 {
-  "MAX_LOG_LEVEL": "DEBUG"
+  "COMPACT_MODE": false,
+  "MAX_LOG_LEVEL": "DEBUG",
+  "TELEMETRY_CAPACITY": 1000
 }
+```
+
+### `logger_configuration.compact_mode`
+
+Compact mode (no spans from telemetry)
+
+Has type `bool`. Can be configured via environment variable `COMPACT_MODE`
+
+```json
+false
 ```
 
 ### `logger_configuration.max_log_level`
@@ -221,6 +235,16 @@ Has type `LevelEnv`. Can be configured via environment variable `MAX_LOG_LEVEL`
 
 ```json
 "DEBUG"
+```
+
+### `logger_configuration.telemetry_capacity`
+
+Capacity (or batch size) for telemetry channel
+
+Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY`
+
+```json
+1000
 ```
 
 ## `private_key`
