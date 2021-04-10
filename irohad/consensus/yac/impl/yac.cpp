@@ -84,18 +84,20 @@ namespace iroha::consensus::yac {
             ", "));
 
     std::unordered_set<VoteMessage> state;
-    std::unique_lock<std::mutex> lock(mutex_);
-    cluster_order_ = order;
-    alternative_order_ = std::move(alternative_order);
-    round_ = hash.vote_round;
-    // take states from current round if it was stored, erase older than current
-    auto it = future_states_.lower_bound(round_);
-    if (it->first == round_) {
-      state = std::move(it->second);
-      ++it;
+    {
+      std::lock_guard lock(mutex_);
+      cluster_order_ = order;
+      alternative_order_ = std::move(alternative_order);
+      round_ = hash.vote_round;
+      // take states from current round if it was stored, erase older than
+      // current
+      auto it = future_states_.lower_bound(round_);
+      if (it->first == round_) {
+        state = std::move(it->second);
+        ++it;
+      }
+      future_states_.erase(future_states_.begin(), it);
     }
-    future_states_.erase(future_states_.begin(), it);
-    lock.unlock();
     if (not state.empty()) {
       onState(std::vector<VoteMessage>{std::make_move_iterator(state.begin()),
                                        std::make_move_iterator(state.end())});
