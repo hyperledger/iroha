@@ -189,6 +189,8 @@ impl Peer {
                 max_log_level: LevelEnv::ERROR,
                 #[cfg(not(profile = "bench"))]
                 max_log_level: LevelEnv::INFO,
+                compact_mode: false,
+                ..LoggerConfiguration::default()
             },
             public_key: self.key_pair.public_key.clone(),
             private_key: self.key_pair.private_key.clone(),
