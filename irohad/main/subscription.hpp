@@ -67,20 +67,23 @@ namespace iroha {
 
   std::shared_ptr<Subscription> getSubscription();
 
-  template <typename ObjectType, typename... EventData>
+  template <typename ObjectType, typename EventData>
   struct SubscriberCreator {
-    template <EventTypes key, SubscriptionEngineHandlers tid, typename F>
-    static auto create(F &&callback) {
-      auto subscriber =
-          std::make_shared<BaseSubscriber<ObjectType, EventData...>>(
-              getSubscription()->getEngine<EventTypes, EventData...>());
+    template <EventTypes key,
+              SubscriptionEngineHandlers tid,
+              typename F,
+              typename... Args>
+    static auto create(F &&callback, Args &&... args) {
+      auto subscriber = BaseSubscriber<ObjectType, EventData>::create(
+          getSubscription()->getEngine<EventTypes, EventData>(),
+          std::forward<Args>(args)...);
       subscriber->setCallback(
           [f{std::forward<F>(callback)}](auto /*set_id*/,
                                          auto &object,
                                          auto event_key,
-                                         EventData... args) {
+                                         EventData args) mutable {
             assert(key == event_key);
-            std::forward<F>(f)(object, std::move(args)...);
+            std::forward<F>(f)(object, std::move(args));
           });
       subscriber->template subscribe<tid>(0, key);
       return subscriber;
