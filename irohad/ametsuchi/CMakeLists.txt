@@ -178,12 +178,3 @@ target_link_libraries(ametsuchi
 target_compile_definitions(ametsuchi
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
-
-add_library(ametsuchi_rocksdb
-    impl/rocksdb_command_executor.cpp
-    )
-target_link_libraries(ametsuchi_rocksdb
-    ametsuchi
-    RocksDB::rocksdb
-    shared_model_interfaces
-    )

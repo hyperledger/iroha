@@ -505,7 +505,8 @@ namespace iroha::ametsuchi {
                                      S const &strformat,
                                      Args &&... args) {
     return rdb.enumerate(
-        [func{std::forward<F>(func)}](auto const &it, auto const prefix_size) {
+        [func{std::forward<F>(func)}](auto const &it,
+                                      auto const prefix_size) mutable {
           auto const key = it->key();
           return func(
               rocksdb::Slice(
