@@ -181,6 +181,7 @@ target_compile_definitions(ametsuchi
 
 add_library(ametsuchi_rocksdb
     impl/rocksdb_command_executor.cpp
+    impl/rocksdb_specific_query_executor.cpp
     )
 target_link_libraries(ametsuchi_rocksdb
     ametsuchi
