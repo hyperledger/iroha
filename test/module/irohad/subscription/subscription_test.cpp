@@ -33,7 +33,7 @@ class SubscriptionTest : public ::testing::Test {
     using Subscriber = subscription::
         SubscriberImpl<uint64_t, Dispatcher, ObjectType, EventData>;
 
-    auto subscriber = std::make_shared<Subscriber>(
+    auto subscriber = Subscriber::create(
         manager->template getEngine<uint64_t, EventData>(), std::move(initial));
 
     subscriber->setCallback(

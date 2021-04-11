@@ -32,8 +32,7 @@ namespace iroha::subscription {
             typename Dispatcher,
             typename Receiver,
             typename... Arguments>
-  class SubscriberImpl final
-      : public Subscriber<EventKey, Dispatcher, Arguments...> {
+  class SubscriberImpl : public Subscriber<EventKey, Dispatcher, Arguments...> {
    public:
     using ReceiverType = Receiver;
     using Hash = size_t;
@@ -77,13 +76,27 @@ namespace iroha::subscription {
     /// Stored notification callback
     CallbackFnType on_notify_callback_;
 
-   public:
     template <typename... SubscriberConstructorArgs>
     SubscriberImpl(SubscriptionEnginePtr const &ptr,
                    SubscriberConstructorArgs &&... args)
         : next_id_(0ull),
           engine_(ptr),
           object_(std::forward<SubscriberConstructorArgs>(args)...) {}
+
+   public:
+    template <typename... SubscriberConstructorArgs>
+    static std::shared_ptr<SubscriberImpl> create(
+        SubscriptionEnginePtr const &ptr,
+        SubscriberConstructorArgs &&... args) {
+      struct Resolver : SubscriberImpl {
+        Resolver(SubscriptionEnginePtr const &ptr,
+                 SubscriberConstructorArgs &&... args)
+            : SubscriberImpl(
+                  ptr, std::forward<SubscriberConstructorArgs>(args)...) {}
+      };
+      return std::make_shared<Resolver>(
+          ptr, std::forward<SubscriberConstructorArgs>(args)...);
+    }
 
     ~SubscriberImpl() {}
 
