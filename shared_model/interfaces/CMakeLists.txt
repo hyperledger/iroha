@@ -103,3 +103,6 @@ target_link_libraries(shared_model_interfaces
     common
     Boost::boost
     )
+target_compile_definitions(shared_model_interfaces
+    PUBLIC BOOST_NO_IOSTREAM
+    )

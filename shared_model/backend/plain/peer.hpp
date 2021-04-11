@@ -15,7 +15,7 @@ namespace shared_model {
 
     class Peer final : public interface::Peer {
      public:
-      Peer(const interface::types::AddressType &address,
+      Peer(const interface::types::AddressTypeView address,
            std::string public_key_hex,
            const std::optional<interface::types::TLSCertificateType>
                &tls_certificate);
@@ -27,11 +27,12 @@ namespace shared_model {
       const std::optional<interface::types::TLSCertificateType>
           &tlsCertificate() const override;
 
+      void setTlsCertificate(interface::types::TLSCertificateType cert);
+
      private:
       const interface::types::AddressType address_;
       const std::string public_key_hex_;
-      const std::optional<interface::types::TLSCertificateType>
-          tls_certificate_;
+      std::optional<interface::types::TLSCertificateType> tls_certificate_;
     };
 
   }  // namespace plain

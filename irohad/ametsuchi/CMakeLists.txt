@@ -107,6 +107,7 @@ add_library(ametsuchi
     impl/setting_query.cpp
     impl/postgres_setting_query.cpp
     impl/executor_common.cpp
+    impl/command_executor.cpp
     impl/postgres_command_executor.cpp
     impl/wsv_restorer_impl.cpp
     impl/postgres_specific_query_executor.cpp
@@ -176,4 +177,13 @@ target_link_libraries(ametsuchi
 
 target_compile_definitions(ametsuchi
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
+    )
+
+add_library(ametsuchi_rocksdb
+    impl/rocksdb_command_executor.cpp
+    )
+target_link_libraries(ametsuchi_rocksdb
+    ametsuchi
+    RocksDB::rocksdb
+    shared_model_interfaces
     )
