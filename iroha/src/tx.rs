@@ -217,7 +217,7 @@ impl AcceptedTransaction {
 
             if !is_genesis {
                 permissions_validator
-                    .check_instruction(account_id.clone(), instruction.clone(), world_state_view)
+                    .check_instruction(&account_id, instruction, world_state_view)
                     .map_err(|reason| NotPermittedFail { reason })
                     .map_err(TransactionRejectionReason::NotPermitted)?;
             }
