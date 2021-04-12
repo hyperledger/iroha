@@ -92,8 +92,8 @@ pub mod private_blockchain {
     impl GrantInstructionValidator for ProhibitGrant {
         fn check_grant(
             &self,
-            _authority: AccountId,
-            _instruction: GrantBox,
+            _authority: &AccountId,
+            _instruction: &GrantBox,
             _wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
             Err("Granting at runtime is prohibited.".to_string())
@@ -119,11 +119,15 @@ pub mod private_blockchain {
         impl PermissionsValidator for ProhibitRegisterDomains {
             fn check_instruction(
                 &self,
-                _authority: AccountId,
-                instruction: Instruction,
+                _authority: &AccountId,
+                instruction: &Instruction,
                 _wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let _register_box: RegisterBox = try_into_or_exit!(instruction);
+                let _register_box = if let Instruction::Register(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 Err("Domain registration is prohibited.".to_string())
             }
         }
@@ -137,8 +141,8 @@ pub mod private_blockchain {
         impl GrantedTokenValidator for GrantedAllowedRegisterDomains {
             fn should_have_token(
                 &self,
-                _authority: AccountId,
-                _instruction: Instruction,
+                _authority: &AccountId,
+                _instruction: &Instruction,
                 _wsv: &WorldStateView,
             ) -> Result<PermissionToken, String> {
                 Ok(PermissionToken::new(
@@ -193,18 +197,22 @@ pub mod public_blockchain {
         impl PermissionsValidator for OnlyOwnedAssets {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let transfer_box: TransferBox = try_into_or_exit!(instruction);
+                let transfer_box = if let Instruction::Transfer(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let source_id = transfer_box
                     .source_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 let source_id: AssetId = try_into_or_exit!(source_id);
 
-                if source_id.account_id != authority {
+                if &source_id.account_id != authority {
                     return Err("Can't transfer assets of the other account.".to_owned());
                 }
                 Ok(())
@@ -220,11 +228,11 @@ pub mod public_blockchain {
         impl GrantedTokenValidator for GrantedAssets {
             fn should_have_token(
                 &self,
-                _authority: AccountId,
-                instruction: Instruction,
+                _authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<PermissionToken, String> {
-                let transfer_box: TransferBox = if let Ok(transfer_box) = instruction.try_into() {
+                let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
                     transfer_box
                 } else {
                     return Err("Instruction is not transfer.".to_string());
@@ -254,8 +262,8 @@ pub mod public_blockchain {
         impl GrantInstructionValidator for GrantMyAssetAccess {
             fn check_grant(
                 &self,
-                authority: AccountId,
-                instruction: GrantBox,
+                authority: &AccountId,
+                instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
                 let permission_token = instruction
@@ -276,7 +284,7 @@ pub mod public_blockchain {
                         ASSET_ID_TOKEN_PARAM_NAME
                     ));
                 };
-                if asset_id.account_id != authority {
+                if &asset_id.account_id != authority {
                     return Err("Can not grant asset access for another account.".to_string());
                 }
                 Ok(())
@@ -298,11 +306,15 @@ pub mod public_blockchain {
         impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: UnregisterBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::Unregister(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let object_id = instruction
                     .object_id
                     .evaluate(wsv, &Context::new())
@@ -312,7 +324,7 @@ pub mod public_blockchain {
                 let low_authority = wsv
                     .read_asset_definition_entry(&asset_definition_id)
                     .map_or(false, |asset_definiton_entry| {
-                        asset_definiton_entry.registered_by != authority
+                        &asset_definiton_entry.registered_by != authority
                     });
 
                 if low_authority {
@@ -337,11 +349,15 @@ pub mod public_blockchain {
         impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: MintBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::Mint(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let destination_id = instruction
                     .destination_id
                     .evaluate(wsv, &Context::new())
@@ -351,7 +367,7 @@ pub mod public_blockchain {
                 let low_authority = wsv
                     .read_asset_definition_entry(&asset_id.definition_id)
                     .map_or(false, |asset_definiton_entry| {
-                        asset_definiton_entry.registered_by != authority
+                        &asset_definiton_entry.registered_by != authority
                     });
 
                 if low_authority {
@@ -376,11 +392,15 @@ pub mod public_blockchain {
         impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: BurnBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::Burn(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let destination_id = instruction
                     .destination_id
                     .evaluate(wsv, &Context::new())
@@ -390,7 +410,7 @@ pub mod public_blockchain {
                 let low_authority = wsv
                     .read_asset_definition_entry(&asset_id.definition_id)
                     .map_or(false, |asset_definiton_entry| {
-                        asset_definiton_entry.registered_by != authority
+                        &asset_definiton_entry.registered_by != authority
                     });
                 if low_authority {
                     return Err("Can't mint assets registered by other accounts.".to_owned());
@@ -408,17 +428,21 @@ pub mod public_blockchain {
         impl PermissionsValidator for OnlyOwnedAssets {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: BurnBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::Burn(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let destination_id = instruction
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 let asset_id: AssetId = try_into_or_exit!(destination_id);
-                if asset_id.account_id != authority {
+                if &asset_id.account_id != authority {
                     return Err("Can't burn assets from another account.".to_owned());
                 }
                 Ok(())
@@ -440,18 +464,22 @@ pub mod public_blockchain {
         impl PermissionsValidator for AssetSetOnlyForSignerAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: SetKeyValueBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let object_id = instruction
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
 
                 match object_id {
-                    IdBox::AssetId(asset_id) if asset_id.account_id != authority => {
+                    IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
                         Err("Can't set value to asset store from another account.".to_owned())
                     }
                     _ => Ok(()),
@@ -468,17 +496,21 @@ pub mod public_blockchain {
         impl PermissionsValidator for AccountSetOnlyForSignerAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: SetKeyValueBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let object_id = instruction
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
 
-                match object_id {
+                match &object_id {
                     IdBox::AccountId(account_id) if account_id != authority => {
                         Err("Can't set value to account store from another account.".to_owned())
                     }
@@ -496,18 +528,21 @@ pub mod public_blockchain {
         impl PermissionsValidator for AssetRemoveOnlyForSignerAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: RemoveKeyValueBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let object_id = instruction
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-
                 match object_id {
-                    IdBox::AssetId(asset_id) if asset_id.account_id != authority => {
+                    IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
                         Err("Can't remove value from asset store from another account.".to_owned())
                     }
                     _ => Ok(()),
@@ -524,18 +559,22 @@ pub mod public_blockchain {
         impl PermissionsValidator for AccountRemoveOnlyForSignerAccount {
             fn check_instruction(
                 &self,
-                authority: AccountId,
-                instruction: Instruction,
+                authority: &AccountId,
+                instruction: &Instruction,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let instruction: RemoveKeyValueBox = try_into_or_exit!(instruction);
+                let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
                 let object_id = instruction
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
 
                 match object_id {
-                    IdBox::AccountId(account_id) if account_id != authority => Err(
+                    IdBox::AccountId(account_id) if &account_id != authority => Err(
                         "Can't remove value from account store from another account.".to_owned(),
                     ),
                     _ => Ok(()),
@@ -564,10 +603,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
             assert!(transfer::OnlyOwnedAssets
-                .check_instruction(alice_id, transfer.clone(), &wsv)
+                .check_instruction(&alice_id, &transfer, &wsv)
                 .is_ok());
             assert!(transfer::OnlyOwnedAssets
-                .check_instruction(bob_id, transfer, &wsv)
+                .check_instruction(&bob_id, &transfer, &wsv)
                 .is_err());
         }
 
@@ -599,9 +638,11 @@ pub mod public_blockchain {
             let validator: PermissionsValidatorBox =
                 transfer::OnlyOwnedAssets.or(transfer::GrantedAssets).into();
             assert!(validator
-                .check_instruction(alice_id, transfer.clone(), &wsv)
+                .check_instruction(&alice_id, &transfer, &wsv)
                 .is_ok());
-            assert!(validator.check_instruction(bob_id, transfer, &wsv).is_ok());
+            assert!(validator
+                .check_instruction(&bob_id, &transfer, &wsv)
+                .is_ok());
         }
 
         #[test]
@@ -623,10 +664,8 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
             let validator: PermissionsValidatorBox = transfer::GrantMyAssetAccess.into();
-            assert!(validator
-                .check_instruction(alice_id, grant.clone(), &wsv)
-                .is_ok());
-            assert!(validator.check_instruction(bob_id, grant, &wsv).is_err());
+            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -653,10 +692,10 @@ pub mod public_blockchain {
             let unregister =
                 Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
             assert!(unregister::OnlyAssetsCreatedByThisAccount
-                .check_instruction(alice_id, unregister.clone(), &wsv)
+                .check_instruction(&alice_id, &unregister, &wsv)
                 .is_ok());
             assert!(unregister::OnlyAssetsCreatedByThisAccount
-                .check_instruction(bob_id, unregister, &wsv)
+                .check_instruction(&bob_id, &unregister, &wsv)
                 .is_err());
         }
 
@@ -688,10 +727,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(mint::OnlyAssetsCreatedByThisAccount
-                .check_instruction(alice_id, mint.clone(), &wsv)
+                .check_instruction(&alice_id, &mint, &wsv)
                 .is_ok());
             assert!(mint::OnlyAssetsCreatedByThisAccount
-                .check_instruction(bob_id, mint, &wsv)
+                .check_instruction(&bob_id, &mint, &wsv)
                 .is_err());
         }
 
@@ -723,10 +762,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(burn::OnlyAssetsCreatedByThisAccount
-                .check_instruction(alice_id, burn.clone(), &wsv)
+                .check_instruction(&alice_id, &burn, &wsv)
                 .is_ok());
             assert!(burn::OnlyAssetsCreatedByThisAccount
-                .check_instruction(bob_id, burn, &wsv)
+                .check_instruction(&bob_id, &burn, &wsv)
                 .is_err());
         }
 
@@ -742,10 +781,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(burn::OnlyOwnedAssets
-                .check_instruction(alice_id, burn.clone(), &wsv)
+                .check_instruction(&alice_id, &burn, &wsv)
                 .is_ok());
             assert!(burn::OnlyOwnedAssets
-                .check_instruction(bob_id, burn, &wsv)
+                .check_instruction(&bob_id, &burn, &wsv)
                 .is_err());
         }
 
@@ -762,10 +801,10 @@ pub mod public_blockchain {
                 Value::from("value".to_owned()),
             ));
             assert!(keyvalue::AssetSetOnlyForSignerAccount
-                .check_instruction(alice_id, set.clone(), &wsv)
+                .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(keyvalue::AssetSetOnlyForSignerAccount
-                .check_instruction(bob_id, set, &wsv)
+                .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
 
@@ -781,10 +820,10 @@ pub mod public_blockchain {
                 Value::from("key".to_owned()),
             ));
             assert!(keyvalue::AssetRemoveOnlyForSignerAccount
-                .check_instruction(alice_id, set.clone(), &wsv)
+                .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(keyvalue::AssetRemoveOnlyForSignerAccount
-                .check_instruction(bob_id, set, &wsv)
+                .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
 
@@ -799,10 +838,10 @@ pub mod public_blockchain {
                 Value::from("value".to_owned()),
             ));
             assert!(keyvalue::AccountSetOnlyForSignerAccount
-                .check_instruction(alice_id, set.clone(), &wsv)
+                .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(keyvalue::AccountSetOnlyForSignerAccount
-                .check_instruction(bob_id, set, &wsv)
+                .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
 
@@ -816,10 +855,10 @@ pub mod public_blockchain {
                 Value::from("key".to_owned()),
             ));
             assert!(keyvalue::AccountRemoveOnlyForSignerAccount
-                .check_instruction(alice_id, set.clone(), &wsv)
+                .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(keyvalue::AccountRemoveOnlyForSignerAccount
-                .check_instruction(bob_id, set, &wsv)
+                .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
     }

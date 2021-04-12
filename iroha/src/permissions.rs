@@ -20,8 +20,8 @@ pub trait PermissionsValidator {
     /// is unallowed.
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason>;
 }
@@ -54,15 +54,15 @@ pub struct OrPermissionsValidator {
 impl PermissionsValidator for OrPermissionsValidator {
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         self.first
-            .check_instruction(authority.clone(), instruction.clone(), wsv)
+            .check_instruction(authority, instruction, wsv)
             .or_else(|first_error| {
                 self.second
-                    .check_instruction(authority.clone(), instruction.clone(), wsv)
+                    .check_instruction(authority, instruction, wsv)
                     .map_err(|second_error| {
                         format!(
                             "Failed to pass first check with {} and second check with {}.",
@@ -96,8 +96,8 @@ impl RecursivePermissionsValidator {
 impl PermissionsValidator for RecursivePermissionsValidator {
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         match instruction {
@@ -113,22 +113,18 @@ impl PermissionsValidator for RecursivePermissionsValidator {
                 .validator
                 .check_instruction(authority, instruction, wsv),
             Instruction::If(if_box) => self
-                .check_instruction(authority.clone(), if_box.clone().then, wsv)
-                .and_then(|_| match if_box.otherwise {
-                    Some(instruction) => {
-                        self.check_instruction(authority.clone(), instruction, wsv)
-                    }
+                .check_instruction(authority, &if_box.then, wsv)
+                .and_then(|_| match &if_box.otherwise {
+                    Some(instruction) => self.check_instruction(authority, instruction, wsv),
                     None => Ok(()),
                 }),
             Instruction::Pair(pair_box) => self
-                .check_instruction(authority.clone(), pair_box.left_instruction, wsv)
-                .and(self.check_instruction(authority, pair_box.right_instruction, wsv)),
+                .check_instruction(authority, &pair_box.left_instruction, wsv)
+                .and(self.check_instruction(authority, &pair_box.right_instruction, wsv)),
             Instruction::Sequence(sequence_box) => sequence_box
                 .instructions
-                .into_iter()
-                .try_for_each(|instruction| {
-                    self.check_instruction(authority.clone(), instruction, wsv)
-                }),
+                .iter()
+                .try_for_each(|instruction| self.check_instruction(authority, instruction, wsv)),
         }
     }
 }
@@ -148,12 +144,12 @@ pub struct AllShouldSucceed {
 impl PermissionsValidator for AllShouldSucceed {
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         for validator in &self.validators {
-            validator.check_instruction(authority.clone(), instruction.clone(), wsv)?
+            validator.check_instruction(authority, instruction, wsv)?
         }
         Ok(())
     }
@@ -175,13 +171,13 @@ pub struct AnyShouldSucceed {
 impl PermissionsValidator for AnyShouldSucceed {
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         for validator in &self.validators {
             if validator
-                .check_instruction(authority.clone(), instruction.clone(), wsv)
+                .check_instruction(authority, instruction, wsv)
                 .is_ok()
             {
                 return Ok(());
@@ -256,8 +252,8 @@ pub struct AllowAll;
 impl PermissionsValidator for AllowAll {
     fn check_instruction(
         &self,
-        _authority: AccountId,
-        _instruction: Instruction,
+        _authority: &AccountId,
+        _instruction: &Instruction,
         _wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         Ok(())
@@ -283,8 +279,8 @@ pub trait GrantedTokenValidator {
     /// (e.g. unexistent account or unaplicable instruction).
     fn should_have_token(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<PermissionToken, String>;
 }
@@ -292,15 +288,15 @@ pub trait GrantedTokenValidator {
 impl PermissionsValidator for GrantedTokenValidatorBox {
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         let account = wsv
-            .read_account(&authority)
+            .read_account(authority)
             .ok_or("Couldn't find authority account.")?;
         let permission_token = self
-            .should_have_token(authority.clone(), instruction, wsv)
+            .should_have_token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
         if account.permission_tokens.contains(&permission_token) {
             Ok(())
@@ -329,8 +325,8 @@ pub trait GrantInstructionValidator {
     /// Should return error if this particular validator does not approve this Grant instruction.
     fn check_grant(
         &self,
-        authority: AccountId,
-        instruction: GrantBox,
+        authority: &AccountId,
+        instruction: &GrantBox,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason>;
 }
@@ -338,8 +334,8 @@ pub trait GrantInstructionValidator {
 impl PermissionsValidator for GrantInstructionValidatorBox {
     fn check_instruction(
         &self,
-        authority: AccountId,
-        instruction: Instruction,
+        authority: &AccountId,
+        instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         if let Instruction::Grant(instruction) = instruction {
@@ -385,8 +381,8 @@ mod tests {
     impl PermissionsValidator for DenyBurn {
         fn check_instruction(
             &self,
-            _authority: AccountId,
-            instruction: Instruction,
+            _authority: &AccountId,
+            instruction: &Instruction,
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
             match instruction {
@@ -407,8 +403,8 @@ mod tests {
     impl PermissionsValidator for DenyAlice {
         fn check_instruction(
             &self,
-            authority: AccountId,
-            _instruction: Instruction,
+            authority: &AccountId,
+            _instruction: &Instruction,
             _wsv: &WorldStateView,
         ) -> Result<(), super::DenialReason> {
             if authority.name == "alice" {
@@ -424,8 +420,8 @@ mod tests {
     impl GrantedTokenValidator for GrantedToken {
         fn should_have_token(
             &self,
-            _authority: AccountId,
-            _instruction: Instruction,
+            _authority: &AccountId,
+            _instruction: &Instruction,
             _wsv: &WorldStateView,
         ) -> Result<PermissionToken, String> {
             Ok(PermissionToken::new("token", BTreeMap::new()))
@@ -450,16 +446,16 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check_instruction(account_bob.clone(), instruction_burn.clone(), &wsv)
+            .check_instruction(&account_bob, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_fail.clone(), &wsv)
+            .check_instruction(&account_alice, &instruction_fail, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_alice, instruction_burn, &wsv)
+            .check_instruction(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_bob, instruction_fail, &wsv)
+            .check_instruction(&account_bob, &instruction_fail, &wsv)
             .is_ok());
     }
 
@@ -481,13 +477,13 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_fail, &wsv)
+            .check_instruction(&account_alice, &instruction_fail, &wsv)
             .is_ok());
         assert!(permissions_validator
-            .check_instruction(account_alice.clone(), instruction_burn, &wsv)
+            .check_instruction(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(account_alice, nested_instruction_sequence, &wsv)
+            .check_instruction(&account_alice, &nested_instruction_sequence, &wsv)
             .is_err());
     }
 
@@ -509,10 +505,10 @@ mod tests {
         let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
         let validator: GrantedTokenValidatorBox = Box::new(GrantedToken);
         assert!(validator
-            .check_instruction(alice_id, instruction_burn.clone(), &wsv)
+            .check_instruction(&alice_id, &instruction_burn, &wsv)
             .is_err());
         assert!(validator
-            .check_instruction(bob_id, instruction_burn, &wsv)
+            .check_instruction(&bob_id, &instruction_burn, &wsv)
             .is_ok());
     }
 }
