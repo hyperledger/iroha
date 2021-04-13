@@ -328,10 +328,7 @@ mod tests {
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let transaction = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
         let world_state_view = WorldStateView::new(world_with_test_domains(alice_key.public_key));
-        drop(world_state_view.transactions.insert(
-            transaction.hash(),
-            TransactionValue::Transaction(transaction.clone().into()),
-        ));
+        let _ = world_state_view.transactions.insert(transaction.hash());
         queue
             .push_pending_transaction(transaction)
             .expect("Failed to push tx into queue");

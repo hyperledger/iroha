@@ -483,6 +483,59 @@ impl VersionedCommittedBlock {
     pub fn hash(&self) -> Hash {
         self.as_inner_v1().hash()
     }
+
+    /// Returns header of valid block
+    pub const fn header(&self) -> &BlockHeader {
+        &self.as_inner_v1().header
+    }
+
+    /// Signatures that are verified with the `hash` of this block as `payload`.
+    pub fn verified_signatures(&self) -> Vec<Signature> {
+        self.as_inner_v1().verified_signatures()
+    }
+
+    /// Filters transactions by predicate
+    pub fn filter_tx_values_by_payload<'a>(
+        &'a self,
+        predicate: impl FnOnce(&'a Payload) -> bool + Copy + 'a,
+    ) -> impl Iterator<Item = TransactionValue> + 'a {
+        let block = self.as_inner_v1();
+        block
+            .rejected_transactions
+            .iter()
+            .filter(move |tx| predicate(tx.payload()))
+            .cloned()
+            .map(TransactionValue::RejectedTransaction)
+            .chain(
+                block
+                    .transactions
+                    .iter()
+                    .filter(move |tx| predicate(tx.payload()))
+                    .cloned()
+                    .map(VersionedAcceptedTransaction::from)
+                    .map(Into::into)
+                    .map(TransactionValue::Transaction),
+            )
+    }
+
+    /// Consumes block and returns iterator over transaction values
+    pub fn iter_tx_values(&'_ self) -> impl Iterator<Item = TransactionValue> + '_ {
+        let block = self.as_inner_v1();
+        block
+            .rejected_transactions
+            .iter()
+            .cloned()
+            .map(TransactionValue::RejectedTransaction)
+            .chain(
+                block
+                    .transactions
+                    .iter()
+                    .cloned()
+                    .map(VersionedAcceptedTransaction::from)
+                    .map(Into::into)
+                    .map(TransactionValue::Transaction),
+            )
+    }
 }
 
 /// When Kura receives `ValidBlock`, the block is stored and
@@ -505,6 +558,35 @@ impl CommittedBlock {
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> Hash {
         self.header.hash()
+    }
+
+    /// Signatures that are verified with the `hash` of this block as `payload`.
+    pub fn verified_signatures(&self) -> Vec<Signature> {
+        self.signatures.verified(self.hash().as_ref())
+    }
+}
+
+impl From<CommittedBlock> for ValidBlock {
+    fn from(
+        CommittedBlock {
+            header,
+            rejected_transactions,
+            transactions,
+            signatures,
+        }: CommittedBlock,
+    ) -> Self {
+        Self {
+            header,
+            rejected_transactions,
+            transactions,
+            signatures,
+        }
+    }
+}
+
+impl From<VersionedCommittedBlock> for VersionedValidBlock {
+    fn from(block: VersionedCommittedBlock) -> Self {
+        ValidBlock::from(block.into_inner_v1()).into()
     }
 }
 

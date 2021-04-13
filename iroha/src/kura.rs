@@ -14,15 +14,13 @@ use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::{Deserialize, Serialize};
 
-use crate::{block::VersionedValidBlock, merkle::MerkleTree, prelude::*};
+use crate::{block::VersionedCommittedBlock, merkle::MerkleTree, prelude::*};
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
 pub struct Kura {
     mode: Mode,
-    /// Blockchain.
-    pub blocks: Vec<VersionedValidBlock>,
     block_store: BlockStore,
     block_sender: CommittedBlockSender,
     merkle_tree: MerkleTree,
@@ -42,7 +40,6 @@ impl Kura {
             block_store: BlockStore::new(block_store_path)?,
             block_sender,
             merkle_tree: MerkleTree::new(),
-            blocks: Vec::new(),
         })
     }
 
@@ -58,53 +55,27 @@ impl Kura {
     }
 
     /// After constructing `Kura` it should be initialized to be ready to work with it.
-    pub async fn init(&mut self) -> Result<()> {
+    pub async fn init(&mut self) -> Result<Vec<VersionedCommittedBlock>> {
         let blocks = self.block_store.read_all().await;
-        self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedValidBlock::hash));
-        self.blocks = blocks;
-        Ok(())
+        self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedCommittedBlock::hash));
+        Ok(blocks)
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[iroha_logger::log]
-    pub async fn store(&mut self, block: VersionedValidBlock) -> Result<Hash> {
+    pub async fn store(&mut self, block: VersionedCommittedBlock) -> Result<Hash> {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 //TODO: shouldn't we add block hash to merkle tree here?
-                self.block_sender.send(block.clone().commit()).await;
-                self.blocks.push(block);
+                self.block_sender.send(block).await;
                 Ok(hash)
             }
             Err(error) => {
                 let blocks = self.block_store.read_all().await;
-                self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedValidBlock::hash));
+                self.merkle_tree =
+                    MerkleTree::build(blocks.iter().map(VersionedCommittedBlock::hash));
                 Err(error)
             }
-        }
-    }
-
-    pub fn latest_block_hash(&self) -> Hash {
-        // Should we return Result here?
-        self.blocks
-            .last()
-            .map_or(Hash([0_u8; 32]), VersionedValidBlock::hash)
-    }
-
-    pub fn height(&self) -> u64 {
-        // Should we return Result here?
-        self.blocks.last().map_or(0, |block| block.header().height)
-    }
-
-    pub fn blocks_after(&self, hash: Hash) -> Option<&[VersionedValidBlock]> {
-        let from_pos = self
-            .blocks
-            .iter()
-            .position(|block| block.header().previous_block_hash == hash)?;
-
-        if self.blocks.len() > from_pos {
-            Some(&self.blocks[from_pos..])
-        } else {
-            None
         }
     }
 }
@@ -149,7 +120,7 @@ impl BlockStore {
         self.path.join(BlockStore::get_block_filename(block_height))
     }
 
-    async fn write(&self, block: &VersionedValidBlock) -> Result<Hash> {
+    async fn write(&self, block: &VersionedCommittedBlock) -> Result<Hash> {
         //filename is its height
         let path = self.get_block_path(block.header().height);
         let mut file = File::create(path)
@@ -163,18 +134,19 @@ impl BlockStore {
         Ok(hash)
     }
 
-    async fn read(&self, height: u64) -> Result<VersionedValidBlock> {
+    async fn read(&self, height: u64) -> Result<VersionedCommittedBlock> {
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.wrap_err("No file found.")?;
         let metadata = metadata(&path).await.wrap_err("Unable to read metadata.")?;
         #[allow(clippy::cast_possible_truncation)]
         let mut buffer = vec![0; metadata.len() as usize];
         let _ = file.read(&mut buffer).await.wrap_err("Buffer overflow.")?;
-        VersionedValidBlock::decode_versioned(&buffer).wrap_err("Failed to read block from store.")
+        VersionedCommittedBlock::decode_versioned(&buffer)
+            .wrap_err("Failed to read block from store.")
     }
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
-    async fn read_all(&self) -> Vec<VersionedValidBlock> {
+    async fn read_all(&self) -> Vec<VersionedCommittedBlock> {
         let mut height = 1;
         let mut blocks = Vec::new();
         while let Ok(block) = self.read(height).await {
@@ -266,7 +238,8 @@ mod tests {
             .chain_first()
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
-            .expect("Failed to sign blocks.");
+            .expect("Failed to sign blocks.")
+            .commit();
         assert!(BlockStore::new(dir.path())
             .unwrap()
             .write(&block)
@@ -282,7 +255,8 @@ mod tests {
             .chain_first()
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
-            .expect("Failed to sign blocks.");
+            .expect("Failed to sign blocks.")
+            .commit();
         let block_store = BlockStore::new(dir.path()).unwrap();
         let _ = block_store
             .write(&block)
@@ -301,7 +275,8 @@ mod tests {
             .chain_first()
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
-            .expect("Failed to sign blocks.");
+            .expect("Failed to sign blocks.")
+            .commit();
         for height in 1..=n {
             let hash = block_store
                 .write(&block)
@@ -311,7 +286,8 @@ mod tests {
                 .chain(height, hash, 0, Vec::new())
                 .validate(&WorldStateView::new(World::new()), &AllowAll.into())
                 .sign(&keypair)
-                .expect("Failed to sign blocks.");
+                .expect("Failed to sign blocks.")
+                .commit();
         }
         let blocks = block_store.read_all().await;
         assert_eq!(blocks.len(), n as usize)
@@ -330,11 +306,12 @@ mod tests {
             .chain_first()
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
-            .expect("Failed to sign blocks.");
+            .expect("Failed to sign blocks.")
+            .commit();
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new(Mode::Strict, dir.path(), tx).unwrap();
-        kura.init().await.expect("Failed to init Kura.");
+        drop(kura.init().await.expect("Failed to init Kura."));
         let _ = kura
             .store(block)
             .await
