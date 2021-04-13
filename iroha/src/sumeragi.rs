@@ -48,7 +48,7 @@ pub struct Sumeragi {
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
     /// This field is used to count votes when the peer is a proxy tail role.
     votes_for_blocks: BTreeMap<Hash, VersionedValidBlock>,
-    blocks_sender: ValidBlockSender,
+    blocks_sender: CommittedBlockSender,
     events_sender: EventsSender,
     transactions_sender: TransactionSender,
     world_state_view: Arc<WorldStateView>,
@@ -77,7 +77,7 @@ impl Sumeragi {
     /// Can fail during initing network topology
     pub fn from_configuration(
         configuration: &config::SumeragiConfiguration,
-        blocks_sender: ValidBlockSender,
+        blocks_sender: CommittedBlockSender,
         events_sender: EventsSender,
         world_state_view: Arc<WorldStateView>,
         transactions_sender: TransactionSender,
@@ -308,8 +308,7 @@ impl Sumeragi {
     /// # Errors
     /// Can fail signing block
     pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
-        let wsv = Arc::clone(&self.world_state_view);
-        let block = block.validate(&wsv, &self.permissions_validator);
+        let block = block.validate(&self.world_state_view, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
         iroha_logger::info!(
             "{:?} - Created a block with hash {}.",
@@ -341,11 +340,11 @@ impl Sumeragi {
         results
             .into_iter()
             .filter_map(Result::err)
-            .for_each(|error_result| {
+            .for_each(|error| {
                 iroha_logger::error!(
                     "Failed to send BlockCreated messages from {}: {:?}",
                     this_peer.address,
-                    error_result
+                    error
                 )
             });
         self.start_commit_countdown(
@@ -420,7 +419,7 @@ impl Sumeragi {
             self.events_sender.send(event).await;
         }
 
-        self.blocks_sender.send(block).await;
+        self.blocks_sender.send(block.commit()).await;
 
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
