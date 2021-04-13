@@ -104,6 +104,11 @@ impl VersionedAcceptedTransaction {
         self.as_inner_v1()
             .check_instruction_len(max_instruction_len)
     }
+
+    /// Returns payload of transaction
+    pub const fn payload(&self) -> &Payload {
+        &self.as_inner_v1().payload
+    }
 }
 
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
@@ -300,7 +305,7 @@ impl AcceptedTransaction {
 
     /// Checks if this transaction has already been committed or rejected.
     pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(self.hash())
+        world_state_view.has_transaction(&self.hash())
     }
 }
 
@@ -344,7 +349,7 @@ impl IsInBlockchain for VersionedRejectedTransaction {
 
 impl IsInBlockchain for RejectedTransaction {
     fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(self.hash())
+        world_state_view.has_transaction(&self.hash())
     }
 }
 
@@ -395,6 +400,11 @@ impl VersionedValidTransaction {
         self.as_inner_v1()
             .check_instruction_len(max_instruction_len)
     }
+
+    /// Returns payload of transaction
+    pub const fn payload(&self) -> &Payload {
+        &self.as_inner_v1().payload
+    }
 }
 
 /// `ValidTransaction` represents trustfull Transaction state.
@@ -433,7 +443,7 @@ impl ValidTransaction {
 
     /// Checks if this transaction has already been committed or rejected.
     pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(self.hash())
+        world_state_view.has_transaction(&self.hash())
     }
 }
 
@@ -481,15 +491,15 @@ pub mod query {
     impl Query for FindTransactionsByAccountId {
         #[iroha_logger::log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            use async_std::task::block_on;
+
             let id = self
                 .account_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get id")?;
             Ok(Value::Vec(
-                world_state_view
-                    .read_transactions(&id)
-                    .iter()
-                    .cloned()
+                block_on(world_state_view.read_transactions(&id))
+                    .into_iter()
                     .map(Value::TransactionValue)
                     .collect::<Vec<_>>(),
             ))

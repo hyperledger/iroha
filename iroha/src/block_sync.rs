@@ -8,9 +8,9 @@ use iroha_logger::{log, InstrumentFutures};
 
 use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
-    kura::Kura,
     sumeragi::{Role, Sumeragi},
-    VersionedValidBlock,
+    wsv::WorldStateView,
+    VersionedCommittedBlock,
 };
 
 /// The state of `BlockSynchronizer`.
@@ -20,13 +20,13 @@ enum State {
     Idle,
     /// Synchronization is in progress: validating and committing blocks.
     /// Contains a vector of blocks left to commit and an id of the peer from which the blocks were requested.
-    InProgress(Vec<VersionedValidBlock>, PeerId),
+    InProgress(Vec<VersionedCommittedBlock>, PeerId),
 }
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
 pub struct BlockSynchronizer {
-    kura: Arc<RwLock<Kura>>,
+    wsv: Arc<WorldStateView>,
     sumeragi: Arc<RwLock<Sumeragi>>,
     peer_id: PeerId,
     state: State,
@@ -39,13 +39,13 @@ impl BlockSynchronizer {
     /// Constructs `BlockSync`
     pub fn from_configuration(
         config: &BlockSyncConfiguration,
-        kura: Arc<RwLock<Kura>>,
+        wsv: Arc<WorldStateView>,
         sumeragi: Arc<RwLock<Sumeragi>>,
         peer_id: PeerId,
         n_topology_shifts_before_reshuffle: u32,
     ) -> BlockSynchronizer {
         Self {
-            kura,
+            wsv,
             peer_id,
             sumeragi,
             state: State::Idle,
@@ -61,17 +61,15 @@ impl BlockSynchronizer {
     #[log]
     pub fn start(&self) {
         let gossip_period = self.gossip_period;
-        let kura = Arc::clone(&self.kura);
+        let wsv = Arc::clone(&self.wsv);
         let peer_id = self.peer_id.clone();
         let sumeragi = Arc::clone(&self.sumeragi);
         drop(task::spawn(
             async move {
                 loop {
                     task::sleep(gossip_period).await;
-                    let message = Message::LatestBlock(
-                        kura.read().await.latest_block_hash(),
-                        peer_id.clone(),
-                    );
+                    let message =
+                        Message::LatestBlock(wsv.latest_block_hash().await, peer_id.clone());
                     drop(
                         futures::future::join_all(
                             sumeragi
@@ -102,7 +100,7 @@ impl BlockSynchronizer {
                     .sumeragi
                     .read()
                     .await
-                    .network_topology_current_or_genesis(block);
+                    .network_topology_current_or_genesis(&block.clone().into());
                 if block.header().number_of_view_changes < self.n_topology_shifts_before_reshuffle {
                     network_topology.shift_peers_by_n(block.header().number_of_view_changes);
                 } else {
@@ -111,7 +109,7 @@ impl BlockSynchronizer {
                         block.header().number_of_view_changes,
                     )
                 }
-                if self.kura.read().await.latest_block_hash() == block.header().previous_block_hash
+                if self.wsv.latest_block_hash().await == block.header().previous_block_hash
                     && network_topology
                         .filter_signatures_by_roles(
                             &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
@@ -124,7 +122,7 @@ impl BlockSynchronizer {
                     self.sumeragi
                         .write()
                         .await
-                        .commit_block(block.clone())
+                        .commit_block(block.clone().into())
                         .await;
                 } else {
                     self.state = State::Idle;
@@ -132,7 +130,7 @@ impl BlockSynchronizer {
             } else {
                 self.state = State::Idle;
                 if let Err(e) = Message::GetBlocksAfter(
-                    self.kura.read().await.latest_block_hash(),
+                    self.wsv.latest_block_hash().await,
                     self.peer_id.clone(),
                 )
                 .send_to(&peer_id)
@@ -157,7 +155,7 @@ pub mod message {
     use parity_scale_codec::{Decode, Encode};
 
     use super::{BlockSynchronizer, State};
-    use crate::{block::VersionedValidBlock, torii::uri};
+    use crate::{block::VersionedCommittedBlock, torii::uri};
 
     declare_versioned_with_scale!(VersionedMessage 1..2);
 
@@ -194,7 +192,7 @@ pub mod message {
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(Hash, PeerId),
         /// The response to `GetBlocksAfter`. Contains the requested blocks and the id of the peer who shared them.
-        ShareBlocks(Vec<VersionedValidBlock>, PeerId),
+        ShareBlocks(Vec<VersionedCommittedBlock>, PeerId),
     }
 
     impl Message {
@@ -202,7 +200,7 @@ pub mod message {
         pub async fn handle(&self, block_sync: &mut BlockSynchronizer) {
             match self {
                 Message::LatestBlock(hash, peer) => {
-                    let latest_block_hash = block_sync.kura.read().await.latest_block_hash();
+                    let latest_block_hash = block_sync.wsv.latest_block_hash().await;
                     if *hash != latest_block_hash {
                         if let Err(err) =
                             Message::GetBlocksAfter(latest_block_hash, block_sync.peer_id.clone())
@@ -221,7 +219,7 @@ pub mod message {
                         return;
                     }
 
-                    if let Some(blocks) = block_sync.kura.read().await.blocks_after(*hash) {
+                    if let Some(blocks) = block_sync.wsv.blocks_after(*hash).await {
                         #[allow(clippy::cast_possible_truncation)]
                         if let Some(blocks_batch) =
                             blocks.chunks(block_sync.batch_size as usize).next()
