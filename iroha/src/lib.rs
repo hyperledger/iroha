@@ -85,7 +85,7 @@ pub struct Iroha {
     kura: Arc<RwLock<Kura>>,
     transactions_receiver: TransactionReceiver,
     wsv_blocks_receiver: CommittedBlockReceiver,
-    kura_blocks_receiver: ValidBlockReceiver,
+    kura_blocks_receiver: CommittedBlockReceiver,
     sumeragi_message_receiver: SumeragiMessageReceiver,
     block_sync_message_receiver: BlockSyncMessageReceiver,
     world_state_view: Arc<WorldStateView>,
@@ -146,7 +146,7 @@ impl Iroha {
         let kura = Arc::new(RwLock::new(kura));
         let block_sync = Arc::new(RwLock::new(BlockSynchronizer::from_configuration(
             &config.block_sync_configuration,
-            Arc::clone(&kura),
+            Arc::clone(&world_state_view),
             Arc::clone(&sumeragi),
             PeerId::new(
                 &config.torii_configuration.torii_p2p_url,
@@ -188,13 +188,13 @@ impl Iroha {
         //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
         let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
-        kura.write().await.init().await?;
+        let blocks = kura.write().await.init().await?;
         sumeragi.write().await.init(
-            kura.read().await.latest_block_hash(),
-            kura.read().await.height(),
+            self.world_state_view.latest_block_hash().await,
+            self.world_state_view.height().await,
         );
         let world_state_view = Arc::clone(&self.world_state_view);
-        world_state_view.init(&kura.read().await.blocks);
+        world_state_view.init(blocks).await;
         sumeragi.write().await.update_network_topology().await;
         let torii = Arc::clone(&self.torii);
         let torii_handle = task::spawn(
@@ -248,7 +248,7 @@ impl Iroha {
         let wsv_handle = task::spawn(
             async move {
                 while let Some(block) = wsv_blocks_receiver.next().await {
-                    world_state_view.apply(&block);
+                    world_state_view.apply(block).await;
                     sumeragi.write().await.update_network_topology().await;
                     block_sync.write().await.continue_sync().await;
                 }

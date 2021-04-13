@@ -4,7 +4,7 @@
 use config::Configuration;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_error::Result;
-use iroha_structs::{HashMap, RwLock};
+use iroha_structs::{HashSet, RwLock};
 
 use crate::{isi::FindError, prelude::*};
 
@@ -14,10 +14,12 @@ use crate::{isi::FindError, prelude::*};
 pub struct WorldStateView {
     /// The world - contains `domains`, `triggers`, etc..
     pub world: World,
-    /// Hashes of the committed and rejected transactions.
-    pub transactions: HashMap<Hash, TransactionValue>,
     /// Configuration of World State View.
     pub config: Configuration,
+    /// Blockchain.
+    pub blocks: RwLock<Vec<VersionedCommittedBlock>>,
+    /// Hashes of transactions
+    pub transactions: HashSet<Hash>,
 }
 
 /// WARNING!!! INTERNAL USE ONLY!!!
@@ -26,8 +28,9 @@ impl WorldStateView {
     pub fn new(world: World) -> Self {
         WorldStateView {
             world,
-            transactions: HashMap::new(),
             config: Configuration::default(),
+            transactions: HashSet::new(),
+            blocks: RwLock::default(),
         }
     }
 
@@ -35,34 +38,63 @@ impl WorldStateView {
     pub fn from_config(config: Configuration, world: World) -> Self {
         WorldStateView {
             world,
-            transactions: HashMap::new(),
+            blocks: RwLock::default(),
+            transactions: HashSet::new(),
             config,
         }
     }
 
     /// Initializes WSV with the blocks from block storage.
-    pub fn init(&self, blocks: &[VersionedValidBlock]) {
+    pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
+        *self.blocks.write_async().await = Vec::with_capacity(blocks.len());
         for block in blocks {
-            self.apply(&block.clone().commit());
+            self.apply(block).await
         }
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
-    pub fn apply(&self, block: &VersionedCommittedBlock) {
-        for transaction in &block.as_inner_v1().transactions {
-            if let Err(e) = transaction.proceed(self) {
+    #[iroha_logger::log(skip(self, block))]
+    pub async fn apply(&self, block: VersionedCommittedBlock) {
+        for tx in &block.as_inner_v1().transactions {
+            if let Err(e) = tx.proceed(self) {
                 iroha_logger::warn!("Failed to proceed transaction on WSV: {}", e);
             }
-            drop(self.transactions.insert(
-                transaction.hash(),
-                TransactionValue::Transaction(transaction.clone().into()),
-            ));
+            let _ = self.transactions.insert(tx.hash());
         }
-        for transaction in &block.as_inner_v1().rejected_transactions {
-            drop(self.transactions.insert(
-                transaction.hash(),
-                TransactionValue::RejectedTransaction(transaction.clone()),
-            ));
+        self.blocks.write_async().await.push(block);
+    }
+
+    /// Hash of latest block
+    pub async fn latest_block_hash(&self) -> Hash {
+        // Should we return Result here?
+        self.blocks
+            .read_async()
+            .await
+            .last()
+            .map_or(Hash([0_u8; 32]), VersionedCommittedBlock::hash)
+    }
+
+    /// Height of blockchain
+    pub async fn height(&self) -> u64 {
+        // Should we return Result here?
+        self.blocks
+            .read_async()
+            .await
+            .last()
+            .map_or(0, |block| block.header().height)
+    }
+
+    /// Returns blocks after hash
+    pub async fn blocks_after(&self, hash: Hash) -> Option<Vec<VersionedCommittedBlock>> {
+        let blocks = self.blocks.read_async().await;
+        let from_pos = blocks
+            .iter()
+            .position(|block| block.header().previous_block_hash == hash)?;
+
+        if blocks.len() > from_pos {
+            Some(blocks[from_pos..].to_vec())
+        } else {
+            None
         }
     }
 
@@ -237,18 +269,21 @@ impl WorldStateView {
     }
 
     /// Checks if this `transaction_hash` is already committed or rejected.
-    pub fn has_transaction(&self, transaction_hash: Hash) -> bool {
-        self.transactions.contains_key(&transaction_hash)
+    pub fn has_transaction(&self, transaction_hash: &Hash) -> bool {
+        self.transactions.get(transaction_hash).is_some()
     }
 
     /// Get committed and rejected transaction of the account.
-    pub fn read_transactions(&self, account_id: &AccountId) -> Vec<TransactionValue> {
-        let mut vec: Vec<TransactionValue> = self
-            .transactions
+    pub async fn read_transactions(&self, account_id: &AccountId) -> Vec<TransactionValue> {
+        let mut vec = self
+            .blocks
+            .read_async()
+            .await
             .iter()
-            .filter(|read_guard| &read_guard.value().payload().account_id == account_id)
-            .map(|read_guard| read_guard.value().clone())
-            .collect();
+            .flat_map(|block| {
+                block.filter_tx_values_by_payload(|payload| &payload.account_id == account_id)
+            })
+            .collect::<Vec<_>>();
         vec.sort();
         vec
     }
@@ -265,6 +300,7 @@ pub mod config {
     const DEFAULT_ACCOUNT_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     const DEFAULT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
+
     /// [`WorldStateView`](super::WorldStateView) configuration.
     #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable)]
     #[config(env_prefix = "WSV_")]
