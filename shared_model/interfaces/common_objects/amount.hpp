@@ -8,6 +8,8 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
+#include <string_view>
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -18,7 +20,19 @@ namespace shared_model {
      */
     class Amount final : public ModelPrimitive<Amount> {
      public:
-      explicit Amount(const std::string &amount);
+      explicit Amount(std::string_view amount);
+
+      explicit Amount(types::PrecisionType precision);
+
+      Amount(Amount const &other);
+
+      Amount(Amount &&other) noexcept;
+
+      Amount &operator=(Amount const &other);
+
+      Amount &operator=(Amount &&other) noexcept;
+
+      ~Amount() override;
 
       /**
        * Returns a value less than zero if Amount is negative, a value greater
@@ -36,7 +50,11 @@ namespace shared_model {
        * String representation.
        * @return string representation of the asset.
        */
-      std::string toStringRepr() const;
+      std::string const &toStringRepr() const;
+
+      Amount &operator+=(Amount const &other);
+
+      Amount &operator-=(Amount const &other);
 
       /**
        * Checks equality of objects inside
@@ -53,8 +71,7 @@ namespace shared_model {
 
      private:
       struct Impl;
-
-      const std::shared_ptr<const Impl> impl_;
+      std::unique_ptr<Impl> impl_;
     };
   }  // namespace interface
 }  // namespace shared_model
