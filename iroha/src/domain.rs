@@ -87,6 +87,22 @@ pub mod isi {
                 .ok_or_else(|| error!("Failed to find domain."))?
                 .asset_definitions
                 .remove(&asset_definition_id);
+            world_state_view
+                .world
+                .domains
+                .values_mut()
+                .flat_map(|domain| domain.accounts.values_mut())
+                .for_each(|account| {
+                    let keys = account
+                        .assets
+                        .keys()
+                        .filter(|asset_id| asset_id.definition_id == asset_definition_id)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    keys.iter().for_each(|asset_id| {
+                        let _ = account.assets.remove(asset_id);
+                    });
+                });
             Ok(world_state_view)
         }
     }
