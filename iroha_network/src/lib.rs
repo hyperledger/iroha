@@ -104,13 +104,19 @@ impl Network {
         F: Future<Output = Result<()>> + Send + 'static,
     {
         let listener = TcpListener::bind(server_url).await?;
-        let mut incoming = listener.incoming();
-        while let Some(stream) = incoming.next().await {
-            let stream = Box::new(stream?);
-            let state = Arc::clone(&state);
-            let _drop = async_std::task::spawn(handler(state, stream));
+        loop {
+            let stream = match listener.accept().await {
+                Ok((stream, _)) => Box::new(stream),
+                Err(err) => {
+                    use std::error::Error;
+
+                    let err: &dyn Error = &err;
+                    iroha_logger::warn!(err, "Failed to accept connection");
+                    continue;
+                }
+            };
+            let _drop = async_std::task::spawn(handler(Arc::clone(&state), stream));
         }
-        Ok(())
     }
 
     /// Helper function to call inside `listen` `handler` function to parse and send response.
