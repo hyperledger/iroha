@@ -45,7 +45,7 @@ pub struct Sumeragi {
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
     /// This field is used to count votes when the peer is a proxy tail role.
     votes_for_blocks: BTreeMap<Hash, VersionedValidBlock>,
-    blocks_sender: Arc<RwLock<ValidBlockSender>>,
+    blocks_sender: ValidBlockSender,
     events_sender: EventsSender,
     transactions_sender: TransactionSender,
     world_state_view: Arc<RwLock<WorldStateView>>,
@@ -74,7 +74,7 @@ impl Sumeragi {
     /// Can fail during initing network topology
     pub fn from_configuration(
         configuration: &config::SumeragiConfiguration,
-        blocks_sender: Arc<RwLock<ValidBlockSender>>,
+        blocks_sender: ValidBlockSender,
         events_sender: EventsSender,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
@@ -434,7 +434,7 @@ impl Sumeragi {
             self.events_sender.send(event).await;
         }
 
-        self.blocks_sender.write().await.send(block).await;
+        self.blocks_sender.send(block).await;
 
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
@@ -2025,7 +2025,7 @@ mod tests {
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
-                    Arc::new(RwLock::new(block_sender)),
+                    block_sender,
                     events_sender.clone(),
                     wsv.clone(),
                     transactions_sender,
@@ -2153,7 +2153,7 @@ mod tests {
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
-                    Arc::new(RwLock::new(block_sender)),
+                    block_sender,
                     events_sender.clone(),
                     wsv.clone(),
                     transactions_sender,
@@ -2305,7 +2305,7 @@ mod tests {
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
-                    Arc::new(RwLock::new(block_sender)),
+                    block_sender,
                     events_sender.clone(),
                     wsv.clone(),
                     transactions_sender,
@@ -2471,7 +2471,7 @@ mod tests {
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
-                    Arc::new(RwLock::new(block_sender)),
+                    block_sender,
                     events_sender.clone(),
                     wsv.clone(),
                     transactions_sender,
@@ -2633,7 +2633,7 @@ mod tests {
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
-                    Arc::new(RwLock::new(block_sender)),
+                    block_sender,
                     events_sender.clone(),
                     wsv.clone(),
                     transactions_sender,

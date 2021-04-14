@@ -83,11 +83,11 @@ pub struct Iroha {
     queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
     kura: Arc<RwLock<Kura>>,
-    transactions_receiver: Arc<RwLock<TransactionReceiver>>,
-    wsv_blocks_receiver: Arc<RwLock<CommittedBlockReceiver>>,
-    kura_blocks_receiver: Arc<RwLock<ValidBlockReceiver>>,
-    sumeragi_message_receiver: Arc<RwLock<SumeragiMessageReceiver>>,
-    block_sync_message_receiver: Arc<RwLock<BlockSyncMessageReceiver>>,
+    transactions_receiver: TransactionReceiver,
+    wsv_blocks_receiver: CommittedBlockReceiver,
+    kura_blocks_receiver: ValidBlockReceiver,
+    sumeragi_message_receiver: SumeragiMessageReceiver,
+    block_sync_message_receiver: BlockSyncMessageReceiver,
     world_state_view: Arc<RwLock<WorldStateView>>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
     genesis_network: Option<GenesisNetwork>,
@@ -118,7 +118,7 @@ impl Iroha {
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::from_configuration(
                 &config.sumeragi_configuration,
-                Arc::new(RwLock::new(kura_blocks_sender)),
+                kura_blocks_sender,
                 events_sender.clone(),
                 world_state_view.clone(),
                 transactions_sender.clone(),
@@ -163,11 +163,11 @@ impl Iroha {
             sumeragi,
             kura,
             world_state_view,
-            transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
-            wsv_blocks_receiver: Arc::new(RwLock::new(wsv_blocks_receiver)),
-            sumeragi_message_receiver: Arc::new(RwLock::new(sumeragi_message_receiver)),
-            kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
-            block_sync_message_receiver: Arc::new(RwLock::new(block_sync_message_receiver)),
+            transactions_receiver,
+            wsv_blocks_receiver,
+            sumeragi_message_receiver,
+            kura_blocks_receiver,
+            block_sync_message_receiver,
             block_sync,
             genesis_network,
         }
@@ -205,11 +205,11 @@ impl Iroha {
             .in_current_span(),
         );
         self.block_sync.read().await.start();
-        let transactions_receiver = Arc::clone(&self.transactions_receiver);
+        let mut transactions_receiver = self.transactions_receiver.clone();
         let queue = Arc::clone(&self.queue);
         let tx_handle = task::spawn(
             async move {
-                while let Some(transaction) = transactions_receiver.write().await.next().await {
+                while let Some(transaction) = transactions_receiver.next().await {
                     if let Err(e) = queue.write().await.push_pending_transaction(transaction) {
                         iroha_logger::error!(
                             "Failed to put transaction into queue of pending tx: {}",
@@ -243,13 +243,13 @@ impl Iroha {
             }
             .in_current_span(),
         );
-        let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
+        let mut wsv_blocks_receiver = self.wsv_blocks_receiver.clone();
         let world_state_view = Arc::clone(&self.world_state_view);
         let sumeragi = Arc::clone(&self.sumeragi);
         let block_sync = Arc::clone(&self.block_sync);
         let wsv_handle = task::spawn(
             async move {
-                while let Some(block) = wsv_blocks_receiver.write().await.next().await {
+                while let Some(block) = wsv_blocks_receiver.next().await {
                     world_state_view.write().await.apply(&block);
                     sumeragi.write().await.update_network_topology().await;
                     block_sync.write().await.continue_sync().await;
@@ -257,11 +257,11 @@ impl Iroha {
             }
             .in_current_span(),
         );
-        let sumeragi_message_receiver = Arc::clone(&self.sumeragi_message_receiver);
+        let mut sumeragi_message_receiver = self.sumeragi_message_receiver.clone();
         let sumeragi = Arc::clone(&self.sumeragi);
         let sumeragi_message_handle = task::spawn(
             async move {
-                while let Some(message) = sumeragi_message_receiver.write().await.next().await {
+                while let Some(message) = sumeragi_message_receiver.next().await {
                     if let Err(e) = message.handle(&mut *sumeragi.write().await).await {
                         iroha_logger::error!("Handle message failed: {}", e);
                     }
@@ -269,21 +269,21 @@ impl Iroha {
             }
             .in_current_span(),
         );
-        let block_sync_message_receiver = Arc::clone(&self.block_sync_message_receiver);
+        let mut block_sync_message_receiver = self.block_sync_message_receiver.clone();
         let block_sync = Arc::clone(&self.block_sync);
         let block_sync_message_handle = task::spawn(
             async move {
-                while let Some(message) = block_sync_message_receiver.write().await.next().await {
+                while let Some(message) = block_sync_message_receiver.next().await {
                     message.handle(&mut *block_sync.write().await).await;
                 }
             }
             .in_current_span(),
         );
-        let kura_blocks_receiver = Arc::clone(&self.kura_blocks_receiver);
+        let mut kura_blocks_receiver = self.kura_blocks_receiver.clone();
         let kura = Arc::clone(&self.kura);
         let kura_handle = task::spawn(
             async move {
-                while let Some(block) = kura_blocks_receiver.write().await.next().await {
+                while let Some(block) = kura_blocks_receiver.next().await {
                     let _hash = kura
                         .write()
                         .await

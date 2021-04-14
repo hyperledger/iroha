@@ -18,9 +18,7 @@ use iroha_version::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    block_sync::message::{
-        Message as BlockSyncMessage, VersionedMessage as BlockSyncVersionedMessage,
-    },
+    block_sync::message::VersionedMessage as BlockSyncVersionedMessage,
     config::Configuration,
     event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
@@ -38,9 +36,9 @@ pub struct Torii {
     api_url: String,
     config: Arc<RwLock<Configuration>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
-    transaction_sender: Arc<RwLock<TransactionSender>>,
-    sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
-    block_sync_message_sender: Arc<RwLock<BlockSyncMessageSender>>,
+    transaction_sender: TransactionSender,
+    sumeragi_message_sender: SumeragiMessageSender,
+    block_sync_message_sender: BlockSyncMessageSender,
     system: Arc<RwLock<System>>,
     events_sender: EventsSender,
     events_receiver: EventsReceiver,
@@ -69,12 +67,6 @@ pub enum Error {
     /// Failed to encode pending transactions
     #[error("Failed to encode pending transactions")]
     EncodePendingTransactions(#[source] iroha_version::error::Error),
-    /// The sumeragi message channel is full. Dropping the incoming message.
-    #[error("The sumeragi message channel is full. Dropping the incoming message.")]
-    SumeragiChannelFull(#[source] Box<async_std::sync::TrySendError<SumeragiVersionedMessage>>),
-    /// The block sync message channel is full. Dropping the incoming message.
-    #[error("The block sync message channel is full. Dropping the incoming message.")]
-    BlockSyncChannelFull(#[source] Box<async_std::sync::TrySendError<BlockSyncMessage>>),
     /// The block sync message channel is full. Dropping the incoming message.
     #[error("Transaction is too big")]
     TxTooBig,
@@ -94,9 +86,9 @@ impl iroha_http_server::http::HttpResponseError for Error {
             ExecuteQuery(_)
             | RequestPendingTransactions(_)
             | DecodeRequestPendingTransactions(_)
-            | EncodePendingTransactions(_)
-            | SumeragiChannelFull(_)
-            | BlockSyncChannelFull(_) => iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR,
+            | EncodePendingTransactions(_) => {
+                iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR
+            }
             TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | InvalidFieldValue(_) => {
                 iroha_http_server::http::HTTP_CODE_BAD_REQUEST
             }
@@ -138,9 +130,9 @@ impl Torii {
             p2p_url: torii_p2p_url,
             api_url: torii_api_url,
             world_state_view,
-            transaction_sender: Arc::new(RwLock::new(transaction_sender)),
-            sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
-            block_sync_message_sender: Arc::new(RwLock::new(block_sync_message_sender)),
+            transaction_sender,
+            sumeragi_message_sender,
+            block_sync_message_sender,
             system: Arc::new(RwLock::new(system)),
             events_sender,
             events_receiver,
@@ -153,9 +145,9 @@ impl Torii {
         let world_state_view = Arc::clone(&self.world_state_view);
         let transactions_queue = Arc::clone(&self.transactions_queue);
         let sumeragi = Arc::clone(&self.sumeragi);
-        let transaction_sender = Arc::clone(&self.transaction_sender);
-        let sumeragi_message_sender = Arc::clone(&self.sumeragi_message_sender);
-        let block_sync_message_sender = Arc::clone(&self.block_sync_message_sender);
+        let transaction_sender = self.transaction_sender.clone();
+        let sumeragi_message_sender = self.sumeragi_message_sender.clone();
+        let block_sync_message_sender = self.block_sync_message_sender.clone();
         let system = Arc::clone(&self.system);
         let consumers = Arc::new(RwLock::new(Vec::new()));
         let config = Arc::clone(&self.config);
@@ -217,9 +209,9 @@ impl Torii {
 struct ToriiState {
     config: Arc<RwLock<Configuration>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
-    transaction_sender: Arc<RwLock<TransactionSender>>,
-    sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
-    block_sync_message_sender: Arc<RwLock<BlockSyncMessageSender>>,
+    transaction_sender: TransactionSender,
+    sumeragi_message_sender: SumeragiMessageSender,
+    block_sync_message_sender: BlockSyncMessageSender,
     consumers: Arc<RwLock<Vec<Consumer>>>,
     system: Arc<RwLock<System>>,
     events_sender: EventsSender,
@@ -264,8 +256,6 @@ async fn handle_instructions(
         .write()
         .await
         .transaction_sender
-        .write()
-        .await
         .send(transaction)
         .await;
     Ok(())
@@ -520,11 +510,8 @@ async fn handle_request(
                 .read()
                 .await
                 .sumeragi_message_sender
-                .write()
-                .await
-                .try_send(message)
-                .map_err(Box::new)
-                .map_err(Error::SumeragiChannelFull)?;
+                .send(message)
+                .await;
             Ok(Response::empty_ok())
         }
         uri::BLOCK_SYNC_URI => {
@@ -540,11 +527,8 @@ async fn handle_request(
                 .read()
                 .await
                 .block_sync_message_sender
-                .write()
-                .await
-                .try_send(message)
-                .map_err(Box::new)
-                .map_err(Error::BlockSyncChannelFull)?;
+                .send(message)
+                .await;
             Ok(Response::empty_ok())
         }
         uri::HEALTH_URI => Ok(Response::empty_ok()),
@@ -676,7 +660,7 @@ mod tests {
         ))));
         let sumeragi = Sumeragi::from_configuration(
             &config.sumeragi_configuration,
-            Arc::new(RwLock::new(block_sender)),
+            block_sender,
             events_sender.clone(),
             wsv.clone(),
             tx_tx.clone(),
