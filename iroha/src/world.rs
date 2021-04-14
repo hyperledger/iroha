@@ -13,19 +13,16 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             if world_state_view
                 .world()
                 .trusted_peers_ids
                 .insert(self.object.id)
             {
-                Ok(world_state_view)
+                Ok(())
             } else {
-                Err(error!(
-                    "Peer already presented in the list of trusted peers.",
-                ))
+                Err(error!("Peer already presented in the list of trusted peers.",).into())
             }
         }
     }
@@ -34,16 +31,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let domain = self.object;
             domain.validate_len(world_state_view.config.length_limits)?;
-            let mut world_state_view = world_state_view.clone();
             let _ = world_state_view
                 .world()
                 .domains
                 .insert(domain.name.clone(), domain);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -51,11 +47,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
+            // TODO: Should we fail if no domain found?
             let _ = world_state_view.world().domains.remove(&self.object_id);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -63,11 +59,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             world_state_view.world().parameters.push(self.object);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 }

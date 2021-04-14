@@ -14,22 +14,22 @@ pub mod isi {
         fn execute(
             self,
             _authority: <NewAccount as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let account = self.object;
             account.validate_len(world_state_view.config.length_limits)?;
             let domain = world_state_view
                 .domain(&account.id.domain_name)
-                .ok_or_else(|| error!("Failed to find domain."))?;
+                .ok_or_else(|| FindError::Domain(account.id.domain_name.clone()))?;
             if domain.accounts.contains_key(&account.id) {
                 Err(error!(
                     "Domain already contains an account with an Id: {:?}",
                     &account.id
-                ))
+                )
+                .into())
             } else {
                 let _ = domain.accounts.insert(account.id.clone(), account.into());
-                Ok(world_state_view)
+                Ok(())
             }
         }
     }
@@ -38,15 +38,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let account_id = self.object_id;
             let domain = world_state_view
                 .domain(&account_id.domain_name)
-                .ok_or_else(|| error!("Failed to find domain."))?;
+                .ok_or_else(|| FindError::Domain(account_id.domain_name.clone()))?;
+            // TODO: Should we fail if no domain found?
             let _ = domain.accounts.remove(&account_id);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -54,14 +54,13 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let asset_definition = self.object;
             asset_definition.validate_len(world_state_view.config.length_limits)?;
             let _ = world_state_view
                 .domain(&asset_definition.id.domain_name)
-                .ok_or_else(|| error!("Failed to find domain."))?
+                .ok_or_else(|| FindError::Domain(asset_definition.id.domain_name.clone()))?
                 .asset_definitions
                 .insert(
                     asset_definition.id.clone(),
@@ -70,7 +69,7 @@ pub mod isi {
                         registered_by: authority,
                     },
                 );
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -78,13 +77,13 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
+            // TODO: Should we fail if no domain found?
             let _ = world_state_view
                 .domain(&asset_definition_id.domain_name)
-                .ok_or_else(|| error!("Failed to find domain."))?
+                .ok_or_else(|| FindError::Domain(asset_definition_id.domain_name.clone()))?
                 .asset_definitions
                 .remove(&asset_definition_id);
             world_state_view
@@ -103,7 +102,7 @@ pub mod isi {
                         let _ = account.assets.remove(asset_id);
                     });
                 });
-            Ok(world_state_view)
+            Ok(())
         }
     }
 }

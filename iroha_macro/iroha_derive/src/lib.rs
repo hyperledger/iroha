@@ -3,6 +3,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 
 const SKIP_FROM_ATTR: &str = "skip_from";
+const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 
 #[proc_macro_derive(Io)]
 pub fn io_derive(input: TokenStream) -> TokenStream {
@@ -46,7 +47,7 @@ pub fn into_query_derive(input: TokenStream) -> TokenStream {
 ///     }
 /// }
 /// ```
-#[proc_macro_derive(FromVariant, attributes(skip_from))]
+#[proc_macro_derive(FromVariant, attributes(skip_from, skip_try_from))]
 pub fn from_variant_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
     impl_from_variant(&ast)
@@ -218,7 +219,12 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
                     .first()
                     .expect("Won't fail as we have more than  one argument for variant")
                     .ty;
-                let try_into = try_into_variant(name, &variant.ident, variant_type);
+
+                let try_into = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_TRY_FROM_ATTR) {
+                    quote!()
+                } else {
+                    try_into_variant(name, &variant.ident, variant_type)
+                };
                 let from = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_FROM_ATTR) {
                     quote!()
                 } else {
