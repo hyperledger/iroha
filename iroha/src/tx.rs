@@ -206,9 +206,9 @@ impl AcceptedTransaction {
         for instruction in &self.payload.instructions {
             let account_id = self.payload.account_id.clone();
 
-            world_state_view_temp = instruction
+            instruction
                 .clone()
-                .execute(account_id.clone(), &world_state_view_temp)
+                .execute(account_id.clone(), &mut world_state_view_temp)
                 .map_err(|reason| InstructionExecutionFail {
                     instruction: instruction.clone(),
                     reason: reason.to_string(),
@@ -393,9 +393,9 @@ impl ValidTransaction {
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<()> {
         let mut world_state_view_temp = world_state_view.clone();
         for instruction in &self.payload.instructions {
-            world_state_view_temp = instruction
+            instruction
                 .clone()
-                .execute(self.payload.account_id.clone(), &world_state_view_temp)?;
+                .execute(self.payload.account_id.clone(), &mut world_state_view_temp)?;
         }
         *world_state_view = world_state_view_temp;
         Ok(())

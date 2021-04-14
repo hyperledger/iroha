@@ -1,9 +1,92 @@
 //! This module contains enumeration of all possible Iroha Special Instructions `Instruction`,
 //! generic instruction types and related implementations.
+use std::error::Error as StdError;
+use std::fmt::{self, Display, Formatter};
+
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
-use iroha_error::{error, Result};
+use iroha_derive::FromVariant;
+use iroha_error::{derive::Error, error, Result};
 
 use crate::{expression::Evaluate, prelude::*};
+
+/// Instruction execution error type
+#[allow(clippy::clippy::pub_enum_variant_names)]
+#[derive(Debug, FromVariant, Error)]
+pub enum Error {
+    /// Failed to find some entity
+    #[error("Failed to find")]
+    FindError(#[source] Box<FindError>),
+    /// Failed to assert type
+    #[error("Failed to assert type")]
+    TypeError(#[source] TypeError),
+    /// Failed due to math exception
+    #[error("Math error occured")]
+    MathError(#[source] MathError),
+    /// Some other error happened
+    #[error("Some other error happened")]
+    Other(#[skip_try_from] iroha_error::Error),
+}
+
+/// Type assertion error
+#[derive(Debug, Clone, Error)]
+pub enum FindError {
+    /// Failed to find asset
+    #[error("Failed to find asset")]
+    Asset(AssetId),
+    /// Failed to find asset definition
+    #[error("Failed to find asset definition")]
+    AssetDefinition(AssetDefinitionId),
+    /// Failed to find account
+    #[error("Failed to find account")]
+    Account(AccountId),
+    /// Failed to find domain
+    #[error("Failed to find domain")]
+    Domain(Name),
+    /// Failed to find metadata key
+    #[error("Failed to find metadata key")]
+    MetadataKey(Name),
+}
+
+/// Type assertion error
+#[derive(Debug, Clone, FromVariant, Error, Copy)]
+pub enum TypeError {
+    /// Asset type assertion error
+    #[error("Failed to assert type of asset")]
+    Asset(#[source] AssetTypeError),
+}
+
+/// Asset type assertion error
+#[derive(Debug, Clone, Copy)]
+pub struct AssetTypeError {
+    /// Expected type
+    pub expected: AssetValueType,
+    /// Type which was discovered
+    pub got: AssetValueType,
+}
+
+impl Display for AssetTypeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Asset type error: expected asset of type {:?}, but got {:?}",
+            self.expected, self.got
+        )
+    }
+}
+
+impl StdError for AssetTypeError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        None
+    }
+}
+
+/// Math error type inside instruction
+#[derive(Debug, Clone, FromVariant, Error, Copy)]
+pub enum MathError {
+    /// Overflow error inside instruction
+    #[error("Overflow occured.")]
+    OverflowError,
+}
 
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 #[allow(clippy::missing_errors_doc)]
@@ -12,16 +95,16 @@ pub trait Execute {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView>;
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error>;
 }
 
 impl Execute for Instruction {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         use Instruction::*;
         match self {
             Register(register_box) => register_box.execute(authority, world_state_view),
@@ -47,8 +130,8 @@ impl Execute for RegisterBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.object.evaluate(world_state_view, &context)? {
             IdentifiableBox::NewAccount(account) => {
@@ -64,7 +147,7 @@ impl Execute for RegisterBox {
             IdentifiableBox::Peer(peer) => {
                 Register::<Peer>::new(*peer).execute(authority, world_state_view)
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -74,8 +157,8 @@ impl Execute for UnregisterBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.object_id.evaluate(world_state_view, &context)? {
             IdBox::AccountId(account_id) => {
@@ -88,7 +171,7 @@ impl Execute for UnregisterBox {
             IdBox::DomainName(domain_name) => {
                 Unregister::<Domain>::new(domain_name).execute(authority, world_state_view)
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -98,20 +181,20 @@ impl Execute for MintBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.destination_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => match self.object.evaluate(world_state_view, &context)? {
                 Value::U32(quantity) => {
                     Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
-                _ => Err(error!("Unsupported instruction.")),
+                _ => Err(error!("Unsupported instruction.").into()),
             },
             IdBox::WorldId => match self.object.evaluate(world_state_view, &context)? {
                 Value::Parameter(parameter) => Mint::<World, Parameter>::new(parameter, WorldId)
                     .execute(authority, world_state_view),
-                _ => Err(error!("Unsupported instruction.")),
+                _ => Err(error!("Unsupported instruction.").into()),
             },
             IdBox::AccountId(account_id) => {
                 match self.object.evaluate(world_state_view, &context)? {
@@ -123,10 +206,10 @@ impl Execute for MintBox {
                         Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                             .execute(authority, world_state_view)
                     }
-                    _ => Err(error!("Unsupported instruction.")),
+                    _ => Err(error!("Unsupported instruction.").into()),
                 }
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -136,15 +219,15 @@ impl Execute for BurnBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.destination_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => match self.object.evaluate(world_state_view, &context)? {
                 Value::U32(quantity) => {
                     Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
                 }
-                _ => Err(error!("Unsupported instruction.")),
+                _ => Err(error!("Unsupported instruction.").into()),
             },
             IdBox::AccountId(account_id) => {
                 match self.object.evaluate(world_state_view, &context)? {
@@ -152,10 +235,10 @@ impl Execute for BurnBox {
                         Burn::<Account, PublicKey>::new(public_key, account_id)
                             .execute(authority, world_state_view)
                     }
-                    _ => Err(error!("Unsupported instruction.")),
+                    _ => Err(error!("Unsupported instruction.").into()),
                 }
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -165,8 +248,8 @@ impl Execute for TransferBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.source_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(source_asset_id) => {
@@ -181,12 +264,12 @@ impl Execute for TransferBox {
                             destination_asset_id,
                         )
                         .execute(authority, world_state_view),
-                        _ => Err(error!("Unsupported instruction.")),
+                        _ => Err(error!("Unsupported instruction.").into()),
                     },
-                    _ => Err(error!("Unsupported instruction.")),
+                    _ => Err(error!("Unsupported instruction.").into()),
                 }
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -196,8 +279,8 @@ impl Execute for SetKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.object_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => {
@@ -212,7 +295,7 @@ impl Execute for SetKeyValueBox {
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
                     .execute(authority, world_state_view)
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -222,8 +305,8 @@ impl Execute for RemoveKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.object_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => {
@@ -236,7 +319,7 @@ impl Execute for RemoveKeyValueBox {
                 RemoveKeyValue::<Account, String>::new(account_id, key)
                     .execute(authority, world_state_view)
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
@@ -246,14 +329,14 @@ impl Execute for If {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         if self.condition.evaluate(world_state_view, &context)? {
             self.then.execute(authority, world_state_view)
         } else {
             self.otherwise.map_or_else(
-                || Ok(world_state_view.clone()),
+                || Ok(()),
                 |otherwise| otherwise.execute(authority, world_state_view),
             )
         }
@@ -265,15 +348,13 @@ impl Execute for Pair {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
-        let world_state_view = self
-            .left_instruction
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
+        self.left_instruction
             .execute(authority.clone(), world_state_view)?;
-        let world_state_view = self
-            .right_instruction
-            .execute(authority, &world_state_view)?;
-        Ok(world_state_view)
+        self.right_instruction
+            .execute(authority, world_state_view)?;
+        Ok(())
     }
 }
 
@@ -282,13 +363,12 @@ impl Execute for SequenceBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
-        let mut world_state_view = world_state_view.clone();
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         for instruction in self.instructions {
-            world_state_view = instruction.execute(authority.clone(), &world_state_view)?;
+            instruction.execute(authority.clone(), world_state_view)?;
         }
-        Ok(world_state_view)
+        Ok(())
     }
 }
 
@@ -297,9 +377,9 @@ impl Execute for FailBox {
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
-        _world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
-        Err(error!("Execution failed: {}.", self.message))
+        _world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
+        Err(error!("Execution failed: {}.", self.message).into())
     }
 }
 
@@ -308,8 +388,8 @@ impl Execute for GrantBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
-    ) -> Result<WorldStateView> {
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), Error> {
         let context = Context::new();
         match self.destination_id.evaluate(world_state_view, &context)? {
             IdBox::AccountId(account_id) => {
@@ -318,14 +398,14 @@ impl Execute for GrantBox {
                 Grant::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, world_state_view)
             }
-            _ => Err(error!("Unsupported instruction.")),
+            _ => Err(error!("Unsupported instruction.").into()),
         }
     }
 }
 
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
-    pub use super::Execute;
+    pub use super::{Error, Execute};
     pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, world::isi::*};
 }
 
@@ -355,16 +435,16 @@ mod tests {
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-        let wsv = SetKeyValueBox::new(
+        SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
             "Bytes".to_string(),
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &wsv)?;
+        .execute(account_id.clone(), &mut wsv)?;
         let asset_store: &Metadata = wsv
             .read_account(&account_id)
             .ok_or_else(|| error!("Failed to find account."))?
@@ -386,14 +466,14 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
-        let wsv = SetKeyValueBox::new(
+        SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
             "Bytes".to_string(),
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &wsv)?;
+        .execute(account_id.clone(), &mut wsv)?;
         let bytes = wsv
             .read_account(&account_id)
             .ok_or_else(|| error!("Failed to find account."))?
