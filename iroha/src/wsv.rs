@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use config::Configuration;
 use iroha_data_model::prelude::*;
+use iroha_error::{error, Result};
 
 use crate::prelude::*;
 
@@ -196,12 +197,15 @@ impl WorldStateView {
     }
 
     /// Add new `Asset` entity.
-    pub fn add_asset(&mut self, asset: Asset) {
+    /// # Errors
+    /// Fails if there is no account for asset
+    pub fn add_asset(&mut self, asset: Asset) -> Result<()> {
         let _ = self
             .account(&asset.id.account_id)
-            .expect("Failed to find an account.")
+            .ok_or_else(|| error!("Failed to find account"))?
             .assets
             .insert(asset.id.clone(), asset);
+        Ok(())
     }
 
     /// Get `AssetDefinitionEntry` without an ability to modify it.

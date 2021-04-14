@@ -55,7 +55,7 @@ pub mod isi {
                 None => world_state_view.add_asset(Asset::with_quantity(
                     self.destination_id.clone(),
                     self.object,
-                )),
+                ))?,
             }
             Ok(world_state_view)
         }
@@ -83,7 +83,7 @@ pub mod isi {
                 None => world_state_view.add_asset(Asset::with_big_quantity(
                     self.destination_id.clone(),
                     self.object,
-                )),
+                ))?,
             }
             Ok(world_state_view)
         }
@@ -112,7 +112,7 @@ pub mod isi {
                     self.key,
                     self.value,
                     asset_metadata_limits,
-                )?),
+                )?)?,
             }
             Ok(world_state_view)
         }
