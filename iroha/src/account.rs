@@ -9,8 +9,6 @@ use crate::prelude::*;
 /// Account related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
 pub mod isi {
-    use iroha_error::{error, Result};
-
     use super::*;
     use crate::isi::prelude::*;
 
@@ -18,15 +16,14 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| error!("Failed to find account."))?;
+                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
             account.signatories.push(public_key);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -34,14 +31,13 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| error!("Failed to find account."))?;
+                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
             account.signature_check_condition = self.object;
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -49,13 +45,12 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| error!("Failed to find account."))?;
+                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
             if let Some(index) = account
                 .signatories
                 .iter()
@@ -63,7 +58,7 @@ pub mod isi {
             {
                 let _ = account.signatories.remove(index);
             }
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -71,18 +66,17 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let account_metadata_limits = world_state_view.config.account_metadata_limits;
             let account = world_state_view
                 .account(&self.object_id)
-                .ok_or_else(|| error!("Failed to find account."))?;
+                .ok_or_else(|| FindError::Account(self.object_id.clone()))?;
             let _ =
                 account
                     .metadata
                     .insert_with_limits(self.key, self.value, account_metadata_limits);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 
@@ -90,17 +84,16 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let account = world_state_view
                 .account(&self.object_id)
-                .ok_or_else(|| error!("Failed to find account."))?;
+                .ok_or_else(|| FindError::Account(self.object_id.clone()))?;
             let _ = account
                 .metadata
                 .remove(&self.key)
-                .ok_or_else(|| error!("Key not found."))?;
-            Ok(world_state_view)
+                .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+            Ok(())
         }
     }
 
@@ -108,14 +101,13 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<WorldStateView> {
-            let mut world_state_view = world_state_view.clone();
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
             let account = world_state_view
                 .account(&self.destination_id)
-                .ok_or_else(|| error!("Failed to find account."))?;
+                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
             let _ = account.permission_tokens.insert(self.permission_token);
-            Ok(world_state_view)
+            Ok(())
         }
     }
 }
