@@ -201,7 +201,7 @@ mod tests {
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
             MetadataLimits::new(10, 100),
         );
-        wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)));
+        wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
         let bytes =
             FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_string()).execute(&wsv)?;
         assert_eq!(
