@@ -158,24 +158,153 @@ pub mod private_blockchain {
 pub mod public_blockchain {
     use super::*;
 
+    /// Origin asset id param used in permission tokens.
+    pub const ASSET_ID_TOKEN_PARAM_NAME: &str = "asset_id";
+    /// Origin account id param used in permission tokens.
+    pub const ACCOUNT_ID_TOKEN_PARAM_NAME: &str = "account_id";
+    /// Origin asset definition param used in permission tokens.
+    pub const ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: &str = "asset_definition_id";
+
     /// A preconfigured set of permissions for simple use cases.
     pub fn default_permissions() -> PermissionsValidatorBox {
         // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
         let grant_instruction_validator = PermissionsValidatorBuilder::new()
             .with_validator(transfer::GrantMyAssetAccess)
+            .with_validator(unregister::GrantRegisteredByMeAccess)
+            .with_validator(mint::GrantRegisteredByMeAccess)
+            .with_validator(burn::GrantMyAssetAccess)
+            .with_validator(burn::GrantRegisteredByMeAccess)
+            .with_validator(key_value::GrantMyAssetAccessRemove)
+            .with_validator(key_value::GrantMyAssetAccessSet)
+            .with_validator(key_value::GrantMyMetadataAccessSet)
+            .with_validator(key_value::GrantMyMetadataAccessRemove)
             .any_should_succeed("Grant instruction validator.");
         PermissionsValidatorBuilder::new()
             .with_recursive_validator(grant_instruction_validator)
-            .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedAssets))
-            .with_recursive_validator(unregister::OnlyAssetsCreatedByThisAccount)
-            .with_recursive_validator(mint::OnlyAssetsCreatedByThisAccount)
-            .with_recursive_validator(burn::OnlyOwnedAssets)
-            .with_recursive_validator(burn::OnlyAssetsCreatedByThisAccount)
-            .with_recursive_validator(keyvalue::AccountSetOnlyForSignerAccount)
-            .with_recursive_validator(keyvalue::AccountRemoveOnlyForSignerAccount)
-            .with_recursive_validator(keyvalue::AssetSetOnlyForSignerAccount)
-            .with_recursive_validator(keyvalue::AssetRemoveOnlyForSignerAccount)
+            .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner))
+            .with_recursive_validator(
+                unregister::OnlyAssetsCreatedByThisAccount.or(unregister::GrantedByAssetCreator),
+            )
+            .with_recursive_validator(
+                mint::OnlyAssetsCreatedByThisAccount.or(mint::GrantedByAssetCreator),
+            )
+            .with_recursive_validator(burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner))
+            .with_recursive_validator(
+                burn::OnlyAssetsCreatedByThisAccount.or(burn::GrantedByAssetCreator),
+            )
+            .with_recursive_validator(
+                key_value::AccountSetOnlyForSignerAccount.or(key_value::SetGrantedByAccountOwner),
+            )
+            .with_recursive_validator(
+                key_value::AccountRemoveOnlyForSignerAccount
+                    .or(key_value::RemoveGrantedByAccountOwner),
+            )
+            .with_recursive_validator(
+                key_value::AssetSetOnlyForSignerAccount.or(key_value::SetGrantedByAssetOwner),
+            )
+            .with_recursive_validator(
+                key_value::AssetRemoveOnlyForSignerAccount.or(key_value::RemoveGrantedByAssetOwner),
+            )
             .all_should_succeed()
+    }
+
+    /// Checks that `authority` is account owner for account supplied in `permission_token`.
+    ///
+    /// # Errors
+    /// - The `permission_token` is of improper format.
+    /// - Account owner is not `authority`
+    pub fn check_account_owner_for_token(
+        permission_token: &PermissionToken,
+        authority: &AccountId,
+    ) -> Result<(), String> {
+        let account_id = if let Value::Id(IdBox::AccountId(account_id)) = permission_token
+            .params
+            .get(ACCOUNT_ID_TOKEN_PARAM_NAME)
+            .ok_or(format!(
+                "Failed to find permission param {}.",
+                ACCOUNT_ID_TOKEN_PARAM_NAME
+            ))? {
+            account_id
+        } else {
+            return Err(format!(
+                "Permission param {} is not an AccountId.",
+                ACCOUNT_ID_TOKEN_PARAM_NAME
+            ));
+        };
+        if account_id != authority {
+            return Err(
+                "Account specified in permission token is not owned by signer.".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Checks that `authority` is asset owner for asset supplied in `permission_token`.
+    ///
+    /// # Errors
+    /// - The `permission_token` is of improper format.
+    /// - Asset owner is not `authority`
+    pub fn check_asset_owner_for_token(
+        permission_token: &PermissionToken,
+        authority: &AccountId,
+    ) -> Result<(), String> {
+        let asset_id = if let Value::Id(IdBox::AssetId(asset_id)) = permission_token
+            .params
+            .get(ASSET_ID_TOKEN_PARAM_NAME)
+            .ok_or(format!(
+                "Failed to find permission param {}.",
+                ASSET_ID_TOKEN_PARAM_NAME
+            ))? {
+            asset_id
+        } else {
+            return Err(format!(
+                "Permission param {} is not an AssetId.",
+                ASSET_ID_TOKEN_PARAM_NAME
+            ));
+        };
+        if &asset_id.account_id != authority {
+            return Err("Asset specified in permission token is not owned by signer.".to_string());
+        }
+        Ok(())
+    }
+
+    /// Checks that asset creator is `authority` in the supplied `permission_token`.
+    ///
+    /// # Errors
+    /// - The `permission_token` is of improper format.
+    /// - Asset creator is not `authority`
+    pub fn check_asset_creator_for_token(
+        permission_token: &PermissionToken,
+        authority: &AccountId,
+        wsv: &WorldStateView,
+    ) -> Result<(), String> {
+        let definition_id = if let Value::Id(IdBox::AssetDefinitionId(definition_id)) =
+            permission_token
+                .params
+                .get(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME)
+                .ok_or(format!(
+                    "Failed to find permission param {}.",
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME
+                ))? {
+            definition_id
+        } else {
+            return Err(format!(
+                "Permission param {} is not an AssetDefinitionId.",
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME
+            ));
+        };
+        let registered_by_signer_account = wsv
+            .read_asset_definition_entry(definition_id)
+            .map_or(false, |asset_definiton_entry| {
+                &asset_definiton_entry.registered_by == authority
+            });
+        if !registered_by_signer_account {
+            return Err(
+                "Can not grant access for unregistering assets, registered by another account."
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 
     pub mod transfer {
@@ -185,8 +314,6 @@ pub mod public_blockchain {
 
         /// Can transfer user's assets permission token name.
         pub const CAN_TRANSFER_USER_ASSETS_TOKEN: &str = "can_transfer_user_assets";
-        /// Origin asset id param for the [`CAN_TRANSFER_USER_ASSETS_TOKEN`] permission.
-        pub const ASSET_ID_TOKEN_PARAM_NAME: &str = "asset_id";
 
         /// Checks that account transfers only the assets that he owns.
         #[derive(Debug, Copy, Clone)]
@@ -221,11 +348,11 @@ pub mod public_blockchain {
 
         /// Allows transfering user's assets from a different account if the corresponding user granted this permission token.
         #[derive(Debug, Clone, Copy)]
-        pub struct GrantedAssets;
+        pub struct GrantedByAssetOwner;
 
-        impl_from_item_for_granted_token_validator_box!(GrantedAssets);
+        impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
-        impl GrantedTokenValidator for GrantedAssets {
+        impl GrantedTokenValidator for GrantedByAssetOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
@@ -270,24 +397,10 @@ pub mod public_blockchain {
                     .permission_token
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id = if let Value::Id(IdBox::AssetId(asset_id)) = permission_token
-                    .params
-                    .get(ASSET_ID_TOKEN_PARAM_NAME)
-                    .ok_or(format!(
-                        "Failed to find permission param {}.",
-                        ASSET_ID_TOKEN_PARAM_NAME
-                    ))? {
-                    asset_id
-                } else {
-                    return Err(format!(
-                        "Permission param {} is not an AssetId.",
-                        ASSET_ID_TOKEN_PARAM_NAME
-                    ));
-                };
-                if &asset_id.account_id != authority {
-                    return Err("Can not grant asset access for another account.".to_string());
+                if permission_token.name != CAN_TRANSFER_USER_ASSETS_TOKEN {
+                    return Err("Grant instruction is not for transfer permission.".to_string());
                 }
-                Ok(())
+                check_asset_owner_for_token(&permission_token, authority)
             }
         }
     }
@@ -296,6 +409,10 @@ pub mod public_blockchain {
         //! Module with permission for unregistering
 
         use super::*;
+
+        /// Can unregister asset with the corresponding asset definition.
+        pub const CAN_UNREGISTER_ASSET_WITH_DEFINITION: &str =
+            "can_unregister_asset_with_definition";
 
         /// Checks that account can unregister only the assets which were registered by this account in the first place.
         #[derive(Debug, Copy, Clone)]
@@ -320,17 +437,80 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 let asset_definition_id: AssetDefinitionId = try_into_or_exit!(object_id);
-
-                let low_authority = wsv
+                let registered_by_signer_account = wsv
                     .read_asset_definition_entry(&asset_definition_id)
                     .map_or(false, |asset_definiton_entry| {
-                        &asset_definiton_entry.registered_by != authority
+                        &asset_definiton_entry.registered_by == authority
                     });
-
-                if low_authority {
+                if !registered_by_signer_account {
                     return Err("Can't unregister assets registered by other accounts.".to_owned());
                 }
                 Ok(())
+            }
+        }
+
+        /// Allows unregistering user's assets from a different account if the corresponding user granted the permission token
+        /// for a specific asset.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantedByAssetCreator;
+
+        impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
+
+        impl GrantedTokenValidator for GrantedByAssetCreator {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let unregister_box = if let Instruction::Unregister(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not unregister.".to_string());
+                };
+                let object_id = unregister_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AssetDefinitionId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    object_id.into(),
+                );
+                Ok(PermissionToken::new(
+                    CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                    params,
+                ))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantRegisteredByMeAccess;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
+
+        impl GrantInstructionValidator for GrantRegisteredByMeAccess {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION {
+                    return Err("Grant instruction is not for unregister permission.".to_string());
+                }
+                check_asset_creator_for_token(&permission_token, authority, wsv)
             }
         }
     }
@@ -339,6 +519,9 @@ pub mod public_blockchain {
         //! Module with permission for minting
 
         use super::*;
+
+        /// Can mint asset with the corresponding asset definition.
+        pub const CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN: &str = "can_mint_user_asset_definitions";
 
         /// Checks that account can mint only the assets which were registered by this account.
         #[derive(Debug, Copy, Clone)]
@@ -376,12 +559,82 @@ pub mod public_blockchain {
                 Ok(())
             }
         }
+
+        /// Allows minting assets from a different account if the corresponding user granted the permission token
+        /// for a specific asset.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantedByAssetCreator;
+
+        impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
+
+        impl GrantedTokenValidator for GrantedByAssetCreator {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let mint_box = if let Instruction::Mint(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not mint.".to_string());
+                };
+                let destination_id = mint_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = if let Ok(destination_id) = destination_id.try_into() {
+                    destination_id
+                } else {
+                    return Err("Destination is not an Asset.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    asset_id.definition_id.into(),
+                );
+                Ok(PermissionToken::new(
+                    CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                    params,
+                ))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantRegisteredByMeAccess;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
+
+        impl GrantInstructionValidator for GrantRegisteredByMeAccess {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN {
+                    return Err("Grant instruction is not for mint permission.".to_string());
+                }
+                check_asset_creator_for_token(&permission_token, authority, wsv)
+            }
+        }
     }
 
     pub mod burn {
         //! Module with permission for burning
 
         use super::*;
+
+        /// Can burn asset with the corresponding asset definition.
+        pub const CAN_BURN_ASSET_WITH_DEFINITION: &str = "can_burn_asset_with_definition";
+        /// Can burn user's assets permission token name.
+        pub const CAN_BURN_USER_ASSETS_TOKEN: &str = "can_burn_user_assets";
 
         /// Checks that account can burn only the assets which were registered by this account.
         #[derive(Debug, Copy, Clone)]
@@ -419,6 +672,68 @@ pub mod public_blockchain {
             }
         }
 
+        /// Allows burning assets from a different account than the creator's of this asset if the corresponding user granted the permission token
+        /// for a specific asset.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantedByAssetCreator;
+
+        impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
+
+        impl GrantedTokenValidator for GrantedByAssetCreator {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let burn_box = if let Instruction::Burn(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not burn.".to_string());
+                };
+                let destination_id = burn_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = if let Ok(destination_id) = destination_id.try_into() {
+                    destination_id
+                } else {
+                    return Err("Destination is not an Asset.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    asset_id.definition_id.into(),
+                );
+                Ok(PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION, params))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantRegisteredByMeAccess;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
+
+        impl GrantInstructionValidator for GrantRegisteredByMeAccess {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_BURN_ASSET_WITH_DEFINITION {
+                    return Err("Grant instruction is not for burn permission.".to_string());
+                }
+                check_asset_creator_for_token(&permission_token, authority, wsv)
+            }
+        }
+
         /// Checks that account can burn only the assets that he currently owns.
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyOwnedAssets;
@@ -448,14 +763,86 @@ pub mod public_blockchain {
                 Ok(())
             }
         }
+
+        /// Allows burning user's assets from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantedByAssetOwner;
+
+        impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
+
+        impl GrantedTokenValidator for GrantedByAssetOwner {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let burn_box = if let Instruction::Burn(burn_box) = instruction {
+                    burn_box
+                } else {
+                    return Err("Instruction is not burn.".to_string());
+                };
+                let destination_id = burn_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let destination_id: AssetId = if let Ok(destination_id) = destination_id.try_into()
+                {
+                    destination_id
+                } else {
+                    return Err("Source id is not an AssetId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), destination_id.into());
+                Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN, params))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyAssetAccess;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
+
+        impl GrantInstructionValidator for GrantMyAssetAccess {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_BURN_USER_ASSETS_TOKEN {
+                    return Err("Grant instruction is not for burn permission.".to_string());
+                }
+                check_asset_owner_for_token(&permission_token, authority)?;
+                Ok(())
+            }
+        }
     }
 
-    pub mod keyvalue {
+    pub mod key_value {
         //! Module with permission for burning
 
         use super::*;
 
-        /// Checks that account can set keys for assets only the for signer account.
+        /// Can set key value in user's assets permission token name.
+        pub const CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN: &str = "can_set_key_value_in_user_assets";
+        /// Can remove key value in user's assets permission token name.
+        pub const CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS: &str = "can_remove_key_value_in_user_assets";
+        /// Can burn user's assets permission token name.
+        pub const CAN_SET_KEY_VALUE_IN_USER_METADATA: &str = "can_set_key_value_in_user_metadata";
+        /// Can burn user's assets permission token name.
+        pub const CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: &str =
+            "can_remove_key_value_in_user_metadata";
+        /// Target account id for setting and removing key value permission tokens.
+        pub const ACCOUNT_ID_TOKEN_PARAM_NAME: &str = "account_id";
+
+        /// Checks that account can set keys for assets only for the signer account.
         #[derive(Debug, Copy, Clone)]
         pub struct AssetSetOnlyForSignerAccount;
 
@@ -484,6 +871,68 @@ pub mod public_blockchain {
                     }
                     _ => Ok(()),
                 }
+            }
+        }
+
+        /// Allows setting user's assets key value map from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct SetGrantedByAssetOwner;
+
+        impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetOwner);
+
+        impl GrantedTokenValidator for SetGrantedByAssetOwner {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not set.".to_string());
+                };
+                let object_id = set_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AssetId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AssetId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                Ok(PermissionToken::new(
+                    CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN,
+                    params,
+                ))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyAssetAccessSet;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessSet);
+
+        impl GrantInstructionValidator for GrantMyAssetAccessSet {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN {
+                    return Err("Grant instruction is not for set permission.".to_string());
+                }
+                check_asset_owner_for_token(&permission_token, authority)?;
+                Ok(())
             }
         }
 
@@ -519,6 +968,68 @@ pub mod public_blockchain {
             }
         }
 
+        /// Allows setting user's metadata key value pairs from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct SetGrantedByAccountOwner;
+
+        impl_from_item_for_granted_token_validator_box!(SetGrantedByAccountOwner);
+
+        impl GrantedTokenValidator for SetGrantedByAccountOwner {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not set.".to_string());
+                };
+                let object_id = set_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AccountId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AccountId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                Ok(PermissionToken::new(
+                    CAN_SET_KEY_VALUE_IN_USER_METADATA,
+                    params,
+                ))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyMetadataAccessSet;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessSet);
+
+        impl GrantInstructionValidator for GrantMyMetadataAccessSet {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_SET_KEY_VALUE_IN_USER_METADATA {
+                    return Err("Grant instruction is not for set permission.".to_string());
+                }
+                check_account_owner_for_token(&permission_token, authority)?;
+                Ok(())
+            }
+        }
+
         /// Checks that account can remove keys for assets only the for signer account.
         #[derive(Debug, Copy, Clone)]
         pub struct AssetRemoveOnlyForSignerAccount;
@@ -547,6 +1058,68 @@ pub mod public_blockchain {
                     }
                     _ => Ok(()),
                 }
+            }
+        }
+
+        /// Allows removing user's assets key value pairs from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct RemoveGrantedByAssetOwner;
+
+        impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetOwner);
+
+        impl GrantedTokenValidator for RemoveGrantedByAssetOwner {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not set.".to_string());
+                };
+                let object_id = remove_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AssetId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AssetId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                Ok(PermissionToken::new(
+                    CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS,
+                    params,
+                ))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyAssetAccessRemove;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessRemove);
+
+        impl GrantInstructionValidator for GrantMyAssetAccessRemove {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS {
+                    return Err("Grant instruction is not for set permission.".to_string());
+                }
+                check_asset_owner_for_token(&permission_token, authority)?;
+                Ok(())
             }
         }
 
@@ -579,6 +1152,68 @@ pub mod public_blockchain {
                     ),
                     _ => Ok(()),
                 }
+            }
+        }
+
+        /// Allows removing user's metadata key value pairs from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct RemoveGrantedByAccountOwner;
+
+        impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAccountOwner);
+
+        impl GrantedTokenValidator for RemoveGrantedByAccountOwner {
+            fn should_have_token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView,
+            ) -> Result<PermissionToken, String> {
+                let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not remove.".to_string());
+                };
+                let object_id = remove_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AccountId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AccountId.".to_string());
+                };
+                let mut params = BTreeMap::new();
+                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                Ok(PermissionToken::new(
+                    CAN_REMOVE_KEY_VALUE_IN_USER_METADATA,
+                    params,
+                ))
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the metadata
+        /// of the signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyMetadataAccessRemove;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessRemove);
+
+        impl GrantInstructionValidator for GrantMyMetadataAccessRemove {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView,
+            ) -> Result<(), DenialReason> {
+                let permission_token = instruction
+                    .permission_token
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_METADATA {
+                    return Err("Grant instruction is not for remove permission.".to_string());
+                }
+                check_account_owner_for_token(&permission_token, authority)?;
+                Ok(())
             }
         }
     }
@@ -622,7 +1257,7 @@ pub mod public_blockchain {
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
                 btreemap! {
-                    transfer::ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
                 },
             ));
             let _ = domain.accounts.insert(bob_id.clone(), bob_account);
@@ -635,8 +1270,9 @@ pub mod public_blockchain {
                 object: Value::U32(10).into(),
                 destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox =
-                transfer::OnlyOwnedAssets.or(transfer::GrantedAssets).into();
+            let validator: PermissionsValidatorBox = transfer::OnlyOwnedAssets
+                .or(transfer::GrantedByAssetOwner)
+                .into();
             assert!(validator
                 .check_instruction(&alice_id, &transfer, &wsv)
                 .is_ok());
@@ -651,17 +1287,16 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
-            let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
             let permission_token_to_alice = PermissionToken::new(
                 transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
                 btreemap! {
-                    transfer::ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.into(),
+                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.into(),
                 },
             );
             let wsv = WorldStateView::new(World::new());
             let grant = Instruction::Grant(GrantBox {
                 permission_token: permission_token_to_alice.into(),
-                destination_id: IdBox::AssetId(bob_xor_id).into(),
+                destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: PermissionsValidatorBox = transfer::GrantMyAssetAccess.into();
             assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
@@ -700,6 +1335,71 @@ pub mod public_blockchain {
         }
 
         #[test]
+        fn unregister_granted_assets() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            ));
+            let _ = domain.accounts.insert(bob_id.clone(), bob_account);
+            let _ = domain.asset_definitions.insert(
+                xor_id.clone(),
+                AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
+            );
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
+            let validator: PermissionsValidatorBox = unregister::OnlyAssetsCreatedByThisAccount
+                .or(unregister::GrantedByAssetCreator)
+                .into();
+            assert!(validator
+                .check_instruction(&alice_id, &instruction, &wsv)
+                .is_ok());
+            assert!(validator
+                .check_instruction(&bob_id, &instruction, &wsv)
+                .is_ok());
+        }
+
+        #[test]
+        fn grant_unregister_of_assets_created_by_this_account() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let permission_token_to_alice = PermissionToken::new(
+                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            );
+            let mut domain = Domain::new("test");
+            let _ = domain.asset_definitions.insert(
+                xor_id,
+                AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
+            );
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let grant = Instruction::Grant(GrantBox {
+                permission_token: permission_token_to_alice.into(),
+                destination_id: IdBox::AccountId(bob_id.clone()).into(),
+            });
+            let validator: PermissionsValidatorBox = unregister::GrantRegisteredByMeAccess.into();
+            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+        }
+
+        #[test]
         fn mint_only_assets_created_by_this_account() {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let alice_xor_id =
@@ -732,6 +1432,76 @@ pub mod public_blockchain {
             assert!(mint::OnlyAssetsCreatedByThisAccount
                 .check_instruction(&bob_id, &mint, &wsv)
                 .is_err());
+        }
+
+        #[test]
+        fn mint_granted_assets() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let alice_xor_id =
+                <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            ));
+            let _ = domain.accounts.insert(bob_id.clone(), bob_account);
+            let _ = domain.asset_definitions.insert(
+                xor_id,
+                AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
+            );
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let instruction = Instruction::Mint(MintBox {
+                object: Value::U32(100).into(),
+                destination_id: IdBox::AssetId(alice_xor_id).into(),
+            });
+            let validator: PermissionsValidatorBox = mint::OnlyAssetsCreatedByThisAccount
+                .or(mint::GrantedByAssetCreator)
+                .into();
+            assert!(validator
+                .check_instruction(&alice_id, &instruction, &wsv)
+                .is_ok());
+            assert!(validator
+                .check_instruction(&bob_id, &instruction, &wsv)
+                .is_ok());
+        }
+
+        #[test]
+        fn grant_mint_of_assets_created_by_this_account() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let permission_token_to_alice = PermissionToken::new(
+                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            );
+            let mut domain = Domain::new("test");
+            let _ = domain.asset_definitions.insert(
+                xor_id,
+                AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
+            );
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let grant = Instruction::Grant(GrantBox {
+                permission_token: permission_token_to_alice.into(),
+                destination_id: IdBox::AccountId(bob_id.clone()).into(),
+            });
+            let validator: PermissionsValidatorBox = mint::GrantRegisteredByMeAccess.into();
+            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -770,6 +1540,76 @@ pub mod public_blockchain {
         }
 
         #[test]
+        fn burn_granted_asset_definition() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let alice_xor_id =
+                <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                burn::CAN_BURN_ASSET_WITH_DEFINITION,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            ));
+            let _ = domain.accounts.insert(bob_id.clone(), bob_account);
+            let _ = domain.asset_definitions.insert(
+                xor_id,
+                AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
+            );
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let instruction = Instruction::Burn(BurnBox {
+                object: Value::U32(100).into(),
+                destination_id: IdBox::AssetId(alice_xor_id).into(),
+            });
+            let validator: PermissionsValidatorBox = burn::OnlyAssetsCreatedByThisAccount
+                .or(burn::GrantedByAssetCreator)
+                .into();
+            assert!(validator
+                .check_instruction(&alice_id, &instruction, &wsv)
+                .is_ok());
+            assert!(validator
+                .check_instruction(&bob_id, &instruction, &wsv)
+                .is_ok());
+        }
+
+        #[test]
+        fn grant_burn_of_assets_created_by_this_account() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let permission_token_to_alice = PermissionToken::new(
+                burn::CAN_BURN_ASSET_WITH_DEFINITION,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            );
+            let mut domain = Domain::new("test");
+            let _ = domain.asset_definitions.insert(
+                xor_id,
+                AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
+            );
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let grant = Instruction::Grant(GrantBox {
+                permission_token: permission_token_to_alice.into(),
+                destination_id: IdBox::AccountId(bob_id.clone()).into(),
+            });
+            let validator: PermissionsValidatorBox = burn::GrantRegisteredByMeAccess.into();
+            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+        }
+
+        #[test]
         fn burn_only_owned_assets() {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
@@ -789,6 +1629,60 @@ pub mod public_blockchain {
         }
 
         #[test]
+        fn burn_granted_assets() -> Result<(), String> {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let alice_xor_id =
+                <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                burn::CAN_BURN_USER_ASSETS_TOKEN,
+                btreemap! {
+                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                },
+            ));
+            let _ = domain.accounts.insert(bob_id.clone(), bob_account);
+            let domains = btreemap! {
+                "test".to_string() => domain
+            };
+            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let transfer = Instruction::Burn(BurnBox {
+                object: Value::U32(10).into(),
+                destination_id: IdBox::AssetId(alice_xor_id).into(),
+            });
+            let validator: PermissionsValidatorBox =
+                burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner).into();
+            validator.check_instruction(&alice_id, &transfer, &wsv)?;
+            assert!(validator
+                .check_instruction(&bob_id, &transfer, &wsv)
+                .is_ok());
+            Ok(())
+        }
+
+        #[test]
+        fn grant_burn_of_my_assets() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let alice_xor_id =
+                <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
+            let permission_token_to_alice = PermissionToken::new(
+                burn::CAN_BURN_USER_ASSETS_TOKEN,
+                btreemap! {
+                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.into(),
+                },
+            );
+            let wsv = WorldStateView::new(World::new());
+            let grant = Instruction::Grant(GrantBox {
+                permission_token: permission_token_to_alice.into(),
+                destination_id: IdBox::AccountId(bob_id.clone()).into(),
+            });
+            let validator: PermissionsValidatorBox = burn::GrantMyAssetAccess.into();
+            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+        }
+
+        #[test]
         fn set_to_only_owned_assets() {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
@@ -800,10 +1694,10 @@ pub mod public_blockchain {
                 Value::from("key".to_owned()),
                 Value::from("value".to_owned()),
             ));
-            assert!(keyvalue::AssetSetOnlyForSignerAccount
+            assert!(key_value::AssetSetOnlyForSignerAccount
                 .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
-            assert!(keyvalue::AssetSetOnlyForSignerAccount
+            assert!(key_value::AssetSetOnlyForSignerAccount
                 .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
@@ -819,10 +1713,10 @@ pub mod public_blockchain {
                 IdBox::AssetId(alice_xor_id),
                 Value::from("key".to_owned()),
             ));
-            assert!(keyvalue::AssetRemoveOnlyForSignerAccount
+            assert!(key_value::AssetRemoveOnlyForSignerAccount
                 .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
-            assert!(keyvalue::AssetRemoveOnlyForSignerAccount
+            assert!(key_value::AssetRemoveOnlyForSignerAccount
                 .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
@@ -837,10 +1731,10 @@ pub mod public_blockchain {
                 Value::from("key".to_owned()),
                 Value::from("value".to_owned()),
             ));
-            assert!(keyvalue::AccountSetOnlyForSignerAccount
+            assert!(key_value::AccountSetOnlyForSignerAccount
                 .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
-            assert!(keyvalue::AccountSetOnlyForSignerAccount
+            assert!(key_value::AccountSetOnlyForSignerAccount
                 .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
@@ -854,10 +1748,10 @@ pub mod public_blockchain {
                 IdBox::AccountId(alice_id.clone()),
                 Value::from("key".to_owned()),
             ));
-            assert!(keyvalue::AccountRemoveOnlyForSignerAccount
+            assert!(key_value::AccountRemoveOnlyForSignerAccount
                 .check_instruction(&alice_id, &set, &wsv)
                 .is_ok());
-            assert!(keyvalue::AccountRemoveOnlyForSignerAccount
+            assert!(key_value::AccountRemoveOnlyForSignerAccount
                 .check_instruction(&bob_id, &set, &wsv)
                 .is_err());
         }
