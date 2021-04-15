@@ -81,7 +81,7 @@ impl iroha_http_server::http::HttpResponseError for Error {
     fn status_code(&self) -> iroha_http_server::http::StatusCode {
         use Error::*;
 
-        match self {
+        match *self {
             ExecuteQuery(_)
             | RequestPendingTransactions(_)
             | DecodeRequestPendingTransactions(_)
@@ -162,9 +162,9 @@ impl Torii {
     /// Can fail due to listening to network or if http server fails
     pub async fn start(&mut self) -> iroha_error::Result<()> {
         let state = self.create_state();
-        let connections = state.consumers.clone();
+        let connections = Arc::clone(&state.consumers);
         let state = Arc::new(RwLock::new(state));
-        let mut server = Server::new(state.clone());
+        let mut server = Server::new(Arc::clone(&state));
         server.at(uri::INSTRUCTIONS_URI).post(handle_instructions);
         server.at(uri::QUERY_URI).get(handle_queries);
         server.at(uri::HEALTH_URI).get(handle_health);
@@ -182,7 +182,11 @@ impl Torii {
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
         let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
-            Network::listen(state.clone(), &self.config.torii_p2p_url, handle_requests),
+            Network::listen(
+                Arc::clone(&state),
+                &self.config.torii_p2p_url,
+                handle_requests
+            ),
             server.start(&self.config.torii_api_url),
             consume_events(self.events_receiver.clone(), connections)
         );
@@ -340,6 +344,7 @@ async fn handle_get_configuration(
     Json(GetConfiguration { field }): Json<GetConfiguration>,
 ) -> Result<Json<serde_json::Value>> {
     let field = field.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+    #[allow(clippy::todo)]
     match ty {
         GetConfigurationType::Docs => Configuration::get_doc_recursive(field).map(|doc| {
             if let Some(doc) = doc {
@@ -424,6 +429,7 @@ async fn handle_request(
     state: State<ToriiState>,
     request: Request,
 ) -> iroha_error::Result<Response> {
+    #[allow(clippy::pattern_type_mismatch)]
     match request.url() {
         uri::CONSENSUS_URI
             if request.payload().len()
@@ -544,8 +550,8 @@ pub mod config {
     impl Default for ToriiConfiguration {
         fn default() -> Self {
             Self {
-                torii_api_url: DEFAULT_TORII_API_URL.to_string(),
-                torii_p2p_url: DEFAULT_TORII_P2P_URL.to_string(),
+                torii_api_url: DEFAULT_TORII_API_URL.to_owned(),
+                torii_p2p_url: DEFAULT_TORII_P2P_URL.to_owned(),
                 torii_max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
                 torii_max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
                 torii_max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
@@ -556,7 +562,7 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::default_trait_access)]
+    #![allow(clippy::default_trait_access, clippy::restriction)]
 
     use std::{convert::TryInto, time::Duration};
 

@@ -100,7 +100,7 @@ pub mod isi {
                         .collect::<Vec<_>>();
                     keys.iter().for_each(|asset_id| {
                         let _ = account.assets.remove(asset_id);
-                    });
+                    })
                 });
             Ok(())
         }

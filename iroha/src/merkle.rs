@@ -87,7 +87,7 @@ impl Node {
     }
 
     const fn hash(&self) -> Hash {
-        match &self {
+        match self {
             Self::Subtree { hash, .. } | Self::Leaf { hash } => *hash,
             Self::Empty => Hash([0; 32]),
         }
@@ -107,6 +107,7 @@ impl Node {
             .map(|(left, right)| left.saturating_add(*right))
             .take(32)
             .collect();
+        #[allow(clippy::expect_used)]
         let vector = VarBlake2b::new(32)
             .expect("Failed to initialize VarBlake2b.")
             .chain(sum)
@@ -140,7 +141,7 @@ impl<'a> Iterator for BreadthFirstIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match &self.queue.pop() {
             Some(node) => {
-                if let Node::Subtree { left, right, .. } = node {
+                if let Node::Subtree { left, right, .. } = *node {
                     self.queue.push(&*left);
                     self.queue.push(&*right);
                 }

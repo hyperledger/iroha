@@ -1,6 +1,10 @@
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::items_after_statements, clippy::wildcard_imports)]
+    #![allow(
+        clippy::items_after_statements,
+        clippy::wildcard_imports,
+        clippy::restriction
+    )]
 
     use iroha_version::{
         error::{Error, Result},

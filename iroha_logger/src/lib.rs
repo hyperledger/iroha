@@ -25,7 +25,9 @@ pub fn init(configuration: config::LoggerConfiguration) {
             .compact()
             .finish()
             .with(LevelFilter::from(configuration.max_log_level));
-        tracing::subscriber::set_global_default(subscriber).expect("Failed to init logger");
+        #[allow(clippy::expect_used)]
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("Fine as only we have access to atomic and we ensure that we set it once");
     }
 }
 

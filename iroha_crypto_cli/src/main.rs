@@ -2,8 +2,9 @@
 
 use clap::{App, Arg, ArgGroup};
 use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
+use iroha_error::{error, Result, WrapErr};
 
-fn main() {
+fn main() -> Result<()> {
     let default_algorithm = Algorithm::default().to_string();
     let matches = App::new("iroha_crypto_cli")
         .version("0.1")
@@ -53,15 +54,15 @@ fn main() {
         .get_matches();
     let seed_option = matches.value_of("seed");
     let private_key_option = matches.value_of("private_key");
-    let algorithm: Algorithm = matches
+    let algorithm = matches
         .value_of("algorithm")
-        .expect("Failed to get algorithm name.")
-        .parse()
-        .expect("Failed to parse algorithm.");
+        .ok_or_else(|| error!("Failed to get algorithm name."))?
+        .parse::<Algorithm>()
+        .wrap_err("Failed to parse algorithm.")?;
     let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
-    let keypair = seed_option
+    let keypair: KeyPair = seed_option
         .map_or_else(
-            || {
+            || -> iroha_error::Result<_> {
                 private_key_option.map_or_else(
                     || KeyPair::generate_with_configuration(key_gen_configuration.clone()),
                     |private_key| {
@@ -69,13 +70,13 @@ fn main() {
                             key_gen_configuration.clone().use_private_key(PrivateKey {
                                 digest_function: algorithm.to_string(),
                                 payload: hex::decode(private_key)
-                                    .expect("Failed to decode private key."),
+                                    .wrap_err("Failed to decode private key.")?,
                             }),
                         )
                     },
                 )
             },
-            |seed| {
+            |seed| -> iroha_error::Result<_> {
                 KeyPair::generate_with_configuration(
                     key_gen_configuration
                         .clone()
@@ -83,15 +84,18 @@ fn main() {
                 )
             },
         )
-        .expect("Failed to generate keypair.");
+        .wrap_err("Failed to generate keypair.")?;
+
+    #[allow(clippy::print_stdout)]
     if matches.is_present("json") {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&keypair).expect("Failed to serialize to json.")
-        )
+        let json =
+            serde_json::to_string_pretty(&keypair).wrap_err("Failed to serialize to json.")?;
+        println!("{}", json);
     } else {
         println!("Public key (multihash): {}", &keypair.public_key);
         println!("Private key: {}", &keypair.private_key);
-        println!("Digest function: {}", &keypair.public_key.digest_function)
+        println!("Digest function: {}", &keypair.public_key.digest_function);
     }
+
+    Ok(())
 }

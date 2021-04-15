@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::{sync::Arc, thread, time::Duration};
 
     use async_std::{prelude::*, sync::RwLock, task};
@@ -28,7 +30,6 @@ mod tests {
             .expect("Failed to connect.");
 
         for mut change in connection {
-            println!("Change #{} - {:?}", actual_changes.len(), change);
             actual_changes.append(&mut change);
         }
         assert_eq!(actual_changes.len(), 99);

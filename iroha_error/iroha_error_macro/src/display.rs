@@ -13,11 +13,15 @@ fn get_attr_str(attrs: &[syn::Attribute]) -> Option<syn::LitStr> {
                 syn::Meta::List(list) => {
                     abort!(list, "error attribute should have only 1 argument string")
                 }
-                _ => abort!(attr, "Only function like attributes supported"),
+                _ => {
+                    abort!(attr, "Only function like attributes supported")
+                }
             };
             match nested_meta {
                 syn::NestedMeta::Lit(syn::Lit::Str(s)) => Some(s),
-                _ => abort!(nested_meta, "Argument for error attribute should be string"),
+                _ => {
+                    abort!(nested_meta, "Argument for error attribute should be string")
+                }
             }
         })
 }
@@ -37,7 +41,7 @@ pub fn impl_fmt(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         match variant.fields {
             syn::Fields::Unnamed(_) => (&variant.ident, true, fmt),
             syn::Fields::Unit => (&variant.ident, false, fmt),
-            syn::Fields::Named(_) => abort!(
+            _ => abort!(
                 variant,
                 "Invalid variant. Only unnamed fields supported or units. Check out iroha2 style-guide"
             ),

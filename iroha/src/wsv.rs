@@ -11,6 +11,7 @@ use crate::prelude::*;
 
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct WorldStateView {
     /// The world - contains `domains`, `triggers`, etc..
     pub world: World,
@@ -50,7 +51,7 @@ impl WorldStateView {
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
     pub fn apply(&mut self, block: &VersionedCommittedBlock) {
         for transaction in &block.as_inner_v1().transactions {
-            if let Err(e) = &transaction.proceed(self) {
+            if let Err(e) = transaction.proceed(self) {
                 iroha_logger::warn!("Failed to proceed transaction on WSV: {}", e);
             }
             let _ = self.transactions.insert(

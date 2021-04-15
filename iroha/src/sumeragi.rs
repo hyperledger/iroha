@@ -2,6 +2,8 @@
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 
+#![allow(clippy::missing_inline_in_public_items)]
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{self, Debug, Formatter},
@@ -225,7 +227,7 @@ impl Sumeragi {
                     .await
                     .insert(transaction.hash());
             }
-            let transactions_awaiting_receipts = self.transactions_awaiting_receipts.clone();
+            let transactions_awaiting_receipts = Arc::clone(&self.transactions_awaiting_receipts);
             let mut no_tx_receipt = NoTransactionReceiptReceived::new(
                 transaction,
                 self.network_topology.leader().clone(),
@@ -233,6 +235,7 @@ impl Sumeragi {
                 self.number_of_view_changes,
             );
             let role = self.network_topology.role(&self.peer_id);
+            #[allow(clippy::expect_used)]
             if role == Role::ValidatingPeer || role == Role::ProxyTail {
                 no_tx_receipt = no_tx_receipt
                     .sign(&self.key_pair)
@@ -283,7 +286,6 @@ impl Sumeragi {
     }
 
     /// Gossip transactions to other peers.
-    ///
     pub async fn gossip_transactions(&mut self, transactions: &[VersionedAcceptedTransaction]) {
         iroha_logger::debug!(
             "{:?} - Gossiping transactions. Number of transactions to forward: {}",
@@ -319,7 +321,7 @@ impl Sumeragi {
     /// # Errors
     /// Can fail signing block
     pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
-        let wsv = self.world_state_view.clone();
+        let wsv = Arc::clone(&self.world_state_view);
         let block = block.validate(&*wsv.read().await, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
         iroha_logger::info!(
@@ -377,43 +379,43 @@ impl Sumeragi {
         number_of_view_changes: u32,
     ) {
         let old_voting_block = voting_block;
-        let voting_block = self.voting_block.clone();
+        let voting_block = Arc::clone(&self.voting_block);
         let key_pair = self.key_pair.clone();
         let recipient_peers = self.network_topology.sorted_peers.clone();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
         drop(task::spawn(async move {
             task::sleep(commit_time).await;
-            if let Some(voting_block) = voting_block.write().await.clone() {
-                // If the block was not yet committed send commit timeout to other peers to initiate view change.
-                if voting_block.block.hash() == old_voting_block.block.hash() {
-                    let message = VersionedMessage::from(Message::CommitTimeout(
-                        CommitTimeout::new(
-                            &voting_block,
-                            latest_block_hash,
-                            number_of_view_changes,
-                        )
-                        .sign(&key_pair)
-                        .expect("Failed to sign CommitTimeout"),
-                    ));
-                    let mut send_futures = Vec::new();
-                    for peer in &recipient_peers {
-                        if *peer != peer_id {
-                            send_futures.push(message.clone().send_to(peer));
-                        }
-                    }
-                    future::join_all(send_futures)
-                        .await
-                        .into_iter()
-                        .filter_map(Result::err)
-                        .for_each(|error| {
-                            iroha_logger::error!(
-                                "Failed to send CommitTimeout messages: {:?}",
-                                error
-                            )
-                        });
+            let voting_block = if let Some(voting_block) = voting_block.write().await.clone() {
+                voting_block
+            } else {
+                return;
+            };
+
+            // If the block was not yet committed send commit timeout to other peers to initiate view change.
+            if voting_block.block.hash() != old_voting_block.block.hash() {
+                return;
+            }
+
+            #[allow(clippy::expect_used)]
+            let message = VersionedMessage::from(Message::CommitTimeout(
+                CommitTimeout::new(&voting_block, latest_block_hash, number_of_view_changes)
+                    .sign(&key_pair)
+                    .expect("Failed to sign CommitTimeout"),
+            ));
+            let mut send_futures = Vec::new();
+            for peer in &recipient_peers {
+                if *peer != peer_id {
+                    send_futures.push(message.clone().send_to(peer));
                 }
             }
+            future::join_all(send_futures)
+                .await
+                .into_iter()
+                .filter_map(Result::err)
+                .for_each(|error| {
+                    iroha_logger::error!("Failed to send CommitTimeout messages: {:?}", error)
+                });
         }));
     }
 
@@ -642,6 +644,7 @@ impl InitializedNetworkTopology {
     }
 
     /// The leader of the current round.
+    #[allow(clippy::expect_used)]
     pub fn leader(&self) -> &PeerId {
         self.peers_set_a()
             .first()
@@ -649,6 +652,7 @@ impl InitializedNetworkTopology {
     }
 
     /// The proxy tail of the current round.
+    #[allow(clippy::expect_used)]
     pub fn proxy_tail(&self) -> &PeerId {
         self.peers_set_a().last().expect("Failed to get last peer.")
     }
@@ -682,6 +686,7 @@ impl InitializedNetworkTopology {
     }
 
     /// Shifts `sorted_peers` by one to the right.
+    #[allow(clippy::expect_used)]
     pub fn shift_peers_by_one(&mut self) {
         let last_element = self
             .sorted_peers
@@ -789,6 +794,7 @@ impl Role {
 
 /// Structure represents a block that is currently in discussion.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Duration,
@@ -798,6 +804,7 @@ pub struct VotingBlock {
 
 impl VotingBlock {
     /// Constructs new `VotingBlock.`
+    #[allow(clippy::expect_used)]
     pub fn new(block: VersionedValidBlock) -> VotingBlock {
         VotingBlock {
             voted_at: SystemTime::now()
@@ -812,6 +819,7 @@ impl VotingBlock {
 pub mod message {
     #![allow(clippy::module_name_repetitions)]
 
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime};
 
     use async_std::task;
@@ -933,6 +941,7 @@ pub mod message {
 
     /// `BlockCreated` message structure.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct BlockCreated {
         /// The corresponding block.
         pub block: VersionedValidBlock,
@@ -1045,6 +1054,7 @@ pub mod message {
 
     /// `BlockSigned` message structure.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct BlockSigned {
         /// The corresponding block.
         pub block: VersionedValidBlock,
@@ -1125,6 +1135,7 @@ pub mod message {
 
     /// `BlockCommitted` message structure.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct BlockCommitted {
         /// The corresponding block.
         pub block: VersionedValidBlock,
@@ -1167,6 +1178,7 @@ pub mod message {
     /// in `block_time` after receiving this transaction.
     /// Peers validate the receipt, and sign the message to vote for changing the view.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct BlockCreationTimeout {
         /// A proof of the leader receiving and accepting a transaction.
         pub transaction_receipt: TransactionReceipt,
@@ -1276,6 +1288,7 @@ pub mod message {
     /// `Message` structure describing a failed attempt to forward transaction to a leader.
     /// Peers sign it if they are not able to get a `TxReceipt` from a leader after sending the specified transaction.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct NoTransactionReceiptReceived {
         /// Transaction for which there was no `TransactionReceipt`.
         pub transaction: VersionedAcceptedTransaction,
@@ -1334,7 +1347,7 @@ pub mod message {
         /// Handles this message as part of `Sumeragi` consensus.
         ///
         /// # Errors
-        /// Actually infallible
+        /// Can fail while signing message
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());
@@ -1372,13 +1385,14 @@ pub mod message {
                     .write()
                     .await
                     .insert(self.transaction.hash());
-                let pending_forwarded_tx_hashes = sumeragi.transactions_awaiting_receipts.clone();
+                let pending_forwarded_tx_hashes =
+                    Arc::clone(&sumeragi.transactions_awaiting_receipts);
                 let recipient_peers = sumeragi.network_topology.sorted_peers.clone();
                 let tx_receipt_time = sumeragi.tx_receipt_time;
                 let no_tx_receipt = self
                     .clone()
                     .sign(&sumeragi.key_pair)
-                    .expect("Failed to sign.");
+                    .wrap_err("Failed to sign.")?;
                 drop(task::spawn(async move {
                     task::sleep(tx_receipt_time).await;
                     if pending_forwarded_tx_hashes
@@ -1405,6 +1419,7 @@ pub mod message {
 
     /// `Message` structure describing a transaction that is forwarded from a client by a peer to the leader.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct TransactionForwarded {
         /// Transaction that is forwarded from a client by a peer to the leader
         pub transaction: VersionedAcceptedTransaction,
@@ -1454,6 +1469,7 @@ pub mod message {
 
     /// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct TransactionReceipt {
         /// The hash of the transaction that the leader received.
         pub transaction_hash: Hash,
@@ -1468,6 +1484,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail creating new signature
+        #[allow(clippy::expect_used, clippy::unwrap_in_result)]
         pub fn new(
             transaction: &VersionedAcceptedTransaction,
             key_pair: &KeyPair,
@@ -1495,6 +1512,7 @@ pub mod message {
 
         /// Checks if the block should have been already created by the `Leader`.
         pub fn is_block_should_be_created(&self, block_time: Duration) -> bool {
+            #[allow(clippy::expect_used)]
             let current_time = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Failed to get System Time.");
@@ -1507,6 +1525,7 @@ pub mod message {
         /// Can fail due to signing of block
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             // Implausible time in the future, means that the leader lies
+            #[allow(clippy::expect_used)]
             if sumeragi.network_topology.role(&sumeragi.peer_id) != Role::Leader
                 && self.received_at
                     <= SystemTime::now()
@@ -1526,7 +1545,7 @@ pub mod message {
                     .remove(&self.transaction_hash);
                 let block_time = sumeragi.block_time;
                 let transactions_awaiting_created_block =
-                    sumeragi.transactions_awaiting_created_block.clone();
+                    Arc::clone(&sumeragi.transactions_awaiting_created_block);
                 let tx_hash = self.transaction_hash;
                 let role = sumeragi.network_topology.role(&sumeragi.peer_id);
                 let mut block_creation_timeout = BlockCreationTimeout::new(
@@ -1573,6 +1592,7 @@ pub mod message {
     /// `Message` structure describing a request to other peers to change view because of the commit timeout.
     /// Peers vote on this view change by signing and forwarding this structure.
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[non_exhaustive]
     pub struct CommitTimeout {
         /// The hash of the block in discussion in this round.
         pub voting_block_hash: Hash,
@@ -1658,6 +1678,7 @@ pub mod message {
                 if role != Role::ObservingPeer {
                     let voting_block = sumeragi.voting_block.read().await.clone();
                     if let Some(voting_block) = voting_block {
+                        #[allow(clippy::expect_used)]
                         let current_time = SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .expect("Failed to get System Time.");
@@ -1769,6 +1790,7 @@ pub mod config {
         }
 
         /// Time estimation from receiving a transaction to storing it in a block on all peers.
+        #[allow(clippy::integer_arithmetic)]
         pub const fn pipeline_time_ms(&self) -> u64 {
             self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
         }
@@ -1779,6 +1801,7 @@ pub mod config {
     #[derive(Default, Clone, Debug, Deserialize, Serialize)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(transparent)]
+    #[allow(clippy::exhaustive_structs)]
     pub struct TrustedPeers {
         /// Optional list of predefined trusted peers.
         pub peers: BTreeSet<PeerId>,
@@ -1802,7 +1825,7 @@ pub mod config {
 
     fn default_peer_id() -> PeerId {
         PeerId {
-            address: "".to_string(),
+            address: "".to_owned(),
             public_key: PublicKey::default(),
         }
     }
@@ -1818,6 +1841,8 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::collections::BTreeSet;
 
     #[cfg(feature = "network-mock")]
@@ -1851,7 +1876,7 @@ mod tests {
     #[should_panic]
     fn not_enough_peers() {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let listen_address = "127.0.0.1".to_string();
+        let listen_address = "127.0.0.1".to_owned();
         let this_peer: BTreeSet<PeerId> = vec![PeerId {
             address: listen_address,
             public_key: key_pair.public_key,
@@ -1871,32 +1896,32 @@ mod tests {
         let mut account = Account::new(account_id.clone());
         account.signatories.push(public_key);
         let _ = domain.accounts.insert(account_id, account);
-        let _ = domains.insert("global".to_string(), domain);
+        let _ = domains.insert("global".to_owned(), domain);
         World::with(domains, BTreeSet::new())
     }
 
     fn topology_test_peers() -> BTreeSet<PeerId> {
         vec![
             PeerId {
-                address: "127.0.0.1:7878".to_string(),
+                address: "127.0.0.1:7878".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
                     .public_key,
             },
             PeerId {
-                address: "127.0.0.1:7879".to_string(),
+                address: "127.0.0.1:7879".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
                     .public_key,
             },
             PeerId {
-                address: "127.0.0.1:7880".to_string(),
+                address: "127.0.0.1:7880".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
                     .public_key,
             },
             PeerId {
-                address: "127.0.0.1:7881".to_string(),
+                address: "127.0.0.1:7881".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
                     .public_key,

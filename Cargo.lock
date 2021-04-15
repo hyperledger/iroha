@@ -1695,6 +1695,7 @@ dependencies = [
  "clap",
  "hex",
  "iroha_crypto",
+ "iroha_error",
  "serde_json",
 ]
 

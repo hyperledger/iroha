@@ -194,6 +194,8 @@ mod memory {
 
     #[cfg(test)]
     mod tests {
+        #![allow(clippy::restriction)]
+
         use super::*;
 
         #[async_std::test]

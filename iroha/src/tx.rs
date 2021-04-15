@@ -2,6 +2,8 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
+#![allow(clippy::missing_inline_in_public_items)]
+
 use std::{
     cmp::min,
     time::{Duration, SystemTime},
@@ -105,6 +107,7 @@ impl VersionedAcceptedTransaction {
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
 #[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
+#[non_exhaustive]
 pub struct AcceptedTransaction {
     /// Payload of this transaction.
     pub payload: Payload,
@@ -152,6 +155,7 @@ impl AcceptedTransaction {
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
     /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
     pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
+        #[allow(clippy::expect_used)]
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get System Time.");
@@ -475,7 +479,7 @@ pub mod query {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::default_trait_access)]
+    #![allow(clippy::default_trait_access, clippy::restriction)]
 
     use iroha_data_model::{
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,

@@ -1,7 +1,10 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
-#![allow(clippy::module_name_repetitions)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::missing_inline_in_public_items
+)]
 
 use std::iter;
 use std::time::SystemTime;
@@ -39,6 +42,7 @@ pub struct PendingBlock {
 impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
     pub fn new(transactions: Vec<VersionedAcceptedTransaction>) -> PendingBlock {
+        #[allow(clippy::expect_used)]
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get System Time.")
@@ -512,60 +516,56 @@ impl From<&VersionedCommittedBlock> for Vec<Event> {
 
 impl From<&CommittedBlock> for Vec<Event> {
     fn from(block: &CommittedBlock) -> Self {
-        block
-            .transactions
+        let rejected_tx = block
+            .rejected_transactions
             .iter()
             .cloned()
             .map(|transaction| {
                 PipelineEvent::new(
                     PipelineEntityType::Transaction,
-                    PipelineStatus::Committed,
+                    PipelineStatus::Rejected(
+                        transaction.as_inner_v1().rejection_reason.clone().into(),
+                    ),
                     transaction.hash(),
                 )
                 .into()
-            })
-            .chain(
-                block
-                    .rejected_transactions
-                    .iter()
-                    .cloned()
-                    .map(|transaction| {
-                        PipelineEvent::new(
-                            PipelineEntityType::Transaction,
-                            PipelineStatus::Rejected(
-                                transaction.as_inner_v1().rejection_reason.clone().into(),
-                            ),
-                            transaction.hash(),
-                        )
-                        .into()
-                    }),
+            });
+        let tx = block.transactions.iter().cloned().map(|transaction| {
+            PipelineEvent::new(
+                PipelineEntityType::Transaction,
+                PipelineStatus::Committed,
+                transaction.hash(),
             )
-            .chain(
-                block
-                    .header
-                    .invalidated_blocks_hashes
-                    .iter()
-                    .cloned()
-                    .map(|hash| {
-                        PipelineEvent::new(
-                            PipelineEntityType::Block,
-                            //TODO: store rejection reasons for blocks?
-                            PipelineStatus::Rejected(PipelineRejectionReason::Block(
-                                BlockRejectionReason::ConsensusBlockRejection,
-                            )),
-                            hash,
-                        )
-                        .into()
-                    }),
-            )
-            .chain(iter::once(
+            .into()
+        });
+        let invalid_blocks = block
+            .header
+            .invalidated_blocks_hashes
+            .iter()
+            .cloned()
+            .map(|hash| {
                 PipelineEvent::new(
                     PipelineEntityType::Block,
-                    PipelineStatus::Committed,
-                    block.hash(),
+                    //TODO: store rejection reasons for blocks?
+                    PipelineStatus::Rejected(PipelineRejectionReason::Block(
+                        BlockRejectionReason::ConsensusBlockRejection,
+                    )),
+                    hash,
                 )
-                .into(),
-            ))
+                .into()
+            });
+        let current_block: iter::Once<Event> = iter::once(
+            PipelineEvent::new(
+                PipelineEntityType::Block,
+                PipelineStatus::Committed,
+                block.hash(),
+            )
+            .into(),
+        );
+
+        tx.chain(rejected_tx)
+            .chain(invalid_blocks)
+            .chain(current_block)
             .collect()
     }
 }
