@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+
     use std::{collections::BTreeMap, convert::TryFrom};
 
     use iroha_derive::Io;
@@ -17,8 +19,8 @@ mod tests {
         fn new() -> Self {
             SampleContract {
                 boolean_field: true,
-                string_field: "String".to_string(),
-                vec_field: vec!["String_In_Vec".to_string()],
+                string_field: "String".to_owned(),
+                vec_field: vec!["String_In_Vec".to_owned()],
                 map_field: BTreeMap::new(),
             }
         }

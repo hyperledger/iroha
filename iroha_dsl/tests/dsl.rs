@@ -1,4 +1,4 @@
-#![allow(clippy::too_many_lines)]
+#![allow(clippy::too_many_lines, clippy::restriction)]
 
 use std::{thread, time::Duration};
 

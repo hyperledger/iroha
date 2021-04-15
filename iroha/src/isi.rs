@@ -66,6 +66,7 @@ pub struct AssetTypeError {
 
 impl Display for AssetTypeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        #[allow(clippy::use_debug)]
         write!(
             f,
             "Asset type error: expected asset of type {:?}, but got {:?}",
@@ -184,30 +185,24 @@ impl Execute for MintBox {
         world_state_view: &mut WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        match self.destination_id.evaluate(world_state_view, &context)? {
-            IdBox::AssetId(asset_id) => match self.object.evaluate(world_state_view, &context)? {
-                Value::U32(quantity) => {
-                    Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
-                }
-                _ => Err(error!("Unsupported instruction.").into()),
-            },
-            IdBox::WorldId => match self.object.evaluate(world_state_view, &context)? {
-                Value::Parameter(parameter) => Mint::<World, Parameter>::new(parameter, WorldId)
-                    .execute(authority, world_state_view),
-                _ => Err(error!("Unsupported instruction.").into()),
-            },
-            IdBox::AccountId(account_id) => {
-                match self.object.evaluate(world_state_view, &context)? {
-                    Value::PublicKey(public_key) => {
-                        Mint::<Account, PublicKey>::new(public_key, account_id)
-                            .execute(authority, world_state_view)
-                    }
-                    Value::SignatureCheckCondition(condition) => {
-                        Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
-                            .execute(authority, world_state_view)
-                    }
-                    _ => Err(error!("Unsupported instruction.").into()),
-                }
+        match (
+            self.destination_id.evaluate(world_state_view, &context)?,
+            self.object.evaluate(world_state_view, &context)?,
+        ) {
+            (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
+                Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
+            }
+            (IdBox::WorldId, Value::Parameter(parameter)) => {
+                Mint::<World, Parameter>::new(parameter, WorldId)
+                    .execute(authority, world_state_view)
+            }
+            (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
+                Mint::<Account, PublicKey>::new(public_key, account_id)
+                    .execute(authority, world_state_view)
+            }
+            (IdBox::AccountId(account_id), Value::SignatureCheckCondition(condition)) => {
+                Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
+                    .execute(authority, world_state_view)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -222,21 +217,16 @@ impl Execute for BurnBox {
         world_state_view: &mut WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        match self.destination_id.evaluate(world_state_view, &context)? {
-            IdBox::AssetId(asset_id) => match self.object.evaluate(world_state_view, &context)? {
-                Value::U32(quantity) => {
-                    Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
-                }
-                _ => Err(error!("Unsupported instruction.").into()),
-            },
-            IdBox::AccountId(account_id) => {
-                match self.object.evaluate(world_state_view, &context)? {
-                    Value::PublicKey(public_key) => {
-                        Burn::<Account, PublicKey>::new(public_key, account_id)
-                            .execute(authority, world_state_view)
-                    }
-                    _ => Err(error!("Unsupported instruction.").into()),
-                }
+        match (
+            self.destination_id.evaluate(world_state_view, &context)?,
+            self.object.evaluate(world_state_view, &context)?,
+        ) {
+            (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
+                Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
+            }
+            (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
+                Burn::<Account, PublicKey>::new(public_key, account_id)
+                    .execute(authority, world_state_view)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -251,23 +241,20 @@ impl Execute for TransferBox {
         world_state_view: &mut WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        match self.source_id.evaluate(world_state_view, &context)? {
-            IdBox::AssetId(source_asset_id) => {
-                match self.object.evaluate(world_state_view, &context)? {
-                    Value::U32(quantity) => match self
-                        .destination_id
-                        .evaluate(world_state_view, &context)?
-                    {
-                        IdBox::AssetId(destination_asset_id) => Transfer::<Asset, u32, Asset>::new(
-                            source_asset_id,
-                            quantity,
-                            destination_asset_id,
-                        )
-                        .execute(authority, world_state_view),
-                        _ => Err(error!("Unsupported instruction.").into()),
-                    },
-                    _ => Err(error!("Unsupported instruction.").into()),
-                }
+        let source_asset_id = match self.source_id.evaluate(world_state_view, &context)? {
+            IdBox::AssetId(source_asset_id) => source_asset_id,
+            _ => return Err(error!("Unsupported instruction.").into()),
+        };
+
+        let quantity = match self.object.evaluate(world_state_view, &context)? {
+            Value::U32(quantity) => quantity,
+            _ => return Err(error!("Unsupported instruction.").into()),
+        };
+
+        match self.destination_id.evaluate(world_state_view, &context)? {
+            IdBox::AssetId(destination_asset_id) => {
+                Transfer::<Asset, u32, Asset>::new(source_asset_id, quantity, destination_asset_id)
+                    .execute(authority, world_state_view)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -282,16 +269,14 @@ impl Execute for SetKeyValueBox {
         world_state_view: &mut WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
+        let key = self.key.evaluate(world_state_view, &context)?;
+        let value = self.value.evaluate(world_state_view, &context)?;
         match self.object_id.evaluate(world_state_view, &context)? {
             IdBox::AssetId(asset_id) => {
-                let key = self.key.evaluate(world_state_view, &context)?;
-                let value = self.value.evaluate(world_state_view, &context)?;
                 SetKeyValue::<Asset, String, Value>::new(asset_id, key, value)
                     .execute(authority, world_state_view)
             }
             IdBox::AccountId(account_id) => {
-                let key = self.key.evaluate(world_state_view, &context)?;
-                let value = self.value.evaluate(world_state_view, &context)?;
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
                     .execute(authority, world_state_view)
             }
@@ -308,17 +293,12 @@ impl Execute for RemoveKeyValueBox {
         world_state_view: &mut WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
+        let key = self.key.evaluate(world_state_view, &context)?;
         match self.object_id.evaluate(world_state_view, &context)? {
-            IdBox::AssetId(asset_id) => {
-                let key = self.key.evaluate(world_state_view, &context)?;
-                RemoveKeyValue::<Asset, String>::new(asset_id, key)
-                    .execute(authority, world_state_view)
-            }
-            IdBox::AccountId(account_id) => {
-                let key = self.key.evaluate(world_state_view, &context)?;
-                RemoveKeyValue::<Account, String>::new(account_id, key)
-                    .execute(authority, world_state_view)
-            }
+            IdBox::AssetId(asset_id) => RemoveKeyValue::<Asset, String>::new(asset_id, key)
+                .execute(authority, world_state_view),
+            IdBox::AccountId(account_id) => RemoveKeyValue::<Account, String>::new(account_id, key)
+                .execute(authority, world_state_view),
             _ => Err(error!("Unsupported instruction.").into()),
         }
     }
@@ -411,6 +391,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use iroha_crypto::KeyPair;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds, TryAsRef};
 
@@ -429,7 +411,7 @@ mod tests {
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
         );
-        let _ = domains.insert("wonderland".to_string(), domain);
+        let _ = domains.insert("wonderland".to_owned(), domain);
         Ok(World::with(domains, PeersIds::new()))
     }
 
@@ -441,7 +423,7 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
         SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
-            "Bytes".to_string(),
+            "Bytes".to_owned(),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &mut wsv)?;
@@ -470,7 +452,7 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland");
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
-            "Bytes".to_string(),
+            "Bytes".to_owned(),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &mut wsv)?;

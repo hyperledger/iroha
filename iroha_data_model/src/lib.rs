@@ -283,14 +283,14 @@ impl<V: Into<Value>> From<Vec<V>> for Value {
     }
 }
 
-#[allow(clippy::fallible_impl_from)]
+#[allow(clippy::fallible_impl_from, clippy::todo)]
 impl From<u128> for Value {
     fn from(_: u128) -> Value {
         todo!()
     }
 }
 
-#[allow(clippy::fallible_impl_from)]
+#[allow(clippy::fallible_impl_from, clippy::todo)]
 impl From<(String, Vec<u8>)> for Value {
     fn from(_: (String, Vec<u8>)) -> Value {
         todo!()
@@ -433,7 +433,7 @@ pub mod permissions {
 
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
-    #![allow(clippy::default_trait_access)]
+    #![allow(clippy::default_trait_access, clippy::missing_inline_in_public_items)]
 
     use std::ops::RangeInclusive;
     use std::{
@@ -690,11 +690,11 @@ pub mod account {
                 .collect();
             WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
                 .with_value(
-                    TRANSACTION_SIGNATORIES_VALUE.to_string(),
+                    TRANSACTION_SIGNATORIES_VALUE.to_owned(),
                     transaction_signatories,
                 )
                 .with_value(
-                    ACCOUNT_SIGNATORIES_VALUE.to_string(),
+                    ACCOUNT_SIGNATORIES_VALUE.to_owned(),
                     self.signatories.clone(),
                 )
                 .build()
@@ -707,16 +707,16 @@ pub mod account {
         /// account's name, another one for the container's name.
         pub fn new(name: &str, domain_name: &str) -> Self {
             Id {
-                name: name.to_string(),
-                domain_name: domain_name.to_string(),
+                name: name.to_owned(),
+                domain_name: domain_name.to_owned(),
             }
         }
 
         /// `Id` of the genesis account.
         pub fn genesis_account() -> Self {
             Id {
-                name: GENESIS_ACCOUNT_NAME.to_string(),
-                domain_name: GENESIS_DOMAIN_NAME.to_string(),
+                name: GENESIS_ACCOUNT_NAME.to_owned(),
+                domain_name: GENESIS_DOMAIN_NAME.to_owned(),
             }
         }
     }
@@ -852,13 +852,6 @@ pub mod asset {
         pub value: AssetValue,
     }
 
-    impl Asset {
-        /// Returns the asset type as a string.
-        pub const fn value_type(&self) -> AssetValueType {
-            self.value.value_type()
-        }
-    }
-
     /// Asset's inner value type.
     #[derive(
         Copy,
@@ -899,7 +892,7 @@ pub mod asset {
     impl AssetValue {
         /// Returns the asset type as a string.
         pub const fn value_type(&self) -> AssetValueType {
-            match self {
+            match *self {
                 AssetValue::Quantity(_) => AssetValueType::Quantity,
                 AssetValue::BigQuantity(_) => AssetValueType::BigQuantity,
                 AssetValue::Store(_) => AssetValueType::Store,
@@ -913,7 +906,7 @@ pub mod asset {
                 type Error = Error;
 
                 fn try_as_mut(&mut self) -> Result<&mut $ty> {
-                    if let AssetValue:: $variant (ref mut value) = self {
+                    if let AssetValue:: $variant (value) = self {
                         Ok(value)
                     } else {
                         Err(error!(
@@ -932,7 +925,7 @@ pub mod asset {
                 type Error = Error;
 
                 fn try_as_ref(&self) -> Result<& $ty > {
-                    if let AssetValue:: $variant (ref value) = self {
+                    if let AssetValue:: $variant (value) = self {
                         Ok(value)
                     } else {
                         Err(error!(
@@ -1000,7 +993,7 @@ pub mod asset {
     impl AssetDefinition {
         /// Default `AssetDefinition` constructor.
         pub const fn new(id: DefinitionId, value_type: AssetValueType) -> Self {
-            AssetDefinition { id, value_type }
+            AssetDefinition { value_type, id }
         }
 
         /// Asset definition with quantity asset value type.
@@ -1078,6 +1071,11 @@ pub mod asset {
                 value: store.into(),
             })
         }
+
+        /// Returns the asset type as a string.
+        pub const fn value_type(&self) -> AssetValueType {
+            self.value.value_type()
+        }
     }
 
     impl DefinitionId {
@@ -1085,8 +1083,8 @@ pub mod asset {
         /// asset definition's name, another one for the domain's name.
         pub fn new(name: &str, domain_name: &str) -> Self {
             DefinitionId {
-                name: name.to_string(),
-                domain_name: domain_name.to_string(),
+                name: name.to_owned(),
+                domain_name: domain_name.to_owned(),
             }
         }
     }
@@ -1249,7 +1247,7 @@ pub mod domain {
     impl From<GenesisDomain> for Domain {
         fn from(domain: GenesisDomain) -> Self {
             Self {
-                name: GENESIS_DOMAIN_NAME.to_string(),
+                name: GENESIS_DOMAIN_NAME.to_owned(),
                 accounts: iter::once((
                     <Account as Identifiable>::Id::genesis_account(),
                     GenesisAccount::new(domain.genesis_account_public_key).into(),
@@ -1287,7 +1285,7 @@ pub mod domain {
         /// Default `Domain` constructor.
         pub fn new(name: &str) -> Self {
             Domain {
-                name: name.to_string(),
+                name: name.to_owned(),
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
             }
@@ -1332,6 +1330,8 @@ pub mod domain {
 
 pub mod peer {
     //! This module contains `Peer` structure and related implementations and traits implementations.
+
+    #![allow(clippy::missing_inline_in_public_items)]
 
     use std::{collections::BTreeSet, iter::FromIterator};
 
@@ -1379,7 +1379,7 @@ pub mod peer {
         /// Default `PeerId` constructor.
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
             Id {
-                address: address.to_string(),
+                address: address.to_owned(),
                 public_key: public_key.clone(),
             }
         }
@@ -1404,7 +1404,7 @@ pub mod transaction {
     //! This module contains `Transaction` structures and related implementations
     //! and traits implementations.
     // TODO remove `allow` when the task https://jira.hyperledger.org/browse/IR-1048 will be closed
-    #![allow(unused_results)]
+    #![allow(unused_results, clippy::missing_inline_in_public_items)]
 
     use std::cmp::Ordering;
     use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
@@ -1459,23 +1459,6 @@ pub mod transaction {
         pub time_to_live_ms: u64,
         /// Metadata.
         pub metadata: UnlimitedMetadata,
-    }
-
-    impl Payload {
-        /// # Errors
-        /// Asserts specific instruction number of instruction constraint
-        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
-            if self
-                .instructions
-                .iter()
-                .map(Instruction::len)
-                .sum::<usize>()
-                > max_instruction_number
-            {
-                return Err(error!("Too many instructions in payload"));
-            }
-            Ok(())
-        }
     }
 
     impl VersionedTransaction {
@@ -1562,7 +1545,7 @@ pub mod transaction {
             proposed_ttl_ms: u64,
             metadata: UnlimitedMetadata,
         ) -> Transaction {
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::cast_possible_truncation, clippy::expect_used)]
             Transaction {
                 payload: Payload {
                     instructions,
@@ -1613,6 +1596,21 @@ pub mod transaction {
                 && self.instructions == other.instructions
                 && self.time_to_live_ms == other.time_to_live_ms
                 && self.metadata == other.metadata
+        }
+
+        /// # Errors
+        /// Asserts specific instruction number of instruction constraint
+        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+            if self
+                .instructions
+                .iter()
+                .map(Instruction::len)
+                .sum::<usize>()
+                > max_instruction_number
+            {
+                return Err(error!("Too many instructions in payload"));
+            }
+            Ok(())
         }
     }
 
@@ -1760,6 +1758,7 @@ pub mod transaction {
 
     impl PartialEq for VersionedRejectedTransaction {
         fn eq(&self, other: &Self) -> bool {
+            #[allow(clippy::pattern_type_mismatch)]
             match (self, other) {
                 (
                     VersionedRejectedTransaction::V1(first),
@@ -1773,6 +1772,7 @@ pub mod transaction {
 
     impl PartialEq for VersionedTransaction {
         fn eq(&self, other: &Self) -> bool {
+            #[allow(clippy::pattern_type_mismatch)]
             match (self, other) {
                 (VersionedTransaction::V1(first), VersionedTransaction::V1(second)) => {
                     first.0.eq(&second.0)
@@ -2047,6 +2047,8 @@ pub mod pagination {
 pub mod metadata {
     //! Module with metadata for accounts
 
+    #![allow(clippy::missing_inline_in_public_items)]
+
     use std::{borrow::Borrow, collections::BTreeMap};
 
     use iroha_error::{error, Result};
@@ -2161,10 +2163,10 @@ pub mod metadata {
             let mut metadata = Metadata::new();
             let limits = Limits::new(10, 5);
             assert!(metadata
-                .insert_with_limits("1".to_string(), "2".to_string().into(), limits)
+                .insert_with_limits("1".to_owned(), "2".to_owned().into(), limits)
                 .is_ok());
             assert!(metadata
-                .insert_with_limits("1".to_string(), "23456".to_string().into(), limits)
+                .insert_with_limits("1".to_owned(), "23456".to_owned().into(), limits)
                 .is_err());
         }
 
@@ -2173,16 +2175,16 @@ pub mod metadata {
             let mut metadata = Metadata::new();
             let limits = Limits::new(2, 5);
             assert!(metadata
-                .insert_with_limits("1".to_string(), "0".to_string().into(), limits)
+                .insert_with_limits("1".to_owned(), "0".to_owned().into(), limits)
                 .is_ok());
             assert!(metadata
-                .insert_with_limits("2".to_string(), "0".to_string().into(), limits)
+                .insert_with_limits("2".to_owned(), "0".to_owned().into(), limits)
                 .is_ok());
             assert!(metadata
-                .insert_with_limits("2".to_string(), "1".to_string().into(), limits)
+                .insert_with_limits("2".to_owned(), "1".to_owned().into(), limits)
                 .is_ok());
             assert!(metadata
-                .insert_with_limits("3".to_string(), "0".to_string().into(), limits)
+                .insert_with_limits("3".to_owned(), "0".to_owned().into(), limits)
                 .is_err());
         }
     }

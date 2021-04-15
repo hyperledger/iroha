@@ -261,7 +261,7 @@ impl PermissionsValidator for AllowAll {
 }
 
 impl From<AllowAll> for PermissionsValidatorBox {
-    fn from(_: AllowAll) -> Self {
+    fn from(AllowAll: AllowAll) -> Self {
         Box::new(AllowAll)
     }
 }
@@ -363,6 +363,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::collections::BTreeMap;
 
     use iroha_data_model::isi::*;
@@ -440,7 +442,7 @@ mod tests {
         )
         .into();
         let instruction_fail = Instruction::Fail(FailBox {
-            message: "fail message".to_string(),
+            message: "fail message".to_owned(),
         });
         let account_bob = <Account as Identifiable>::Id::new("bob", "test");
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
@@ -470,7 +472,7 @@ mod tests {
         )
         .into();
         let instruction_fail = Instruction::Fail(FailBox {
-            message: "fail message".to_string(),
+            message: "fail message".to_owned(),
         });
         let nested_instruction_sequence =
             Instruction::If(If::new(true, instruction_burn.clone()).into());
@@ -500,7 +502,7 @@ mod tests {
             .insert(PermissionToken::new("token", btreemap! {}));
         let _ = domain.accounts.insert(bob_id.clone(), bob_account);
         let domains = btreemap! {
-            "test".to_string() => domain
+            "test".to_owned() => domain
         };
         let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
         let validator: GrantedTokenValidatorBox = Box::new(GrantedToken);

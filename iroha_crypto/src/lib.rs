@@ -1,5 +1,8 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-#![allow(clippy::module_name_repetitions)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::missing_inline_in_public_items
+)]
 
 /// Module with multihash implementation
 pub mod multihash;
@@ -51,6 +54,7 @@ pub struct Hash(pub [u8; HASH_LENGTH]);
 
 impl Hash {
     /// new hash from bytes
+    #[allow(clippy::expect_used)]
     pub fn new(bytes: &[u8]) -> Self {
         let vec_hash = VarBlake2b::new(32)
             .expect("Failed to initialize variable size hash")
@@ -105,6 +109,7 @@ impl Default for Algorithm {
 impl FromStr for Algorithm {
     type Err = Error;
     fn from_str(algorithm: &str) -> Result<Self> {
+        #[allow(clippy::pattern_type_mismatch)]
         match algorithm {
             ED_25519 => Ok(Algorithm::Ed25519),
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
@@ -117,6 +122,7 @@ impl FromStr for Algorithm {
 
 impl Display for Algorithm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        #[allow(clippy::pattern_type_mismatch)]
         match self {
             Algorithm::Ed25519 => write!(f, "{}", ED_25519),
             Algorithm::Secp256k1 => write!(f, "{}", SECP_256_K1),
@@ -220,7 +226,7 @@ impl KeyPair {
         }
         // TODO: Create an issue for ursa to impl Error for ursa::CryptoError
         //.wrap_err("Failed to generate key pair")?;
-        .map_err(|e| error!(e.to_string()))?;
+        .map_err(|e| error!("{}", e.to_string()))?;
         Ok(KeyPair {
             public_key: PublicKey {
                 digest_function: configuration.algorithm.to_string(),
@@ -244,6 +250,7 @@ pub struct PublicKey {
 }
 
 impl Default for PublicKey {
+    #[allow(clippy::unwrap_used)]
     fn default() -> Self {
         (&Multihash::default()).try_into().unwrap()
     }
@@ -259,6 +266,7 @@ impl Debug for PublicKey {
 }
 
 impl Display for PublicKey {
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let multihash: &Multihash = &self
             .try_into()
@@ -275,10 +283,10 @@ impl TryFrom<&Multihash> for PublicKey {
 
     fn try_from(multihash: &Multihash) -> Result<Self> {
         match multihash.digest_function {
-            MultihashDigestFunction::Ed25519Pub => Ok(ED_25519.to_string()),
-            MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1.to_string()),
-            MultihashDigestFunction::Bls12381G1Pub => Ok(BLS_NORMAL.to_string()),
-            MultihashDigestFunction::Bls12381G2Pub => Ok(BLS_SMALL.to_string()),
+            MultihashDigestFunction::Ed25519Pub => Ok(ED_25519.to_owned()),
+            MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1.to_owned()),
+            MultihashDigestFunction::Bls12381G1Pub => Ok(BLS_NORMAL.to_owned()),
+            MultihashDigestFunction::Bls12381G2Pub => Ok(BLS_SMALL.to_owned()),
         }
         .map(|digest_function| PublicKey {
             digest_function,
@@ -291,6 +299,7 @@ impl TryFrom<&PublicKey> for Multihash {
     type Error = Error;
 
     fn try_from(public_key: &PublicKey) -> Result<Self> {
+        #[allow(clippy::pattern_type_mismatch)]
         match public_key.digest_function.as_ref() {
             ED_25519 => Ok(MultihashDigestFunction::Ed25519Pub),
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
@@ -320,9 +329,8 @@ impl<'de> Deserialize<'de> for PublicKey {
         D: serde::Deserializer<'de>,
     {
         let bytes = hex::decode(String::deserialize(deserializer)?).map_err(SerdeError::custom)?;
-        let multihash: &Multihash = &bytes
-            .try_into()
-            .map_err(|e: Error| e.to_string())
+        let multihash = &Multihash::try_from(bytes)
+            .map_err(|e| e.to_string())
             .map_err(SerdeError::custom)?;
         multihash.try_into().map_err(SerdeError::custom)
     }
@@ -383,7 +391,7 @@ impl Signature {
     /// # Errors
     /// Fails if decoding digest of key pair fails
     pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature> {
-        let private_key = UrsaPrivateKey(key_pair.private_key.payload.to_vec());
+        let private_key = UrsaPrivateKey(key_pair.private_key.payload.clone());
         let algorithm: Algorithm = key_pair.public_key.digest_function.parse()?;
         let signature = match algorithm {
             Algorithm::Ed25519 => Ed25519Sha512::new().sign(payload, &private_key),
@@ -403,7 +411,7 @@ impl Signature {
     /// # Errors
     /// Fails if decoding digest of key pair fails or if message didn't pass verification
     pub fn verify(&self, message: &[u8]) -> Result<()> {
-        let public_key = UrsaPublicKey(self.public_key.payload.to_vec());
+        let public_key = UrsaPublicKey(self.public_key.payload.clone());
         let algorithm: Algorithm = self.public_key.digest_function.parse()?;
         let result = match algorithm {
             Algorithm::Ed25519 => {
@@ -417,14 +425,14 @@ impl Signature {
         };
         match result {
             Ok(true) => Ok(()),
-            _ => Err(error!("Signature did not pass verification.")),
+            _ => Err(error!("Signature did not pass verification: {}")),
         }
     }
 }
 
 impl PartialEq for Signature {
     fn eq(&self, other: &Self) -> bool {
-        self.public_key == other.public_key && self.signature.to_vec() == other.signature.to_vec()
+        self.public_key == other.public_key && self.signature.clone() == other.signature.clone()
     }
 }
 
@@ -434,7 +442,7 @@ impl Debug for Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Signature")
             .field("public_key", &self.public_key)
-            .field("signature", &format!("{:X?}", self.signature.to_vec()))
+            .field("signature", &format!("{:X?}", self.signature.clone()))
             .finish()
     }
 }
@@ -497,6 +505,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use hex_literal::hex;
     use serde::Deserialize;
     use ursa::blake2::{
@@ -576,7 +586,7 @@ mod tests {
             format!(
                 "{}",
                 PublicKey {
-                    digest_function: ED_25519.to_string(),
+                    digest_function: ED_25519.to_owned(),
                     payload: hex::decode(
                         "1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4"
                     )
@@ -589,7 +599,7 @@ mod tests {
             format!(
                 "{}",
                 PublicKey {
-                    digest_function: SECP_256_K1.to_string(),
+                    digest_function: SECP_256_K1.to_owned(),
                     payload: hex::decode(
                         "0312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc"
                     )
@@ -602,7 +612,7 @@ mod tests {
             format!(
                 "{}",
                 PublicKey {
-                    digest_function: BLS_NORMAL.to_string(),
+                    digest_function: BLS_NORMAL.to_owned(),
                     payload: hex::decode(
                         "04175b1e79b15e8a2d5893bf7f8933ca7d0863105d8bac3d6f976cb043378a0e4b885c57ed14eb85fc2fabc639adc7de7f0020c70c57acc38dee374af2c04a6f61c11de8df9034b12d849c7eb90099b0881267d0e1507d4365d838d7dcc31511e7"
                     )
@@ -615,7 +625,7 @@ mod tests {
             format!(
                 "{}",
                 PublicKey {
-                    digest_function: BLS_SMALL.to_string(),
+                    digest_function: BLS_SMALL.to_owned(),
                     payload: hex::decode(
                         "040cb3231f601e7245a6ec9a647b450936f707ca7dc347ed258586c1924941d8bc38576473a8ba3bb2c37e3e121130ab67103498a96d0d27003e3ad960493da79209cf024e2aa2ae961300976aeee599a31a5e1b683eaa1bcffc47b09757d20f21123c594cf0ee0baf5e1bdd272346b7dc98a8f12c481a6b28174076a352da8eae881b90911013369d7fa960716a5abc5314307463fa2285a5bf2a5b5c6220d68c2d34101a91dbfc531c5b9bbfb2245ccc0c50051f79fc6714d16907b1fc40e0c0"
                     )
@@ -644,14 +654,14 @@ mod tests {
             }").expect("Failed to deserialize."),
             TestJson {
                 public_key: PublicKey {
-                    digest_function: ED_25519.to_string(),
+                    digest_function: ED_25519.to_owned(),
                     payload: hex::decode(
                         "1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4"
                     )
                     .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
-                    digest_function: ED_25519.to_string(),
+                    digest_function: ED_25519.to_owned(),
                     payload: hex::decode("3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
                     .expect("Failed to decode private key"),
                 }
@@ -667,14 +677,14 @@ mod tests {
             }").expect("Failed to deserialize."),
             TestJson {
                 public_key: PublicKey {
-                    digest_function: SECP_256_K1.to_string(),
+                    digest_function: SECP_256_K1.to_owned(),
                     payload: hex::decode(
                         "0312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc"
                     )
                     .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
-                    digest_function: SECP_256_K1.to_string(),
+                    digest_function: SECP_256_K1.to_owned(),
                     payload: hex::decode("4df4fca10762d4b529fe40a2188a60ca4469d2c50a825b5f33adc2cb78c69445")
                     .expect("Failed to decode private key"),
                 }
@@ -690,14 +700,14 @@ mod tests {
             }").expect("Failed to deserialize."),
             TestJson {
                 public_key: PublicKey {
-                    digest_function: BLS_NORMAL.to_string(),
+                    digest_function: BLS_NORMAL.to_owned(),
                     payload: hex::decode(
                         "04175b1e79b15e8a2d5893bf7f8933ca7d0863105d8bac3d6f976cb043378a0e4b885c57ed14eb85fc2fabc639adc7de7f0020c70c57acc38dee374af2c04a6f61c11de8df9034b12d849c7eb90099b0881267d0e1507d4365d838d7dcc31511e7"
                     )
                     .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
-                    digest_function: BLS_NORMAL.to_string(),
+                    digest_function: BLS_NORMAL.to_owned(),
                     payload: hex::decode("000000000000000000000000000000002f57460183837efbac6aa6ab3b8dbb7cffcfc59e9448b7860a206d37d470cba3")
                     .expect("Failed to decode private key"),
                 }
@@ -713,14 +723,14 @@ mod tests {
             }").expect("Failed to deserialize."),
             TestJson {
                 public_key: PublicKey {
-                    digest_function: BLS_SMALL.to_string(),
+                    digest_function: BLS_SMALL.to_owned(),
                     payload: hex::decode(
                         "040cb3231f601e7245a6ec9a647b450936f707ca7dc347ed258586c1924941d8bc38576473a8ba3bb2c37e3e121130ab67103498a96d0d27003e3ad960493da79209cf024e2aa2ae961300976aeee599a31a5e1b683eaa1bcffc47b09757d20f21123c594cf0ee0baf5e1bdd272346b7dc98a8f12c481a6b28174076a352da8eae881b90911013369d7fa960716a5abc5314307463fa2285a5bf2a5b5c6220d68c2d34101a91dbfc531c5b9bbfb2245ccc0c50051f79fc6714d16907b1fc40e0c0"
                     )
                     .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
-                    digest_function: BLS_SMALL.to_string(),
+                    digest_function: BLS_SMALL.to_owned(),
                     payload: hex::decode("0000000000000000000000000000000060f3c1ac9addbbed8db83bc1b2ef22139fb049eecb723a557a41ca1a4b1fed63")
                     .expect("Failed to decode private key"),
                 }

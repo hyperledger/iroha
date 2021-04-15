@@ -11,7 +11,7 @@ const GENESIS: &str = "genesis";
 #[async_std::main]
 #[allow(clippy::non_ascii_literal)]
 async fn main() -> Result<()> {
-    println!("Hyperledgerいろは2にようこそ！");
+    iroha_logger::info!("Hyperledgerいろは2にようこそ！");
     // TODO Add more information about iroha2
     let matches = App::new("Hyperledger/iroha 2")
         .version("0.1.0")
@@ -30,11 +30,11 @@ async fn main() -> Result<()> {
 
     let genesis_path_option = matches.value_of(GENESIS);
     if let Some(genesis_path) = genesis_path_option {
-        println!("Loading genesis block from the path: {}", genesis_path);
+        iroha_logger::info!("Loading genesis block from the path: {}", genesis_path);
         configuration.add_genesis_block_path(genesis_path);
     }
 
-    Iroha::new(&configuration, AllowAll.into()).start().await?;
+    Iroha::new(&configuration, AllowAll.into())?.start().await?;
     loop {
         task::yield_now().await
     }

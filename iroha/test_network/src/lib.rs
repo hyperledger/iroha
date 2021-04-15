@@ -5,7 +5,9 @@
     clippy::module_name_repetitions,
     unused_results,
     missing_docs,
-    clippy::cast_possible_truncation
+    clippy::cast_possible_truncation,
+    clippy::missing_panics_doc,
+    clippy::restriction
 )]
 
 use std::{fmt::Debug, thread, time::Duration};
@@ -204,16 +206,16 @@ impl Peer {
         let mut configuration = self.get_config(configuration);
         configuration
             .kura_configuration
-            .kura_block_store_path(temp_dir.path());
+            .kura_block_store_path(temp_dir.path())
+            .unwrap();
         let info_span = iroha_logger::info_span!("test-peer", "{}", &self.api_address);
         let join_handle = task::spawn(
             async move {
-                let iroha = Iroha::new(&configuration, permissions.into());
+                let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 loop {
                     task::yield_now().await;
-                    //
                 }
             }
             .instrument(info_span),
@@ -237,9 +239,10 @@ impl Peer {
                 let temp_dir = temp_dir;
                 configuration
                     .kura_configuration
-                    .kura_block_store_path(temp_dir.path());
+                    .kura_block_store_path(temp_dir.path())
+                    .unwrap();
 
-                let iroha = Iroha::new(&configuration, permissions.into());
+                let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 loop {
@@ -490,7 +493,7 @@ impl TestQueryResult for QueryResult {
             panic!("Wrong Query Result Type.");
         };
         assets.iter().find_map(|asset| {
-            if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
+            if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
                 if &asset.id.definition_id == asset_id {
                     return Some(asset.as_ref());
                 }

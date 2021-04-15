@@ -77,7 +77,7 @@ impl GenesisNetwork {
         max_instructions_number: usize,
     ) -> Result<Option<GenesisNetwork>> {
         if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
-            let file = File::open(Path::new(genesis_block_path))
+            let file = File::open(Path::new(&genesis_block_path))
                 .wrap_err("Failed to open a genesis block file")?;
             let reader = BufReader::new(file);
             let raw_block: RawGenesisBlock = serde_json::from_reader(reader)
@@ -163,12 +163,13 @@ impl GenesisNetwork {
         let (online, offline): (Vec<_>, Vec<_>) = future::join_all(futures)
             .await
             .into_iter()
-            .partition(|(_, reached)| *reached);
+            .partition(|&(_, reached)| reached);
         let online = online.into_iter().map(|(peer, _)| peer).collect();
         let offline = offline.into_iter().map(|(peer, _)| peer).collect();
         (online, offline)
     }
 
+    #[allow(clippy::expect_used)]
     async fn try_wait_for_peers(
         this_peer_id: &PeerId,
         network_topology: &InitializedNetworkTopology,
@@ -284,7 +285,7 @@ mod tests {
             &GenesisConfiguration {
                 genesis_account_public_key: genesis_key_pair.public_key,
                 genesis_account_private_key: Some(genesis_key_pair.private_key),
-                genesis_block_path: Some(GENESIS_BLOCK_PATH.to_string()),
+                genesis_block_path: Some(GENESIS_BLOCK_PATH.to_owned()),
                 ..GenesisConfiguration::default()
             },
             4096,
