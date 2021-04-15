@@ -32,20 +32,24 @@ pub struct Kura {
 impl Kura {
     /// Default `Kura` constructor.
     /// Kura will not be ready to work with before `init` method invocation.
-    pub fn new(mode: Mode, block_store_path: &Path, block_sender: CommittedBlockSender) -> Self {
-        Kura {
+    pub fn new(
+        mode: Mode,
+        block_store_path: &Path,
+        block_sender: CommittedBlockSender,
+    ) -> Result<Self> {
+        Ok(Kura {
             mode,
-            block_store: BlockStore::new(block_store_path),
+            block_store: BlockStore::new(block_store_path)?,
             block_sender,
             merkle_tree: MerkleTree::new(),
             blocks: Vec::new(),
-        }
+        })
     }
 
     pub fn from_configuration(
         configuration: &config::KuraConfiguration,
         block_sender: CommittedBlockSender,
-    ) -> Self {
+    ) -> Result<Self> {
         Kura::new(
             configuration.kura_init_mode,
             Path::new(&configuration.kura_block_store_path),
@@ -128,13 +132,13 @@ struct BlockStore {
 }
 
 impl BlockStore {
-    fn new(path: &Path) -> BlockStore {
+    fn new(path: &Path) -> Result<BlockStore> {
         if fs::read_dir(path).is_err() {
-            fs::create_dir_all(path).expect("Failed to create Block Store directory.");
+            fs::create_dir_all(path).wrap_err("Failed to create Block Store directory.")?;
         }
-        BlockStore {
+        Ok(BlockStore {
             path: path.to_path_buf(),
-        }
+        })
     }
 
     fn get_block_filename(block_height: u64) -> String {
@@ -186,6 +190,7 @@ pub mod config {
     use std::path::Path;
 
     use iroha_config::derive::Configurable;
+    use iroha_error::{error, Result};
     use serde::{Deserialize, Serialize};
 
     use super::Mode;
@@ -215,24 +220,25 @@ pub mod config {
     impl KuraConfiguration {
         /// Set `kura_block_store_path` configuration parameter - will overwrite the existing one.
         ///
-        /// # Panic
-        /// If path is not valid this method will panic.
-        pub fn kura_block_store_path(&mut self, path: &Path) {
+        /// # Errors
+        /// If path is not valid this method will fail.
+        pub fn kura_block_store_path(&mut self, path: &Path) -> Result<()> {
             self.kura_block_store_path = path
                 .to_str()
-                .expect("Failed to yield slice from path")
-                .to_string();
+                .ok_or_else(|| error!("Failed to yield slice from path"))?
+                .to_owned();
+            Ok(())
         }
     }
 
     fn default_kura_block_store_path() -> String {
-        DEFAULT_KURA_BLOCK_STORE_PATH.to_string()
+        DEFAULT_KURA_BLOCK_STORE_PATH.to_owned()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::cast_possible_truncation)]
+    #![allow(clippy::cast_possible_truncation, clippy::restriction)]
 
     use async_std::sync;
     use iroha_crypto::KeyPair;
@@ -246,6 +252,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let (tx, _rx) = sync::channel(100);
         assert!(Kura::new(Mode::Strict, temp_dir.path(), tx)
+            .unwrap()
             .init()
             .await
             .is_ok());
@@ -260,7 +267,11 @@ mod tests {
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
             .expect("Failed to sign blocks.");
-        assert!(BlockStore::new(dir.path()).write(&block).await.is_ok());
+        assert!(BlockStore::new(dir.path())
+            .unwrap()
+            .write(&block)
+            .await
+            .is_ok());
     }
 
     #[async_std::test]
@@ -272,7 +283,7 @@ mod tests {
             .validate(&WorldStateView::new(World::new()), &AllowAll.into())
             .sign(&keypair)
             .expect("Failed to sign blocks.");
-        let block_store = BlockStore::new(dir.path());
+        let block_store = BlockStore::new(dir.path()).unwrap();
         let _ = block_store
             .write(&block)
             .await
@@ -283,7 +294,7 @@ mod tests {
     #[async_std::test]
     async fn read_all_blocks_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
-        let block_store = BlockStore::new(dir.path());
+        let block_store = BlockStore::new(dir.path()).unwrap();
         let n = 10;
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let mut block = PendingBlock::new(Vec::new())
@@ -322,7 +333,7 @@ mod tests {
             .expect("Failed to sign blocks.");
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
-        let mut kura = Kura::new(Mode::Strict, dir.path(), tx);
+        let mut kura = Kura::new(Mode::Strict, dir.path(), tx).unwrap();
         kura.init().await.expect("Failed to init Kura.");
         let _ = kura
             .store(block)

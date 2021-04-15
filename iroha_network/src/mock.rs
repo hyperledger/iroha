@@ -1,4 +1,13 @@
-#![allow(clippy::missing_errors_doc, unsafe_code, missing_docs)]
+#![allow(
+    clippy::missing_errors_doc,
+    unsafe_code,
+    missing_docs,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::unwrap_in_result,
+    clippy::integer_arithmetic,
+    clippy::expect_used
+)]
 
 use std::{
     convert::{TryFrom, TryInto},
@@ -97,7 +106,7 @@ pub struct Network {
 impl Network {
     pub fn new(server_url: &str) -> Network {
         Network {
-            server_url: server_url.to_string(),
+            server_url: server_url.to_owned(),
         }
     }
 
@@ -126,15 +135,15 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
-    #[allow(clippy::future_not_send)]
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
-        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
-        F: Future<Output = Result<()>>,
+        H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
+        F: Send + Future<Output = Result<()>>,
+        State<S>: Send + Sync,
     {
         let (tx, rx) = sync::channel(100);
         unsafe {
-            ENDPOINTS.push((server_url.to_string(), tx));
+            ENDPOINTS.push((server_url.to_owned(), tx));
         }
         while let Ok(stream) = rx.recv().await {
             handler(Arc::clone(&state), Box::new(stream)).await?;
@@ -145,15 +154,15 @@ impl Network {
     /// Helper function to call inside `listen_async` `handler` function to parse and send response.
     /// The `handler` specified here will need to generate `Response` from `Request`.
     /// See `listen_async` for the description of the `state`.
-    #[allow(clippy::future_not_send)]
     pub async fn handle_message_async<H, F, S>(
         state: State<S>,
         mut stream: Box<dyn AsyncStream>,
         mut handler: H,
     ) -> Result<()>
     where
-        H: FnMut(State<S>, Request) -> F,
-        F: Future<Output = Result<Response>>,
+        H: Send + FnMut(State<S>, Request) -> F,
+        F: Future<Output = Result<Response>> + Send,
+        State<S>: Send + Sync,
     {
         let mut buffer = [0_u8; BUFFER_SIZE];
         let read_size = stream
@@ -170,6 +179,7 @@ impl Network {
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
+#[non_exhaustive]
 pub struct Request {
     pub uri_path: String,
     pub payload: Vec<u8>,
@@ -188,7 +198,7 @@ impl Request {
     /// ```
     /// use iroha_network::prelude::*;
     ///
-    /// let request = Request::new("/instructions".to_string(), "some_message".to_string().into_bytes());
+    /// let request = Request::new("/instructions".to_owned(), "some_message".to_owned().into_bytes());
     /// ```
     pub fn new(uri_path: impl Into<String>, payload: Vec<u8>) -> Request {
         let uri_path = uri_path.into();

@@ -1,5 +1,9 @@
 //! Events for streaming API.
-#![allow(unused_results, clippy::unused_self)]
+#![allow(
+    unused_results,
+    clippy::unused_self,
+    clippy::missing_inline_in_public_items
+)]
 
 use iroha_derive::FromVariant;
 use iroha_version::prelude::*;
@@ -23,6 +27,30 @@ pub struct EventReceived;
 
 declare_versioned_with_json!(VersionedEvent 1..2);
 
+impl VersionedEvent {
+    /// The same as `as_v1` but also runs into on it
+    pub const fn as_inner_v1(&self) -> &Event {
+        match self {
+            Self::V1(v1) => &v1.0,
+        }
+    }
+
+    /// The same as `as_v1` but also runs into on it
+    pub fn as_mut_inner_v1(&mut self) -> &mut Event {
+        match self {
+            Self::V1(v1) => &mut v1.0,
+        }
+    }
+
+    /// The same as `as_v1` but also runs into on it
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn into_inner_v1(self) -> Event {
+        match self {
+            Self::V1(v1) => v1.into(),
+        }
+    }
+}
+
 /// Event.
 #[version_with_json(n = 1, versioned = "VersionedEvent")]
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, FromVariant)]
@@ -45,15 +73,10 @@ pub enum EventFilter {
 impl EventFilter {
     /// Apply filter to event.
     pub fn apply(&self, event: &Event) -> bool {
-        match event {
-            Event::Pipeline(event) => match self {
-                EventFilter::Pipeline(filter) => filter.apply(event),
-                _ => false,
-            },
-            Event::Data(event) => match self {
-                EventFilter::Data(filter) => filter.apply(*event),
-                _ => false,
-            },
+        match (event, self) {
+            (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.apply(event),
+            (Event::Data(event), EventFilter::Data(filter)) => filter.apply(*event),
+            _ => false,
         }
     }
 }
@@ -402,6 +425,8 @@ pub mod pipeline {
 
     #[cfg(test)]
     mod tests {
+        #![allow(clippy::restriction)]
+
         use RejectionReason::*;
         use TransactionRejectionReason::*;
 

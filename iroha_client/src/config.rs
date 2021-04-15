@@ -57,7 +57,7 @@ impl Configuration {
 }
 
 fn default_torii_api_url() -> String {
-    DEFAULT_TORII_API_URL.to_string()
+    DEFAULT_TORII_API_URL.to_owned()
 }
 
 const fn default_transaction_time_to_live_ms() -> u64 {

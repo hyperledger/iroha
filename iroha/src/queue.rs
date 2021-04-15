@@ -68,6 +68,7 @@ impl Queue {
     /// The reason for not dropping transaction when getting them, is that in the case of a view change this peer might become a leader,
     /// or might need to froward tx to the leader to check if the leader is not faulty.
     /// If there is no view change and the block is commited then the transactions will simply drop because they are in a blockchain already.
+    #[allow(clippy::expect_used)]
     pub fn get_pending_transactions(
         &mut self,
         is_leader: bool,
@@ -81,47 +82,45 @@ impl Queue {
             let transaction_hash = self
                 .pending_tx_hash_queue
                 .pop_front()
-                .expect("Failed to get front transaction.");
+                .expect("Unreachable, as queue not empty");
             let transaction = self
                 .pending_tx_by_hash
                 .get(&transaction_hash)
-                .expect("Failed to get tx by hash.");
-            if !transaction.is_expired(self.transaction_time_to_live)
-                && !transaction.is_in_blockchain(world_state_view)
+                .expect("Should always be present, as contained in queue");
+
+            if transaction.is_expired(self.transaction_time_to_live)
+                || transaction.is_in_blockchain(world_state_view)
             {
-                if let Ok(signature_condition_passed) =
-                    transaction.check_signature_condition(world_state_view)
-                {
-                    if is_leader {
-                        if signature_condition_passed {
-                            output_transactions.push(
-                                self.pending_tx_by_hash
-                                    .get(&transaction_hash)
-                                    .expect("Failed to get tx by hash. The map should contain txs that are in a queue.")
-                                    .clone(),
-                            );
-                            counter -= 1;
-                        }
-                    } else {
-                        output_transactions.push(
-                            self.pending_tx_by_hash
-                                .get(&transaction_hash)
-                                .expect("Failed to get tx by hash. The map should contain txs that are in a queue.")
-                                .clone(),
-                        );
-                        counter -= 1;
-                    }
-                    left_behind_transactions.push_back(transaction_hash);
-                } else {
-                    let _ = self.pending_tx_by_hash.remove(&transaction_hash).expect(
-                        "Failed to get tx by hash. The map should contain txs that are in a queue.",
-                    );
-                }
-            } else {
-                let _ = self.pending_tx_by_hash.remove(&transaction_hash).expect(
-                    "Failed to get tx by hash. The map should contain txs that are in a queue.",
-                );
+                let _ = self
+                    .pending_tx_by_hash
+                    .remove(&transaction_hash)
+                    .expect("Should always be present, as contained in queue");
+                continue;
             }
+
+            let signature_condition_passed = if let Ok(signature_condition_passed) =
+                transaction.check_signature_condition(world_state_view)
+            {
+                signature_condition_passed
+            } else {
+                let _ = self
+                    .pending_tx_by_hash
+                    .remove(&transaction_hash)
+                    .expect("Should always be present, as contained in queue");
+                continue;
+            };
+
+            if !is_leader || signature_condition_passed {
+                output_transactions.push(
+                    self.pending_tx_by_hash
+                        .get(&transaction_hash)
+                        .expect("Should always be present, as contained in queue")
+                        .clone(),
+                );
+                counter -= 1;
+            }
+
+            left_behind_transactions.push_back(transaction_hash);
         }
         left_behind_transactions.append(&mut self.pending_tx_hash_queue);
         self.pending_tx_hash_queue = left_behind_transactions;
@@ -166,6 +165,8 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::{collections::BTreeMap, thread, time::Duration};
 
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
@@ -200,7 +201,7 @@ mod tests {
         let mut account = Account::new(account_id.clone());
         account.signatories.push(public_key);
         let _ = domain.accounts.insert(account_id, account);
-        let _ = domains.insert("wonderland".to_string(), domain);
+        let _ = domains.insert("wonderland".to_owned(), domain);
         World::with(domains, PeersIds::new())
     }
 
@@ -421,7 +422,7 @@ mod tests {
         account.signatories.push(alice_key_2.public_key);
         let _result = domain.accounts.insert(account_id, account);
         let mut domains = BTreeMap::new();
-        let _result = domains.insert("wonderland".to_string(), domain);
+        let _result = domains.insert("wonderland".to_owned(), domain);
         let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let output_transactions: Vec<_> = queue
             .get_pending_transactions(true, &world_state_view)

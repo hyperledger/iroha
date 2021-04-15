@@ -1,4 +1,4 @@
-#![allow(missing_docs, clippy::too_many_lines)]
+#![allow(missing_docs, clippy::restriction, clippy::too_many_lines)]
 
 use std::{convert::Infallible, thread, time::Duration};
 
@@ -67,10 +67,11 @@ mod iroha_steps {
                         .expect("Failed to load configuration.");
                     configuration
                         .kura_configuration
-                        .kura_block_store_path(temp_dir.path());
+                        .kura_block_store_path(temp_dir.path())
+                        .unwrap();
                     configuration.torii_configuration.torii_p2p_url =
                         format!("127.0.0.1:{}", iroha_port);
-                    let iroha = Iroha::new(&configuration, AllowAll.into());
+                    let iroha = Iroha::new(&configuration, AllowAll.into()).unwrap();
                     iroha.start().await.expect("Failed to start Iroha.");
                     loop {
                         thread::sleep(IROHA_WORLD_SLEEP_TIME);

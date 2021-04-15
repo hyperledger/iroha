@@ -1,2 +1,2 @@
-#[allow(clippy::module_inception, unused_results)]
+#[allow(clippy::module_inception, unused_results, clippy::restriction)]
 mod tests;

@@ -1,4 +1,4 @@
-#![allow(clippy::module_name_repetitions, missing_docs)]
+#![allow(clippy::module_name_repetitions, missing_docs, clippy::restriction)]
 
 use proc_macro::TokenStream;
 use quote::quote;

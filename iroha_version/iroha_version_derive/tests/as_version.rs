@@ -21,7 +21,7 @@ mod tests {
         let versioned_message: VersionedMessage = Message.into();
         let _message: Message = versioned_message
             .as_v1()
-            .ok_or_else(|| "Should be version 1.".to_string())?
+            .ok_or_else(|| "Should be version 1.".to_owned())?
             .clone()
             .into();
         Ok(())
@@ -32,7 +32,7 @@ mod tests {
         let versioned_message: VersionedMessage = Message.into();
         let _message: Message = versioned_message
             .into_v1()
-            .ok_or_else(|| "Should be version 1.".to_string())?
+            .ok_or_else(|| "Should be version 1.".to_owned())?
             .into();
         Ok(())
     }

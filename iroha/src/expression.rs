@@ -328,7 +328,12 @@ impl Evaluate for Divide {
     ) -> Result<Self::Value> {
         let left = self.left.evaluate(world_state_view, context)?;
         let right = self.right.evaluate(world_state_view, context)?;
-        Ok((left / right).into())
+        #[allow(clippy::integer_division)]
+        if right == 0 {
+            Err(error!("Failed to divide by zero"))
+        } else {
+            Ok((left / right).into())
+        }
     }
 }
 
@@ -348,6 +353,8 @@ impl Evaluate for Mod {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::{error::Error as StdError, fmt::Debug};
 
     use iroha_crypto::KeyPair;
@@ -390,10 +397,10 @@ mod tests {
         let expression = WhereBuilder::evaluate(condition.clone())
             .with_value(
                 //TODO: use query to get the actual quantity of an asset from WSV
-                "usd_quantity".to_string(),
+                "usd_quantity".to_owned(),
                 asset_quantity_high.clone(),
             )
-            .with_value("signatories".to_string(), teller_signatory_set)
+            .with_value("signatories".to_owned(), teller_signatory_set)
             .build();
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
@@ -402,8 +409,8 @@ mod tests {
         );
         // Signed by manager
         let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_high.clone())
-            .with_value("signatories".to_string(), manager_signatory_set)
+            .with_value("usd_quantity".to_owned(), asset_quantity_high.clone())
+            .with_value("signatories".to_owned(), manager_signatory_set)
             .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -411,8 +418,8 @@ mod tests {
         );
         // Signed by one teller
         let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_string(), asset_quantity_high)
-            .with_value("signatories".to_string(), one_teller_set.clone())
+            .with_value("usd_quantity".to_owned(), asset_quantity_high)
+            .with_value("signatories".to_owned(), one_teller_set.clone())
             .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -420,8 +427,8 @@ mod tests {
         );
         // Signed by one teller with less value
         let expression = WhereBuilder::evaluate(condition)
-            .with_value("usd_quantity".to_string(), asset_quantity_low)
-            .with_value("signatories".to_string(), one_teller_set)
+            .with_value("usd_quantity".to_owned(), asset_quantity_low)
+            .with_value("signatories".to_owned(), one_teller_set)
             .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -434,7 +441,7 @@ mod tests {
     fn where_expression() -> Result<()> {
         assert_eq!(
             WhereBuilder::evaluate(ContextValue::new("test_value"))
-                .with_value("test_value".to_string(), Add::new(2_u32, 3_u32))
+                .with_value("test_value".to_owned(), Add::new(2_u32, 3_u32))
                 .build()
                 .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
             Value::U32(5)
@@ -445,11 +452,11 @@ mod tests {
     #[test]
     fn nested_where_expression() -> Result<()> {
         let expression = WhereBuilder::evaluate(ContextValue::new("a"))
-            .with_value("a".to_string(), 2_u32)
+            .with_value("a".to_owned(), 2_u32)
             .build();
         let outer_expression: ExpressionBox =
             WhereBuilder::evaluate(Add::new(expression, ContextValue::new("b")))
-                .with_value("b".to_string(), 4_u32)
+                .with_value("b".to_owned(), 4_u32)
                 .build()
                 .into();
         assert_eq!(

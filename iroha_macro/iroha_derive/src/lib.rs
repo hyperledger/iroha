@@ -1,10 +1,21 @@
-#![allow(clippy::doc_markdown, clippy::module_name_repetitions, missing_docs)]
+//! Crate with various derive macroses
+
+#![allow(
+    clippy::doc_markdown,
+    clippy::module_name_repetitions,
+    clippy::expect_used,
+    clippy::panic,
+    missing_docs
+)]
+
 use proc_macro::TokenStream;
 use quote::quote;
 
+/// Attribute for skipping from attribute
 const SKIP_FROM_ATTR: &str = "skip_from";
 const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 
+/// Deriving `From<Vec<u8>>` and `TryInto<Vec<u8>>` traits for structure
 #[proc_macro_derive(Io)]
 pub fn io_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
@@ -205,7 +216,7 @@ fn try_into_variant(
 fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
     let name = &ast.ident;
 
-    let froms = if let syn::Data::Enum(ref data_enum) = ast.data {
+    let froms = if let syn::Data::Enum(data_enum) = &ast.data {
         &data_enum.variants
     } else {
         panic!("Only enums are supported")
@@ -217,7 +228,7 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
                 let variant_type = &unnamed
                     .unnamed
                     .first()
-                    .expect("Won't fail as we have more than  one argument for variant")
+                    .expect("Won't fail as we have more than one argument for variant")
                     .ty;
 
                 let try_into = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_TRY_FROM_ATTR) {

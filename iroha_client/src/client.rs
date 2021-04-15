@@ -199,23 +199,24 @@ impl Client {
         let (sender, receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions, metadata)?;
         let hash = transaction.hash();
-        let _ = thread::spawn(move || {
+        let _ = thread::spawn(move || -> iroha_error::Result<()> {
             for event in client
                 .listen_for_events(PipelineEventFilter::by_hash(hash).into())
-                .expect("Failed to initialize iterator.")
+                .wrap_err("Failed to initialize iterator.")?
             {
                 if let Ok(Event::Pipeline(event)) = event {
                     match event.status {
                         PipelineStatus::Validating => {}
                         PipelineStatus::Rejected(reason) => sender
                             .send(Err(reason))
-                            .expect("Failed to send through channel."),
+                            .wrap_err("Failed to send through channel.")?,
                         PipelineStatus::Committed => sender
                             .send(Ok(hash))
-                            .expect("Failed to send through channel."),
+                            .wrap_err("Failed to send through channel.")?,
                     }
                 }
             }
+            Ok(())
         });
         let _ = self.submit_transaction(transaction)?;
         receiver
@@ -376,13 +377,16 @@ impl Iterator for EventIterator {
                 Ok(WebSocketMessage::Text(message)) => {
                     match VersionedEvent::from_versioned_json_str(&message) {
                         Ok(event) => {
-                            let event: Event =
-                                event.into_v1().expect("Expected event version 1.").into();
-                            return match self.stream.write_message(WebSocketMessage::Text(
-                                VersionedEventReceived::from(EventReceived)
-                                    .to_versioned_json_str()
-                                    .expect("Failed to serialize receipt."),
-                            )) {
+                            let event = event.into_inner_v1();
+                            let message = match VersionedEventReceived::from(EventReceived)
+                                .to_versioned_json_str()
+                                .wrap_err("Failed to serialize receipt.")
+                            {
+                                Ok(message) => message,
+                                Err(e) => return Some(Err(e)),
+                            };
+                            return match self.stream.write_message(WebSocketMessage::Text(message))
+                            {
                                 Ok(_) => Some(Ok(event)),
                                 Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
                             };

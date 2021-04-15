@@ -1,10 +1,10 @@
-#![allow(clippy::module_name_repetitions, missing_docs)]
+#![allow(clippy::string_add, clippy::str_to_string)]
 
 //! Module with Configurable derive macro
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use proc_macro_error::abort;
+use proc_macro_error::{abort, abort_call_site};
 use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
@@ -25,17 +25,17 @@ mod attrs {
 }
 
 fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgument> {
-    let ty = if let Type::Path(ty) = ty {
+    let path = if let Type::Path(ty) = ty {
         ty
     } else {
         return None;
     };
-    let segments = &ty.path.segments;
+    let segments = &path.path.segments;
     if segments.len() != 1 || segments[0].ident != s {
         return None;
     }
 
-    if let PathArguments::AngleBracketed(ref bracketed_arguments) = segments[0].arguments {
+    if let PathArguments::AngleBracketed(bracketed_arguments) = &segments[0].arguments {
         if bracketed_arguments.args.len() == 1 {
             return Some(&bracketed_arguments.args[0]);
         }
@@ -44,7 +44,7 @@ fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgu
 }
 
 fn is_arc_rwlock(ty: &Type) -> bool {
-    let ty = get_type_argument("Arc", ty)
+    let dearced_ty = get_type_argument("Arc", ty)
         .and_then(|ty| {
             if let GenericArgument::Type(ty) = ty {
                 Some(ty)
@@ -53,7 +53,7 @@ fn is_arc_rwlock(ty: &Type) -> bool {
             }
         })
         .unwrap_or(ty);
-    get_type_argument("RwLock", ty).is_some()
+    get_type_argument("RwLock", dearced_ty).is_some()
 }
 
 // TODO: make it const generic type once it will be stabilized
@@ -100,9 +100,15 @@ impl Parse for SerdeAsStr {
     }
 }
 
+/// Derive for config. Check other doc in `iroha_config` reexport
 #[proc_macro_derive(Configurable, attributes(config))]
 pub fn configurable_derive(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
+    let ast = match syn::parse(input) {
+        Ok(ast) => ast,
+        Err(err) => {
+            abort_call_site!("Failed to parse input Token Stream: {}", err)
+        }
+    };
     impl_configurable(&ast)
 }
 
@@ -328,6 +334,7 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     let field_idents = fields
         .iter()
         .map(|field| {
+            #[allow(clippy::expect_used)]
             field
                 .ident
                 .as_ref()
@@ -357,7 +364,7 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     let field_environment = field_idents
         .iter()
         .into_iter()
-        .map(|ident| prefix.to_owned() + &ident.to_string().to_uppercase())
+        .map(|ident| prefix.clone() + &ident.to_string().to_uppercase())
         .collect::<Vec<_>>();
     let docs = field_attrs
         .iter()

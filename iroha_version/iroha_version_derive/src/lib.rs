@@ -1,4 +1,5 @@
-#![allow(clippy::module_name_repetitions, missing_docs)]
+#![allow(clippy::module_name_repetitions, missing_docs, clippy::shadow_reuse)]
+
 use std::{collections::HashMap, ops::Range};
 
 use proc_macro::TokenStream;
@@ -107,6 +108,7 @@ fn impl_version(
     with_scale: bool,
 ) -> TokenStream {
     let args = parse_macro_input!(attr as AttributeArgs);
+    #[allow(clippy::str_to_string)]
     let (item, struct_name) = if let Ok(item_struct) = syn::parse::<ItemStruct>(item.clone()) {
         (quote!(#item_struct), item_struct.ident)
     } else if let Ok(item_enum) = syn::parse::<ItemEnum>(item) {
@@ -137,6 +139,7 @@ fn impl_version(
             "No version number argument with name {} found.",
             VERSION_NUMBER_ARG_NAME
         ));
+    #[allow(clippy::str_to_string)]
     let version_number: u32 = if let Lit::Int(number) = version_number {
         number
             .base10_parse()
@@ -153,6 +156,7 @@ fn impl_version(
             "No versioned struct name argument with name {} found.",
             VERSIONED_STRUCT_ARG_NAME
         ));
+    #[allow(clippy::str_to_string)]
     let versioned_struct_name = if let Lit::Str(name) = versioned_struct_name {
         name.value()
     } else {

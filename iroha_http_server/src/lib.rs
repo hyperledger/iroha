@@ -13,6 +13,7 @@ use async_std::{
 };
 use futures::FutureExt;
 use http::{HttpEndpoint, HttpRequest, HttpResponse, HttpResponseError, PathParams, QueryParams};
+use iroha_error::{Result, WrapErr};
 use route_recognizer::Router;
 use web_socket::WebSocketHandler;
 
@@ -37,7 +38,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     /// Will make routebuilder for specific path
     pub fn at<'s>(&'s mut self, path: &str) -> RouteBuilder<'s, State> {
         RouteBuilder {
-            path: path.to_string(),
+            path: path.to_owned(),
             server: self,
         }
     }
@@ -47,12 +48,12 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         state: State,
         mut stream: TcpStream,
         router: Arc<Router<Endpoint<State>>>,
-    ) {
+    ) -> Result<()> {
         let mut buffer = vec![0; BUFFER_SIZE];
         let read_size = stream
             .peek(&mut buffer)
             .await
-            .expect("Request read failed.");
+            .wrap_err("Request read failed.")?;
 
         let response = match HttpRequest::try_from(&buffer[..read_size]) {
             Ok(request) => {
@@ -61,7 +62,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
                     .await;
                 if response.is_some() {
                     // Consume peeked data.
-                    consume_bytes(&mut stream, read_size as u64).await;
+                    consume_bytes(&mut stream, read_size).await?;
                 }
                 response
             }
@@ -76,7 +77,9 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
                 iroha_logger::error!("Failed to write back HTTP response: {}", err);
             }
         }
+        Ok(())
     }
+
     /// Starts server at `address`
     ///
     /// # Errors
@@ -232,6 +235,7 @@ pub mod http {
 
         /// Reason why request failed
         fn reason(code: StatusCode) -> String {
+            #[allow(clippy::unimplemented)]
             match code {
                 HTTP_CODE_INTERNAL_SERVER_ERROR => "Internal server error",
                 HTTP_CODE_NOT_FOUND => "Not found",
@@ -274,6 +278,7 @@ pub mod http {
 
     impl Display for HttpVersion {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            #[allow(clippy::pattern_type_mismatch)]
             match self {
                 HttpVersion::Http1_1 => write!(f, "{}", HTTP_VERSION_1_1),
             }
@@ -361,8 +366,9 @@ pub mod http {
             let path_params: PathParams = route_match
                 .params
                 .iter()
-                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
                 .collect();
+            #[allow(clippy::pattern_type_mismatch)]
             if let Some(WEB_SOCKET_UPGRADE) = self
                 .headers
                 .get(&UPGRADE_HEADER.to_lowercase())
@@ -393,6 +399,7 @@ pub mod http {
                     }
                 }
             } else {
+                #[allow(clippy::pattern_type_mismatch)]
                 let handler = match (self.method.as_ref(), endpoint) {
                     (GET_METHOD, Endpoint::Http(HttpEndpoint::Get(handler)))
                     | (POST_METHOD, Endpoint::Http(HttpEndpoint::Post(handler)))
@@ -419,8 +426,8 @@ pub mod http {
 
         fn try_from(request: HttpParseRequest<'h, 'b>) -> Result<Self, Self::Error> {
             Ok(HttpRequest {
-                method: request.method.ok_or(Error::MethodNotFound)?.to_string(),
-                path: request.path.ok_or(Error::PathNotFound)?.to_string(),
+                method: request.method.ok_or(Error::MethodNotFound)?.to_owned(),
+                path: request.path.ok_or(Error::PathNotFound)?.to_owned(),
                 version: request.version.ok_or(Error::VersionNotFound)?.try_into()?,
                 headers: request
                     .headers
@@ -498,9 +505,11 @@ pub mod http {
     {
         fn from(result: Result<T, E>) -> Self {
             fn error_log(err: &(impl StdError + ?Sized)) -> String {
-                let log = format!("\t{}\n", err);
-                err.source()
-                    .map_or(log.clone(), |err| log + &error_log(err))
+                let mut log = format!("\t{}\n", err);
+                if let Some(err) = err.source() {
+                    log.push_str(&error_log(err))
+                }
+                log
             }
 
             let (err_log, resp) = match result.map(TryInto::try_into) {
@@ -520,7 +529,7 @@ pub mod http {
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_INTERNAL_SERVER_ERROR,
-                reason: "Internal server error".to_string(),
+                reason: "Internal server error".to_owned(),
                 headers: Headers::new(),
                 body: Vec::new(),
             }
@@ -531,7 +540,7 @@ pub mod http {
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_NOT_FOUND,
-                reason: "Not found".to_string(),
+                reason: "Not found".to_owned(),
                 headers: Headers::new(),
                 body: Vec::new(),
             }
@@ -542,7 +551,7 @@ pub mod http {
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_BAD_REQUEST,
-                reason: "Bad request".to_string(),
+                reason: "Bad request".to_owned(),
                 headers: Headers::new(),
                 body: Vec::new(),
             }
@@ -552,13 +561,13 @@ pub mod http {
         pub fn method_not_allowed(allowed_methods: &[&str]) -> HttpResponse {
             let mut headers = Headers::new();
             let _drop = headers.insert(
-                ALLOW_HEADER.to_string(),
+                ALLOW_HEADER.to_owned(),
                 allowed_methods.join(", ").as_bytes().to_vec(),
             );
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_METHOD_NOT_ALLOWED,
-                reason: "Method not allowed".to_string(),
+                reason: "Method not allowed".to_owned(),
                 headers,
                 body: Vec::new(),
             }
@@ -567,11 +576,11 @@ pub mod http {
         /// upgrade required
         pub fn upgrade_required(upgrade: &[u8]) -> HttpResponse {
             let mut headers = Headers::new();
-            let _drop = headers.insert(UPGRADE_HEADER.to_string(), upgrade.to_vec());
+            let _drop = headers.insert(UPGRADE_HEADER.to_owned(), upgrade.to_vec());
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_UPGRADE_REQUIRED,
-                reason: "Upgrade required".to_string(),
+                reason: "Upgrade required".to_owned(),
                 headers,
                 body: Vec::new(),
             }
@@ -580,13 +589,13 @@ pub mod http {
         /// Ok constructor
         pub fn ok(mut headers: Headers, body: Vec<u8>) -> HttpResponse {
             let _drop = headers.insert(
-                CONTENT_LENGTH_HEADER.to_string(),
+                CONTENT_LENGTH_HEADER.to_owned(),
                 format!("{}", body.len()).as_bytes().to_vec(),
             );
             HttpResponse {
                 version: HttpVersion::Http1_1,
                 code: HTTP_CODE_OK,
-                reason: "OK".to_string(),
+                reason: "OK".to_owned(),
                 headers,
                 body,
             }
@@ -629,6 +638,7 @@ pub mod http {
 
     /// Json wrapper which converts http request body to inner type
     #[derive(Debug, Clone, Eq, PartialEq, Copy)]
+    #[allow(clippy::exhaustive_structs)]
     pub struct Json<T>(pub T);
 
     /// Error which handles json deserialization
@@ -783,29 +793,31 @@ where
         Fut::Output: TryInto<HttpResponse> + 'static,
         <Fut::Output as TryInto<HttpResponse>>::Error: HttpResponseError,
     {
-        Arc::get_mut(&mut self.server.router)
-            .expect("Registering routes is not possible after the Server has started.")
-            .add(
-                &self.path,
-                Endpoint::Http(HttpEndpoint::Get(Box::new(
-                    move |state,
-                          path: http::PathParams,
-                          query: http::QueryParams,
-                          req: http::HttpRequest| {
-                        let fut = move |state, path, query, req| {
-                            handler(state, path, query, req).map(|resp| match resp.try_into() {
-                                Ok(resp) => resp,
-                                Err(err) => err.error_response(),
-                            })
-                        };
-                        let path: Result<Path, _> = path.try_into();
-                        let query: Result<Query, _> = query.try_into();
-                        let req: Result<Req, _> = req.try_into();
+        #[allow(clippy::expect_used)]
+        let router = Arc::get_mut(&mut self.server.router)
+            .expect("Registering routes is not possible after the Server has started.");
 
-                        wrapper_handler(fut, state, path, query, req)
-                    },
-                ))),
-            );
+        router.add(
+            &self.path,
+            Endpoint::Http(HttpEndpoint::Get(Box::new(
+                move |state,
+                      path: http::PathParams,
+                      query: http::QueryParams,
+                      req: http::HttpRequest| {
+                    let fut = move |state, path, query, req| {
+                        handler(state, path, query, req).map(|resp| match resp.try_into() {
+                            Ok(resp) => resp,
+                            Err(err) => err.error_response(),
+                        })
+                    };
+                    let path: Result<Path, _> = path.try_into();
+                    let query: Result<Query, _> = query.try_into();
+                    let req: Result<Req, _> = req.try_into();
+
+                    wrapper_handler(fut, state, path, query, req)
+                },
+            ))),
+        );
     }
 
     /// Add POST handler at the specified url.
@@ -822,26 +834,28 @@ where
         Fut::Output: TryInto<HttpResponse> + 'static,
         <Fut::Output as TryInto<HttpResponse>>::Error: HttpResponseError,
     {
-        Arc::get_mut(&mut self.server.router)
-            .expect("Registering routes is not possible after the Server has started.")
-            .add(
-                &self.path,
-                Endpoint::Http(HttpEndpoint::Post(Box::new(
-                    move |state, path: PathParams, query: QueryParams, req: HttpRequest| {
-                        let fut = move |state, path, query, req| {
-                            handler(state, path, query, req).map(|resp| match resp.try_into() {
-                                Ok(resp) => resp,
-                                Err(err) => err.error_response(),
-                            })
-                        };
-                        let path: Result<Path, _> = path.try_into();
-                        let query: Result<Query, _> = query.try_into();
-                        let req: Result<Req, _> = req.try_into();
+        #[allow(clippy::expect_used)]
+        let router = Arc::get_mut(&mut self.server.router)
+            .expect("Registering routes is not possible after the Server has started.");
 
-                        wrapper_handler(fut, state, path, query, req)
-                    },
-                ))),
-            );
+        router.add(
+            &self.path,
+            Endpoint::Http(HttpEndpoint::Post(Box::new(
+                move |state, path: PathParams, query: QueryParams, req: HttpRequest| {
+                    let fut = move |state, path, query, req| {
+                        handler(state, path, query, req).map(|resp| match resp.try_into() {
+                            Ok(resp) => resp,
+                            Err(err) => err.error_response(),
+                        })
+                    };
+                    let path: Result<Path, _> = path.try_into();
+                    let query: Result<Query, _> = query.try_into();
+                    let req: Result<Req, _> = req.try_into();
+
+                    wrapper_handler(fut, state, path, query, req)
+                },
+            ))),
+        );
     }
 
     /// Add PUT handler at the specified url.
@@ -858,45 +872,50 @@ where
         Fut::Output: TryInto<HttpResponse> + 'static,
         <Fut::Output as TryInto<HttpResponse>>::Error: HttpResponseError,
     {
-        Arc::get_mut(&mut self.server.router)
-            .expect("Registering routes is not possible after the Server has started.")
-            .add(
-                &self.path,
-                Endpoint::Http(HttpEndpoint::Put(Box::new(
-                    move |state,
-                          path: http::PathParams,
-                          query: http::QueryParams,
-                          req: http::HttpRequest| {
-                        let fut = move |state, path, query, req| {
-                            handler(state, path, query, req).map(|resp| match resp.try_into() {
-                                Ok(resp) => resp,
-                                Err(err) => err.error_response(),
-                            })
-                        };
-                        let path: Result<Path, _> = path.try_into();
-                        let query: Result<Query, _> = query.try_into();
-                        let req: Result<Req, _> = req.try_into();
+        #[allow(clippy::expect_used)]
+        let router = Arc::get_mut(&mut self.server.router)
+            .expect("Registering routes is not possible after the Server has started.");
 
-                        wrapper_handler(fut, state, path, query, req)
-                    },
-                ))),
-            );
+        router.add(
+            &self.path,
+            Endpoint::Http(HttpEndpoint::Put(Box::new(
+                move |state,
+                      path: http::PathParams,
+                      query: http::QueryParams,
+                      req: http::HttpRequest| {
+                    let fut = move |state, path, query, req| {
+                        handler(state, path, query, req).map(|resp| match resp.try_into() {
+                            Ok(resp) => resp,
+                            Err(err) => err.error_response(),
+                        })
+                    };
+                    let path: Result<Path, _> = path.try_into();
+                    let query: Result<Query, _> = query.try_into();
+                    let req: Result<Req, _> = req.try_into();
+
+                    wrapper_handler(fut, state, path, query, req)
+                },
+            ))),
+        );
     }
 
     /// Add Web Socket handler at the specified url. It performs a standard HTTP Web Socket Upgrade handshake in the beginning.
     pub fn web_socket(&mut self, handler: impl WebSocketHandler<State>) {
+        #[allow(clippy::expect_used)]
         Arc::get_mut(&mut self.server.router)
             .expect("Registering routes is not possible after the Server has started.")
             .add(&self.path, Endpoint::WebSocket(Box::new(handler)));
     }
 }
 
-async fn consume_bytes(stream: &mut TcpStream, length: u64) {
+async fn consume_bytes(stream: &mut TcpStream, length: usize) -> Result<()> {
+    #[allow(clippy::as_conversions)]
     let _ = stream
-        .take(length)
+        .take(length as u64)
         .read_to_end(&mut Vec::new())
         .await
-        .expect("Failed to consume data.");
+        .wrap_err("Failed to consume data.")?;
+    Ok(())
 }
 
 pub mod prelude {
@@ -911,6 +930,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
     use std::sync::Arc;
     use std::{thread, time::Duration};
 
@@ -1134,11 +1155,11 @@ mod tests {
         let (mut stream, _) = web_socket_client::connect(format!("ws://localhost:{}", port))
             .expect("Failed to connect.");
         stream
-            .write_message(WebSocketMessage::Text("Hi!".to_string()))
+            .write_message(WebSocketMessage::Text("Hi!".to_owned()))
             .expect("Failed to write message");
         assert_eq!(
             stream.read_message().expect("Failed to receive message."),
-            WebSocketMessage::Text("Received: Hi!".to_string())
+            WebSocketMessage::Text("Received: Hi!".to_owned())
         );
     }
 }

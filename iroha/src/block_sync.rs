@@ -61,9 +61,9 @@ impl BlockSynchronizer {
     #[log]
     pub fn start(&self) {
         let gossip_period = self.gossip_period;
-        let kura = self.kura.clone();
+        let kura = Arc::clone(&self.kura);
         let peer_id = self.peer_id.clone();
-        let sumeragi = self.sumeragi.clone();
+        let sumeragi = Arc::clone(&self.sumeragi);
         drop(task::spawn(
             async move {
                 loop {

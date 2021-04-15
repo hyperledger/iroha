@@ -108,7 +108,11 @@ pub mod derive {
                     let field = field
                         .iter()
                         .skip(1)
-                        .fold(field[0].clone(), |prev, suc| prev + "." + suc);
+                        .fold(field[0].clone(), |mut prev, suc| {
+                            prev += ".";
+                            prev += suc;
+                            prev
+                        });
                     write!(f, "Failed to deserialize: Unknown field {}", field)
                 }
                 Self::FieldError(_) => write!(f, "Failed to deserialize"),
@@ -118,7 +122,7 @@ pub mod derive {
 
     impl StdError for Error {
         fn source(&self) -> Option<&(dyn StdError + 'static)> {
-            if let Error::FieldError(ref field) = self {
+            if let Error::FieldError(field) = self {
                 Some(field)
             } else {
                 None

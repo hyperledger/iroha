@@ -11,3 +11,4 @@ clap = "2.33.0"
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto"}
 serde_json = "1.0"
 hex = "0.4.0"
+iroha_error = { path = "../iroha_error" }

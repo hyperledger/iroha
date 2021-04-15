@@ -21,7 +21,7 @@ use async_std::{
     sync::RwLock,
 };
 use iroha_derive::Io;
-use iroha_error::{error, Result};
+use iroha_error::{error, Result, WrapErr};
 use iroha_logger::log;
 use parity_scale_codec::{Decode, Encode};
 
@@ -60,7 +60,7 @@ impl Network {
     /// ```
     pub fn new(server_url: &str) -> Network {
         Network {
-            server_url: server_url.to_string(),
+            server_url: server_url.to_owned(),
         }
     }
 
@@ -100,11 +100,11 @@ impl Network {
     ///
     /// # Errors
     /// Can fail during accepting connection or handling incoming message
-    #[allow(clippy::future_not_send)]
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
-        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
+        H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<()>> + Send + 'static,
+        State<S>: Send,
     {
         let listener = TcpListener::bind(server_url).await?;
         loop {
@@ -142,7 +142,7 @@ impl Network {
         let read_size = stream
             .read(&mut buffer)
             .await
-            .expect("Request read failed.");
+            .wrap_err("Request read failed.")?;
         let bytes: Vec<u8> = buffer[..read_size].to_vec();
         let request: Request = bytes.try_into()?;
         let response: Vec<u8> = handler(state, request).await?.into();
@@ -180,16 +180,16 @@ impl Connection {
         let mut tcp_stream: SyncTcpStream = SyncTcpStream::connect(address)?;
         tcp_stream
             .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
-            .expect("Set read timeout call failed.");
+            .wrap_err("Set read timeout call failed.")?;
         tcp_stream
             .set_nonblocking(true)
-            .expect("Failed to set stream to be nonblocking.");
+            .wrap_err("Failed to set stream to be nonblocking.")?;
         tcp_stream
             .write_all(initial_message)
-            .expect("Failed to write initial message.");
+            .wrap_err("Failed to write initial message.")?;
         tcp_stream
             .flush()
-            .expect("Failed to flush initial message.");
+            .wrap_err("Failed to flush initial message.")?;
         Ok(Connection { tcp_stream })
     }
 }
@@ -197,6 +197,7 @@ impl Connection {
 impl Iterator for Connection {
     type Item = Vec<u8>;
 
+    #[allow(clippy::cognitive_complexity)]
     fn next(&mut self) -> Option<Self::Item> {
         let mut buffer = [0_u8; BUFFER_SIZE];
         loop {
@@ -205,11 +206,11 @@ impl Iterator for Connection {
                     let bytes: Vec<u8> = buffer[..read_size].to_vec();
                     let receipt: Vec<u8> = Receipt::Ok.into();
                     if let Err(e) = self.tcp_stream.write_all(&receipt) {
-                        eprintln!("Write receipt to stream failed: {}", e);
+                        iroha_logger::error!("Write receipt to stream failed: {}", e);
                         return None;
                     }
                     if let Err(e) = self.tcp_stream.flush() {
-                        eprintln!("Flush stream with receipt failed: {}", e);
+                        iroha_logger::error!("Flush stream with receipt failed: {}", e);
                         return None;
                     }
                     return Some(bytes);
@@ -218,7 +219,7 @@ impl Iterator for Connection {
                     if ErrorKind::WouldBlock == e.kind() {
                         continue;
                     }
-                    eprintln!("Read data from stream failed: {}", e);
+                    iroha_logger::error!("Read data from stream failed: {}", e);
                     return None;
                 }
             }
@@ -227,6 +228,7 @@ impl Iterator for Connection {
 }
 
 /// Request
+#[non_exhaustive]
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Request {
     /// at uri
@@ -286,11 +288,15 @@ impl TryFrom<Vec<u8>> for Request {
     type Error = iroha_error::Error;
 
     #[log("TRACE")]
+    #[allow(clippy::integer_arithmetic)]
     fn try_from(mut bytes: Vec<u8>) -> Result<Request> {
+        if bytes.len() <= 2 {
+            return Err(error!("Request should always be larger than 2 bytes"));
+        }
         let n = bytes
             .iter()
             .position(|byte| *byte == b"\n"[0])
-            .expect("Request should contain \\r\\n sequence.")
+            .ok_or_else(|| error!("Request should contain \\r\\n sequence."))?
             + 1;
         let payload: Vec<u8> = bytes.drain(n..).collect();
         Ok(Request {
@@ -334,6 +340,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic, clippy::expect_used, clippy::clippy::unwrap_used)]
+
     use std::{convert::TryFrom, sync::Arc};
 
     use async_std::{sync::RwLock, task};
@@ -351,7 +359,7 @@ mod tests {
     #[test]
     fn request_correctly_built() {
         let request = Request {
-            uri_path: "/instructions".to_string(),
+            uri_path: "/instructions".to_owned(),
             payload: b"some_instruction".to_vec(),
         };
         let bytes: Vec<u8> = request.into();
@@ -361,7 +369,7 @@ mod tests {
     #[test]
     fn request_correctly_parsed() {
         let request = Request {
-            uri_path: "/instructions".to_string(),
+            uri_path: "/instructions".to_owned(),
             payload: b"some_instruction".to_vec(),
         };
         assert_eq!(
@@ -372,13 +380,19 @@ mod tests {
 
     #[async_std::test]
     async fn single_threaded_async() {
-        #[allow(clippy::future_not_send)]
-        async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response> {
+        async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response>
+        where
+            State<S>: Send + Sync,
+            S: Sync,
+        {
             Ok(Response::Ok(b"pong".to_vec()))
         }
 
-        #[allow(clippy::future_not_send)]
-        async fn handle_connection<S>(state: State<S>, stream: Box<dyn AsyncStream>) -> Result<()> {
+        async fn handle_connection<S>(state: State<S>, stream: Box<dyn AsyncStream>) -> Result<()>
+        where
+            State<S>: Send + Sync,
+            S: Sync,
+        {
             Network::handle_message_async(state, stream, handle_request).await
         }
 
@@ -397,6 +411,7 @@ mod tests {
 
     #[async_std::test]
     async fn single_threaded_async_stateful() {
+        #[allow(clippy::clippy::integer_arithmetic)]
         async fn handle_request(state: State<usize>, _request: Request) -> Result<Response> {
             *state.write().await += 1;
             Ok(Response::Ok(b"pong".to_vec()))
@@ -409,7 +424,7 @@ mod tests {
         }
 
         let counter: State<usize> = Arc::new(RwLock::new(0));
-        let counter_move = counter.clone();
+        let counter_move = Arc::clone(&counter);
         let _drop = task::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
