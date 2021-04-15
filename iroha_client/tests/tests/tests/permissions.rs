@@ -7,6 +7,16 @@ use iroha_permissions_validators::public_blockchain;
 use test_network::Peer as TestPeer;
 use test_network::*;
 
+const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
+    and second check with Account does not have the needed permission token: \
+    PermissionToken { name: \"can_burn_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
+    DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..";
+
+const MINT_REJECTION_REASON: &str = "Failed to pass first check with Can\'t transfer assets of the other account. \
+    and second check with Account does not have the needed permission token: \
+    PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
+    DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..";
+
 fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Value> {
     let request = client::asset::by_account_id(id.clone());
     let query_result = iroha_client
@@ -65,7 +75,7 @@ fn permissions_disallow_asset_transfer() {
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
             NotPermittedFail {
-                reason: "Failed to pass first check with Can\'t transfer assets of the other account. and second check with Account does not have the needed permission token: PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..".to_owned(),
+                reason: MINT_REJECTION_REASON.to_owned(),
             }
         ))
     );
@@ -123,7 +133,7 @@ fn permissions_disallow_asset_burn() {
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
             NotPermittedFail {
-                reason: "Can\'t burn assets from another account.".to_owned(),
+                reason: BURN_REJECTION_REASON.to_owned(),
             }
         ))
     );
