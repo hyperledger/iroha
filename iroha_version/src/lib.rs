@@ -175,6 +175,7 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
     use super::*;
 
     pub struct VersionedContainer(pub u8);

@@ -1,6 +1,10 @@
 //! This library contains basic Iroha Special Instructions.
 
-#![allow(clippy::len_without_is_empty, clippy::unused_self)]
+#![allow(
+    clippy::len_without_is_empty,
+    clippy::unused_self,
+    clippy::missing_inline_in_public_items
+)]
 
 use std::fmt::Debug;
 
@@ -625,7 +629,7 @@ impl FailBox {
     /// Default `Fail` constructor.
     pub fn new(message: &str) -> Self {
         Self {
-            message: message.to_string(),
+            message: message.to_owned(),
         }
     }
 }

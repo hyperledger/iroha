@@ -40,7 +40,7 @@ impl Default for DigestFunction {
 
 impl Display for DigestFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+        match *self {
             DigestFunction::Ed25519Pub => write!(f, "{}", ED_25519_PUB_STR),
             DigestFunction::Secp256k1Pub => write!(f, "{}", SECP_256_K1_PUB_STR),
             DigestFunction::Bls12381G1Pub => write!(f, "{}", BLS12_381_G1_PUB),
@@ -53,6 +53,7 @@ impl FromStr for DigestFunction {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[allow(clippy::pattern_type_mismatch)]
         match s {
             ED_25519_PUB_STR => Ok(DigestFunction::Ed25519Pub),
             SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
@@ -156,6 +157,8 @@ impl TryFrom<&Multihash> for Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use super::*;
 
     #[test]

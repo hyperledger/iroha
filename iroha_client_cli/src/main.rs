@@ -1,6 +1,6 @@
 //! iroha client command line
 
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::print_stdout, clippy::use_debug)]
 
 use std::{fs::File, io::BufReader, str::FromStr, time::Duration};
 
@@ -9,7 +9,7 @@ use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
-use iroha_error::{Result, WrapErr};
+use iroha_error::{error, Result, WrapErr};
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
@@ -23,7 +23,7 @@ const FILE_VALUE_NAME: &str = "FILE";
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST_MS: u64 = 100;
 
-fn main() {
+fn main() -> Result<()> {
     let matches = App::new("Iroha CLI Client")
         .version("0.1.0")
         .author("Nikita Puzankov <puzankov@soramitsu.co.jp>")
@@ -44,57 +44,52 @@ fn main() {
         .get_matches();
     let configuration_path = matches
         .value_of(CONFIG)
-        .expect("Failed to get configuration path.");
+        .ok_or_else(|| error!("Failed to get configuration path."))?;
     println!("Value for config: {}", configuration_path);
     let configuration =
-        Configuration::from_path(configuration_path).expect("Failed to load configuration");
+        Configuration::from_path(configuration_path).wrap_err("Failed to load configuration")?;
     if let Some(matches) = matches.subcommand_matches(DOMAIN) {
-        domain::process(matches, &configuration);
+        domain::process(matches, &configuration)?;
     }
     if let Some(matches) = matches.subcommand_matches(ACCOUNT) {
-        account::process(matches, &configuration);
+        account::process(matches, &configuration)?;
     }
     if let Some(matches) = matches.subcommand_matches(ASSET) {
-        asset::process(matches, &configuration);
+        asset::process(matches, &configuration)?;
     }
     if let Some(matches) = matches.subcommand_matches(EVENTS) {
-        events::process(matches, &configuration);
+        events::process(matches, &configuration)?;
     }
+    Ok(())
 }
 
+/// # Errors
+/// Fails if submitting over network fails
 pub fn submit(
     instruction: Instruction,
     configuration: &Configuration,
     metadata: UnlimitedMetadata,
-) {
+) -> Result<()> {
     let mut iroha_client = Client::new(configuration);
-    let transaction = iroha_client
+    let tx = iroha_client
         .build_transaction(vec![instruction], metadata)
-        .expect("Failed to build transaction.");
-    if let Ok(Some(original_transaction)) = iroha_client.get_original_transaction(
-        &transaction,
+        .wrap_err("Failed to build transaction.")?;
+    let tx = match iroha_client.get_original_transaction(
+        &tx,
         RETRY_COUNT_MST,
         Duration::from_millis(RETRY_IN_MST_MS),
     ) {
-        if Confirm::new()
+        Ok(Some(original_transaction)) if Confirm::new()
             .with_prompt("There is a similar transaction from your account waiting for more signatures. Do you want to sign it instead of submitting a new transaction?")
             .interact()
-            .expect("Failed to show interactive prompt.") 
-        {
-            let _ = iroha_client
-                .submit_transaction(iroha_client.sign_transaction(original_transaction).expect("Failed to sign transaction."))
-                .expect("Failed to submit transaction.")
-                ;
-        } else {
-            let _ =iroha_client
-            .submit_transaction(transaction)
-            .expect("Failed to submit transaction.");
-        }
-    } else {
-        let _ = iroha_client
-            .submit_transaction(transaction)
-            .expect("Failed to submit transaction.");
-    }
+            .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
+        Ok(_) | Err(_) => tx,
+    };
+
+    let _ = iroha_client
+        .submit_transaction(tx)
+        .wrap_err("Failed to submit transaction.")?;
+    Ok(())
 }
 
 pub fn metadata_arg() -> Arg<'static, 'static> {
@@ -106,16 +101,20 @@ pub fn metadata_arg() -> Arg<'static, 'static> {
         .required(false)
 }
 
-pub fn parse_metadata(matches: &ArgMatches<'_>) -> UnlimitedMetadata {
-    matches
-        .value_of(METADATA)
-        .map_or_else(UnlimitedMetadata::new, |metadata_filename| {
-            let file = File::open(metadata_filename).expect("Failed to open the metadata file.");
+/// # Errors
+/// Fails if parsing metadata from file fails
+pub fn parse_metadata(matches: &ArgMatches<'_>) -> Result<UnlimitedMetadata> {
+    matches.value_of(METADATA).map_or_else(
+        || Ok(UnlimitedMetadata::new()),
+        |metadata_filename| {
+            let file =
+                File::open(metadata_filename).wrap_err("Failed to open the metadata file.")?;
             let reader = BufReader::new(file);
             let metadata: UnlimitedMetadata = serde_json::from_reader(reader)
-                .expect("Failed to deserialize metadata json from reader.");
-            metadata
-        })
+                .wrap_err("Failed to deserialize metadata json from reader.")?;
+            Ok(metadata)
+        },
+    )
 }
 
 mod events {
@@ -134,31 +133,33 @@ mod events {
             .subcommand(App::new(DATA).about("Listen to data events."))
     }
 
-    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) -> Result<()> {
         // TODO: let the user to setup the filter arguments.
         if matches.subcommand_matches(PIPELINE).is_some() {
             listen(
                 EventFilter::Pipeline(PipelineEventFilter::identity()),
                 configuration,
-            )
+            )?
         }
         if matches.subcommand_matches(DATA).is_some() {
-            listen(EventFilter::Data(DataEventFilter), configuration)
+            listen(EventFilter::Data(DataEventFilter), configuration)?
         }
+        Ok(())
     }
 
-    pub fn listen(filter: EventFilter, configuration: &Configuration) {
+    pub fn listen(filter: EventFilter, configuration: &Configuration) -> Result<()> {
         let mut iroha_client = Client::new(configuration);
         println!("Listening to events with filter: {:?}", filter);
         for event in iroha_client
             .listen_for_events(filter)
-            .expect("Failed to listen to events.")
+            .wrap_err("Failed to listen to events.")?
         {
             match event {
                 Ok(event) => println!("{:#?}", event),
                 Err(err) => println!("{:#?}", err),
             };
         }
+        Ok(())
     }
 }
 
@@ -188,26 +189,26 @@ mod domain {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) -> Result<()> {
         let matches = match matches.subcommand_matches(ADD) {
             Some(matches) => matches,
-            None => return,
+            None => return Ok(()),
         };
         let domain_name = match matches.value_of(DOMAIN_NAME) {
             Some(domain_name) => domain_name,
-            None => return,
+            None => return Ok(()),
         };
         println!("Adding a new Domain with a name: {}", domain_name);
-        create_domain(domain_name, configuration, parse_metadata(matches));
+        create_domain(domain_name, configuration, parse_metadata(matches)?)
     }
 
     fn create_domain(
         domain_name: &str,
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
-    ) {
+    ) -> Result<()> {
         let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(domain_name)));
-        submit(create_domain.into(), configuration, metadata);
+        submit(create_domain.into(), configuration, metadata)
     }
 }
 
@@ -278,12 +279,15 @@ mod account {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        process_create_account(matches, configuration);
-        process_set_account_signature_condition(matches, configuration);
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) -> Result<()> {
+        process_create_account(matches, configuration)?;
+        process_set_account_signature_condition(matches, configuration)
     }
 
-    fn process_create_account(matches: &ArgMatches<'_>, configuration: &Configuration) {
+    fn process_create_account(
+        matches: &ArgMatches<'_>,
+        configuration: &Configuration,
+    ) -> Result<()> {
         if let Some(matches) = matches.subcommand_matches(REGISTER) {
             if let Some(account_name) = matches.value_of(ACCOUNT_NAME) {
                 println!("Creating account with a name: {}", account_name);
@@ -293,32 +297,34 @@ mod account {
                         println!("Creating account with a public key: {}", public_key);
                         let public_key: PublicKey =
                             serde_json::from_value(serde_json::json!(public_key))
-                                .expect("Failed to deserialize supplied public key argument.");
+                                .wrap_err("Failed to deserialize supplied public key argument.")?;
                         create_account(
                             account_name,
                             domain_name,
                             public_key,
                             configuration,
-                            parse_metadata(matches),
-                        );
+                            parse_metadata(matches)?,
+                        )?;
                     }
                 }
             }
         }
+        Ok(())
     }
 
     fn process_set_account_signature_condition(
         matches: &ArgMatches<'_>,
         configuration: &Configuration,
-    ) {
+    ) -> Result<()> {
         if let Some(matches) = matches.subcommand_matches(SET) {
             if let Some(matches) = matches.subcommand_matches(ACCOUNT_SIGNATURE_CONDITION) {
                 if let Some(file) = matches.value_of(ACCOUNT_SIGNATURE_CONDITION_FILE) {
                     println!("Setting account signature condition from file: {}", file);
-                    set_account_signature_condition(file, configuration, parse_metadata(matches));
+                    set_account_signature_condition(file, configuration, parse_metadata(matches)?)?;
                 }
             }
         }
+        Ok(())
     }
 
     fn create_account(
@@ -327,12 +333,12 @@ mod account {
         public_key: PublicKey,
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
-    ) {
+    ) -> Result<()> {
         let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(
             AccountId::new(account_name, domain_name),
             public_key,
         )));
-        submit(create_account.into(), configuration, metadata);
+        submit(create_account.into(), configuration, metadata)
     }
 
     fn signature_condition_from_file(
@@ -349,15 +355,15 @@ mod account {
         file: &str,
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
-    ) {
+    ) -> Result<()> {
         let account = Account::new(configuration.account_id.clone());
         let condition = signature_condition_from_file(file)
-            .expect("Failed to get signature condition from file");
+            .wrap_err("Failed to get signature condition from file")?;
         submit(
             MintBox::new(account, condition).into(),
             configuration,
             metadata,
-        );
+        )
     }
 }
 
@@ -383,9 +389,9 @@ mod asset {
     const ASSET_ID: &str = "id";
     const QUANTITY: &str = "quantity";
 
-    fn parse_value_type(value_type: &str) -> AssetValueType {
+    fn parse_value_type(value_type: &str) -> Result<AssetValueType> {
         serde_json::from_value(serde_json::json!(value_type))
-            .expect("Failed to deserialize value type")
+            .wrap_err("Failed to deserialize value type")
     }
 
     pub fn build_app<'a, 'b>() -> App<'a, 'b> {
@@ -445,22 +451,22 @@ mod asset {
             )
     }
 
-    fn process_register(matches: &ArgMatches<'_>, configuration: &Configuration) {
+    fn process_register(matches: &ArgMatches<'_>, configuration: &Configuration) -> Result<()> {
         let matches = match matches.subcommand_matches(REGISTER) {
             Some(matches) => matches,
-            None => return,
+            None => return Ok(()),
         };
         let asset_name = match matches.value_of(ASSET_NAME) {
             Some(asset_name) => asset_name,
-            None => return,
+            None => return Ok(()),
         };
         let domain_name = match matches.value_of(ASSET_DOMAIN_NAME) {
             Some(domain_name) => domain_name,
-            None => return,
+            None => return Ok(()),
         };
         let value_type = match matches.value_of(ASSET_VALUE_TYPE) {
             Some(value_type) => value_type,
-            None => return,
+            None => return Ok(()),
         };
         println!("Registering asset defintion with a name: {}", asset_name);
         println!(
@@ -472,13 +478,13 @@ mod asset {
             asset_name,
             domain_name,
             configuration,
-            parse_metadata(matches),
-            parse_value_type(value_type),
-        );
+            parse_metadata(matches)?,
+            parse_value_type(value_type)?,
+        )
     }
 
-    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
-        process_register(matches, configuration);
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) -> Result<()> {
+        process_register(matches, configuration)?;
         if let Some(matches) = matches.subcommand_matches(MINT) {
             if let Some(asset_id) = matches.value_of(ASSET_ID) {
                 println!("Minting asset with an identification: {}", asset_id);
@@ -494,8 +500,8 @@ mod asset {
                             account_id,
                             amount,
                             configuration,
-                            parse_metadata(matches),
-                        );
+                            parse_metadata(matches)?,
+                        )?;
                     }
                 }
             }
@@ -521,8 +527,8 @@ mod asset {
                                 asset_id,
                                 quantity,
                                 configuration,
-                                parse_metadata(matches),
-                            );
+                                parse_metadata(matches)?,
+                            )?;
                         }
                     }
                 }
@@ -533,10 +539,11 @@ mod asset {
                 println!("Getting asset with an identification: {}", asset_id);
                 if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {
                     println!("Getting account with an identification: {}", account_id);
-                    get_asset(asset_id, account_id, configuration);
+                    get_asset(asset_id, account_id, configuration)?;
                 }
             }
         }
+        Ok(())
     }
 
     fn register_asset_definition(
@@ -545,7 +552,7 @@ mod asset {
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
         value_type: AssetValueType,
-    ) {
+    ) -> Result<()> {
         submit(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
                 AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name), value_type)
@@ -554,7 +561,7 @@ mod asset {
             .into(),
             configuration,
             metadata,
-        );
+        )
     }
 
     fn mint_asset(
@@ -563,17 +570,19 @@ mod asset {
         quantity: &str,
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
-    ) {
-        let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
+    ) -> Result<()> {
+        let quantity: u32 = quantity
+            .parse::<u32>()
+            .wrap_err("Failed to parse Asset quantity.")?;
         let mint_asset = MintBox::new(
             Value::U32(quantity),
             IdBox::AssetId(AssetId::new(
                 AssetDefinitionId::from_str(asset_definition_id)
-                    .expect("Failed to parse Asset Definition Id."),
-                AccountId::from_str(account_id).expect("Failed to parse Account Id."),
+                    .wrap_err("Failed to parse Asset Definition Id.")?,
+                AccountId::from_str(account_id).wrap_err("Failed to parse Account Id.")?,
             )),
         );
-        submit(mint_asset.into(), configuration, metadata);
+        submit(mint_asset.into(), configuration, metadata)
     }
 
     fn transfer_asset(
@@ -583,36 +592,40 @@ mod asset {
         quantity: &str,
         configuration: &Configuration,
         metadata: UnlimitedMetadata,
-    ) {
-        let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
+    ) -> Result<()> {
+        let quantity = quantity
+            .parse::<u32>()
+            .wrap_err("Failed to parse Asset quantity.")?;
         let transfer_asset = TransferBox::new(
             IdBox::AssetId(AssetId::new(
                 AssetDefinitionId::from_str(asset_definition_id)
-                    .expect("Failed to parse Source Definition Id"),
-                AccountId::from_str(account1_id).expect("Failed to parse Source Account Id."),
+                    .wrap_err("Failed to parse Source Definition Id")?,
+                AccountId::from_str(account1_id).wrap_err("Failed to parse Source Account Id.")?,
             )),
             Value::U32(quantity),
             IdBox::AssetId(AssetId::new(
                 AssetDefinitionId::from_str(asset_definition_id)
-                    .expect("Failed to parse Destination Definition Id"),
-                AccountId::from_str(account2_id).expect("Failed to parse Destination Account Id."),
+                    .wrap_err("Failed to parse Destination Definition Id")?,
+                AccountId::from_str(account2_id)
+                    .wrap_err("Failed to parse Destination Account Id.")?,
             )),
         );
-        submit(transfer_asset.into(), configuration, metadata);
+        submit(transfer_asset.into(), configuration, metadata)
     }
 
-    fn get_asset(asset_id: &str, account_id: &str, configuration: &Configuration) {
+    fn get_asset(asset_id: &str, account_id: &str, configuration: &Configuration) -> Result<()> {
         let mut iroha_client = Client::new(configuration);
-        let account_id = AccountId::from_str(account_id).expect("Failed to parse Account Id.");
-        let asset_id =
-            AssetDefinitionId::from_str(asset_id).expect("Failed to parse Asset Definition Id.");
+        let account_id = AccountId::from_str(account_id).wrap_err("Failed to parse Account Id.")?;
+        let asset_id = AssetDefinitionId::from_str(asset_id)
+            .wrap_err("Failed to parse Asset Definition Id.")?;
 
         let query_result = iroha_client
             .request(&asset::by_account_id_and_definition_id(
                 account_id, asset_id,
             ))
-            .expect("Failed to get asset.");
+            .wrap_err("Failed to get asset.")?;
         let QueryResult(value) = query_result;
         println!("Get Asset result: {:?}", value);
+        Ok(())
     }
 }

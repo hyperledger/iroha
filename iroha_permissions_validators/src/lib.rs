@@ -96,7 +96,7 @@ pub mod private_blockchain {
             _instruction: &GrantBox,
             _wsv: &WorldStateView,
         ) -> Result<(), DenialReason> {
-            Err("Granting at runtime is prohibited.".to_string())
+            Err("Granting at runtime is prohibited.".to_owned())
         }
     }
 
@@ -128,7 +128,7 @@ pub mod private_blockchain {
                 } else {
                     return Ok(());
                 };
-                Err("Domain registration is prohibited.".to_string())
+                Err("Domain registration is prohibited.".to_owned())
             }
         }
 
@@ -232,9 +232,7 @@ pub mod public_blockchain {
             ));
         };
         if account_id != authority {
-            return Err(
-                "Account specified in permission token is not owned by signer.".to_string(),
-            );
+            return Err("Account specified in permission token is not owned by signer.".to_owned());
         }
         Ok(())
     }
@@ -263,7 +261,7 @@ pub mod public_blockchain {
             ));
         };
         if &asset_id.account_id != authority {
-            return Err("Asset specified in permission token is not owned by signer.".to_string());
+            return Err("Asset specified in permission token is not owned by signer.".to_owned());
         }
         Ok(())
     }
@@ -301,7 +299,7 @@ pub mod public_blockchain {
         if !registered_by_signer_account {
             return Err(
                 "Can not grant access for unregistering assets, registered by another account."
-                    .to_string(),
+                    .to_owned(),
             );
         }
         Ok(())
@@ -362,7 +360,7 @@ pub mod public_blockchain {
                 let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
                     transfer_box
                 } else {
-                    return Err("Instruction is not transfer.".to_string());
+                    return Err("Instruction is not transfer.".to_owned());
                 };
                 let source_id = transfer_box
                     .source_id
@@ -371,10 +369,10 @@ pub mod public_blockchain {
                 let source_id: AssetId = if let Ok(source_id) = source_id.try_into() {
                     source_id
                 } else {
-                    return Err("Source id is not an AssetId.".to_string());
+                    return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), source_id.into());
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into());
                 Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN, params))
             }
         }
@@ -397,8 +395,8 @@ pub mod public_blockchain {
                     .permission_token
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                if permission_token.name != CAN_TRANSFER_USER_ASSETS_TOKEN {
-                    return Err("Grant instruction is not for transfer permission.".to_string());
+                if permission_token.name != transfer::CAN_TRANSFER_USER_ASSETS_TOKEN {
+                    return Err("Grant instruction is not for transfer permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)
             }
@@ -466,7 +464,7 @@ pub mod public_blockchain {
                 let unregister_box = if let Instruction::Unregister(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not unregister.".to_string());
+                    return Err("Instruction is not unregister.".to_owned());
                 };
                 let object_id = unregister_box
                     .object_id
@@ -475,11 +473,11 @@ pub mod public_blockchain {
                 let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
                     object_id
                 } else {
-                    return Err("Source id is not an AssetDefinitionId.".to_string());
+                    return Err("Source id is not an AssetDefinitionId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
                 let _ = params.insert(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     object_id.into(),
                 );
                 Ok(PermissionToken::new(
@@ -508,7 +506,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION {
-                    return Err("Grant instruction is not for unregister permission.".to_string());
+                    return Err("Grant instruction is not for unregister permission.".to_owned());
                 }
                 check_asset_creator_for_token(&permission_token, authority, wsv)
             }
@@ -577,7 +575,7 @@ pub mod public_blockchain {
                 let mint_box = if let Instruction::Mint(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not mint.".to_string());
+                    return Err("Instruction is not mint.".to_owned());
                 };
                 let destination_id = mint_box
                     .destination_id
@@ -586,11 +584,11 @@ pub mod public_blockchain {
                 let asset_id: AssetId = if let Ok(destination_id) = destination_id.try_into() {
                     destination_id
                 } else {
-                    return Err("Destination is not an Asset.".to_string());
+                    return Err("Destination is not an Asset.".to_owned());
                 };
                 let mut params = BTreeMap::new();
                 let _ = params.insert(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
                 );
                 Ok(PermissionToken::new(
@@ -619,7 +617,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN {
-                    return Err("Grant instruction is not for mint permission.".to_string());
+                    return Err("Grant instruction is not for mint permission.".to_owned());
                 }
                 check_asset_creator_for_token(&permission_token, authority, wsv)
             }
@@ -689,7 +687,7 @@ pub mod public_blockchain {
                 let burn_box = if let Instruction::Burn(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not burn.".to_string());
+                    return Err("Instruction is not burn.".to_owned());
                 };
                 let destination_id = burn_box
                     .destination_id
@@ -698,11 +696,11 @@ pub mod public_blockchain {
                 let asset_id: AssetId = if let Ok(destination_id) = destination_id.try_into() {
                     destination_id
                 } else {
-                    return Err("Destination is not an Asset.".to_string());
+                    return Err("Destination is not an Asset.".to_owned());
                 };
                 let mut params = BTreeMap::new();
                 let _ = params.insert(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
                 );
                 Ok(PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION, params))
@@ -728,7 +726,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_BURN_ASSET_WITH_DEFINITION {
-                    return Err("Grant instruction is not for burn permission.".to_string());
+                    return Err("Grant instruction is not for burn permission.".to_owned());
                 }
                 check_asset_creator_for_token(&permission_token, authority, wsv)
             }
@@ -780,7 +778,7 @@ pub mod public_blockchain {
                 let burn_box = if let Instruction::Burn(burn_box) = instruction {
                     burn_box
                 } else {
-                    return Err("Instruction is not burn.".to_string());
+                    return Err("Instruction is not burn.".to_owned());
                 };
                 let destination_id = burn_box
                     .destination_id
@@ -790,10 +788,10 @@ pub mod public_blockchain {
                 {
                     destination_id
                 } else {
-                    return Err("Source id is not an AssetId.".to_string());
+                    return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), destination_id.into());
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into());
                 Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN, params))
             }
         }
@@ -817,7 +815,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_BURN_USER_ASSETS_TOKEN {
-                    return Err("Grant instruction is not for burn permission.".to_string());
+                    return Err("Grant instruction is not for burn permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)?;
                 Ok(())
@@ -890,7 +888,7 @@ pub mod public_blockchain {
                 let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not set.".to_string());
+                    return Err("Instruction is not set.".to_owned());
                 };
                 let object_id = set_box
                     .object_id
@@ -899,10 +897,10 @@ pub mod public_blockchain {
                 let object_id: AssetId = if let Ok(object_id) = object_id.try_into() {
                     object_id
                 } else {
-                    return Err("Source id is not an AssetId.".to_string());
+                    return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN,
                     params,
@@ -929,7 +927,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN {
-                    return Err("Grant instruction is not for set permission.".to_string());
+                    return Err("Grant instruction is not for set permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)?;
                 Ok(())
@@ -984,7 +982,7 @@ pub mod public_blockchain {
                 let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not set.".to_string());
+                    return Err("Instruction is not set.".to_owned());
                 };
                 let object_id = set_box
                     .object_id
@@ -993,10 +991,10 @@ pub mod public_blockchain {
                 let object_id: AccountId = if let Ok(object_id) = object_id.try_into() {
                     object_id
                 } else {
-                    return Err("Source id is not an AccountId.".to_string());
+                    return Err("Source id is not an AccountId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_SET_KEY_VALUE_IN_USER_METADATA,
                     params,
@@ -1023,7 +1021,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_SET_KEY_VALUE_IN_USER_METADATA {
-                    return Err("Grant instruction is not for set permission.".to_string());
+                    return Err("Grant instruction is not for set permission.".to_owned());
                 }
                 check_account_owner_for_token(&permission_token, authority)?;
                 Ok(())
@@ -1077,7 +1075,7 @@ pub mod public_blockchain {
                 let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not set.".to_string());
+                    return Err("Instruction is not set.".to_owned());
                 };
                 let object_id = remove_box
                     .object_id
@@ -1086,10 +1084,10 @@ pub mod public_blockchain {
                 let object_id: AssetId = if let Ok(object_id) = object_id.try_into() {
                     object_id
                 } else {
-                    return Err("Source id is not an AssetId.".to_string());
+                    return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS,
                     params,
@@ -1116,7 +1114,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS {
-                    return Err("Grant instruction is not for set permission.".to_string());
+                    return Err("Grant instruction is not for set permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)?;
                 Ok(())
@@ -1171,7 +1169,7 @@ pub mod public_blockchain {
                 let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
                     instruction
                 } else {
-                    return Err("Instruction is not remove.".to_string());
+                    return Err("Instruction is not remove.".to_owned());
                 };
                 let object_id = remove_box
                     .object_id
@@ -1180,10 +1178,10 @@ pub mod public_blockchain {
                 let object_id: AccountId = if let Ok(object_id) = object_id.try_into() {
                     object_id
                 } else {
-                    return Err("Source id is not an AccountId.".to_string());
+                    return Err("Source id is not an AccountId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_string(), object_id.into());
+                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_REMOVE_KEY_VALUE_IN_USER_METADATA,
                     params,
@@ -1210,7 +1208,7 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_METADATA {
-                    return Err("Grant instruction is not for remove permission.".to_string());
+                    return Err("Grant instruction is not for remove permission.".to_owned());
                 }
                 check_account_owner_for_token(&permission_token, authority)?;
                 Ok(())
@@ -1220,6 +1218,8 @@ pub mod public_blockchain {
 
     #[cfg(test)]
     mod tests {
+        #![allow(clippy::restriction)]
+
         use maplit::{btreemap, btreeset};
 
         use super::*;
@@ -1257,12 +1257,12 @@ pub mod public_blockchain {
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
                 btreemap! {
-                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                    ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.clone().into(),
                 },
             ));
             let _ = domain.accounts.insert(bob_id.clone(), bob_account);
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let transfer = Instruction::Transfer(TransferBox {
@@ -1290,7 +1290,7 @@ pub mod public_blockchain {
             let permission_token_to_alice = PermissionToken::new(
                 transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
                 btreemap! {
-                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.into(),
+                    ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.into(),
                 },
             );
             let wsv = WorldStateView::new(World::new());
@@ -1311,9 +1311,9 @@ pub mod public_blockchain {
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
-                    "test".to_string() => Domain {
+                    "test".to_owned() => Domain {
                     accounts: btreemap! {},
-                    name: "test".to_string(),
+                    name: "test".to_owned(),
                     asset_definitions: btreemap! {
                         xor_id.clone() =>
                         AssetDefinitionEntry {
@@ -1345,7 +1345,7 @@ pub mod public_blockchain {
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
                 btreemap! {
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             ));
             let _ = domain.accounts.insert(bob_id.clone(), bob_account);
@@ -1354,7 +1354,7 @@ pub mod public_blockchain {
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
@@ -1378,7 +1378,7 @@ pub mod public_blockchain {
             let permission_token_to_alice = PermissionToken::new(
                 unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
                 btreemap! {
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             );
             let mut domain = Domain::new("test");
@@ -1387,7 +1387,7 @@ pub mod public_blockchain {
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
@@ -1409,9 +1409,9 @@ pub mod public_blockchain {
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
-                    "test".to_string() => Domain {
+                    "test".to_owned() => Domain {
                     accounts: btreemap! {},
-                    name: "test".to_string(),
+                    name: "test".to_owned(),
                     asset_definitions: btreemap! {
                         xor_id =>
                         AssetDefinitionEntry {
@@ -1447,7 +1447,7 @@ pub mod public_blockchain {
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
                 btreemap! {
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             ));
             let _ = domain.accounts.insert(bob_id.clone(), bob_account);
@@ -1456,7 +1456,7 @@ pub mod public_blockchain {
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let instruction = Instruction::Mint(MintBox {
@@ -1483,7 +1483,7 @@ pub mod public_blockchain {
             let permission_token_to_alice = PermissionToken::new(
                 mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
                 btreemap! {
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             );
             let mut domain = Domain::new("test");
@@ -1492,7 +1492,7 @@ pub mod public_blockchain {
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
@@ -1514,9 +1514,9 @@ pub mod public_blockchain {
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
-                    "test".to_string() => Domain {
+                    "test".to_owned() => Domain {
                     accounts: btreemap! {},
-                    name: "test".to_string(),
+                    name: "test".to_owned(),
                     asset_definitions: btreemap! {
                         xor_id =>
                         AssetDefinitionEntry {
@@ -1552,7 +1552,7 @@ pub mod public_blockchain {
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 burn::CAN_BURN_ASSET_WITH_DEFINITION,
                 btreemap! {
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             ));
             let _ = domain.accounts.insert(bob_id.clone(), bob_account);
@@ -1561,7 +1561,7 @@ pub mod public_blockchain {
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let instruction = Instruction::Burn(BurnBox {
@@ -1588,7 +1588,7 @@ pub mod public_blockchain {
             let permission_token_to_alice = PermissionToken::new(
                 burn::CAN_BURN_ASSET_WITH_DEFINITION,
                 btreemap! {
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             );
             let mut domain = Domain::new("test");
@@ -1597,7 +1597,7 @@ pub mod public_blockchain {
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
@@ -1639,12 +1639,12 @@ pub mod public_blockchain {
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 burn::CAN_BURN_USER_ASSETS_TOKEN,
                 btreemap! {
-                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                    ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.clone().into(),
                 },
             ));
             let _ = domain.accounts.insert(bob_id.clone(), bob_account);
             let domains = btreemap! {
-                "test".to_string() => domain
+                "test".to_owned() => domain
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let transfer = Instruction::Burn(BurnBox {
@@ -1669,7 +1669,7 @@ pub mod public_blockchain {
             let permission_token_to_alice = PermissionToken::new(
                 burn::CAN_BURN_USER_ASSETS_TOKEN,
                 btreemap! {
-                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.into(),
+                    ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.into(),
                 },
             );
             let wsv = WorldStateView::new(World::new());

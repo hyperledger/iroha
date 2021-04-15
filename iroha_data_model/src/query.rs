@@ -1,5 +1,7 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
+#![allow(clippy::missing_inline_in_public_items)]
+
 use std::time::SystemTime;
 
 use iroha_crypto::prelude::*;
@@ -123,6 +125,7 @@ impl From<QueryResult> for HttpResponse {
 
 impl QueryRequest {
     /// Constructs a new request with the `query`.
+    #[allow(clippy::expect_used)]
     pub fn new(query: QueryBox) -> Self {
         let timestamp_ms = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -165,6 +168,9 @@ impl SignedQueryRequest {
 
 pub mod account {
     //! Queries related to `Account`.
+
+    #![allow(clippy::missing_inline_in_public_items)]
+
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -284,6 +290,8 @@ pub mod account {
 
 pub mod asset {
     //! Queries related to `Asset`.
+
+    #![allow(clippy::missing_inline_in_public_items)]
 
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
@@ -542,6 +550,8 @@ pub mod asset {
 pub mod domain {
     //! Queries related to `Domain`.
 
+    #![allow(clippy::missing_inline_in_public_items)]
+
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -660,6 +670,8 @@ pub mod peer {
 
 pub mod transaction {
     //! Queries related to `Transaction`.
+
+    #![allow(clippy::missing_inline_in_public_items)]
 
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};

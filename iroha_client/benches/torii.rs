@@ -1,4 +1,4 @@
-#![allow(missing_docs, clippy::cast_precision_loss)]
+#![allow(missing_docs, clippy::cast_precision_loss, clippy::restriction)]
 
 use std::thread;
 

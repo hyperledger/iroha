@@ -33,7 +33,7 @@ use async_std::{
     task,
 };
 use iroha_data_model::prelude::*;
-use iroha_error::Result;
+use iroha_error::{Result, WrapErr};
 use iroha_logger::InstrumentFutures;
 use permissions::PermissionsValidatorBox;
 
@@ -95,7 +95,12 @@ pub struct Iroha {
 
 impl Iroha {
     /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
-    pub fn new(config: &Configuration, permissions_validator: PermissionsValidatorBox) -> Self {
+    /// # Errors
+    /// Fails if fails one of the subparts initialization
+    pub fn new(
+        config: &Configuration,
+        permissions_validator: PermissionsValidatorBox,
+    ) -> Result<Self> {
         iroha_logger::init(config.logger_configuration);
         iroha_logger::info!(?config, "Loaded configuration");
 
@@ -120,11 +125,11 @@ impl Iroha {
                 &config.sumeragi_configuration,
                 kura_blocks_sender,
                 events_sender.clone(),
-                world_state_view.clone(),
+                Arc::clone(&world_state_view),
                 transactions_sender.clone(),
                 permissions_validator,
             )
-            .expect("Failed to initialize Sumeragi."),
+            .wrap_err("Failed to initialize Sumeragi.")?,
         ));
         let torii = Torii::from_configuration(
             config.torii_configuration.clone(),
@@ -133,16 +138,16 @@ impl Iroha {
             sumeragi_message_sender,
             block_sync_message_sender,
             System::new(config),
-            queue.clone(),
-            sumeragi.clone(),
+            Arc::clone(&queue),
+            Arc::clone(&sumeragi),
             (events_sender, events_receiver),
         );
-        let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender);
+        let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender)?;
         let kura = Arc::new(RwLock::new(kura));
         let block_sync = Arc::new(RwLock::new(BlockSynchronizer::from_configuration(
             &config.block_sync_configuration,
-            kura.clone(),
-            sumeragi.clone(),
+            Arc::clone(&kura),
+            Arc::clone(&sumeragi),
             PeerId::new(
                 &config.torii_configuration.torii_p2p_url,
                 &config.public_key,
@@ -155,8 +160,8 @@ impl Iroha {
             &config.genesis_configuration,
             config.torii_configuration.torii_max_instruction_number,
         )
-        .expect("Failed to initialize genesis.");
-        Iroha {
+        .wrap_err("Failed to initialize genesis.")?;
+        Ok(Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),
             sumeragi,
@@ -169,7 +174,7 @@ impl Iroha {
             block_sync_message_receiver,
             block_sync,
             genesis_network,
-        }
+        })
     }
 
     /// To make `Iroha` peer work it should be started first. After that moment it will listen for
@@ -230,12 +235,9 @@ impl Iroha {
                             .write()
                             .await
                             .get_pending_transactions(is_leader, &*world_state_view.read().await);
-                        sumeragi
-                            .write()
-                            .await
-                            .round(transactions)
-                            .await
-                            .expect("Round failed")
+                        if let Err(e) = sumeragi.write().await.round(transactions).await {
+                            iroha_logger::error!("Round failed: {}", e);
+                        }
                     }
                     task::sleep(TX_RETRIEVAL_INTERVAL).await;
                 }
@@ -283,12 +285,9 @@ impl Iroha {
         let kura_handle = task::spawn(
             async move {
                 while let Some(block) = kura_blocks_receiver.next().await {
-                    let _hash = kura
-                        .write()
-                        .await
-                        .store(block)
-                        .await
-                        .expect("Failed to write block.");
+                    if let Err(e) = kura.write().await.store(block).await {
+                        iroha_logger::error!("Failed to write block: {}", e)
+                    }
                 }
             }
             .in_current_span(),

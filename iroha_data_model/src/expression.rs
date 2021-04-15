@@ -3,6 +3,7 @@
 #![allow(
     clippy::default_trait_access,
     clippy::len_without_is_empty,
+    clippy::missing_inline_in_public_items,
     clippy::unused_self
 )]
 
@@ -161,7 +162,7 @@ impl ContextValue {
     /// Constructs `ContextValue`.
     pub fn new(value_name: &str) -> Self {
         Self {
-            value_name: value_name.to_string(),
+            value_name: value_name.to_owned(),
         }
     }
 }

@@ -18,6 +18,7 @@ use crate::prelude::*;
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Io, Encode, Decode)]
+#[non_exhaustive]
 pub struct VerifiedQueryRequest {
     /// Timestamp of the query creation.
     #[codec(compact)]
@@ -51,6 +52,7 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 
 /// Unsupported version error
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[allow(clippy::exhaustive_structs)]
 pub struct UnsupportedVersionError {
     /// Version that we got
     pub version: u8,
@@ -92,7 +94,7 @@ pub enum AcceptQueryError {
 
 impl HttpResponseError for AcceptQueryError {
     fn status_code(&self) -> StatusCode {
-        match self {
+        match *self {
             Self::UnsupportedQueryVersion(_) | Self::VerifyQuery(_) => {
                 HTTP_CODE_INTERNAL_SERVER_ERROR
             }
@@ -163,6 +165,8 @@ impl Query for QueryBox {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use iroha_crypto::KeyPair;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
     use iroha_error::error;
@@ -185,7 +189,7 @@ mod tests {
                 account_id,
             ),
         );
-        let _ = domains.insert("wonderland".to_string(), domain);
+        let _ = domains.insert("wonderland".to_owned(), domain);
         Ok(World::with(domains, PeersIds::new()))
     }
 
@@ -197,13 +201,12 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account_id);
         let mut store = Metadata::new();
         let _ = store.insert_with_limits(
-            "Bytes".to_string(),
+            "Bytes".to_owned(),
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
             MetadataLimits::new(10, 100),
         );
         wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
-        let bytes =
-            FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_string()).execute(&wsv)?;
+        let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_owned()).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
@@ -220,12 +223,12 @@ mod tests {
             .ok_or_else(|| error!("Failed to find account."))?
             .metadata
             .insert_with_limits(
-                "Bytes".to_string(),
+                "Bytes".to_owned(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             );
         let bytes =
-            FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_string()).execute(&wsv)?;
+            FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_owned()).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])

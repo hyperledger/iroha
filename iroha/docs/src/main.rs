@@ -1,5 +1,7 @@
 //! Cli for generating documentation for iroha configuraion
 
+#![allow(clippy::restriction)]
+
 use std::fmt::Debug;
 use std::io::Result;
 use std::io::{stdout, BufWriter, Write};

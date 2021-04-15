@@ -97,13 +97,15 @@ impl VarUint {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::convert::TryInto;
 
     use super::*;
 
     #[test]
     fn test_basic_into() {
-        let n = 16384_u64;
+        let n = 0x4000_u64;
         let varuint: VarUint = n.into();
         let vec: Vec<_> = varuint.into();
         let should_be = vec![0b1000_0000, 0b1000_0000, 0b0000_0001];
@@ -116,12 +118,12 @@ mod tests {
             .unwrap()
             .try_into()
             .unwrap();
-        assert_eq!(16384_u64, n_should);
+        assert_eq!(0x4000_u64, n_should);
     }
 
     #[test]
     fn test_basic_into_from() {
-        let n = 16384_u64;
+        let n = 0x4000_u64;
         let varuint: VarUint = n.into();
         let n_new: u64 = varuint.try_into().unwrap();
         assert_eq!(n, n_new);

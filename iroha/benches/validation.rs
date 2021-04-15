@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::restriction)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

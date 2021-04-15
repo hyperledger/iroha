@@ -105,7 +105,7 @@ impl Configuration {
 
     /// Add genesis block path to config
     pub fn add_genesis_block_path(&mut self, path: &str) {
-        self.genesis_configuration.genesis_block_path = Some(path.to_string());
+        self.genesis_configuration.genesis_block_path = Some(path.to_owned());
     }
 
     /// Gets `public_key` and `private_key` configuration parameters.
@@ -116,6 +116,8 @@ impl Configuration {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use std::collections::BTreeSet;
 
     use super::*;
