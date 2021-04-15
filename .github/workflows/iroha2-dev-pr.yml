@@ -43,6 +43,7 @@ jobs:
         with:
           name: cargo-doc
           path: target/doc
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -53,6 +54,7 @@ jobs:
           key: ${{ hashFiles('Cargo.toml') }}
       - name: Run tests
         run: cargo test --workspace --verbose
+
   test-iroha_network-mock:
     runs-on: ubuntu-latest
     steps:

@@ -19,6 +19,9 @@ pub type EventsSender = Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
 pub type EventsReceiver = Receiver<Event>;
 
+#[cfg(test)]
+const TIMEOUT: Duration = Duration::from_millis(10_000);
+#[cfg(not(test))]
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Consumer for Iroha `Event`(s).
