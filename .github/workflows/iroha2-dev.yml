@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Set nightly toolchain  
+    - name: Set nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly-2021-02-20
