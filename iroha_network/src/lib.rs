@@ -26,6 +26,9 @@ use iroha_logger::log;
 use parity_scale_codec::{Decode, Encode};
 
 const BUFFER_SIZE: usize = 2_usize.pow(12);
+#[cfg(test)]
+const REQUEST_TIMEOUT_MILLIS: u64 = 5000;
+#[cfg(not(test))]
 const REQUEST_TIMEOUT_MILLIS: u64 = 500;
 
 /// State type alias
