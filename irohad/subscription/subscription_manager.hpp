@@ -31,7 +31,7 @@ namespace iroha::subscription {
         utils::NoMove,
         utils::NoCopy {
    public:
-    using Dispatcher = subscription::Dispatcher<kHandlersCount, kPoolSize>;
+    using Dispatcher = subscription::IDispatcher<kHandlersCount, kPoolSize>;
 
    private:
     using EngineHash = uint64_t;
@@ -58,7 +58,8 @@ namespace iroha::subscription {
     }
 
    public:
-    SubscriptionManager() : dispatcher_(std::make_shared<Dispatcher>()) {
+    SubscriptionManager(DispatcherPtr dispatcher)
+        : dispatcher_(std::move(dispatcher)) {
       disposed_.clear();
     }
 
