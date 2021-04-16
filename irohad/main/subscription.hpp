@@ -54,17 +54,20 @@ namespace iroha {
 
   static constexpr uint32_t kThreadPoolSize = 3u;
 
+  using Dispatcher =
+      subscription::IDispatcher<SubscriptionEngineHandlers::kTotalCount,
+                                kThreadPoolSize>;
   using Subscription =
       subscription::SubscriptionManager<SubscriptionEngineHandlers::kTotalCount,
                                         kThreadPoolSize>;
-  using SubscriptionDispatcher = typename Subscription::Dispatcher;
-
   template <typename ObjectType, typename... EventData>
-  using BaseSubscriber = subscription::SubscriberImpl<EventTypes,
-                                                      SubscriptionDispatcher,
-                                                      ObjectType,
-                                                      EventData...>;
+  using BaseSubscriber =
+      subscription::SubscriberImpl<EventTypes,
+                                   typename Subscription::Dispatcher,
+                                   ObjectType,
+                                   EventData...>;
 
+  std::shared_ptr<Dispatcher> getDispatcher();
   std::shared_ptr<Subscription> getSubscription();
 
   template <typename ObjectType, typename EventData>

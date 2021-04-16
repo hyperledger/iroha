@@ -19,7 +19,7 @@ namespace iroha {
     if (auto ptr = engine.lock())
       return ptr;
 
-    auto ptr = std::make_shared<Subscription>();
+    auto ptr = std::make_shared<Subscription>(getDispatcher());
     engine = ptr;
     return ptr;
   }

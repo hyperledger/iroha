@@ -5,5 +5,5 @@
 
 addtest(subscription_test subscription_test.cpp)
 target_link_libraries(subscription_test
-    subscription
+    async_subscription
     )
