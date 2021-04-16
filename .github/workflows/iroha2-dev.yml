@@ -25,11 +25,13 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: clean
+    - name: Remove limit for opened files
+      run:  echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
     - name: Cargo test
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --workspace -- --test-threads=1
+        args: --workspace
       env:
         CARGO_INCREMENTAL: '0'
         RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests'
