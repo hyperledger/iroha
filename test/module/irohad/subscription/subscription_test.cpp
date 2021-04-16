@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "module/irohad/subscription/subscription_mocks.hpp"
+#include "subscription/async_dispatcher_impl.hpp"
 
 using namespace iroha;
 
@@ -17,7 +18,8 @@ class SubscriptionTest : public ::testing::Test {
   template <uint32_t ThreadsCount>
   auto createSubscriptionManager() {
     using Manager = subscription::SubscriptionManager<ThreadsCount, 1u>;
-    return std::make_shared<Manager>();
+    return std::make_shared<Manager>(
+        std::make_shared<subscription::AsyncDispatcher<ThreadsCount, 1u>>());
   }
 
   template <uint32_t Tid,
