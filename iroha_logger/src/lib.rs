@@ -32,7 +32,6 @@ pub fn init(configuration: config::LoggerConfiguration) {
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
-    use iroha_error::Result;
     use serde::{Deserialize, Serialize};
     use tracing_subscriber::filter::LevelFilter;
 

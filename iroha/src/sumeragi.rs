@@ -2037,7 +2037,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                Arc::new(RwLock::new(config.clone())),
+                config.torii_configuration.clone(),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2165,7 +2165,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                Arc::new(RwLock::new(config.clone())),
+                config.torii_configuration.clone(),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2317,7 +2317,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                Arc::new(RwLock::new(config.clone())),
+                config.torii_configuration.clone(),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2483,7 +2483,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                Arc::new(RwLock::new(config.clone())),
+                config.torii_configuration.clone(),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -2645,7 +2645,7 @@ mod tests {
                 &config.queue_configuration,
             )));
             let mut torii = Torii::from_configuration(
-                Arc::new(RwLock::new(config.clone())),
+                config.torii_configuration.clone(),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
