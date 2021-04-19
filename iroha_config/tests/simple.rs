@@ -18,53 +18,6 @@ struct InnerConfiguration {
     pub b: i32,
 }
 
-#[async_std::test]
-async fn test_inner() {
-    let mut x = InnerConfiguration {
-        a: "bc".to_owned(),
-        b: 10,
-    };
-    assert!(x.set("b", serde_json::json!(200)).await.is_ok());
-    assert!(x.set("a", serde_json::json!(200)).await.is_err());
-    assert_eq!(x.b, 200);
-}
-
-#[async_std::test]
-async fn test_outer() {
-    let mut x = Configuration {
-        inner: InnerConfiguration {
-            a: "bc".to_owned(),
-            b: 10,
-        },
-    };
-    assert!(x
-        .set_recursive(["inner", "b"], serde_json::json!(200))
-        .await
-        .is_ok());
-    assert!(x
-        .set_recursive(["inner", "a"], serde_json::json!(200))
-        .await
-        .is_err());
-    assert_eq!(x.inner.b, 200);
-    assert!(x
-        .set_recursive(
-            ["inner"],
-            serde_json::json!({
-                "a": "a",
-                "b": 20,
-            })
-        )
-        .await
-        .is_ok());
-    assert_eq!(
-        x.inner,
-        InnerConfiguration {
-            a: "a".to_owned(),
-            b: 20
-        }
-    );
-}
-
 #[test]
 fn test_docs() {
     assert_eq!(

@@ -142,32 +142,6 @@ pub trait Configurable: Serialize + DeserializeOwned {
     /// Error type returned by methods of trait
     type Error;
 
-    /// Sets field of structure with json-value
-    /// # Errors
-    /// Fails if field was unknown or if fails Deserialize value
-    fn set<'a, 'b>(
-        &'a mut self,
-        field: &'b str,
-        value: Value,
-    ) -> BoxedFuture<'a, Result<(), Self::Error>>
-    where
-        'b: 'a,
-    {
-        self.set_recursive([field], value)
-    }
-
-    /// Sets inner field of arbitrary inner depth with json-value
-    /// # Errors
-    /// Fails if field was unknown or if fails Deserialize value
-    fn set_recursive<'a, 'b, T>(
-        &'a mut self,
-        inner_field: T,
-        value: Value,
-    ) -> BoxedFuture<'a, Result<(), Self::Error>>
-    where
-        'b: 'a,
-        T: AsRef<[&'b str]> + Send + 'b;
-
     /// Gets field of structure and returns as json-value
     /// # Errors
     /// Fails if field was unknown
