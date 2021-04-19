@@ -292,13 +292,15 @@ impl PermissionsValidator for GrantedTokenValidatorBox {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
-        let account = wsv
-            .read_account(authority)
-            .ok_or("Couldn't find authority account.")?;
         let permission_token = self
             .should_have_token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
-        if account.permission_tokens.contains(&permission_token) {
+        let contain = wsv
+            .account(authority, |account| {
+                account.permission_tokens.read().contains(&permission_token)
+            })
+            .map_err(|e| e.to_string())?;
+        if contain {
             Ok(())
         } else {
             Err(format!(
@@ -368,7 +370,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use iroha_data_model::isi::*;
-    use maplit::{btreemap, btreeset};
+    use iroha_structs::HashSet;
 
     use super::*;
 
@@ -495,16 +497,15 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain = Domain::new("test");
-        let mut bob_account = Account::new(bob_id.clone());
+        let domain = Domain::new("test");
+        let bob_account = Account::new(bob_id.clone());
         let _ = bob_account
             .permission_tokens
-            .insert(PermissionToken::new("token", btreemap! {}));
-        let _ = domain.accounts.insert(bob_id.clone(), bob_account);
-        let domains = btreemap! {
-            "test".to_owned() => domain
-        };
-        let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            .write()
+            .insert(PermissionToken::new("token", BTreeMap::default()));
+        drop(domain.accounts.insert(bob_id.clone(), bob_account));
+        let domains = vec![("test".to_string(), domain)];
+        let wsv = WorldStateView::new(World::with(domains, HashSet::default()));
         let validator: GrantedTokenValidatorBox = Box::new(GrantedToken);
         assert!(validator
             .check_instruction(&alice_id, &instruction_burn, &wsv)

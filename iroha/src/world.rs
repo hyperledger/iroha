@@ -4,6 +4,7 @@ use crate::{isi::prelude::*, prelude::*};
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
+    use async_std::task::block_on;
     use iroha_data_model::prelude::*;
     use iroha_error::{error, Result};
 
@@ -13,13 +14,9 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            if world_state_view
-                .world()
-                .trusted_peers_ids
-                .insert(self.object.id)
-            {
+            if world_state_view.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
             } else {
                 Err(error!("Peer already presented in the list of trusted peers.",).into())
@@ -31,14 +28,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let domain = self.object;
             domain.validate_len(world_state_view.config.length_limits)?;
-            let _ = world_state_view
-                .world()
-                .domains
-                .insert(domain.name.clone(), domain);
+            drop(
+                world_state_view
+                    .domains()
+                    .insert(domain.name.clone(), domain),
+            );
             Ok(())
         }
     }
@@ -47,10 +45,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
-            let _ = world_state_view.world().domains.remove(&self.object_id);
+            drop(world_state_view.domains().remove(&self.object_id));
             Ok(())
         }
     }
@@ -59,9 +57,9 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            world_state_view.world().parameters.push(self.object);
+            block_on(world_state_view.parameters().write()).push(self.object);
             Ok(())
         }
     }
@@ -69,6 +67,7 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
+    use async_std::task::block_on;
     use iroha_data_model::prelude::*;
     use iroha_error::Result;
     use iroha_logger::log;
@@ -93,9 +92,7 @@ pub mod query {
     impl Query for FindAllParameters {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(world_state_view
-                .read_world()
-                .parameters
+            Ok(block_on(world_state_view.parameters().read())
                 .iter()
                 .cloned()
                 .map(Value::Parameter)

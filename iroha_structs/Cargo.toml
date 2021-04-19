@@ -1,0 +1,14 @@
+[package]
+name = "iroha_structs"
+version = "0.1.0"
+authors = ["taisei"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lockfree = "0.5"
+dashmap = { version = "4.0", features = ["serde"] }
+parity-scale-codec = "2"
+serde = { version = "1", features = ["derive"] }
+async-std = { version = "1.6.2", features = ["unstable"] }

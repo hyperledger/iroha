@@ -96,7 +96,7 @@ pub trait Execute {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error>;
 }
 
@@ -104,7 +104,7 @@ impl Execute for Instruction {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         use Instruction::*;
         match self {
@@ -131,7 +131,7 @@ impl Execute for RegisterBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match self.object.evaluate(world_state_view, &context)? {
@@ -158,7 +158,7 @@ impl Execute for UnregisterBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match self.object_id.evaluate(world_state_view, &context)? {
@@ -182,7 +182,7 @@ impl Execute for MintBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match (
@@ -214,7 +214,7 @@ impl Execute for BurnBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match (
@@ -238,7 +238,7 @@ impl Execute for TransferBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         let source_asset_id = match self.source_id.evaluate(world_state_view, &context)? {
@@ -266,7 +266,7 @@ impl Execute for SetKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         let key = self.key.evaluate(world_state_view, &context)?;
@@ -290,7 +290,7 @@ impl Execute for RemoveKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         let key = self.key.evaluate(world_state_view, &context)?;
@@ -309,7 +309,7 @@ impl Execute for If {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         if self.condition.evaluate(world_state_view, &context)? {
@@ -328,7 +328,7 @@ impl Execute for Pair {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         self.left_instruction
             .execute(authority.clone(), world_state_view)?;
@@ -343,7 +343,7 @@ impl Execute for SequenceBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         for instruction in self.instructions {
             instruction.execute(authority.clone(), world_state_view)?;
@@ -357,7 +357,7 @@ impl Execute for FailBox {
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
-        _world_state_view: &mut WorldStateView,
+        _world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         Err(error!("Execution failed: {}.", self.message).into())
     }
@@ -368,7 +368,7 @@ impl Execute for GrantBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match self.destination_id.evaluate(world_state_view, &context)? {
@@ -394,30 +394,30 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use iroha_crypto::KeyPair;
-    use iroha_data_model::{domain::DomainsMap, peer::PeersIds, TryAsRef};
+    use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
 
     fn world_with_test_domains() -> Result<World> {
-        let mut domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
+        let domains = DomainsMap::new();
+        let domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
+        let account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key);
-        let _ = domain.accounts.insert(account_id.clone(), account);
+        account.signatories.write().push(key_pair.public_key);
+        drop(domain.accounts.insert(account_id.clone(), account));
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
-        let _ = domain.asset_definitions.insert(
+        drop(domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
-        );
-        let _ = domains.insert("wonderland".to_owned(), domain);
+        ));
+        drop(domains.insert("wonderland".to_string(), domain));
         Ok(World::with(domains, PeersIds::new()))
     }
 
     #[test]
     fn asset_store() -> Result<()> {
-        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
@@ -426,18 +426,19 @@ mod tests {
             "Bytes".to_owned(),
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &mut wsv)?;
-        let asset_store: &Metadata = wsv
-            .read_account(&account_id)
-            .ok_or_else(|| error!("Failed to find account."))?
-            .assets
-            .get(&asset_id)
-            .ok_or_else(|| error!("Failed to find asset."))?
-            .try_as_ref()?;
-        let bytes = asset_store.get("Bytes");
+        .execute(account_id.clone(), &wsv)?;
+        let bytes = wsv.account(&account_id, |account| -> Result<_> {
+            let asset = account
+                .assets
+                .get(&asset_id)
+                .ok_or_else(|| error!("Failed to find asset."))?;
+            let lock = asset.value().value.read();
+            let asset_store: &Metadata = lock.try_as_ref()?;
+            Ok(asset_store.get("Bytes").cloned())
+        })??;
         assert_eq!(
             bytes,
-            Some(&Value::Vec(vec![
+            Some(Value::Vec(vec![
                 Value::U32(1),
                 Value::U32(2),
                 Value::U32(3)
@@ -448,22 +449,20 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
             "Bytes".to_owned(),
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &mut wsv)?;
-        let bytes = wsv
-            .read_account(&account_id)
-            .ok_or_else(|| error!("Failed to find account."))?
-            .metadata
-            .get("Bytes");
+        .execute(account_id.clone(), &wsv)?;
+        let bytes = wsv.account(&account_id, |account| {
+            account.metadata.read().get("Bytes").cloned()
+        })?;
         assert_eq!(
             bytes,
-            Some(&Value::Vec(vec![
+            Some(Value::Vec(vec![
                 Value::U32(1),
                 Value::U32(2),
                 Value::U32(3)

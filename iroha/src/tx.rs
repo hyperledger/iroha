@@ -11,7 +11,7 @@ use std::{
 
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
-use iroha_error::{error, Result, WrapErr};
+use iroha_error::{Result, WrapErr};
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
@@ -173,7 +173,7 @@ impl AcceptedTransaction {
         permissions_validator: &PermissionsValidatorBox,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
-        let mut world_state_view_temp = world_state_view.clone();
+        let world_state_view_temp = world_state_view.clone();
         let account_id = self.payload.account_id.clone();
         if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
@@ -212,7 +212,7 @@ impl AcceptedTransaction {
 
             instruction
                 .clone()
-                .execute(account_id.clone(), &mut world_state_view_temp)
+                .execute(account_id.clone(), &world_state_view_temp)
                 .map_err(|reason| InstructionExecutionFail {
                     instruction: instruction.clone(),
                     reason: reason.to_string(),
@@ -259,11 +259,11 @@ impl AcceptedTransaction {
     /// Can fail if signature conditionon account fails or if account is not found
     pub fn check_signature_condition(&self, world_state_view: &WorldStateView) -> Result<bool> {
         let account_id = self.payload.account_id.clone();
-        world_state_view
-            .read_account(&account_id)
-            .ok_or_else(|| error!("Account with id {} not found", account_id))?
-            .check_signature_condition(&self.signatures)
-            .evaluate(world_state_view, &Context::new())
+        world_state_view.account(&account_id, |account| {
+            account
+                .check_signature_condition(&self.signatures)
+                .evaluate(world_state_view, &Context::new())
+        })?
     }
 
     /// Rejects transaction with the `rejection_reason`.
@@ -353,7 +353,7 @@ impl VersionedValidTransaction {
     }
 
     /// Apply instructions to the `WorldStateView`.
-    pub fn proceed(&self, wsv: &mut WorldStateView) -> Result<()> {
+    pub fn proceed(&self, wsv: &WorldStateView) -> Result<()> {
         self.as_inner_v1().proceed(wsv)
     }
 
@@ -394,14 +394,12 @@ impl ValidTransaction {
     ///
     /// # Errors
     /// Can fail if execution of instructions fail
-    pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<()> {
-        let mut world_state_view_temp = world_state_view.clone();
+    pub fn proceed(&self, world_state_view: &WorldStateView) -> Result<()> {
         for instruction in &self.payload.instructions {
             instruction
                 .clone()
-                .execute(self.payload.account_id.clone(), &mut world_state_view_temp)?;
+                .execute(self.payload.account_id.clone(), world_state_view)?;
         }
-        *world_state_view = world_state_view_temp;
         Ok(())
     }
 
@@ -468,7 +466,7 @@ pub mod query {
             Ok(Value::Vec(
                 world_state_view
                     .read_transactions(&id)
-                    .into_iter()
+                    .iter()
                     .cloned()
                     .map(Value::TransactionValue)
                     .collect::<Vec<_>>(),
@@ -486,6 +484,7 @@ mod tests {
         transaction::MAX_INSTRUCTION_NUMBER,
     };
     use iroha_error::{Error, MessageError, Result, WrappedError};
+    use iroha_structs::HashSet;
 
     use super::*;
     use crate::{config::Configuration, init, permissions::AllowAll};
@@ -516,7 +515,7 @@ mod tests {
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
-                &WorldStateView::new(World::with(init::domains(&config), Default::default())),
+                &WorldStateView::new(World::with(init::domains(&config), HashSet::default())),
                 &AllowAll.into(),
                 true,
             )

@@ -1,13 +1,13 @@
 //! This module provides `WorldStateView` - in-memory representations of the current blockchain
 //! state.
 
-use std::collections::HashMap;
-
+use async_std::sync::RwLock;
 use config::Configuration;
-use iroha_data_model::prelude::*;
-use iroha_error::{error, Result};
+use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+use iroha_error::Result;
+use iroha_structs::hashmap::HashMap;
 
-use crate::prelude::*;
+use crate::{isi::FindError, prelude::*};
 
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
@@ -42,187 +42,199 @@ impl WorldStateView {
     }
 
     /// Initializes WSV with the blocks from block storage.
-    pub fn init(&mut self, blocks: &[VersionedValidBlock]) {
+    pub fn init(&self, blocks: &[VersionedValidBlock]) {
         for block in blocks {
             self.apply(&block.clone().commit());
         }
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
-    pub fn apply(&mut self, block: &VersionedCommittedBlock) {
+    pub fn apply(&self, block: &VersionedCommittedBlock) {
         for transaction in &block.as_inner_v1().transactions {
             if let Err(e) = transaction.proceed(self) {
                 iroha_logger::warn!("Failed to proceed transaction on WSV: {}", e);
             }
-            let _ = self.transactions.insert(
+            drop(self.transactions.insert(
                 transaction.hash(),
                 TransactionValue::Transaction(transaction.clone().into()),
-            );
+            ));
         }
         for transaction in &block.as_inner_v1().rejected_transactions {
-            let _ = self.transactions.insert(
+            drop(self.transactions.insert(
                 transaction.hash(),
                 TransactionValue::RejectedTransaction(transaction.clone()),
-            );
+            ));
         }
     }
 
     /// Get `World` without an ability to modify it.
-    pub const fn read_world(&self) -> &World {
+    pub const fn world(&self) -> &World {
         &self.world
-    }
-
-    /// Get `World` with an ability to modify it.
-    pub fn world(&mut self) -> &mut World {
-        &mut self.world
     }
 
     /// Add new `Domain` entity.
     pub fn add_domain(&mut self, domain: Domain) {
-        let _ = self.world.domains.insert(domain.name.clone(), domain);
+        drop(self.world.domains.insert(domain.name.clone(), domain));
+    }
+
+    /// Returns reference for domains map
+    pub const fn domains(&self) -> &DomainsMap {
+        &self.world.domains
+    }
+
+    /// Returns reference for trusted peer ids
+    pub const fn trusted_peers_ids(&self) -> &PeersIds {
+        &self.world.trusted_peers_ids
+    }
+
+    /// Returns reference for parameters
+    pub const fn parameters(&self) -> &RwLock<Vec<Parameter>> {
+        &self.world.parameters
     }
 
     /// Get `Domain` without an ability to modify it.
-    pub fn read_domain(&self, name: &str) -> Option<&Domain> {
-        self.world.domains.get(name)
-    }
-
-    /// Get `Domain` with an ability to modify it.
-    pub fn domain(&mut self, name: &str) -> Option<&mut Domain> {
-        self.world.domains.get_mut(name)
-    }
-
-    /// Get all `Domain`s without an ability to modify them.
-    pub fn read_all_domains(&self) -> Vec<&Domain> {
-        let mut vec = self.world.domains.values().collect::<Vec<&Domain>>();
-        vec.sort();
-        vec
-    }
-
-    /// Get all `Account`s without an ability to modify them.
-    pub fn read_all_accounts(&self) -> Vec<&Account> {
-        let mut vec = self
+    /// # Errors
+    /// Fails if there is no domain
+    pub fn domain<T>(&self, name: &str, f: impl FnOnce(&Domain) -> T) -> Result<T> {
+        let domain = self
             .world
             .domains
-            .values()
-            .flat_map(|domain| domain.accounts.values())
-            .collect::<Vec<&Account>>();
-        vec.sort();
-        vec
+            .get(name)
+            .ok_or_else(|| FindError::Domain(name.to_owned()))?;
+        Ok(f(domain.value()))
     }
 
-    /// Get `Account` without an ability to modify it.
-    pub fn read_account(&self, id: &<Account as Identifiable>::Id) -> Option<&Account> {
-        self.read_domain(&id.domain_name)?.accounts.get(id)
+    /// Get `Account` and pass it to closure
+    /// # Errors
+    /// Fails if there is no domain or account
+    pub fn account<T>(
+        &self,
+        id: &<Account as Identifiable>::Id,
+        f: impl FnOnce(&Account) -> T,
+    ) -> Result<T> {
+        let result = self.domain(&id.domain_name, |domain| -> Result<T> {
+            let account = domain
+                .accounts
+                .get(id)
+                .ok_or_else(|| FindError::Account(id.clone()))?;
+            Ok(f(account.value()))
+        })??;
+        Ok(result)
     }
 
-    /// Get `Account`'s `Asset`s without an ability to modify it.
-    pub fn read_account_assets(&self, id: &<Account as Identifiable>::Id) -> Option<Vec<&Asset>> {
-        let mut vec = self
-            .read_account(id)?
-            .assets
-            .values()
-            .collect::<Vec<&Asset>>();
-        vec.sort();
-        Some(vec)
+    /// Get `Account`'s `Asset`s and pass it to closure
+    /// # Errors
+    /// Fails if account finding fails
+    pub fn account_assets(
+        &self,
+        id: &<Account as Identifiable>::Id,
+        mut f: impl FnMut(&Asset),
+    ) -> Result<()> {
+        self.account(id, |account| {
+            account.assets.iter().for_each(|guard| f(&*guard.value()))
+        })
     }
 
-    /// Get `Account` with an ability to modify it.
-    pub fn account(&mut self, id: &<Account as Identifiable>::Id) -> Option<&mut Account> {
-        self.domain(&id.domain_name)?.accounts.get_mut(id)
+    /// Insert new account
+    /// # Errors
+    /// Fails if there are no such domain
+    pub fn update_account(&self, account: Account) -> Result<()> {
+        let id = account.id.domain_name.clone();
+        self.domain(&id, move |domain| {
+            drop(domain.accounts.insert(account.id.clone(), account));
+        })
     }
 
     /// Get all `PeerId`s without an ability to modify them.
     pub fn read_all_peers(&self) -> Vec<Peer> {
         let mut vec = self
-            .read_world()
+            .world
             .trusted_peers_ids
             .iter()
-            .cloned()
-            .map(Peer::new)
+            .map(|peer| Peer::new((&*peer).clone()))
             .collect::<Vec<Peer>>();
         vec.sort();
         vec
     }
 
-    /// Get all `Asset`s without an ability to modify them.
-    pub fn read_all_assets(&self) -> Vec<&Asset> {
-        let mut vec = self
-            .world
-            .domains
-            .values()
-            .flat_map(|domain| domain.accounts.values())
-            .flat_map(|account| account.assets.values())
-            .collect::<Vec<&Asset>>();
-        vec.sort();
-        vec
-    }
-
-    /// Get all `Asset Definition Entry`s without an ability to modify them.
-    pub fn read_all_assets_definitions_entries(&self) -> Vec<&AssetDefinitionEntry> {
-        let mut vec = self
-            .world
-            .domains
-            .values()
-            .flat_map(|domain| domain.asset_definitions.values())
-            .collect::<Vec<&AssetDefinitionEntry>>();
-        vec.sort();
-        vec
-    }
-
-    /// Get `Asset` without an ability to modify it.
-    pub fn read_asset(&self, id: &<Asset as Identifiable>::Id) -> Option<&Asset> {
-        self.read_account(&id.account_id)?.assets.get(id)
-    }
-
-    /// Get `Asset` with an ability to modify it.
-    pub fn asset(&mut self, id: &<Asset as Identifiable>::Id) -> Option<&mut Asset> {
-        self.account(&id.account_id)?.assets.get_mut(id)
-    }
-
-    /// Get `Asset` with an ability to modify it.
-    /// If no asset is present - create it. Similar to Entry API.
-    ///
-    /// Returns `None` if no corresponding account was found.
-    pub fn asset_or_insert<V: Into<AssetValue>>(
-        &mut self,
+    /// Get `Asset` and passes it to closure
+    /// # Errors
+    /// Fails if there are no such asset or account
+    pub fn asset<T>(
+        &self,
         id: &<Asset as Identifiable>::Id,
-        default_value: V,
-    ) -> Option<&mut Asset> {
-        Some(
-            self.account(&id.account_id)?
+        f: impl FnOnce(&Asset) -> T,
+    ) -> Result<T> {
+        self.account(&id.account_id, |account| -> Result<T> {
+            let asset = account
                 .assets
-                .entry(id.clone())
-                .or_insert_with(|| Asset::new(id.clone(), default_value)),
-        )
+                .get(id)
+                .ok_or_else(|| FindError::Asset(id.clone()))?;
+            Ok(f(asset.value()))
+        })?
     }
 
+    /// Tries to get asset and call closure, if fails calls else closure
+    pub fn asset_or<T>(
+        &self,
+        id: &<Asset as Identifiable>::Id,
+        ok: impl FnOnce(&Asset) -> T,
+        else_: impl FnOnce() -> T,
+    ) -> T {
+        match self.asset(id, ok) {
+            Ok(ok) => ok,
+            Err(_) => else_(),
+        }
+    }
+
+    /// Tries to get asset and call closure, if fails, inserts new asset and calls else closure
+    /// # Panics
+    /// Can panic if getting after insert fails
+    /// # Errors
+    /// Fails if there is  no account with such name
+    pub fn asset_or_insert<T>(
+        &self,
+        id: &<Asset as Identifiable>::Id,
+        v: impl Into<AssetValue>,
+        f: impl FnOnce(&Asset) -> T,
+    ) -> Result<T> {
+        self.account(&id.account_id, |account| -> Result<T> {
+            let asset = account.assets.get(id).unwrap_or_else(|| {
+                drop(
+                    account
+                        .assets
+                        .insert(id.clone(), Asset::new(id.clone(), v.into())),
+                );
+                account.assets.get(id).unwrap()
+            });
+            Ok(f(asset.value()))
+        })?
+    }
     /// Add new `Asset` entity.
     /// # Errors
     /// Fails if there is no account for asset
-    pub fn add_asset(&mut self, asset: Asset) -> Result<()> {
-        let _ = self
-            .account(&asset.id.account_id)
-            .ok_or_else(|| error!("Failed to find account"))?
-            .assets
-            .insert(asset.id.clone(), asset);
-        Ok(())
+    pub fn add_asset(&self, asset: Asset) -> Result<()> {
+        let id = asset.id.account_id.clone();
+        self.account(&id, move |account| {
+            drop(account.assets.insert(asset.id.clone(), asset));
+        })
     }
 
     /// Get `AssetDefinitionEntry` without an ability to modify it.
-    pub fn read_asset_definition_entry(
+    /// # Errors
+    /// Fails if asset definition entry does not exist
+    pub fn asset_definition_entry<T>(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&AssetDefinitionEntry> {
-        self.read_domain(&id.domain_name)?.asset_definitions.get(id)
-    }
-
-    /// Get `AssetDefinitionEntry` with an ability to modify it.
-    pub fn asset_definition_entry(
-        &mut self,
-        id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&mut AssetDefinitionEntry> {
-        self.domain(&id.domain_name)?.asset_definitions.get_mut(id)
+        f: impl FnOnce(&AssetDefinitionEntry) -> T,
+    ) -> Result<T> {
+        self.domain(&id.domain_name, |domain| {
+            let asset = domain
+                .asset_definitions
+                .get(id)
+                .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
+            Ok(f(asset.value()))
+        })?
     }
 
     /// Checks if this `transaction_hash` is already committed or rejected.
@@ -231,11 +243,12 @@ impl WorldStateView {
     }
 
     /// Get committed and rejected transaction of the account.
-    pub fn read_transactions(&self, account_id: &AccountId) -> Vec<&TransactionValue> {
-        let mut vec: Vec<&TransactionValue> = self
+    pub fn read_transactions(&self, account_id: &AccountId) -> Vec<TransactionValue> {
+        let mut vec: Vec<TransactionValue> = self
             .transactions
-            .values()
-            .filter(|tx| &tx.payload().account_id == account_id)
+            .iter()
+            .filter(|read_guard| &read_guard.value().payload().account_id == account_id)
+            .map(|read_guard| read_guard.value().clone())
             .collect();
         vec.sort();
         vec

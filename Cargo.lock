@@ -844,6 +844,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e77a43b28d0668df09411cb0bc9a8c2adc40f9a048afe863e05fd43251e8e39c"
+dependencies = [
+ "cfg-if 1.0.0",
+ "num_cpus",
+ "serde",
+]
+
+[[package]]
 name = "dialoguer"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1593,6 +1604,7 @@ dependencies = [
  "iroha_logger",
  "iroha_macro",
  "iroha_network",
+ "iroha_structs",
  "iroha_version",
  "maplit",
  "parity-scale-codec",
@@ -1703,12 +1715,14 @@ dependencies = [
 name = "iroha_data_model"
 version = "0.1.0"
 dependencies = [
+ "async-std",
  "chrono",
  "iroha_crypto",
  "iroha_derive",
  "iroha_error",
  "iroha_http_server",
  "iroha_macro",
+ "iroha_structs",
  "iroha_version",
  "parity-scale-codec",
  "serde",
@@ -1838,7 +1852,19 @@ version = "0.1.0"
 dependencies = [
  "iroha",
  "iroha_data_model",
+ "iroha_structs",
  "maplit",
+]
+
+[[package]]
+name = "iroha_structs"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "dashmap",
+ "lockfree",
+ "parity-scale-codec",
+ "serde",
 ]
 
 [[package]]
@@ -2005,6 +2031,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a3c91c24eae6777794bb1997ad98bbb87daf92890acab859f7eaa4320333176"
 dependencies = [
  "scopeguard",
+]
+
+[[package]]
+name = "lockfree"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74ee94b5ad113c7cb98c5a040f783d0952ee4fe100993881d1673c2cb002dd23"
+dependencies = [
+ "owned-alloc",
 ]
 
 [[package]]
@@ -2232,6 +2267,12 @@ checksum = "18869315e81473c951eb56ad5558bbc56978562d3ecfb87abb7a1e944cea4518"
 dependencies = [
  "num-traits",
 ]
+
+[[package]]
+name = "owned-alloc"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30fceb411f9a12ff9222c5f824026be368ff15dc2f13468d850c7d3f502205d6"
 
 [[package]]
 name = "parity-scale-codec"

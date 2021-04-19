@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 iroha = { path = "../iroha"}
 iroha_data_model = { path = "../iroha_data_model" }
+iroha_structs = { path = "../iroha_structs" }
 
 [dev-dependencies]
 maplit = "1.0.2"

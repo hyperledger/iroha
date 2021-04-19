@@ -21,13 +21,17 @@ pub fn init(configuration: config::LoggerConfiguration) {
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_ok()
     {
+        #[cfg(not(test))]
         let subscriber = tracing_subscriber::fmt()
             .compact()
             .finish()
             .with(LevelFilter::from(configuration.max_log_level));
+        #[cfg(test)]
+        let subscriber = tracing_subscriber::fmt()
+            .finish()
+            .with(LevelFilter::from(configuration.max_log_level));
         #[allow(clippy::expect_used)]
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("Fine as only we have access to atomic and we ensure that we set it once");
+        tracing::subscriber::set_global_default(subscriber).expect("Failed to init logger");
     }
 }
 

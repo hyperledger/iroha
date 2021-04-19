@@ -83,7 +83,7 @@ mod tests {
                 result
                     .find_asset_by_id(&asset_definition_id)
                     .map_or(false, |asset| {
-                        asset.value == AssetValue::Quantity(quantity)
+                        *asset.value.read() == AssetValue::Quantity(quantity)
                             && asset.id.account_id == account2_id
                     })
             },
