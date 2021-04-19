@@ -127,8 +127,7 @@ impl Iroha {
             .expect("Failed to initialize Sumeragi."),
         ));
         let torii = Torii::from_configuration(
-            // TODO: change to real config and make configuration everywhere mutable
-            Arc::new(RwLock::new(config.clone())),
+            config.torii_configuration.clone(),
             Arc::clone(&world_state_view),
             transactions_sender,
             sumeragi_message_sender,

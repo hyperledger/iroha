@@ -4,6 +4,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use async_std::{prelude::*, sync::RwLock, task};
+use config::ToriiConfiguration;
 use iroha_config::derive::Error as ConfigError;
 use iroha_config::Configurable;
 use iroha_data_model::prelude::*;
@@ -32,9 +33,7 @@ use crate::{
 /// Main network handler and the only entrypoint of the Iroha.
 #[derive(Debug)]
 pub struct Torii {
-    p2p_url: String,
-    api_url: String,
-    config: Arc<RwLock<Configuration>>,
+    config: ToriiConfiguration,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: TransactionSender,
     sumeragi_message_sender: SumeragiMessageSender,
@@ -108,7 +107,7 @@ impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
     #[allow(clippy::clippy::too_many_arguments)]
     pub fn from_configuration(
-        config: Arc<RwLock<Configuration>>,
+        config: ToriiConfiguration,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transaction_sender: TransactionSender,
         sumeragi_message_sender: SumeragiMessageSender,
@@ -118,17 +117,8 @@ impl Torii {
         sumeragi: Arc<RwLock<Sumeragi>>,
         (events_sender, events_receiver): (EventsSender, EventsReceiver),
     ) -> Self {
-        let config::ToriiConfiguration {
-            torii_p2p_url,
-            torii_api_url,
-            ..
-        } = async_std::task::block_on(config.read())
-            .torii_configuration
-            .clone();
         Torii {
             config,
-            p2p_url: torii_p2p_url,
-            api_url: torii_api_url,
             world_state_view,
             transaction_sender,
             sumeragi_message_sender,
@@ -150,7 +140,7 @@ impl Torii {
         let block_sync_message_sender = self.block_sync_message_sender.clone();
         let system = Arc::clone(&self.system);
         let consumers = Arc::new(RwLock::new(Vec::new()));
-        let config = Arc::clone(&self.config);
+        let config = self.config.clone();
 
         ToriiState {
             config,
@@ -189,14 +179,11 @@ impl Torii {
             .at(uri::CONFIGURATION_URI)
             .get(handle_get_configuration);
         server
-            .at(uri::CONFIGURATION_URI)
-            .put(handle_put_configuration);
-        server
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
         let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
-            Network::listen(state.clone(), &self.p2p_url, handle_requests),
-            server.start(&self.api_url),
+            Network::listen(state.clone(), &self.config.torii_p2p_url, handle_requests),
+            server.start(&self.config.torii_api_url),
             consume_events(self.events_receiver.clone(), connections)
         );
         handle_requests_result?;
@@ -207,7 +194,7 @@ impl Torii {
 
 #[derive(Debug)]
 struct ToriiState {
-    config: Arc<RwLock<Configuration>>,
+    config: ToriiConfiguration,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: TransactionSender,
     sumeragi_message_sender: SumeragiMessageSender,
@@ -225,16 +212,7 @@ async fn handle_instructions(
     _query_params: QueryParams,
     request: HttpRequest,
 ) -> Result<()> {
-    if request.body.len()
-        > state
-            .read()
-            .await
-            .config
-            .read()
-            .await
-            .torii_configuration
-            .torii_max_transaction_size
-    {
+    if request.body.len() > state.read().await.config.torii_max_transaction_size {
         return Err(Error::TxTooBig);
     }
     let transaction = VersionedTransaction::decode_versioned(&request.body)
@@ -242,14 +220,7 @@ async fn handle_instructions(
     let transaction: Transaction = transaction.into_inner_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
-        state
-            .read()
-            .await
-            .config
-            .read()
-            .await
-            .torii_configuration
-            .torii_max_instruction_number,
+        state.read().await.config.torii_max_instruction_number,
     )
     .map_err(Error::AcceptTransaction)?;
     state
@@ -363,23 +334,21 @@ struct GetConfiguration {
 }
 
 async fn handle_get_configuration(
-    state: State<ToriiState>,
+    _state: State<ToriiState>,
     _path_params: PathParams,
     ty: GetConfigurationType,
     Json(GetConfiguration { field }): Json<GetConfiguration>,
 ) -> Result<Json<serde_json::Value>> {
     let field = field.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-    let state = state.read().await;
-    let cfg = state.config.read().await;
     match ty {
-        GetConfigurationType::Docs => cfg.get_recursive(field).await.map(Json),
-        GetConfigurationType::Value => Configuration::get_doc_recursive(field).map(|doc| {
+        GetConfigurationType::Docs => Configuration::get_doc_recursive(field).map(|doc| {
             if let Some(doc) = doc {
                 Json(serde_json::json!(doc))
             } else {
                 Json(serde_json::json!(null))
             }
         }),
+        GetConfigurationType::Value => todo!(),
     }
     .map_err(|err| {
         if let ConfigError::UnknownField(field) = err {
@@ -388,34 +357,6 @@ async fn handle_get_configuration(
             unreachable!()
         }
     })
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct SetConfiguration {
-    field: Vec<String>,
-    value: serde_json::Value,
-}
-
-async fn handle_put_configuration(
-    state: State<ToriiState>,
-    _path_params: PathParams,
-    _query_params: QueryParams,
-    Json(SetConfiguration { field, value }): Json<SetConfiguration>,
-) -> Result<()> {
-    let field = field.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-    state
-        .read()
-        .await
-        .config
-        .write()
-        .await
-        .set_recursive(field, value)
-        .await
-        .map_err(|err| match err {
-            ConfigError::UnknownField(field) => Error::FieldNotFound(field),
-            ConfigError::FieldError(field_error) => Error::InvalidFieldValue(field_error),
-        })?;
-    Ok(())
 }
 
 async fn handle_metrics(
@@ -486,14 +427,7 @@ async fn handle_request(
     match request.url() {
         uri::CONSENSUS_URI
             if request.payload().len()
-                > state
-                    .read()
-                    .await
-                    .config
-                    .read()
-                    .await
-                    .torii_configuration
-                    .torii_max_sumeragi_message_size =>
+                > state.read().await.config.torii_max_sumeragi_message_size =>
         {
             iroha_logger::error!("Message is too big. Droping");
             Ok(Response::InternalError)
@@ -669,7 +603,7 @@ mod tests {
         .expect("Failed to initialize sumeragi.");
 
         Torii::from_configuration(
-            Arc::new(RwLock::new(config.clone())),
+            config.torii_configuration.clone(),
             wsv,
             tx_tx,
             sumeragi_message_sender,
@@ -702,14 +636,7 @@ mod tests {
             name: Default::default(),
             domain_name: Default::default(),
         };
-        let max_transaction_size = state
-            .read()
-            .await
-            .config
-            .read()
-            .await
-            .torii_configuration
-            .torii_max_transaction_size;
+        let max_transaction_size = state.read().await.config.torii_max_transaction_size;
         let instruction: Instruction = FailBox {
             message: "Fail message".to_owned(),
         }
