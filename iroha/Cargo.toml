@@ -33,6 +33,7 @@ iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_http_server = { version = "=0.1.0", path = "../iroha_http_server" }
 iroha_version = { version = "=0.1.0", path = "../iroha_version", features = ["http_error"] }
+iroha_structs = { path = "../iroha_structs" }
 async-std = { version = "=1.6.2", features = ["attributes", "unstable"] }
 iroha_config = { version = "=0.1.0", path = "../iroha_config" }
 chrono = "0.4"

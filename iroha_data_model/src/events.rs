@@ -120,7 +120,7 @@ pub mod data {
     #[derive(Clone, Debug, Serialize, Deserialize, FromVariant)]
     pub enum Entity {
         /// Account.
-        Account(Account),
+        Account(Box<Account>),
         /// AssetDefinition.
         AssetDefinition(AssetDefinition),
         /// Asset.

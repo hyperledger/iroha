@@ -33,6 +33,7 @@ pub struct VerifiedQueryRequest {
 #[allow(clippy::missing_errors_doc)]
 pub trait Query {
     /// Execute query on the `WorldStateView`.
+    /// Should not mutate `WorldStateView`!
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
     fn execute(&self, world_state_view: &WorldStateView) -> Result<Value>;
@@ -169,33 +170,32 @@ mod tests {
 
     use iroha_crypto::KeyPair;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
-    use iroha_error::error;
 
     use super::*;
 
     fn world_with_test_domains() -> Result<World> {
-        let mut domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
+        let domains = DomainsMap::new();
+        let domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
+        let account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key);
-        let _ = domain.accounts.insert(account_id.clone(), account);
+        account.signatories.write().push(key_pair.public_key);
+        drop(domain.accounts.insert(account_id.clone(), account));
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
-        let _ = domain.asset_definitions.insert(
+        drop(domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity),
                 account_id,
             ),
-        );
-        let _ = domains.insert("wonderland".to_owned(), domain);
+        ));
+        drop(domains.insert("wonderland".to_string(), domain));
         Ok(World::with(domains, PeersIds::new()))
     }
 
     #[test]
     fn asset_store() -> Result<()> {
-        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id);
@@ -216,17 +216,15 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
-        let _ = wsv
-            .account(&account_id)
-            .ok_or_else(|| error!("Failed to find account."))?
-            .metadata
-            .insert_with_limits(
-                "Bytes".to_owned(),
+        let _ = wsv.account(&account_id, |account| {
+            account.metadata.write().insert_with_limits(
+                "Bytes".to_string(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
-            );
+            )
+        })?;
         let bytes =
             FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_owned()).execute(&wsv)?;
         assert_eq!(

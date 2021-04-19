@@ -88,7 +88,7 @@ pub struct Iroha {
     kura_blocks_receiver: ValidBlockReceiver,
     sumeragi_message_receiver: SumeragiMessageReceiver,
     block_sync_message_receiver: BlockSyncMessageReceiver,
-    world_state_view: Arc<RwLock<WorldStateView>>,
+    world_state_view: Arc<WorldStateView>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
     genesis_network: Option<GenesisNetwork>,
 }
@@ -110,13 +110,13 @@ impl Iroha {
         let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
-        let world_state_view = Arc::new(RwLock::new(WorldStateView::from_config(
+        let world_state_view = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             World::with(
                 init::domains(config),
                 config.sumeragi_configuration.trusted_peers.peers.clone(),
             ),
-        )));
+        ));
         let queue = Arc::new(RwLock::new(Queue::from_configuration(
             &config.queue_configuration,
         )));
@@ -194,10 +194,7 @@ impl Iroha {
             kura.read().await.height(),
         );
         let world_state_view = Arc::clone(&self.world_state_view);
-        world_state_view
-            .write()
-            .await
-            .init(&kura.read().await.blocks);
+        world_state_view.init(&kura.read().await.blocks);
         sumeragi.write().await.update_network_topology().await;
         let torii = Arc::clone(&self.torii);
         let torii_handle = task::spawn(
@@ -234,7 +231,7 @@ impl Iroha {
                         let transactions = queue
                             .write()
                             .await
-                            .get_pending_transactions(is_leader, &*world_state_view.read().await);
+                            .get_pending_transactions(is_leader, &world_state_view);
                         if let Err(e) = sumeragi.write().await.round(transactions).await {
                             iroha_logger::error!("Round failed: {}", e);
                         }
@@ -251,7 +248,7 @@ impl Iroha {
         let wsv_handle = task::spawn(
             async move {
                 while let Some(block) = wsv_blocks_receiver.next().await {
-                    world_state_view.write().await.apply(&block);
+                    world_state_view.apply(&block);
                     sumeragi.write().await.update_network_topology().await;
                     block_sync.write().await.continue_sync().await;
                 }

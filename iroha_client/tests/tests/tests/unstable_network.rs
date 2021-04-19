@@ -68,7 +68,7 @@ fn unstable_network(
             result
                 .find_asset_by_id(&asset_definition_id)
                 .map_or(false, |asset| {
-                    asset.value == AssetValue::Quantity(account_has_quantity)
+                    *asset.value.read() == AssetValue::Quantity(account_has_quantity)
                 })
         },
     );
