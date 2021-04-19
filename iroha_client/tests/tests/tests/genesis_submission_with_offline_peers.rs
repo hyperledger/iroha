@@ -26,6 +26,6 @@ mod tests {
         let asset = query_result
             .find_asset_by_id(&AssetDefinitionId::new("rose", "wonderland"))
             .unwrap();
-        assert_eq!(AssetValue::Quantity(alice_has_roses), asset.value);
+        assert_eq!(&AssetValue::Quantity(alice_has_roses), &*asset.value.read());
     }
 }

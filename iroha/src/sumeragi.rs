@@ -5,7 +5,7 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt::{self, Debug, Formatter},
     iter,
     sync::Arc,
@@ -17,6 +17,7 @@ use futures::future;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::{events::Event, peer::Id as PeerId};
 use iroha_error::{error, Result};
+use iroha_structs::HashSet;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -50,11 +51,11 @@ pub struct Sumeragi {
     blocks_sender: ValidBlockSender,
     events_sender: EventsSender,
     transactions_sender: TransactionSender,
-    world_state_view: Arc<RwLock<WorldStateView>>,
+    world_state_view: Arc<WorldStateView>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
-    transactions_awaiting_receipts: Arc<RwLock<BTreeSet<Hash>>>,
+    transactions_awaiting_receipts: Arc<HashSet<Hash>>,
     /// Hashes of the transactions that were accepted by the leader and are waiting to be stored in CreatedBlock.
-    transactions_awaiting_created_block: Arc<RwLock<BTreeSet<Hash>>>,
+    transactions_awaiting_created_block: Arc<HashSet<Hash>>,
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
@@ -78,7 +79,7 @@ impl Sumeragi {
         configuration: &config::SumeragiConfiguration,
         blocks_sender: ValidBlockSender,
         events_sender: EventsSender,
-        world_state_view: Arc<RwLock<WorldStateView>>,
+        world_state_view: Arc<WorldStateView>,
         transactions_sender: TransactionSender,
         permissions_validator: PermissionsValidatorBox,
         //TODO: separate initialization from construction and do not return Result in `new`
@@ -97,8 +98,8 @@ impl Sumeragi {
             blocks_sender,
             events_sender,
             world_state_view,
-            transactions_awaiting_receipts: Arc::new(RwLock::new(BTreeSet::new())),
-            transactions_awaiting_created_block: Arc::new(RwLock::new(BTreeSet::new())),
+            transactions_awaiting_receipts: Arc::new(HashSet::new()),
+            transactions_awaiting_created_block: Arc::new(HashSet::new()),
             commit_time: Duration::from_millis(configuration.commit_time_ms),
             transactions_sender,
             tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_ms),
@@ -124,13 +125,7 @@ impl Sumeragi {
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
     pub async fn update_network_topology(&mut self) {
-        let wsv_peers = self
-            .world_state_view
-            .read()
-            .await
-            .read_world()
-            .trusted_peers_ids
-            .clone();
+        let wsv_peers = self.world_state_view.trusted_peers_ids().clone();
         self.network_topology
             .update(&wsv_peers, self.latest_block_hash);
     }
@@ -218,13 +213,9 @@ impl Sumeragi {
                 .send_to(self.network_topology.leader()),
             );
             // Don't require leader to submit receipts and therefore create blocks if the transaction is still waiting for more signatures.
-            if let Ok(true) =
-                transaction.check_signature_condition(&*self.world_state_view.read().await)
-            {
+            if let Ok(true) = transaction.check_signature_condition(&self.world_state_view) {
                 let _ = self
                     .transactions_awaiting_receipts
-                    .write()
-                    .await
                     .insert(transaction.hash());
             }
             let transactions_awaiting_receipts = Arc::clone(&self.transactions_awaiting_receipts);
@@ -247,11 +238,7 @@ impl Sumeragi {
             let tx_receipt_time = self.tx_receipt_time;
             drop(task::spawn(async move {
                 task::sleep(tx_receipt_time).await;
-                if transactions_awaiting_receipts
-                    .write()
-                    .await
-                    .contains(&transaction_hash)
-                {
+                if transactions_awaiting_receipts.contains(&transaction_hash) {
                     let mut send_futures = Vec::new();
                     for peer in &recipient_peers {
                         if *peer != peer_id {
@@ -322,7 +309,7 @@ impl Sumeragi {
     /// Can fail signing block
     pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
         let wsv = Arc::clone(&self.world_state_view);
-        let block = block.validate(&*wsv.read().await, &self.permissions_validator);
+        let block = block.validate(&wsv, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
         iroha_logger::info!(
             "{:?} - Created a block with hash {}.",
@@ -425,11 +412,8 @@ impl Sumeragi {
         let block_hash = block.hash();
         self.latest_block_hash = block_hash;
         self.invalidated_blocks_hashes.clear();
-        self.transactions_awaiting_created_block
-            .write()
-            .await
-            .clear();
-        self.transactions_awaiting_receipts.write().await.clear();
+        self.transactions_awaiting_created_block.clear();
+        self.transactions_awaiting_receipts.clear();
         self.block_height = block.header().height;
 
         for event in Vec::<Event>::from(&block.clone().commit()) {
@@ -454,11 +438,8 @@ impl Sumeragi {
     }
 
     async fn change_view(&mut self) {
-        self.transactions_awaiting_created_block
-            .write()
-            .await
-            .clear();
-        self.transactions_awaiting_receipts.write().await.clear();
+        self.transactions_awaiting_created_block.clear();
+        self.transactions_awaiting_receipts.clear();
         let previous_role = self.network_topology.role(&self.peer_id);
         if self.number_of_view_changes < self.n_topology_shifts_before_reshuffle {
             self.network_topology.shift_peers_by_one();
@@ -518,7 +499,7 @@ impl Debug for Sumeragi {
 /// Call `init` to get `InitializedNetworkTopology` and access all other methods.
 #[derive(Debug)]
 pub struct NetworkTopology {
-    peers: BTreeSet<PeerId>,
+    peers: HashSet<PeerId>,
     max_faults: u32,
     block_hash: Option<Hash>,
 }
@@ -526,7 +507,7 @@ pub struct NetworkTopology {
 impl NetworkTopology {
     /// Constructs a new `NetworkTopology` instance.
     pub fn new(
-        peers: &BTreeSet<PeerId>,
+        peers: &HashSet<PeerId>,
         block_hash: Option<Hash>,
         max_faults: u32,
     ) -> NetworkTopology {
@@ -609,10 +590,10 @@ impl InitializedNetworkTopology {
     }
 
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
-    pub fn update(&mut self, peers: &BTreeSet<PeerId>, latest_block_hash: Hash) {
-        let current_peers: BTreeSet<_> = self.sorted_peers.iter().cloned().collect();
+    pub fn update(&mut self, peers: &HashSet<PeerId>, latest_block_hash: Hash) {
+        let current_peers: HashSet<_> = self.sorted_peers.iter().cloned().collect();
         if peers != &current_peers {
-            self.sorted_peers = peers.iter().cloned().collect();
+            self.sorted_peers = peers.iter().map(|peer| (&*peer).clone()).collect();
             self.sort_peers_by_hash(Some(latest_block_hash));
         }
     }
@@ -743,7 +724,7 @@ impl InitializedNetworkTopology {
         roles: &[Role],
         signatures: &[Signature],
     ) -> Vec<Signature> {
-        let roles: BTreeSet<Role> = roles.iter().cloned().collect();
+        let roles: HashSet<Role> = roles.iter().cloned().collect();
         let public_keys: Vec<_> = roles
             .iter()
             .flat_map(|role| role.peers(self))
@@ -977,21 +958,17 @@ pub mod message {
                 );
                 return Ok(());
             }
-            sumeragi
-                .transactions_awaiting_created_block
-                .write()
-                .await
-                .clear();
+            sumeragi.transactions_awaiting_created_block.clear();
             match network_topology.role(&sumeragi.peer_id) {
                 Role::ValidatingPeer => {
                     if self.block.validation_check(
-                        &*sumeragi.world_state_view.read().await,
+                        &sumeragi.world_state_view,
                         sumeragi.latest_block_hash,
                         sumeragi.number_of_view_changes,
                         sumeragi.block_height,
                         sumeragi.max_instruction_number,
                     ) {
-                        let wsv = sumeragi.world_state_view.read().await;
+                        let wsv = &sumeragi.world_state_view;
                         if let Err(e) = VersionedMessage::from(Message::BlockSigned(
                             self.block
                                 .clone()
@@ -1382,8 +1359,6 @@ pub mod message {
                     .await;
                 let _ = sumeragi
                     .transactions_awaiting_receipts
-                    .write()
-                    .await
                     .insert(self.transaction.hash());
                 let pending_forwarded_tx_hashes =
                     Arc::clone(&sumeragi.transactions_awaiting_receipts);
@@ -1395,11 +1370,7 @@ pub mod message {
                     .wrap_err("Failed to sign.")?;
                 drop(task::spawn(async move {
                     task::sleep(tx_receipt_time).await;
-                    if pending_forwarded_tx_hashes
-                        .write()
-                        .await
-                        .contains(&no_tx_receipt.transaction.hash())
-                    {
+                    if pending_forwarded_tx_hashes.contains(&no_tx_receipt.transaction.hash()) {
                         let mut send_futures = Vec::new();
                         for peer in &recipient_peers {
                             send_futures.push(
@@ -1534,14 +1505,10 @@ pub mod message {
                 && self.is_valid(&sumeragi.network_topology)
                 && sumeragi
                     .transactions_awaiting_receipts
-                    .write()
-                    .await
                     .contains(&self.transaction_hash)
             {
                 let _ = sumeragi
                     .transactions_awaiting_receipts
-                    .write()
-                    .await
                     .remove(&self.transaction_hash);
                 let block_time = sumeragi.block_time;
                 let transactions_awaiting_created_block =
@@ -1558,19 +1525,12 @@ pub mod message {
                         .sign(&sumeragi.key_pair)
                         .wrap_err("Failed to put first signature.")?;
                 }
-                let _ = transactions_awaiting_created_block
-                    .write()
-                    .await
-                    .insert(tx_hash);
+                let _ = transactions_awaiting_created_block.insert(tx_hash);
                 let recipient_peers = sumeragi.network_topology.sorted_peers.clone();
                 drop(task::spawn(async move {
                     task::sleep(block_time).await;
                     // Suspect leader if the block was not yet created
-                    if transactions_awaiting_created_block
-                        .write()
-                        .await
-                        .contains(&tx_hash)
-                    {
+                    if transactions_awaiting_created_block.contains(&tx_hash) {
                         let block_creation_timeout_message = VersionedMessage::from(
                             Message::BlockCreationTimeout(block_creation_timeout),
                         );
@@ -1719,12 +1679,13 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::{collections::BTreeSet, fmt::Debug, fs::File, io::BufReader, path::Path};
+    use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
     use iroha_config::derive::Configurable;
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
     use iroha_error::{Result, WrapErr};
+    use iroha_structs::HashSet;
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
@@ -1804,7 +1765,7 @@ pub mod config {
     #[allow(clippy::exhaustive_structs)]
     pub struct TrustedPeers {
         /// Optional list of predefined trusted peers.
-        pub peers: BTreeSet<PeerId>,
+        pub peers: HashSet<PeerId>,
     }
 
     impl TrustedPeers {
@@ -1815,7 +1776,7 @@ pub mod config {
         pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<TrustedPeers> {
             let file = File::open(path).wrap_err("Failed to open a file")?;
             let reader = BufReader::new(file);
-            let trusted_peers: BTreeSet<PeerId> = serde_json::from_reader(reader)
+            let trusted_peers: HashSet<PeerId> = serde_json::from_reader(reader)
                 .wrap_err("Failed to deserialize json from reader")?;
             Ok(TrustedPeers {
                 peers: trusted_peers,
@@ -1830,11 +1791,11 @@ pub mod config {
         }
     }
 
-    // Allowed because `BTreeSet::new()` is not const yet.
+    // Allowed because `HashSet::new()` is not const yet.
     #[allow(clippy::missing_const_for_fn)]
     fn default_empty_trusted_peers() -> TrustedPeers {
         TrustedPeers {
-            peers: BTreeSet::new(),
+            peers: HashSet::new(),
         }
     }
 }
@@ -1843,18 +1804,14 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::BTreeSet;
-
+    use iroha_data_model::prelude::*;
+    use iroha_structs::HashSet;
     #[cfg(feature = "network-mock")]
     use {
+        super::Role,
         crate::{config::Configuration, maintenance::System, queue::Queue, torii::Torii},
         async_std::{prelude::*, sync, task},
-        iroha_data_model::{
-            account::{Account, Id as AccountId},
-            domain::Domain,
-            transaction::Transaction,
-            world::World,
-        },
+        iroha_structs::HashMap,
         network::*,
         std::time::Duration,
     };
@@ -1882,8 +1839,8 @@ mod tests {
     #[should_panic]
     fn not_enough_peers() {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let listen_address = "127.0.0.1".to_owned();
-        let this_peer: BTreeSet<PeerId> = vec![PeerId {
+        let listen_address = "127.0.0.1".to_string();
+        let this_peer: HashSet<PeerId> = vec![PeerId {
             address: listen_address,
             public_key: key_pair.public_key,
         }]
@@ -1896,17 +1853,17 @@ mod tests {
 
     #[cfg(feature = "network-mock")]
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
-        let mut domains = BTreeMap::new();
-        let mut domain = Domain::new("global");
+        let domains = HashMap::new();
+        let domain = Domain::new("global");
         let account_id = AccountId::new("root", "global");
-        let mut account = Account::new(account_id.clone());
-        account.signatories.push(public_key);
-        let _ = domain.accounts.insert(account_id, account);
-        let _ = domains.insert("global".to_owned(), domain);
-        World::with(domains, BTreeSet::new())
+        let account = Account::new(account_id.clone());
+        account.signatories.write().push(public_key);
+        drop(domain.accounts.insert(account_id, account));
+        drop(domains.insert("global".to_string(), domain));
+        World::with(domains, HashSet::new())
     }
 
-    fn topology_test_peers() -> BTreeSet<PeerId> {
+    fn topology_test_peers() -> HashSet<PeerId> {
         vec![
             PeerId {
                 address: "127.0.0.1:7878".to_owned(),
@@ -2041,9 +1998,9 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+            let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
-            ))));
+            )));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
@@ -2161,7 +2118,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
+        let ids_set: HashSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
@@ -2169,9 +2126,9 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+            let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
-            ))));
+            )));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
@@ -2313,7 +2270,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
+        let ids_set: HashSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
@@ -2321,9 +2278,9 @@ mod tests {
             let (tx, _rx) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+            let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
-            ))));
+            )));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
@@ -2479,7 +2436,7 @@ mod tests {
         config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
-        let ids_set: BTreeSet<PeerId> = ids.clone().into_iter().collect();
+        let ids_set: HashSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
@@ -2487,9 +2444,9 @@ mod tests {
             let (tx, _rx) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+            let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
-            ))));
+            )));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
@@ -2649,9 +2606,9 @@ mod tests {
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (events_sender, events_receiver) = sync::channel(100);
-            let wsv = Arc::new(RwLock::new(WorldStateView::new(world_with_test_domains(
+            let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
-            ))));
+            )));
             let (p2p_address, api_address) = &addresses[i];
             config.torii_configuration.torii_p2p_url = p2p_address.clone();
             config.torii_configuration.torii_api_url = api_address.clone();
@@ -2747,7 +2704,7 @@ mod tests {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0_u8);
         }
-        let ids: BTreeSet<PeerId> = ids.into_iter().collect();
+        let ids: HashSet<PeerId> = ids.into_iter().collect();
         let mut network_topology = NetworkTopology::new(&ids, Some(Hash([0_u8; 32])), 1)
             .init()
             .expect("Failed to construct topology");

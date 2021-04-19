@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::restriction, clippy::too_many_lines)]
 
-use std::{convert::Infallible, thread, time::Duration};
+use std::{convert::Infallible, panic::UnwindSafe, thread, time::Duration};
 
 use async_std::task::{self, JoinHandle};
 use async_trait::async_trait;
@@ -26,6 +26,8 @@ pub struct IrohaWorld {
     result: Option<QueryResult>,
     join_handle: Option<JoinHandle<()>>,
 }
+
+impl UnwindSafe for IrohaWorld {}
 
 #[async_trait(?Send)]
 impl CucumberWorld for IrohaWorld {
@@ -202,7 +204,7 @@ mod asset_steps {
                         if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
                             asset
                         {
-                            if let AssetValue::Quantity(quantity) = asset.value {
+                            if let AssetValue::Quantity(quantity) = *asset.value.read() {
                                 total_quantity += quantity;
                             }
                         }

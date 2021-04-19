@@ -51,7 +51,7 @@ pub trait TryAsRef<T> {
 
 /// Represents Iroha Configuration parameters.
 #[derive(
-    Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, PartialOrd, Ord,
+    Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, PartialOrd, Ord, Hash,
 )]
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
@@ -339,16 +339,20 @@ impl From<LengthLimits> for RangeInclusive<usize> {
 pub mod world {
     //! Structures, traits and impls related to `World`.
 
+    use iroha_structs::RwLock;
+
     #[cfg(feature = "roles")]
     use crate::role::RolesMap;
     use crate::{
-        domain::DomainsMap, isi::Instruction, peer::PeersIds, IdBox, Identifiable, IdentifiableBox,
-        Parameter,
+        domain::{Domain, DomainsMap},
+        isi::Instruction,
+        peer::{Id as PeerId, PeersIds},
+        IdBox, Identifiable, IdentifiableBox, Name, Parameter,
     };
 
     /// The global entity consisting of `domains`, `triggers` and etc.
-    /// For exmaple registration of domain, will have this as an ISI target.
-    #[derive(Debug, Clone, Default)]
+    /// For example registration of domain, will have this as an ISI target.
+    #[derive(Debug, Default)]
     pub struct World {
         /// Registered domains.
         pub domains: DomainsMap,
@@ -357,10 +361,23 @@ pub mod world {
         /// Iroha `Triggers` registered on the peer.
         pub triggers: Vec<Instruction>,
         /// Iroha parameters.
-        pub parameters: Vec<Parameter>,
+        pub parameters: RwLock<Vec<Parameter>>,
         /// Roles.
         #[cfg(feature = "roles")]
         pub roles: RolesMap,
+    }
+
+    impl Clone for World {
+        fn clone(&self) -> Self {
+            Self {
+                domains: self.domains.clone(),
+                trusted_peers_ids: self.trusted_peers_ids.clone(),
+                parameters: self.parameters.clone(),
+                triggers: self.triggers.clone(),
+                #[cfg(feature = "roles")]
+                roles: self.roles.clone(),
+            }
+        }
     }
 
     impl World {
@@ -370,7 +387,12 @@ pub mod world {
         }
 
         /// Creates `World` with these `domains` and `trusted_peers_ids`
-        pub fn with(domains: DomainsMap, trusted_peers_ids: PeersIds) -> Self {
+        pub fn with(
+            domains: impl IntoIterator<Item = (Name, Domain)>,
+            trusted_peers_ids: impl IntoIterator<Item = PeerId>,
+        ) -> Self {
+            let domains = domains.into_iter().collect();
+            let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
             World {
                 domains,
                 trusted_peers_ids,
@@ -409,8 +431,9 @@ pub mod world {
 pub mod role {
     //! Structures, traits and impls related to `Role`s.
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
 
+    use iroha_structs::HashMap;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -418,11 +441,11 @@ pub mod role {
 
     /// `RolesMap` provides an API to work with collection of key (`Id`) - value
     /// (`Role`) pairs.
-    pub type RolesMap = BTreeMap<Id, Role>;
+    pub type RolesMap = HashMap<Id, Role>;
 
     /// Identification of a role.
     #[derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode,
+        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode, Hash,
     )]
     pub struct Id {
         /// Role name, should be unique .
@@ -521,16 +544,15 @@ pub mod account {
     #![allow(clippy::default_trait_access, clippy::missing_inline_in_public_items)]
 
     use std::ops::RangeInclusive;
-    use std::{
-        collections::{BTreeMap, BTreeSet},
-        fmt,
-        iter::FromIterator,
-    };
+    use std::{collections::BTreeSet, fmt, iter::FromIterator};
 
     //TODO: get rid of it?
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use iroha_error::{error, Error, Result};
+    #[cfg(feature = "roles")]
+    use iroha_structs::HashSet;
+    use iroha_structs::{HashMap, RwLock};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -548,7 +570,7 @@ pub mod account {
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
-    pub type AccountsMap = BTreeMap<Id, Account>;
+    pub type AccountsMap = HashMap<Id, Account>;
     type Signatories = Vec<PublicKey>;
     type Permissions = BTreeSet<PermissionToken>;
 
@@ -633,15 +655,17 @@ pub mod account {
                 signatories,
                 metadata,
             } = account;
+            let metadata = RwLock::new(metadata);
+            let signatories = RwLock::new(signatories);
             Self {
                 id,
                 signatories,
                 metadata,
                 assets: AssetsMap::new(),
-                permission_tokens: Permissions::new(),
-                signature_check_condition: SignatureCheckCondition::default(),
+                permission_tokens: RwLock::default(),
+                signature_check_condition: RwLock::default(),
                 #[cfg(feature = "roles")]
-                roles: BTreeSet::new(),
+                roles: HashSet::default(),
             }
         }
     }
@@ -692,17 +716,17 @@ pub mod account {
         /// Asset's in this `Account`.
         pub assets: AssetsMap,
         /// `Account`'s signatories.
-        pub signatories: Signatories,
-        /// Permissions tokens of this account.
-        permission_tokens: Permissions,
+        pub signatories: RwLock<Signatories>,
+        /// Permissions tokens of this account
+        pub permission_tokens: RwLock<Permissions>,
         /// Condition which checks if the account has the right signatures.
         #[serde(default)]
-        pub signature_check_condition: SignatureCheckCondition,
+        pub signature_check_condition: RwLock<SignatureCheckCondition>,
         /// Metadata of this account as a key-value store.
-        pub metadata: Metadata,
+        pub metadata: RwLock<Metadata>,
         /// Roles of this account, they are tags for sets of permissions stored in [`World`].
         #[cfg(feature = "roles")]
-        pub roles: BTreeSet<RoleId>,
+        pub roles: HashSet<RoleId>,
     }
 
     impl PartialOrd for Account {
@@ -753,27 +777,27 @@ pub mod account {
             Account {
                 id,
                 assets: AssetsMap::new(),
-                signatories: Signatories::new(),
-                permission_tokens: Permissions::new(),
+                signatories: RwLock::default(),
+                permission_tokens: RwLock::default(),
                 signature_check_condition: Default::default(),
-                metadata: Metadata::new(),
+                metadata: RwLock::default(),
                 #[cfg(feature = "roles")]
-                roles: BTreeSet::new(),
+                roles: HashSet::default(),
             }
         }
 
         /// Account with single `signatory` constructor.
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let signatories = vec![signatory];
+            let signatories = RwLock::new(vec![signatory]);
             Account {
                 id,
                 assets: AssetsMap::new(),
                 signatories,
-                permission_tokens: Permissions::new(),
+                permission_tokens: RwLock::default(),
                 signature_check_condition: Default::default(),
-                metadata: Metadata::new(),
+                metadata: RwLock::default(),
                 #[cfg(feature = "roles")]
-                roles: BTreeSet::new(),
+                roles: HashSet::default(),
             }
         }
 
@@ -785,34 +809,39 @@ pub mod account {
                 .cloned()
                 .map(|signature| signature.public_key)
                 .collect();
-            WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
-                .with_value(
-                    TRANSACTION_SIGNATORIES_VALUE.to_owned(),
-                    transaction_signatories,
-                )
-                .with_value(
-                    ACCOUNT_SIGNATORIES_VALUE.to_owned(),
-                    self.signatories.clone(),
-                )
-                .build()
-                .into()
+            WhereBuilder::evaluate(
+                self.signature_check_condition
+                    .read()
+                    .as_expression()
+                    .clone(),
+            )
+            .with_value(
+                TRANSACTION_SIGNATORIES_VALUE.to_owned(),
+                transaction_signatories,
+            )
+            .with_value(
+                ACCOUNT_SIGNATORIES_VALUE.to_owned(),
+                self.signatories.read().clone(),
+            )
+            .build()
+            .into()
         }
 
         /// Inserts permission token into account.
         pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
-            self.permission_tokens.insert(token)
+            self.permission_tokens.write().insert(token)
         }
 
         /// Returns a set of permission tokens granted to this account as part of roles and separately.
         #[allow(unused_variables)]
         #[allow(unused_mut)]
         #[allow(clippy::let_and_return)]
-        pub fn permission_tokens(&self, world: &World) -> Permissions {
-            let mut tokens = self.permission_tokens.clone();
+        pub async fn permission_tokens(&self, world: &World) -> Permissions {
+            let mut tokens = self.permission_tokens.read().clone();
             #[cfg(feature = "roles")]
             {
-                for role_id in &self.roles {
-                    if let Some(role) = world.roles.get(role_id) {
+                for role_id in self.roles.iter() {
+                    if let Some(role) = world.roles.get(&role_id) {
                         let mut role_tokens = role.permissions.clone();
                         tokens.append(&mut role_tokens);
                     }
@@ -893,7 +922,6 @@ pub mod asset {
     use std::ops::RangeInclusive;
     use std::{
         cmp::Ordering,
-        collections::BTreeMap,
         fmt::{self, Display, Formatter},
         iter::FromIterator,
         str::FromStr,
@@ -901,6 +929,7 @@ pub mod asset {
 
     use iroha_derive::{FromVariant, Io};
     use iroha_error::{error, Error, Result};
+    use iroha_structs::{HashMap, RwLock};
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -912,10 +941,10 @@ pub mod asset {
 
     /// `AssetsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Asset`) pairs.
-    pub type AssetsMap = BTreeMap<Id, Asset>;
+    pub type AssetsMap = HashMap<Id, Asset>;
     /// `AssetDefinitionsMap` provides an API to work with collection of key (`DefinitionId`) - value
     /// (`AssetDefinition`) pairs.
-    pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinitionEntry>;
+    pub type AssetDefinitionsMap = HashMap<DefinitionId, AssetDefinitionEntry>;
 
     /// An entry in `AssetDefinitionsMap`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
@@ -969,7 +998,7 @@ pub mod asset {
         /// Component Identification.
         pub id: Id,
         /// Asset's Quantity.
-        pub value: AssetValue,
+        pub value: RwLock<AssetValue>,
     }
 
     /// Asset's inner value type.
@@ -1090,7 +1119,18 @@ pub mod asset {
     /// let definition_id = DefinitionId::new("xor", "soramitsu");
     /// ```
     #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        Hash,
     )]
     pub struct DefinitionId {
         /// Asset's name.
@@ -1101,7 +1141,18 @@ pub mod asset {
 
     /// Identification of an Asset's components include Entity Id (`Asset::Id`) and `Account::Id`.
     #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        Hash,
     )]
     pub struct Id {
         /// Entity Identification.
@@ -1154,7 +1205,7 @@ pub mod asset {
         pub fn new<V: Into<AssetValue>>(id: Id, value: V) -> Self {
             Asset {
                 id,
-                value: value.into(),
+                value: RwLock::new(value.into()),
             }
         }
 
@@ -1162,7 +1213,7 @@ pub mod asset {
         pub fn with_quantity(id: Id, quantity: u32) -> Self {
             Asset {
                 id,
-                value: quantity.into(),
+                value: RwLock::new(quantity.into()),
             }
         }
 
@@ -1170,7 +1221,7 @@ pub mod asset {
         pub fn with_big_quantity(id: Id, big_quantity: u128) -> Self {
             Asset {
                 id,
-                value: big_quantity.into(),
+                value: RwLock::new(big_quantity.into()),
             }
         }
 
@@ -1188,13 +1239,26 @@ pub mod asset {
             let _ = store.insert_with_limits(key, value, limits)?;
             Ok(Asset {
                 id,
-                value: store.into(),
+                value: RwLock::new(store.into()),
             })
         }
 
         /// Returns the asset type as a string.
-        pub const fn value_type(&self) -> AssetValueType {
-            self.value.value_type()
+        pub fn value_type(&self) -> AssetValueType {
+            self.value.read().value_type()
+        }
+
+        /// Tries to get value variant as mutable
+        /// # Errors
+        /// Fails if asset type is unsupported
+        pub fn try_as_mut<T, O>(
+            &self,
+            f: impl FnOnce(&mut T) -> O,
+        ) -> Result<O, <AssetValue as TryAsMut<T>>::Error>
+        where
+            AssetValue: TryAsMut<T>,
+        {
+            Ok(f(self.value.write().try_as_mut()?))
         }
     }
 
@@ -1234,28 +1298,6 @@ pub mod asset {
                 definition_id,
                 account_id,
             }
-        }
-    }
-
-    impl<T> TryAsMut<T> for Asset
-    where
-        AssetValue: TryAsMut<T, Error = Error>,
-    {
-        type Error = Error;
-
-        fn try_as_mut(&mut self) -> Result<&mut T> {
-            self.value.try_as_mut()
-        }
-    }
-
-    impl<T> TryAsRef<T> for Asset
-    where
-        AssetValue: TryAsRef<T, Error = Error>,
-    {
-        type Error = Error;
-
-        fn try_as_ref(&self) -> Result<&T> {
-            self.value.try_as_ref()
         }
     }
 
@@ -1328,11 +1370,12 @@ pub mod domain {
     //! This module contains `Domain` structure and related implementations and trait implementations.
 
     use std::ops::RangeInclusive;
-    use std::{cmp::Ordering, collections::BTreeMap, iter, iter::FromIterator};
+    use std::{cmp::Ordering, iter, iter::FromIterator};
 
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
     use iroha_error::{error, Result};
+    use iroha_structs::HashMap;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1347,7 +1390,7 @@ pub mod domain {
 
     /// `DomainsMap` provides an API to work with collection of key (`Name`) - value
     /// (`Domain`) pairs.
-    pub type DomainsMap = BTreeMap<Name, Domain>;
+    pub type DomainsMap = HashMap<Name, Domain>;
 
     /// Genesis domain. It will contain only one `genesis` account.
     #[derive(Debug)]
@@ -1373,7 +1416,7 @@ pub mod domain {
                     GenesisAccount::new(domain.genesis_account_public_key).into(),
                 ))
                 .collect(),
-                asset_definitions: BTreeMap::default(),
+                asset_definitions: HashMap::default(),
             }
         }
     }
@@ -1453,16 +1496,17 @@ pub mod peer {
 
     #![allow(clippy::missing_inline_in_public_items)]
 
-    use std::{collections::BTreeSet, iter::FromIterator};
+    use std::iter::FromIterator;
 
     use iroha_derive::Io;
+    use iroha_structs::HashSet;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use crate::{Identifiable, PublicKey, Value};
 
     /// Ids of peers.
-    pub type PeersIds = BTreeSet<Id>;
+    pub type PeersIds = HashSet<Id>;
 
     /// Peer represents Iroha instance.
     #[derive(
@@ -1475,7 +1519,18 @@ pub mod peer {
 
     /// Peer's identification.
     #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        Hash,
     )]
     pub struct Id {
         /// Address of the Peer's entrypoint.

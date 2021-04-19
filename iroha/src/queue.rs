@@ -167,9 +167,10 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{collections::BTreeMap, thread, time::Duration};
+    use std::{thread, time::Duration};
 
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
+    use iroha_structs::{HashMap, HashSet};
 
     use super::*;
 
@@ -195,13 +196,13 @@ mod tests {
     }
 
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
-        let mut domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
+        let domains = DomainsMap::new();
+        let domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
-        account.signatories.push(public_key);
-        let _ = domain.accounts.insert(account_id, account);
-        let _ = domains.insert("wonderland".to_owned(), domain);
+        let account = Account::new(account_id.clone());
+        account.signatories.write().push(public_key);
+        drop(domain.accounts.insert(account_id, account));
+        drop(domains.insert("wonderland".to_string(), domain));
         World::with(domains, PeersIds::new())
     }
 
@@ -326,12 +327,11 @@ mod tests {
         });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let transaction = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
-        let mut world_state_view =
-            WorldStateView::new(world_with_test_domains(alice_key.public_key));
-        let _ = world_state_view.transactions.insert(
+        let world_state_view = WorldStateView::new(world_with_test_domains(alice_key.public_key));
+        drop(world_state_view.transactions.insert(
             transaction.hash(),
             TransactionValue::Transaction(transaction.clone().into()),
-        );
+        ));
         queue
             .push_pending_transaction(transaction)
             .expect("Failed to push tx into queue");
@@ -415,15 +415,15 @@ mod tests {
         queue
             .push_pending_transaction(alice_transaction_4)
             .expect("Failed to push tx into queue");
-        let mut domain = Domain::new("wonderland");
+        let domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
-        account.signatories.push(alice_key_1.public_key);
-        account.signatories.push(alice_key_2.public_key);
+        let account = Account::new(account_id.clone());
+        account.signatories.write().push(alice_key_1.public_key);
+        account.signatories.write().push(alice_key_2.public_key);
         let _result = domain.accounts.insert(account_id, account);
-        let mut domains = BTreeMap::new();
-        let _result = domains.insert("wonderland".to_owned(), domain);
-        let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let domains = HashMap::new();
+        let _result = domains.insert("wonderland".to_string(), domain);
+        let world_state_view = WorldStateView::new(World::with(domains, HashSet::default()));
         let output_transactions: Vec<_> = queue
             .get_pending_transactions(true, &world_state_view)
             .into_iter()

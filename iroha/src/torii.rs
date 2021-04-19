@@ -34,7 +34,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Torii {
     config: ToriiConfiguration,
-    world_state_view: Arc<RwLock<WorldStateView>>,
+    world_state_view: Arc<WorldStateView>,
     transaction_sender: TransactionSender,
     sumeragi_message_sender: SumeragiMessageSender,
     block_sync_message_sender: BlockSyncMessageSender,
@@ -108,7 +108,7 @@ impl Torii {
     #[allow(clippy::clippy::too_many_arguments)]
     pub fn from_configuration(
         config: ToriiConfiguration,
-        world_state_view: Arc<RwLock<WorldStateView>>,
+        world_state_view: Arc<WorldStateView>,
         transaction_sender: TransactionSender,
         sumeragi_message_sender: SumeragiMessageSender,
         block_sync_message_sender: BlockSyncMessageSender,
@@ -199,7 +199,7 @@ impl Torii {
 #[derive(Debug)]
 struct ToriiState {
     config: ToriiConfiguration,
-    world_state_view: Arc<RwLock<WorldStateView>>,
+    world_state_view: Arc<WorldStateView>,
     transaction_sender: TransactionSender,
     sumeragi_message_sender: SumeragiMessageSender,
     block_sync_message_sender: BlockSyncMessageSender,
@@ -244,7 +244,7 @@ async fn handle_queries(
 ) -> Result<QueryResult> {
     let result = request
         .query
-        .execute(&*state.read().await.world_state_view.read().await)
+        .execute(&*state.read().await.world_state_view)
         .map_err(Error::ExecuteQuery)?;
     let result = QueryResult(if let Value::Vec(value) = result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
@@ -591,13 +591,12 @@ mod tests {
         let (block_sender, _) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
         let queue = Queue::from_configuration(&config.queue_configuration);
-        let wsv = Arc::new(RwLock::new(WorldStateView::new(World::with(
+        let wsv = Arc::new(WorldStateView::new(World::with(
             ('a'..'z')
                 .map(|name| name.to_string())
-                .map(|name| (name.clone(), Domain::new(&name)))
-                .collect(),
-            Default::default(),
-        ))));
+                .map(|name| (name.clone(), Domain::new(&name))),
+            vec![],
+        )));
         let sumeragi = Sumeragi::from_configuration(
             &config.sumeragi_configuration,
             block_sender,
@@ -689,7 +688,7 @@ mod tests {
 
         let get_domains = |start, limit| {
             let query: VerifiedQueryRequest =
-                QueryRequest::new(QueryBox::FindAllDomains(Box::new(Default::default())))
+                QueryRequest::new(QueryBox::FindAllDomains(Default::default()))
                     .sign(&keys)
                     .expect("Failed to sign query with keys")
                     .try_into()
