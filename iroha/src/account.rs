@@ -16,13 +16,12 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let public_key = self.object.clone();
-            let account = world_state_view
-                .account(&self.destination_id)
-                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
-            account.signatories.push(public_key);
+            world_state_view.account(&self.destination_id, |account| {
+                account.signatories.write().push(public_key);
+            })?;
             Ok(())
         }
     }
@@ -31,12 +30,12 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            let account = world_state_view
-                .account(&self.destination_id)
-                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
-            account.signature_check_condition = self.object;
+            let id = self.destination_id.clone();
+            world_state_view.account(&id, |account| {
+                *account.signature_check_condition.write() = self.object;
+            })?;
             Ok(())
         }
     }
@@ -45,19 +44,19 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let public_key = self.object.clone();
-            let account = world_state_view
-                .account(&self.destination_id)
-                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
-            if let Some(index) = account
-                .signatories
-                .iter()
-                .position(|key| key == &public_key)
-            {
-                let _ = account.signatories.remove(index);
-            }
+            world_state_view.account(&self.destination_id, |account| {
+                if let Some(index) = account
+                    .signatories
+                    .read()
+                    .iter()
+                    .position(|key| key == &public_key)
+                {
+                    let _ = account.signatories.write().remove(index);
+                }
+            })?;
             Ok(())
         }
     }
@@ -66,16 +65,17 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let account_metadata_limits = world_state_view.config.account_metadata_limits;
-            let account = world_state_view
-                .account(&self.object_id)
-                .ok_or_else(|| FindError::Account(self.object_id.clone()))?;
-            let _ =
-                account
-                    .metadata
-                    .insert_with_limits(self.key, self.value, account_metadata_limits);
+            let id = self.object_id.clone();
+            world_state_view.account(&id, |account| {
+                let _ = account.metadata.write().insert_with_limits(
+                    self.key.clone(),
+                    self.value,
+                    account_metadata_limits,
+                );
+            })?;
             Ok(())
         }
     }
@@ -84,16 +84,16 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            let account = world_state_view
-                .account(&self.object_id)
-                .ok_or_else(|| FindError::Account(self.object_id.clone()))?;
-            let _ = account
-                .metadata
-                .remove(&self.key)
-                .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
-            Ok(())
+            world_state_view.account(&self.object_id, |account| {
+                let _ = account
+                    .metadata
+                    .write()
+                    .remove(&self.key)
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                Ok(())
+            })?
         }
     }
 
@@ -101,12 +101,12 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            let account = world_state_view
-                .account(&self.destination_id)
-                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
-            let _ = account.insert_permission_token(self.object);
+            let id = self.destination_id.clone();
+            world_state_view.account(&id, |account| {
+                let _ = account.permission_tokens.write().insert(self.object);
+            })?;
             Ok(())
         }
     }
@@ -116,17 +116,18 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let _ = world_state_view
-                .read_world()
+                .world()
                 .roles
                 .get(&self.object)
                 .ok_or_else(|| FindError::Role(self.object.clone()))?;
-            let account = world_state_view
-                .account(&self.destination_id)
-                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
-            let _ = account.roles.insert(self.object);
+
+            let id = self.destination_id.clone();
+            world_state_view.account(&id, |account| {
+                let _ = account.roles.insert(self.object);
+            })?;
             Ok(())
         }
     }
@@ -143,11 +144,13 @@ pub mod query {
     impl Query for FindAllAccounts {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(world_state_view
-                .read_all_accounts()
-                .into_iter()
-                .cloned()
-                .collect())
+            let mut vec = Vec::new();
+            for domain in world_state_view.domains().iter() {
+                for account in domain.accounts.iter() {
+                    vec.push(Value::from(account.clone()))
+                }
+            }
+            Ok(vec.into())
         }
     }
 
@@ -158,11 +161,7 @@ pub mod query {
                 .id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get id")?;
-            Ok(world_state_view
-                .read_account(&id)
-                .map(Clone::clone)
-                .ok_or_else(|| error!("Failed to get an account."))?
-                .into())
+            Ok(world_state_view.account(&id, Clone::clone)?.into())
         }
     }
 
@@ -173,12 +172,15 @@ pub mod query {
                 .name
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get account name")?;
-            Ok(world_state_view
-                .read_all_accounts()
-                .into_iter()
-                .filter(|account| account.id.name == name)
-                .cloned()
-                .collect())
+            let mut vec = Vec::new();
+            for domain in world_state_view.domains().iter() {
+                for account in domain.accounts.iter() {
+                    if account.id.name == name {
+                        vec.push(Value::from(account.clone()))
+                    }
+                }
+            }
+            Ok(vec.into())
         }
     }
 
@@ -189,12 +191,14 @@ pub mod query {
                 .domain_name
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get domain name")?;
-            Ok(world_state_view
-                .read_all_accounts()
-                .into_iter()
-                .filter(|account| account.id.domain_name == name)
-                .cloned()
-                .collect())
+            let vec = world_state_view.domain(&name, |domain| {
+                let mut vec = Vec::new();
+                for account in domain.accounts.iter() {
+                    vec.push(Value::from(account.clone()))
+                }
+                vec
+            })?;
+            Ok(vec.into())
         }
     }
 
@@ -210,11 +214,9 @@ pub mod query {
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get key")?;
             world_state_view
-                .read_account(&id)
-                .ok_or_else(|| error!("Failed to get an account."))?
-                .metadata
-                .get(&key)
-                .map(Clone::clone)
+                .account(&id, |account| {
+                    account.metadata.read().get(&key).map(Clone::clone)
+                })?
                 .ok_or_else(|| error!("No metadata entry with this key."))
         }
     }

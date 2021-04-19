@@ -34,47 +34,47 @@ use crate::Value;
 )]
 pub enum QueryBox {
     /// `FindAllAccounts` variant.
-    FindAllAccounts(Box<FindAllAccounts>),
+    FindAllAccounts(FindAllAccounts),
     /// `FindAccountById` variant.
-    FindAccountById(Box<FindAccountById>),
+    FindAccountById(FindAccountById),
     /// `FindAccountKeyValueByIdAndKey` variant.
-    FindAccountKeyValueByIdAndKey(Box<FindAccountKeyValueByIdAndKey>),
+    FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
     /// `FindAccountsByName` variant.
-    FindAccountsByName(Box<FindAccountsByName>),
+    FindAccountsByName(FindAccountsByName),
     /// `FindAccountsByDomainName` variant.
-    FindAccountsByDomainName(Box<FindAccountsByDomainName>),
+    FindAccountsByDomainName(FindAccountsByDomainName),
     /// `FindAllAssets` variant.
-    FindAllAssets(Box<FindAllAssets>),
+    FindAllAssets(FindAllAssets),
     /// `FindAllAssetsDefinitions` variant.
-    FindAllAssetsDefinitions(Box<FindAllAssetsDefinitions>),
+    FindAllAssetsDefinitions(FindAllAssetsDefinitions),
     /// `FindAssetById` variant.
-    FindAssetById(Box<FindAssetById>),
+    FindAssetById(FindAssetById),
     /// `FindAssetByName` variant.
-    FindAssetsByName(Box<FindAssetsByName>),
+    FindAssetsByName(FindAssetsByName),
     /// `FindAssetsByAccountId` variant.
-    FindAssetsByAccountId(Box<FindAssetsByAccountId>),
+    FindAssetsByAccountId(FindAssetsByAccountId),
     /// `FindAssetsByAssetDefinitionId` variant.
-    FindAssetsByAssetDefinitionId(Box<FindAssetsByAssetDefinitionId>),
+    FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
     /// `FindAssetsByDomainName` variant.
-    FindAssetsByDomainName(Box<FindAssetsByDomainName>),
+    FindAssetsByDomainName(FindAssetsByDomainName),
     /// `FindAssetsByAccountIdAndAssetDefinitionId` variant.
-    FindAssetsByAccountIdAndAssetDefinitionId(Box<FindAssetsByAccountIdAndAssetDefinitionId>),
+    FindAssetsByAccountIdAndAssetDefinitionId(FindAssetsByAccountIdAndAssetDefinitionId),
     /// `FindAssetsByDomainNameAndAssetDefinitionId` variant.
-    FindAssetsByDomainNameAndAssetDefinitionId(Box<FindAssetsByDomainNameAndAssetDefinitionId>),
+    FindAssetsByDomainNameAndAssetDefinitionId(FindAssetsByDomainNameAndAssetDefinitionId),
     /// `FindAssetQuantityById` variant.
-    FindAssetQuantityById(Box<FindAssetQuantityById>),
+    FindAssetQuantityById(FindAssetQuantityById),
     /// `FindAssetQuantityById` variant.
-    FindAssetKeyValueByIdAndKey(Box<FindAssetKeyValueByIdAndKey>),
+    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
     /// `FindAllDomains` variant.
-    FindAllDomains(Box<FindAllDomains>),
+    FindAllDomains(FindAllDomains),
     /// `FindDomainByName` variant.
-    FindDomainByName(Box<FindDomainByName>),
+    FindDomainByName(FindDomainByName),
     /// `FindAllPeers` variant.
-    FindAllPeers(Box<FindAllPeers>),
+    FindAllPeers(FindAllPeers),
     /// `FindAllParameters` variant.
-    FindAllParameters(Box<FindAllParameters>),
+    FindAllParameters(FindAllParameters),
     /// `FindTransactionsByAccountId` variant.
-    FindTransactionsByAccountId(Box<FindTransactionsByAccountId>),
+    FindTransactionsByAccountId(FindTransactionsByAccountId),
 }
 
 /// I/O ready structure to send queries.

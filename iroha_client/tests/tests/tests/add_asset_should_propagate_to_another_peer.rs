@@ -50,7 +50,9 @@ mod tests {
             |result| {
                 result
                     .find_asset_by_id(&asset_definition_id)
-                    .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
+                    .map_or(false, |asset| {
+                        *asset.value.read() == AssetValue::Quantity(quantity)
+                    })
             },
         );
         Ok(())
