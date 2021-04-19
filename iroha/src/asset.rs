@@ -16,47 +16,51 @@ pub mod isi {
 
     fn assert_asset_type(
         definition_id: &AssetDefinitionId,
-        world_state_view: &mut WorldStateView,
+        world_state_view: &WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
-        let value_type = world_state_view
-            .asset_definition_entry(definition_id)
-            .ok_or_else(|| FindError::AssetDefinition(definition_id.clone()))?
-            .definition
-            .value_type;
-        if value_type != expected_value_type {
-            return Err(TypeError::from(AssetTypeError {
-                expected: expected_value_type,
-                got: value_type,
-            })
-            .into());
-        }
-        Ok(())
+        world_state_view.asset_definition_entry(definition_id, |asset| {
+            if asset.definition.value_type == expected_value_type {
+                Ok(())
+            } else {
+                Err(TypeError::from(AssetTypeError {
+                    expected: expected_value_type,
+                    got: asset.definition.value_type,
+                })
+                .into())
+            }
+        })?
     }
 
     impl Execute for Mint<Asset, u32> {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 world_state_view,
                 AssetValueType::Quantity,
             )?;
-            match world_state_view.asset(&self.destination_id) {
-                Some(asset) => {
-                    let quantity: &mut u32 = asset.try_as_mut()?;
-                    *quantity = quantity
-                        .checked_add(self.object)
-                        .ok_or(MathError::OverflowError)?;
-                }
-                None => world_state_view.add_asset(Asset::with_quantity(
-                    self.destination_id.clone(),
-                    self.object,
-                ))?,
-            }
+            world_state_view.asset_or(
+                &self.destination_id,
+                |asset| -> Result<(), Error> {
+                    asset.try_as_mut(|quantity: &mut u32| {
+                        *quantity = quantity
+                            .checked_add(self.object)
+                            .ok_or(MathError::OverflowError)?;
+                        Ok(())
+                    })?
+                },
+                || {
+                    world_state_view.add_asset(Asset::with_quantity(
+                        self.destination_id.clone(),
+                        self.object,
+                    ))?;
+                    Ok(())
+                },
+            )?;
             Ok(())
         }
     }
@@ -65,25 +69,30 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 world_state_view,
                 AssetValueType::BigQuantity,
             )?;
-            match world_state_view.asset(&self.destination_id) {
-                Some(asset) => {
-                    let quantity: &mut u128 = asset.try_as_mut()?;
-                    *quantity = quantity
-                        .checked_add(self.object)
-                        .ok_or(MathError::OverflowError)?;
-                }
-                None => world_state_view.add_asset(Asset::with_big_quantity(
-                    self.destination_id.clone(),
-                    self.object,
-                ))?,
-            }
+            world_state_view.asset_or(
+                &self.destination_id,
+                |asset| {
+                    asset.try_as_mut(|quantity: &mut u128| {
+                        *quantity = quantity
+                            .checked_add(self.object)
+                            .ok_or(MathError::OverflowError)?;
+                        Ok(())
+                    })?
+                },
+                || {
+                    world_state_view.add_asset(Asset::with_big_quantity(
+                        self.destination_id.clone(),
+                        self.object,
+                    ))
+                },
+            )?;
             Ok(())
         }
     }
@@ -92,7 +101,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.object_id.definition_id,
@@ -100,18 +109,27 @@ pub mod isi {
                 AssetValueType::Store,
             )?;
             let asset_metadata_limits = world_state_view.config.asset_metadata_limits;
-            match world_state_view.asset(&self.object_id) {
-                Some(asset) => {
-                    let store: &mut Metadata = asset.try_as_mut()?;
-                    let _ = store.insert_with_limits(self.key, self.value, asset_metadata_limits);
-                }
-                None => world_state_view.add_asset(Asset::with_parameter(
-                    self.object_id,
-                    self.key,
-                    self.value,
-                    asset_metadata_limits,
-                )?)?,
-            }
+            world_state_view.asset_or(
+                &self.object_id,
+                |asset| {
+                    asset.try_as_mut(|store: &mut Metadata| {
+                        let _ = store.insert_with_limits(
+                            self.key.clone(),
+                            self.value.clone(),
+                            asset_metadata_limits,
+                        );
+                        Ok(())
+                    })?
+                },
+                || {
+                    world_state_view.add_asset(Asset::with_parameter(
+                        self.object_id.clone(),
+                        self.key.clone(),
+                        self.value.clone(),
+                        asset_metadata_limits,
+                    )?)
+                },
+            )?;
             Ok(())
         }
     }
@@ -120,21 +138,21 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 world_state_view,
                 AssetValueType::Quantity,
             )?;
-            let asset = world_state_view
-                .asset(&self.destination_id)
-                .ok_or_else(|| FindError::Asset(self.destination_id.clone()))?;
-            let quantity: &mut u32 = asset.try_as_mut()?;
-            *quantity = quantity
-                .checked_sub(self.object)
-                .ok_or_else(|| error!("Not enough quantity to burn."))?;
-            Ok(())
+            world_state_view.asset(&self.destination_id, |asset| {
+                asset.try_as_mut(|quantity: &mut u32| {
+                    *quantity = quantity
+                        .checked_sub(self.object)
+                        .ok_or_else(|| error!("Not enough quantity to burn."))?;
+                    Ok(())
+                })?
+            })?
         }
     }
 
@@ -142,21 +160,21 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 world_state_view,
                 AssetValueType::BigQuantity,
             )?;
-            let asset = world_state_view
-                .asset(&self.destination_id)
-                .ok_or_else(|| FindError::Asset(self.destination_id.clone()))?;
-            let quantity: &mut u128 = asset.try_as_mut()?;
-            *quantity = quantity
-                .checked_sub(self.object)
-                .ok_or_else(|| error!("Not enough quantity to burn."))?;
-            Ok(())
+            world_state_view.asset(&self.destination_id, |asset| {
+                asset.try_as_mut(|quantity: &mut u128| {
+                    *quantity = quantity
+                        .checked_sub(self.object)
+                        .ok_or_else(|| error!("Not enough quantity to burn."))?;
+                    Ok(())
+                })?
+            })?
         }
     }
 
@@ -164,24 +182,21 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.object_id.definition_id,
                 world_state_view,
                 AssetValueType::Store,
             )?;
-            let _ = world_state_view
-                .asset_definition_entry(&self.object_id.definition_id)
-                .ok_or_else(|| FindError::AssetDefinition(self.object_id.definition_id.clone()))?;
-            let asset = world_state_view
-                .asset(&self.object_id)
-                .ok_or_else(|| FindError::Asset(self.object_id.clone()))?;
-            let store: &mut Metadata = asset.try_as_mut()?;
-            let _ = store
-                .remove(&self.key)
-                .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
-            Ok(())
+            world_state_view.asset(&self.object_id, |asset| {
+                asset.try_as_mut(|store: &mut Metadata| {
+                    let _ = store
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                    Ok(())
+                })?
+            })?
         }
     }
 
@@ -190,7 +205,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             if self.destination_id.definition_id != self.source_id.definition_id {
                 return Err(error!("Can not transfer asset between different asset types.").into());
@@ -205,23 +220,22 @@ pub mod isi {
                 world_state_view,
                 AssetValueType::Quantity,
             )?;
-            let source_asset = world_state_view
-                .asset(&self.source_id)
-                .ok_or_else(|| FindError::Asset(self.source_id.clone()))?;
-            let quantity: &mut u32 = source_asset.try_as_mut()?;
-            *quantity = quantity
-                .checked_sub(self.object)
-                .ok_or_else(|| error!("Source account doesn not have enough asset quantity."))?;
-            let destitantion_asset = world_state_view
-                .asset_or_insert(&self.destination_id, 0_u32)
-                .ok_or_else(|| {
-                    error!("Destination asset not found and failed to initialize new one.")
-                })?;
-            let quantity: &mut u32 = destitantion_asset.try_as_mut()?;
-            *quantity = quantity
-                .checked_add(self.object)
-                .ok_or(MathError::OverflowError)?;
-            Ok(())
+            world_state_view.asset(&self.source_id, |asset| -> Result<(), Error> {
+                asset.try_as_mut(|quantity: &mut u32| {
+                    *quantity = quantity.checked_sub(self.object).ok_or_else(|| {
+                        error!("Source account doesn not have enough asset quantity.")
+                    })?;
+                    Ok(())
+                })?
+            })??;
+            world_state_view.asset_or_insert(&self.destination_id, 0_u32, |asset| {
+                asset.try_as_mut(|quantity: &mut u32| {
+                    *quantity = quantity
+                        .checked_add(self.object)
+                        .ok_or(MathError::OverflowError)?;
+                    Ok(())
+                })?
+            })?
         }
     }
 }
@@ -237,23 +251,28 @@ pub mod query {
     impl Query for FindAllAssets {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(world_state_view
-                .read_all_assets()
-                .into_iter()
-                .cloned()
-                .collect())
+            let mut vec = Vec::new();
+            for domain in world_state_view.domains().iter() {
+                for account in domain.accounts.iter() {
+                    for asset in account.assets.iter() {
+                        vec.push(Value::from(asset.clone()))
+                    }
+                }
+            }
+            Ok(vec.into())
         }
     }
 
     impl Query for FindAllAssetsDefinitions {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(world_state_view
-                .read_all_assets_definitions_entries()
-                .into_iter()
-                .cloned()
-                .map(|entry| entry.definition)
-                .collect())
+            let mut vec = Vec::new();
+            for domain in world_state_view.domains().iter() {
+                for asset in domain.asset_definitions.iter() {
+                    vec.push(Value::from(asset.definition.clone()))
+                }
+            }
+            Ok(vec.into())
         }
     }
 
@@ -264,11 +283,7 @@ pub mod query {
                 .id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            Ok(world_state_view
-                .read_asset(&id)
-                .cloned()
-                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &id))?
-                .into())
+            Ok(world_state_view.asset(&id, Clone::clone)?.into())
         }
     }
 
@@ -279,12 +294,17 @@ pub mod query {
                 .name
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset name")?;
-            Ok(world_state_view
-                .read_all_assets()
-                .into_iter()
-                .filter(|asset| asset.id.definition_id.name == name)
-                .cloned()
-                .collect())
+            let mut vec = Vec::new();
+            for domain in world_state_view.domains().iter() {
+                for account in domain.accounts.iter() {
+                    for asset in account.assets.iter() {
+                        if asset.id.definition_id.name == name {
+                            vec.push(Value::from(asset.clone()))
+                        }
+                    }
+                }
+            }
+            Ok(vec.into())
         }
     }
 
@@ -295,14 +315,11 @@ pub mod query {
                 .account_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get account id")?;
-            let vec = world_state_view
-                .read_account_assets(&id)
-                .ok_or_else(|| error!("No account with id: {} found.", &id))?
-                .into_iter()
-                .cloned()
-                .map(Value::from)
-                .collect();
-            Ok(Value::Vec(vec))
+            let mut vec = Vec::new();
+            world_state_view.account_assets(&id, |asset| {
+                vec.push(Value::from(asset.clone()));
+            })?;
+            Ok(vec.into())
         }
     }
 
@@ -313,12 +330,18 @@ pub mod query {
                 .asset_definition_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset definition id")?;
-            Ok(world_state_view
-                .read_all_assets()
-                .into_iter()
-                .filter(|asset| asset.id.definition_id == id)
-                .cloned()
-                .collect())
+            let mut vec = Vec::new();
+
+            for domain in world_state_view.domains().iter() {
+                for account in domain.accounts.iter() {
+                    for asset in account.assets.iter() {
+                        if asset.id.definition_id == id {
+                            vec.push(Value::from(asset.clone()))
+                        }
+                    }
+                }
+            }
+            Ok(vec.into())
         }
     }
 
@@ -329,12 +352,15 @@ pub mod query {
                 .domain_name
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get domain name")?;
-            Ok(world_state_view
-                .read_all_assets()
-                .into_iter()
-                .filter(|asset| asset.id.account_id.domain_name == name)
-                .cloned()
-                .collect())
+            let mut vec = Vec::new();
+            world_state_view.domain(&name, |domain| {
+                for account in domain.accounts.iter() {
+                    for asset in account.assets.iter() {
+                        vec.push(Value::from(asset.clone()))
+                    }
+                }
+            })?;
+            Ok(vec.into())
         }
     }
 
@@ -349,14 +375,12 @@ pub mod query {
                 .asset_definition_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            let vec = world_state_view
-                .read_account_assets(&id)
-                .ok_or_else(|| error!("No account with id: {} found.", &id))?
-                .into_iter()
-                .filter(|asset| asset.id.definition_id == asset_id)
-                .cloned()
-                .map(Value::from)
-                .collect();
+            let mut vec = Vec::new();
+            world_state_view.account_assets(&id, |asset| {
+                if asset.id.definition_id == asset_id {
+                    vec.push(Value::from(asset.clone()))
+                }
+            })?;
             Ok(Value::Vec(vec))
         }
     }
@@ -372,14 +396,27 @@ pub mod query {
                 .asset_definition_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            Ok(world_state_view
-                .read_all_assets()
-                .into_iter()
-                .filter(|asset| {
-                    asset.id.account_id.domain_name == name && asset.id.definition_id == asset_id
-                })
-                .cloned()
-                .collect())
+            let assets = world_state_view
+                .domain(&name, |domain| {
+                    let _definition = domain.asset_definitions.get(&asset_id)?;
+                    let mut assets = Vec::new();
+                    for account in domain.accounts.iter() {
+                        for asset in account.assets.iter() {
+                            if asset.id.account_id.domain_name == name
+                                && asset.id.definition_id == asset_id
+                            {
+                                assets.push(asset.clone())
+                            }
+                        }
+                    }
+                    if assets.is_empty() {
+                        None
+                    } else {
+                        Some(assets)
+                    }
+                })?
+                .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))?;
+            Ok(assets.into_iter().collect())
         }
     }
 
@@ -391,15 +428,10 @@ pub mod query {
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
             Ok(world_state_view
-                .read_asset(&asset_id)
-                .map(|asset| {
-                    let quantity: Result<u32> = asset.try_as_ref().map(Clone::clone);
+                .asset(&asset_id, |asset| {
+                    let quantity: Result<u32> = asset.value.read().try_as_ref().map(Clone::clone);
                     quantity
-                })
-                .transpose()?
-                .ok_or_else(|| {
-                    error!("Failed to get an asset with identification: {}.", &asset_id)
-                })?
+                })??
                 .into())
         }
     }
@@ -415,19 +447,16 @@ pub mod query {
                 .key
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get key")?;
-            Ok(world_state_view
-                .read_asset(&id)
-                .map(|asset| {
-                    let store: Result<&Metadata> = asset.try_as_ref();
-                    store.and_then(|store| {
-                        store
-                            .get(&key)
-                            .map(ToOwned::to_owned)
-                            .ok_or_else(|| error!("Key {} not found in asset {}", key, id))
-                    })
+            world_state_view.asset(&id, |asset| {
+                let value = asset.value.read();
+                let store: Result<&Metadata> = value.try_as_ref();
+                store.and_then(|store| {
+                    store
+                        .get(&key)
+                        .map(ToOwned::to_owned)
+                        .ok_or_else(|| error!("Key {} not found in asset {}", key, id))
                 })
-                .transpose()?
-                .ok_or_else(|| error!("Failed to get an asset with identification: {}.", &id))?)
+            })?
         }
     }
 }

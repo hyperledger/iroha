@@ -295,16 +295,15 @@ impl PermissionsValidator for GrantedTokenValidatorBox {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
-        let account = wsv
-            .read_account(authority)
-            .ok_or("Couldn't find authority account.")?;
         let permission_token = self
             .should_have_token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
-        if account
-            .permission_tokens(&wsv.world)
-            .contains(&permission_token)
-        {
+        let contain = wsv
+            .account(authority, |account| {
+                account.permission_tokens.read().contains(&permission_token)
+            })
+            .map_err(|e| e.to_string())?;
+        if contain {
             Ok(())
         } else {
             Err(format!(
@@ -372,25 +371,26 @@ pub fn unpack_if_role_grant(
     instruction: Instruction,
     wsv: &WorldStateView,
 ) -> Result<Vec<Instruction>> {
-    let instructions = if let Instruction::Grant(grant) = &instruction {
-        if let Value::Id(IdBox::RoleId(id)) = grant.object.evaluate(wsv, &Context::new())? {
-            if let Some(role) = wsv.world.roles.get(&id) {
-                let destination_id = grant.destination_id.evaluate(wsv, &Context::new())?;
-                role.permissions
-                    .iter()
-                    .cloned()
-                    .map(|permission_token| {
-                        GrantBox::new(permission_token, destination_id.clone()).into()
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        } else {
-            vec![instruction]
-        }
+    let grant = if let Instruction::Grant(grant) = &instruction {
+        grant
     } else {
-        vec![instruction]
+        return Ok(vec![instruction]);
+    };
+    let id = if let Value::Id(IdBox::RoleId(id)) = grant.object.evaluate(wsv, &Context::new())? {
+        id
+    } else {
+        return Ok(vec![instruction]);
+    };
+
+    let instructions = if let Some(role) = wsv.world.roles.get(&id) {
+        let destination_id = grant.destination_id.evaluate(wsv, &Context::new())?;
+        role.permissions
+            .iter()
+            .cloned()
+            .map(|permission_token| GrantBox::new(permission_token, destination_id.clone()).into())
+            .collect()
+    } else {
+        Vec::new()
     };
     Ok(instructions)
 }
@@ -411,7 +411,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use iroha_data_model::isi::*;
-    use maplit::{btreemap, btreeset};
+    use iroha_structs::HashSet;
 
     use super::*;
 
@@ -538,14 +538,15 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain = Domain::new("test");
-        let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.insert_permission_token(PermissionToken::new("token", btreemap! {}));
-        let _ = domain.accounts.insert(bob_id.clone(), bob_account);
-        let domains = btreemap! {
-            "test".to_owned() => domain
-        };
-        let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+        let domain = Domain::new("test");
+        let bob_account = Account::new(bob_id.clone());
+        let _ = bob_account
+            .permission_tokens
+            .write()
+            .insert(PermissionToken::new("token", BTreeMap::default()));
+        drop(domain.accounts.insert(bob_id.clone(), bob_account));
+        let domains = vec![("test".to_string(), domain)];
+        let wsv = WorldStateView::new(World::with(domains, HashSet::default()));
         let validator: GrantedTokenValidatorBox = Box::new(GrantedToken);
         assert!(validator
             .check_instruction(&alice_id, &instruction_burn, &wsv)

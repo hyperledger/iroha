@@ -13,13 +13,9 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            if world_state_view
-                .world()
-                .trusted_peers_ids
-                .insert(self.object.id)
-            {
+            if world_state_view.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
             } else {
                 Err(error!("Peer already presented in the list of trusted peers.",).into())
@@ -31,14 +27,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let domain = self.object;
             domain.validate_len(world_state_view.config.length_limits)?;
-            let _ = world_state_view
-                .world()
-                .domains
-                .insert(domain.name.clone(), domain);
+            drop(
+                world_state_view
+                    .domains()
+                    .insert(domain.name.clone(), domain),
+            );
             Ok(())
         }
     }
@@ -47,10 +44,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
-            let _ = world_state_view.world().domains.remove(&self.object_id);
+            drop(world_state_view.domains().remove(&self.object_id));
             Ok(())
         }
     }
@@ -59,9 +56,9 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            world_state_view.world().parameters.push(self.object);
+            world_state_view.parameters().write().push(self.object);
             Ok(())
         }
     }
@@ -71,7 +68,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let role = self.object;
             let _ = world_state_view.world.roles.insert(role.id.clone(), role);
@@ -84,17 +81,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
+            world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let _ = world_state_view.world.roles.remove(&self.object_id);
-            world_state_view
-                .world
-                .domains
-                .values_mut()
-                .flat_map(|domain| domain.accounts.values_mut())
-                .for_each(|account| {
+            for domain in world_state_view.domains().iter() {
+                for account in domain.accounts.iter() {
                     let _ = account.roles.remove(&self.object_id);
-                });
+                }
+            }
+
             Ok(())
         }
     }
@@ -127,10 +122,10 @@ pub mod query {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(world_state_view
-                .read_world()
-                .parameters
+                .parameters()
+                .read()
                 .iter()
-                .cloned()
+                .map(Clone::clone)
                 .map(Value::Parameter)
                 .collect::<Vec<Value>>()
                 .into())

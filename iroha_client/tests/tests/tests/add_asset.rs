@@ -37,7 +37,9 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     test_client.submit_till(mint, &client::asset::by_account_id(account_id), |result| {
         result
             .find_asset_by_id(&asset_definition_id)
-            .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
+            .map_or(false, |asset| {
+                *asset.value.read() == AssetValue::Quantity(quantity)
+            })
     });
     Ok(())
 }

@@ -156,16 +156,16 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb877970c7b440ead138f6321a3b5395d6061183af779340b65e20c0fede9146"
+checksum = "871f9bb5e0a22eeb7e8cf16641feb87c9dc67032ccf8ff49e772eb9941d3a965"
 dependencies = [
  "async-task 4.0.3",
  "concurrent-queue",
  "fastrand",
  "futures-lite 1.11.3",
  "once_cell",
- "vec-arena",
+ "slab",
 ]
 
 [[package]]
@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "async-net"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06de475c85affe184648202401d7622afb32f0f74e02192857d0201a16defbe5"
+checksum = "69b0a74e7f70af3c8cf1aa539edbd044795706659ac52b78a71dc1a205ecefdf"
 dependencies = [
  "async-io",
  "blocking 1.0.2",
@@ -220,15 +220,16 @@ dependencies = [
 
 [[package]]
 name = "async-process"
-version = "1.0.2"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef37b86e2fa961bae5a4d212708ea0154f904ce31d1a4a7f47e1bbc33a0c040b"
+checksum = "a8f38756dd9ac84671c428afbf7c9f7495feff9ec5b0710f17100098e5b354ac"
 dependencies = [
  "async-io",
  "blocking 1.0.2",
  "cfg-if 1.0.0",
  "event-listener",
  "futures-lite 1.11.3",
+ "libc",
  "once_cell",
  "signal-hook",
  "winapi",
@@ -907,6 +908,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e77a43b28d0668df09411cb0bc9a8c2adc40f9a048afe863e05fd43251e8e39c"
+dependencies = [
+ "cfg-if 1.0.0",
+ "num_cpus",
+ "serde",
+]
+
+[[package]]
 name = "dialoguer"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1005,9 +1017,9 @@ checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
 name = "fastrand"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca5faf057445ce5c9d4329e382b2ce7ca38550ef3b73a5348362d5f24e0c7fe3"
+checksum = "77b705829d1e87f762c2df6da140b26af5839e1033aa84aa5f56bb688e4e1bdb"
 dependencies = [
  "instant",
 ]
@@ -1026,9 +1038,9 @@ dependencies = [
 
 [[package]]
 name = "flume"
-version = "0.10.4"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11fce69af4d4582ea989e6adfc5c9b81fd2071ff89234e5c14675c82a85217df"
+checksum = "fa9d66b91e902db43baefd8e40c8678ce29db2cf1d88ebd715174368d5fe70a9"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -1559,6 +1571,7 @@ dependencies = [
  "iroha_logger",
  "iroha_macro",
  "iroha_network",
+ "iroha_structs",
  "iroha_version",
  "maplit",
  "parity-scale-codec",
@@ -1669,12 +1682,14 @@ dependencies = [
 name = "iroha_data_model"
 version = "0.1.0"
 dependencies = [
+ "async-std",
  "chrono",
  "iroha_crypto",
  "iroha_derive",
  "iroha_error",
  "iroha_http_server",
  "iroha_macro",
+ "iroha_structs",
  "iroha_version",
  "parity-scale-codec",
  "serde",
@@ -1805,7 +1820,18 @@ dependencies = [
  "iroha",
  "iroha_data_model",
  "iroha_macro",
+ "iroha_structs",
  "maplit",
+]
+
+[[package]]
+name = "iroha_structs"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "dashmap",
+ "parity-scale-codec",
+ "serde",
 ]
 
 [[package]]
@@ -3140,6 +3166,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_error",
  "iroha_logger",
+ "iroha_network",
  "rand 0.7.3",
  "tempfile",
  "unique_port",

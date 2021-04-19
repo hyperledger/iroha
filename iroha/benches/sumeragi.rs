@@ -1,15 +1,14 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::collections::BTreeSet;
-
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::sumeragi::NetworkTopology;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
+use iroha_structs::HashSet;
 
 const N_PEERS: usize = 255;
 
-fn get_n_peers(n: usize) -> BTreeSet<PeerId> {
+fn get_n_peers(n: usize) -> HashSet<PeerId> {
     (0..n)
         .map(|i| PeerId {
             address: format!("127.0.0.{}", i),
