@@ -106,7 +106,27 @@ pub mod isi {
             let account = world_state_view
                 .account(&self.destination_id)
                 .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
-            let _ = account.permission_tokens.insert(self.permission_token);
+            let _ = account.insert_permission_token(self.object);
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "roles")]
+    impl Execute for Grant<Account, RoleId> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
+            let _ = world_state_view
+                .read_world()
+                .roles
+                .get(&self.object)
+                .ok_or_else(|| FindError::Role(self.object.clone()))?;
+            let account = world_state_view
+                .account(&self.destination_id)
+                .ok_or_else(|| FindError::Account(self.destination_id.clone()))?;
+            let _ = account.roles.insert(self.object);
             Ok(())
         }
     }

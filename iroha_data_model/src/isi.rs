@@ -172,8 +172,8 @@ pub struct FailBox {
 /// Sized structure for all possible Grants.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
 pub struct GrantBox {
-    /// Permission token to grant.
-    pub permission_token: EvaluatesTo<PermissionToken>,
+    /// Object to grant.
+    pub object: EvaluatesTo<Value>,
     /// Entity to which to grant this token.
     pub destination_id: EvaluatesTo<IdBox>,
 }
@@ -284,8 +284,8 @@ where
     D: Identifiable,
     O: ValueMarker,
 {
-    /// Permission token to grant.
-    pub permission_token: O,
+    /// Object to grant.
+    pub object: O,
     /// Entity to which to grant this token.
     pub destination_id: D::Id,
 }
@@ -397,9 +397,9 @@ where
     O: ValueMarker,
 {
     /// Constructor.
-    pub fn new(permission_token: O, destination_id: D::Id) -> Self {
+    pub fn new(object: O, destination_id: D::Id) -> Self {
         Grant {
-            permission_token,
+            object,
             destination_id,
         }
     }
@@ -408,17 +408,17 @@ where
 impl GrantBox {
     /// Calculates number of contained instructions and expressions.
     pub fn len(&self) -> usize {
-        self.permission_token.len() + self.destination_id.len() + 1
+        self.object.len() + self.destination_id.len() + 1
     }
 
     /// Constructor.
-    pub fn new<P: Into<EvaluatesTo<PermissionToken>>, I: Into<EvaluatesTo<IdBox>>>(
-        permission_token: P,
+    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+        object: P,
         destination_id: I,
     ) -> Self {
         Self {
             destination_id: destination_id.into(),
-            permission_token: permission_token.into(),
+            object: object.into(),
         }
     }
 }
