@@ -89,6 +89,9 @@ pub enum IdBox {
     DomainName(Name),
     /// `PeerId` variant.
     PeerId(peer::Id),
+    /// `RoleId` variant.
+    #[cfg(feature = "roles")]
+    RoleId(role::Id),
     /// `World`.
     WorldId,
 }
@@ -120,6 +123,9 @@ pub enum IdentifiableBox {
     Domain(Box<domain::Domain>),
     /// `Peer` variant.
     Peer(Box<peer::Peer>),
+    /// `Role` variant.
+    #[cfg(feature = "roles")]
+    Role(Box<role::Role>),
     /// `World`.
     World,
 }
@@ -333,6 +339,8 @@ impl From<LengthLimits> for RangeInclusive<usize> {
 pub mod world {
     //! Structures, traits and impls related to `World`.
 
+    #[cfg(feature = "roles")]
+    use crate::role::RolesMap;
     use crate::{
         domain::DomainsMap, isi::Instruction, peer::PeersIds, IdBox, Identifiable, IdentifiableBox,
         Parameter,
@@ -350,6 +358,9 @@ pub mod world {
         pub triggers: Vec<Instruction>,
         /// Iroha parameters.
         pub parameters: Vec<Parameter>,
+        /// Roles.
+        #[cfg(feature = "roles")]
+        pub roles: RolesMap,
     }
 
     impl World {
@@ -391,6 +402,80 @@ pub mod world {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{World, WorldId};
+    }
+}
+
+#[cfg(feature = "roles")]
+pub mod role {
+    //! Structures, traits and impls related to `Role`s.
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use crate::{permissions::PermissionToken, IdBox, Identifiable, Name, Value};
+
+    /// `RolesMap` provides an API to work with collection of key (`Id`) - value
+    /// (`Role`) pairs.
+    pub type RolesMap = BTreeMap<Id, Role>;
+
+    /// Identification of a role.
+    #[derive(
+        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode,
+    )]
+    pub struct Id {
+        /// Role name, should be unique .
+        pub name: Name,
+    }
+
+    impl Id {
+        /// Constructor.
+        pub fn new(name: impl Into<Name>) -> Self {
+            Id { name: name.into() }
+        }
+    }
+
+    impl From<Name> for Id {
+        fn from(name: Name) -> Self {
+            Id::new(name)
+        }
+    }
+
+    impl From<Id> for Value {
+        fn from(id: Id) -> Self {
+            Value::Id(IdBox::RoleId(id))
+        }
+    }
+
+    /// Role is a tag for a set of permission tokens.
+    #[derive(
+        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode,
+    )]
+    pub struct Role {
+        /// Unique name of the role.
+        pub id: Id,
+        /// Permission tokens.
+        pub permissions: BTreeSet<PermissionToken>,
+    }
+
+    impl Role {
+        /// Constructor.
+        pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Role {
+            Role {
+                id: id.into(),
+                permissions: permissions.into(),
+            }
+        }
+    }
+
+    impl Identifiable for Role {
+        type Id = Id;
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
+    pub mod prelude {
+        pub use super::{Id as RoleId, Role};
     }
 }
 
@@ -449,12 +534,15 @@ pub mod account {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
+    #[cfg(feature = "roles")]
+    use crate::role::Id as RoleId;
     use crate::{
         asset::AssetsMap,
         domain::GENESIS_DOMAIN_NAME,
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         metadata::Metadata,
         permissions::PermissionToken,
+        world::World,
         Identifiable, Name, PublicKey, Value,
     };
 
@@ -552,6 +640,8 @@ pub mod account {
                 assets: AssetsMap::new(),
                 permission_tokens: Permissions::new(),
                 signature_check_condition: SignatureCheckCondition::default(),
+                #[cfg(feature = "roles")]
+                roles: BTreeSet::new(),
             }
         }
     }
@@ -603,13 +693,16 @@ pub mod account {
         pub assets: AssetsMap,
         /// `Account`'s signatories.
         pub signatories: Signatories,
-        /// Permissions tokens of this account
-        pub permission_tokens: Permissions,
+        /// Permissions tokens of this account.
+        permission_tokens: Permissions,
         /// Condition which checks if the account has the right signatures.
         #[serde(default)]
         pub signature_check_condition: SignatureCheckCondition,
         /// Metadata of this account as a key-value store.
         pub metadata: Metadata,
+        /// Roles of this account, they are tags for sets of permissions stored in [`World`].
+        #[cfg(feature = "roles")]
+        pub roles: BTreeSet<RoleId>,
     }
 
     impl PartialOrd for Account {
@@ -664,6 +757,8 @@ pub mod account {
                 permission_tokens: Permissions::new(),
                 signature_check_condition: Default::default(),
                 metadata: Metadata::new(),
+                #[cfg(feature = "roles")]
+                roles: BTreeSet::new(),
             }
         }
 
@@ -677,6 +772,8 @@ pub mod account {
                 permission_tokens: Permissions::new(),
                 signature_check_condition: Default::default(),
                 metadata: Metadata::new(),
+                #[cfg(feature = "roles")]
+                roles: BTreeSet::new(),
             }
         }
 
@@ -699,6 +796,29 @@ pub mod account {
                 )
                 .build()
                 .into()
+        }
+
+        /// Inserts permission token into account.
+        pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
+            self.permission_tokens.insert(token)
+        }
+
+        /// Returns a set of permission tokens granted to this account as part of roles and separately.
+        #[allow(unused_variables)]
+        #[allow(unused_mut)]
+        #[allow(clippy::let_and_return)]
+        pub fn permission_tokens(&self, world: &World) -> Permissions {
+            let mut tokens = self.permission_tokens.clone();
+            #[cfg(feature = "roles")]
+            {
+                for role_id in &self.roles {
+                    if let Some(role) = world.roles.get(role_id) {
+                        let mut role_tokens = role.permissions.clone();
+                        tokens.append(&mut role_tokens);
+                    }
+                }
+            }
+            tokens
         }
     }
 
@@ -2192,6 +2312,8 @@ pub mod metadata {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
+    #[cfg(feature = "roles")]
+    pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, pagination::prelude::*,
         peer::prelude::*, transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable,

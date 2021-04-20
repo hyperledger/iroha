@@ -18,6 +18,7 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = []
+roles = []
 http_error = ["iroha_http_server"]
 
 [dependencies]

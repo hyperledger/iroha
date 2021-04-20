@@ -15,7 +15,7 @@ use std::{
 use async_std::{sync::RwLock, task};
 use futures::future;
 use iroha_crypto::{Hash, KeyPair};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{events::Event, peer::Id as PeerId};
 use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -1849,6 +1849,12 @@ mod tests {
     use {
         crate::{config::Configuration, maintenance::System, queue::Queue, torii::Torii},
         async_std::{prelude::*, sync, task},
+        iroha_data_model::{
+            account::{Account, Id as AccountId},
+            domain::Domain,
+            transaction::Transaction,
+            world::World,
+        },
         network::*,
         std::time::Duration,
     };
