@@ -5,7 +5,10 @@
 use std::iter;
 
 use iroha_data_model::prelude::*;
+use iroha_error::Result;
 
+#[cfg(feature = "roles")]
+use crate::expression::Evaluate;
 use crate::prelude::*;
 
 /// Reason for prohibiting the execution of the particular instruction.
@@ -298,7 +301,10 @@ impl PermissionsValidator for GrantedTokenValidatorBox {
         let permission_token = self
             .should_have_token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
-        if account.permission_tokens.contains(&permission_token) {
+        if account
+            .permission_tokens(&wsv.world)
+            .contains(&permission_token)
+        {
             Ok(())
         } else {
             Err(format!(
@@ -350,6 +356,43 @@ impl From<GrantInstructionValidatorBox> for PermissionsValidatorBox {
     fn from(validator: GrantInstructionValidatorBox) -> Self {
         Box::new(validator)
     }
+}
+
+/// Unpacks instruction if it is Grant of a Role into several Grants fo Permission Token.
+/// If instruction is not Grant of Role, returns it as inly instruction inside the vec.
+/// Should be called before permission checks by validators.
+///
+/// Semantically means that user can grant a role only if they can grant each of the permission tokens
+/// that the role consists of.
+///
+/// # Errors
+/// Evaluation failure of instruction fields.
+#[cfg(feature = "roles")]
+pub fn unpack_if_role_grant(
+    instruction: Instruction,
+    wsv: &WorldStateView,
+) -> Result<Vec<Instruction>> {
+    let instructions = if let Instruction::Grant(grant) = &instruction {
+        if let Value::Id(IdBox::RoleId(id)) = grant.object.evaluate(wsv, &Context::new())? {
+            if let Some(role) = wsv.world.roles.get(&id) {
+                let destination_id = grant.destination_id.evaluate(wsv, &Context::new())?;
+                role.permissions
+                    .iter()
+                    .cloned()
+                    .map(|permission_token| {
+                        GrantBox::new(permission_token, destination_id.clone()).into()
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            vec![instruction]
+        }
+    } else {
+        vec![instruction]
+    };
+    Ok(instructions)
 }
 
 pub mod prelude {
@@ -497,9 +540,7 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new("test");
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account
-            .permission_tokens
-            .insert(PermissionToken::new("token", btreemap! {}));
+        let _ = bob_account.insert_permission_token(PermissionToken::new("token", btreemap! {}));
         let _ = domain.accounts.insert(bob_id.clone(), bob_account);
         let domains = btreemap! {
             "test".to_owned() => domain

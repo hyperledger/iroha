@@ -14,6 +14,7 @@ categories = ["cryptography::cryptocurrencies"]
 [features]
 bridge = []
 dex = []
+roles = ["iroha_data_model/roles"]
 network-mock = ["iroha_network/mock"]
 default = ["bridge"]
 
