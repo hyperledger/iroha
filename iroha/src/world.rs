@@ -65,6 +65,39 @@ pub mod isi {
             Ok(())
         }
     }
+
+    #[cfg(feature = "roles")]
+    impl Execute for Register<Role> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
+            let role = self.object;
+            let _ = world_state_view.world.roles.insert(role.id.clone(), role);
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "roles")]
+    impl Execute for Unregister<Role> {
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), Error> {
+            let _ = world_state_view.world.roles.remove(&self.object_id);
+            world_state_view
+                .world
+                .domains
+                .values_mut()
+                .flat_map(|domain| domain.accounts.values_mut())
+                .for_each(|account| {
+                    let _ = account.roles.remove(&self.object_id);
+                });
+            Ok(())
+        }
+    }
 }
 
 /// Query module provides `IrohaQuery` Peer related implementations.

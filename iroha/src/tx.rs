@@ -15,6 +15,8 @@ use iroha_error::{error, Result, WrapErr};
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
+#[cfg(feature = "roles")]
+use crate::permissions;
 use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2);
@@ -167,6 +169,8 @@ impl AcceptedTransaction {
             )
     }
 
+    #[allow(clippy::unwrap_in_result)]
+    #[allow(clippy::expect_used)]
     fn validate_internal(
         &self,
         world_state_view: &WorldStateView,
@@ -219,11 +223,29 @@ impl AcceptedTransaction {
                 })
                 .map_err(TransactionRejectionReason::InstructionExecution)?;
 
+            // Permission validation is skipped for genesis.
             if !is_genesis {
-                permissions_validator
-                    .check_instruction(&account_id, instruction, world_state_view)
-                    .map_err(|reason| NotPermittedFail { reason })
-                    .map_err(TransactionRejectionReason::NotPermitted)?;
+                #[cfg(feature = "roles")]
+                {
+                    let instructions = permissions::unpack_if_role_grant(
+                            instruction.clone(),
+                            world_state_view,
+                        )
+                        .expect("Unreachable as evalutions should have been checked previously by instruction executions.");
+                    for instruction in &instructions {
+                        permissions_validator
+                            .check_instruction(&account_id, instruction, world_state_view)
+                            .map_err(|reason| NotPermittedFail { reason })
+                            .map_err(TransactionRejectionReason::NotPermitted)?;
+                    }
+                }
+                #[cfg(not(feature = "roles"))]
+                {
+                    permissions_validator
+                        .check_instruction(&account_id, instruction, world_state_view)
+                        .map_err(|reason| NotPermittedFail { reason })
+                        .map_err(TransactionRejectionReason::NotPermitted)?;
+                }
             }
         }
 

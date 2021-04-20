@@ -45,6 +45,10 @@ pub enum FindError {
     /// Failed to find metadata key
     #[error("Failed to find metadata key")]
     MetadataKey(Name),
+    /// Failed to find Role by id.
+    #[cfg(feature = "roles")]
+    #[error("Failed to find role by id")]
+    Role(RoleId),
 }
 
 /// Type assertion error
@@ -371,11 +375,17 @@ impl Execute for GrantBox {
         world_state_view: &mut WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        match self.destination_id.evaluate(world_state_view, &context)? {
-            IdBox::AccountId(account_id) => {
-                let permission_token =
-                    self.permission_token.evaluate(world_state_view, &context)?;
+        match (
+            self.destination_id.evaluate(world_state_view, &context)?,
+            self.object.evaluate(world_state_view, &context)?,
+        ) {
+            (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
                 Grant::<Account, PermissionToken>::new(permission_token, account_id)
+                    .execute(authority, world_state_view)
+            }
+            #[cfg(feature = "roles")]
+            (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
+                Grant::<Account, RoleId>::new(role_id, account_id)
                     .execute(authority, world_state_view)
             }
             _ => Err(error!("Unsupported instruction.").into()),

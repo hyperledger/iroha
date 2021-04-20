@@ -13,6 +13,7 @@ use iroha::{
     prelude::*,
 };
 use iroha_data_model::{isi::*, prelude::*};
+use iroha_macro::error::ErrorTryFromEnum;
 
 macro_rules! impl_from_item_for_validator_box {
     ( $ty:ty ) => {
@@ -391,11 +392,13 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                if permission_token.name != transfer::CAN_TRANSFER_USER_ASSETS_TOKEN {
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+                if permission_token.name != CAN_TRANSFER_USER_ASSETS_TOKEN {
                     return Err("Grant instruction is not for transfer permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)
@@ -501,10 +504,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION {
                     return Err("Grant instruction is not for unregister permission.".to_owned());
                 }
@@ -612,10 +617,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN {
                     return Err("Grant instruction is not for mint permission.".to_owned());
                 }
@@ -721,10 +728,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_BURN_ASSET_WITH_DEFINITION {
                     return Err("Grant instruction is not for burn permission.".to_owned());
                 }
@@ -810,10 +819,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_BURN_USER_ASSETS_TOKEN {
                     return Err("Grant instruction is not for burn permission.".to_owned());
                 }
@@ -922,10 +933,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN {
                     return Err("Grant instruction is not for set permission.".to_owned());
                 }
@@ -1016,10 +1029,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_SET_KEY_VALUE_IN_USER_METADATA {
                     return Err("Grant instruction is not for set permission.".to_owned());
                 }
@@ -1109,10 +1124,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS {
                     return Err("Grant instruction is not for set permission.".to_owned());
                 }
@@ -1203,10 +1220,12 @@ pub mod public_blockchain {
                 instruction: &GrantBox,
                 wsv: &WorldStateView,
             ) -> Result<(), DenialReason> {
-                let permission_token = instruction
-                    .permission_token
+                let permission_token: PermissionToken = instruction
+                    .object
                     .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
                 if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_METADATA {
                     return Err("Grant instruction is not for remove permission.".to_owned());
                 }
@@ -1254,7 +1273,7 @@ pub mod public_blockchain {
             let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
             let mut domain = Domain::new("test");
             let mut bob_account = Account::new(bob_id.clone());
-            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+            let _ = bob_account.insert_permission_token(PermissionToken::new(
                 transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
                 btreemap! {
                     ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.clone().into(),
@@ -1295,7 +1314,7 @@ pub mod public_blockchain {
             );
             let wsv = WorldStateView::new(World::new());
             let grant = Instruction::Grant(GrantBox {
-                permission_token: permission_token_to_alice.into(),
+                object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: PermissionsValidatorBox = transfer::GrantMyAssetAccess.into();
@@ -1342,7 +1361,7 @@ pub mod public_blockchain {
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let mut domain = Domain::new("test");
             let mut bob_account = Account::new(bob_id.clone());
-            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+            let _ = bob_account.insert_permission_token(PermissionToken::new(
                 unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
                 btreemap! {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
@@ -1391,7 +1410,7 @@ pub mod public_blockchain {
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
-                permission_token: permission_token_to_alice.into(),
+                object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: PermissionsValidatorBox = unregister::GrantRegisteredByMeAccess.into();
@@ -1444,7 +1463,7 @@ pub mod public_blockchain {
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let mut domain = Domain::new("test");
             let mut bob_account = Account::new(bob_id.clone());
-            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+            let _ = bob_account.insert_permission_token(PermissionToken::new(
                 mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
                 btreemap! {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
@@ -1496,7 +1515,7 @@ pub mod public_blockchain {
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
-                permission_token: permission_token_to_alice.into(),
+                object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: PermissionsValidatorBox = mint::GrantRegisteredByMeAccess.into();
@@ -1549,7 +1568,7 @@ pub mod public_blockchain {
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
             let mut domain = Domain::new("test");
             let mut bob_account = Account::new(bob_id.clone());
-            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+            let _ = bob_account.insert_permission_token(PermissionToken::new(
                 burn::CAN_BURN_ASSET_WITH_DEFINITION,
                 btreemap! {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
@@ -1601,7 +1620,7 @@ pub mod public_blockchain {
             };
             let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
-                permission_token: permission_token_to_alice.into(),
+                object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: PermissionsValidatorBox = burn::GrantRegisteredByMeAccess.into();
@@ -1636,7 +1655,7 @@ pub mod public_blockchain {
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let mut domain = Domain::new("test");
             let mut bob_account = Account::new(bob_id.clone());
-            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+            let _ = bob_account.insert_permission_token(PermissionToken::new(
                 burn::CAN_BURN_USER_ASSETS_TOKEN,
                 btreemap! {
                     ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.clone().into(),
@@ -1674,7 +1693,7 @@ pub mod public_blockchain {
             );
             let wsv = WorldStateView::new(World::new());
             let grant = Instruction::Grant(GrantBox {
-                permission_token: permission_token_to_alice.into(),
+                object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: PermissionsValidatorBox = burn::GrantMyAssetAccess.into();

@@ -1838,6 +1838,7 @@ version = "0.1.0"
 dependencies = [
  "iroha",
  "iroha_data_model",
+ "iroha_macro",
  "maplit",
 ]
 
