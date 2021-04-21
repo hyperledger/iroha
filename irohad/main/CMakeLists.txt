@@ -35,9 +35,13 @@ target_link_libraries(pg_connection_init
     logger
     )
 
-add_library(subscription impl/subscription.cpp)
-target_link_libraries(subscription
-    )
+add_library(async_subscription
+    impl/subscription.cpp
+    impl/async_dispatcher.cpp)
+
+add_library(sync_subscription
+    impl/subscription.cpp
+    impl/sync_dispatcher.cpp)
 
 add_library(pending_txs_storage_init impl/pending_transaction_storage_init.cpp)
 target_link_libraries(pending_txs_storage_init
@@ -87,7 +91,7 @@ target_link_libraries(application
     common
     pg_connection_init
     generator
-    subscription
+    async_subscription
     )
 
 add_executable(irohad irohad.cpp)
@@ -106,7 +110,7 @@ target_link_libraries(irohad
     logger_manager
     irohad_version
     pg_connection_init
-    subscription
+    async_subscription
     maintenance
     )
 
