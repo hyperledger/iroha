@@ -31,7 +31,7 @@ FROM $BASE_IMAGE
 RUN set -ex; \
     apt-get update  -yq; \
     apt-get install -y --no-install-recommends pkg-config apt-utils; \
-    apt-get install -y --no-install-recommends ca-certificates libssl-dev; \
+    apt-get install -y --no-install-recommends ca-certificates libssl1.1; \
     rm -rf /var/lib/apt/lists/*
 COPY iroha/config.json .
 COPY iroha/trusted_peers.json .
