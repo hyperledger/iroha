@@ -11,85 +11,110 @@ env:
     iroha/target
     iroha_client/target
 jobs:
-  check:
+  coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Print all info
-        run: |
-          cargo version
-          lscpu
-          free -h
-      - name: Install cargo-lints
-        run: cargo install --debug --git https://github.com/i1i1/cargo-lints
-      - name: Install nightly for rustfmt
-        run: rustup install --profile default nightly-2021-03-24
-      - name: Format check
-        run: cargo +nightly-2021-03-24 fmt --all --verbose -- --check
-      - name: Static analysis without features
-        run: cargo lints clippy --all --benches --tests
-      - name: Static analysis with all features enabled
-        run: cargo lints clippy --all --benches --tests --all-features
-      - name: Documentation check
-        run: |
-          cargo doc --no-deps --verbose
-          ./scripts/check_docs.sh
-      - name: Archive documentation
-        uses: actions/upload-artifact@v1
-        with:
-          name: cargo-doc
-          path: target/doc
+    - uses: actions/checkout@v2
+    - name: Set nightly toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly-2021-02-20
+        override: true
+    - name: Cargo clean
+      uses: actions-rs/cargo@v1
+      with:
+        command: clean
+    - name: Remove limit for opened files
+      run:  echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+    - name: Cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --workspace
+      env:
+        CARGO_INCREMENTAL: '0'
+        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests'
+        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort'
 
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Remove limit for opened files
-        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
-      - name: Run tests
-        run: cargo test --workspace --verbose
-
-  test-iroha_network-mock:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Remove limit for opened files
-        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
-      - name: Run iroha_network mock tests
-        run: cd ./iroha_network && cargo test --features mock --verbose
-      - name: Run iroha tests with network mock
-        run: cd ./iroha && cargo test --features network-mock --verbose
-  test-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Build Client CLI
-        run: cargo build --verbose
-        working-directory: iroha_client_cli
-      - name: Setup docker test environment
-        run: ./scripts/setup_docker_test_env.sh
-      - name: Docker compose genesis test
-        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Docker compose test
-        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Cleanup docker test environment
-        run: ./scripts/cleanup_docker_test_env.sh
+#  check:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#      - uses: actions/cache@v2
+#        with:
+#          path: ${{ env.CACHE_PATHS }}
+#          key: ${{ hashFiles('Cargo.toml') }}
+#      - name: Print all info
+#        run: |
+#          cargo version
+#          lscpu
+#          free -h
+#      - name: Install cargo-lints
+#        run: cargo install --debug --git https://github.com/i1i1/cargo-lints
+#      - name: Install nightly for rustfmt
+#        run: rustup install --profile default nightly-2021-03-24
+#      - name: Format check
+#        run: cargo +nightly-2021-03-24 fmt --all --verbose -- --check
+#      - name: Static analysis without features
+#        run: cargo lints clippy --all --benches --tests
+#      - name: Static analysis with all features enabled
+#        run: cargo lints clippy --all --benches --tests --all-features
+#      - name: Documentation check
+#        run: |
+#          cargo doc --no-deps --verbose
+#          ./scripts/check_docs.sh
+#      - name: Archive documentation
+#        uses: actions/upload-artifact@v1
+#        with:
+#          name: cargo-doc
+#          path: target/doc
+# 
+#  test:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#      - uses: actions/cache@v2
+#        with:
+#          path: ${{ env.CACHE_PATHS }}
+#          key: ${{ hashFiles('Cargo.toml') }}
+#      - name: Remove limit for opened files
+#        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+#      - name: Run tests
+#        run: cargo test --workspace --verbose
+# 
+#  test-iroha_network-mock:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#      - uses: actions/cache@v2
+#        with:
+#          path: ${{ env.CACHE_PATHS }}
+#          key: ${{ hashFiles('Cargo.toml') }}
+#      - name: Remove limit for opened files
+#        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+#      - name: Run iroha_network mock tests
+#        run: cd ./iroha_network && cargo test --features mock --verbose
+#      - name: Run iroha tests with network mock
+#        run: cd ./iroha && cargo test --features network-mock --verbose
+#  test-docker:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#      - uses: actions/cache@v2
+#        with:
+#          path: ${{ env.CACHE_PATHS }}
+#          key: ${{ hashFiles('Cargo.toml') }}
+#      - name: Build Client CLI
+#        run: cargo build --verbose
+#        working-directory: iroha_client_cli
+#      - name: Setup docker test environment
+#        run: ./scripts/setup_docker_test_env.sh
+#      - name: Docker compose genesis test
+#        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
+#      - name: Docker compose test
+#        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
+#      - name: Cleanup docker test environment
+#        run: ./scripts/cleanup_docker_test_env.sh
 # test-api:
 #   runs-on: ubuntu-latest
 #   steps:
