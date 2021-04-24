@@ -43,3 +43,4 @@ cmake-build*
 /.gtm/
 
 *.deb
+\#*
