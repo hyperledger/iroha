@@ -44,3 +44,4 @@ cmake-build*
 
 *.deb
 \#*
+/test_docker
