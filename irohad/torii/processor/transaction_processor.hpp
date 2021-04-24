@@ -10,11 +10,16 @@
 
 namespace shared_model {
   namespace interface {
+    class Block;
     class TransactionBatch;
   }  // namespace interface
 }  // namespace shared_model
 
 namespace iroha {
+  class MstState;
+  namespace simulator {
+    struct VerifiedProposalCreatorEvent;
+  }
   namespace torii {
     /**
      * Transaction processor is interface with start point
@@ -29,6 +34,24 @@ namespace iroha {
       virtual void batchHandle(
           std::shared_ptr<shared_model::interface::TransactionBatch>
               transaction_batch) const = 0;
+
+      virtual void processVerifiedProposalCreatorEvent(
+          simulator::VerifiedProposalCreatorEvent const &event) = 0;
+
+      virtual void processCommit(
+          std::shared_ptr<shared_model::interface::Block const> const
+              &block) = 0;
+
+      virtual void processStateUpdate(
+          std::shared_ptr<MstState> const &state) = 0;
+
+      virtual void processPreparedBatch(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) = 0;
+
+      virtual void processExpiredBatch(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) = 0;
 
       virtual ~TransactionProcessor() = default;
     };

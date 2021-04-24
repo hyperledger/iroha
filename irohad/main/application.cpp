@@ -855,8 +855,49 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       mst_processor,
       status_bus_,
       status_factory,
-      storage->on_commit(),
       command_service_log_manager->getChild("Processor")->getLogger());
+  pcs->onVerifiedProposal().subscribe(
+      tx_processor_lifetime_,
+      [tx_processor_ = std::weak_ptr(tx_processor)](
+          VerifiedProposalCreatorEvent const &event) {
+        if (auto tx_processor = tx_processor_.lock()) {
+          tx_processor->processVerifiedProposalCreatorEvent(event);
+        }
+      });
+  storage->on_commit().subscribe(
+      tx_processor_lifetime_,
+      [tx_processor_ = std::weak_ptr(tx_processor)](
+          std::shared_ptr<shared_model::interface::Block const> const &block) {
+        if (auto tx_processor = tx_processor_.lock()) {
+          tx_processor->processCommit(block);
+        }
+      });
+  mst_processor->onStateUpdate().subscribe(
+      tx_processor_lifetime_,
+      [tx_processor_ = std::weak_ptr(tx_processor)](
+          std::shared_ptr<MstState> const &state) {
+        if (auto tx_processor = tx_processor_.lock()) {
+          tx_processor->processStateUpdate(state);
+        }
+      });
+  mst_processor->onPreparedBatches().subscribe(
+      tx_processor_lifetime_,
+      [tx_processor_ = std::weak_ptr(tx_processor)](
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) {
+        if (auto tx_processor = tx_processor_.lock()) {
+          tx_processor->processPreparedBatch(batch);
+        }
+      });
+  mst_processor->onExpiredBatches().subscribe(
+      tx_processor_lifetime_,
+      [tx_processor_ = std::weak_ptr(tx_processor)](
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) {
+        if (auto tx_processor = tx_processor_.lock()) {
+          tx_processor->processExpiredBatch(batch);
+        }
+      });
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
       storage,
