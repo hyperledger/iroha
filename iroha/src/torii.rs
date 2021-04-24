@@ -259,8 +259,8 @@ async fn handle_health(
     _path_params: PathParams,
     _query_params: QueryParams,
     _request: HttpRequest,
-) -> Result<HttpResponse> {
-    Ok(HttpResponse::ok(Headers::new(), Health::Healthy.into()))
+) -> Json<Health> {
+    Json(Health::Healthy)
 }
 
 async fn handle_pending_transactions_on_leader(
