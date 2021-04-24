@@ -2,8 +2,7 @@ version: "3.3"
 services:
   iroha:
     build:
-      context: ./
-      dockerfile: Dockerfile.debug
+      context: .
     image: iroha:debug
     environment:
       TORII_P2P_URL: iroha:1337
