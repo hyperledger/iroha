@@ -32,9 +32,7 @@ Paste these values into `docker-compose.yml` environment variables for the first
 version: "3.3"
 services:
   iroha:
-    build:
-      context: ./
-      dockerfile: Dockerfile.debug
+    build: .
     image: iroha:debug
     environment:
       TORII_URL: iroha:1337
