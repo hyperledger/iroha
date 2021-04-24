@@ -5,6 +5,7 @@ use async_std::task;
 use iroha_derive::Io;
 use iroha_error::Result;
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use crate::config::Configuration;
 
@@ -36,7 +37,7 @@ impl System {
 
 /// `Health` enumerates different variants of Iroha `Peer` states.
 /// Each variant can provide additional information if needed.
-#[derive(Copy, Clone, Debug, Io, Encode, Decode)]
+#[derive(Copy, Clone, Debug, Io, Encode, Decode, Deserialize, Serialize)]
 pub enum Health {
     /// `Healthy` variant means that `Peer` has finished initial setup.
     Healthy,

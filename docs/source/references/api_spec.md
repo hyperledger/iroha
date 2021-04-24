@@ -76,7 +76,7 @@ Server sends `Event` and expects `EventReceived` after each, before sending the 
 
 **Encoding**: Json
 
-**Endpoint**: `/configuration`
+**Endpoint**: `/configure`
 
 **Method**: `GET` or `PUT`
 
@@ -100,7 +100,7 @@ Json body with fields "field" (array of strings) and "value" which can be anythi
 
 **Protocol**: HTTP
 
-**Encoding**: Parity Scale Codec
+**Encoding**: Json
 
 **Endpoint**: `/health`
 
@@ -110,6 +110,10 @@ Json body with fields "field" (array of strings) and "value" which can be anythi
 
 **Responses**:
 - 200 OK - The peer is up.
+Also returns current status of peer in json string:
+```
+"Healthy"
+```
 
 ## Parity Scale Codec
 
