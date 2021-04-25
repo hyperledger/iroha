@@ -8,63 +8,13 @@
 
 #include <memory>
 
+#include "main/subscription_fwd.hpp"
+
 #include "subscription/common.hpp"
 #include "subscription/subscriber_impl.hpp"
 #include "subscription/subscription_manager.hpp"
 
 namespace iroha {
-  enum SubscriptionEngineHandlers {
-    kYac = 0,
-    kRequestProposal,
-    kVoteProcess,
-    //---------------
-    kTotalCount
-  };
-
-  enum EventTypes {
-    kOnOutcome = 0,
-    kOnSynchronization,
-    kOnInitialSynchronization,
-    kOnCurrentRoundPeers,
-    kOnRoundSwitch,
-    kOnProposal,
-    kOnVerifiedProposal,
-    kOnProcessedHashes,
-    kOnOutcomeFromYac,
-    kOnOutcomeDelayed,
-    kOnBlock,
-    kOnInitialBlock,
-    kOnBlockCreatorEvent,
-    kOnFinalizedTxs,
-    kOnApplyState,
-    kOnNeedProposal,
-    kOnNewProposal,
-
-    // MST
-    kOnStateUpdate,
-    kOnPreparedBatches,
-    kOnExpiredBatches,
-
-    // YAC
-    kTimer,
-
-    // TEST
-    kOnTestOperationComplete
-  };
-
-  static constexpr uint32_t kThreadPoolSize = 3u;
-
-  using Dispatcher = subscription::IDispatcher;
-  using Subscription =
-      subscription::SubscriptionManager<SubscriptionEngineHandlers::kTotalCount,
-                                        kThreadPoolSize>;
-  template <typename ObjectType, typename... EventData>
-  using BaseSubscriber =
-      subscription::SubscriberImpl<EventTypes,
-                                   typename Subscription::Dispatcher,
-                                   ObjectType,
-                                   EventData...>;
-
   std::shared_ptr<Dispatcher> getDispatcher();
   std::shared_ptr<Subscription> getSubscription();
 
@@ -73,7 +23,7 @@ namespace iroha {
     template <EventTypes key, typename F, typename... Args>
     static auto create(SubscriptionEngineHandlers tid,
                        F &&callback,
-                       Args &&... args) {
+                       Args &&...args) {
       auto subscriber = BaseSubscriber<ObjectType, EventData>::create(
           getSubscription()->getEngine<EventTypes, EventData>(),
           std::forward<Args>(args)...);

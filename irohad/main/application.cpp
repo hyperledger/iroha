@@ -37,6 +37,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
@@ -128,7 +129,8 @@ Irohad::Irohad(
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
-      log_(log_manager_->getLogger()) {
+      log_(log_manager_->getLogger()),
+      subscription_engine_(getSubscription()) {
   log_->info("created");
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
@@ -154,6 +156,7 @@ Irohad::~Irohad() {
   }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
+  subscription_engine_->dispose();
 }
 
 /**
@@ -1018,6 +1021,7 @@ Irohad::RunResult Irohad::run() {
             SynchronizationOutcomeType::kCommit,
             {block_height, ordering::kFirstRejectRound},
             *initial_ledger_state});
+
     return {};
   };
 }
