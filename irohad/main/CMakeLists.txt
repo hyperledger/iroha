@@ -110,7 +110,6 @@ target_link_libraries(irohad
     logger_manager
     irohad_version
     pg_connection_init
-    async_subscription
     maintenance
     )
 

@@ -21,6 +21,7 @@
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
+#include "main/subscription_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
@@ -370,6 +371,8 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
+
+  std::shared_ptr<iroha::Subscription> subscription_engine_;
 };
 
 #endif  // IROHA_APPLICATION_HPP
