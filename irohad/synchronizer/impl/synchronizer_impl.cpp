@@ -7,7 +7,6 @@
 
 #include <utility>
 
-#include <rxcpp/operators/rx-tap.hpp>
 #include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/mutable_storage.hpp"
@@ -112,16 +111,17 @@ namespace iroha {
               my_height, PublicKeyHexStringView{public_key});
 
           if (hasValue(retrieve_blocks_result)) {
-            auto network_chain_with_updates =
-                retrieve_blocks_result.assumeValue().tap(
-                    [&my_height, &got_some_blocks_from_this_peer](
-                        const std::shared_ptr<shared_model::interface::Block>
-                            &block) {
-                      got_some_blocks_from_this_peer = true;
-                      my_height = block->height();
-                    });
-            if (validator_->validateAndApply(network_chain_with_updates,
-                                             *storage)) {
+            auto blocks = retrieve_blocks_result.assumeValue();
+            bool result = false;
+            for (auto &block : blocks) {
+              if ((result = validator_->validateAndApply(block, *storage))) {
+                got_some_blocks_from_this_peer = true;
+                my_height = block->height();
+              } else {
+                break;
+              }
+            }
+            if (result) {
               if (my_height >= target_height) {
                 return mutable_factory_->commit(std::move(storage));
               }
@@ -132,7 +132,7 @@ namespace iroha {
               }
             } else {
               // last block did not apply - need to ask it again from other peer
-              my_height = std::max(my_height - 1, start_height);
+              my_height = std::max(my_height, start_height);
               break;
             }
           } else {

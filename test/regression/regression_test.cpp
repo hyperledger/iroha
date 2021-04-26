@@ -222,7 +222,7 @@ TEST(RegressionTest, PoisonedBlock) {
       ADD_FAILURE() << "No exception thrown";
     } catch (std::runtime_error const &e) {
       using ::testing::HasSubstr;
-      EXPECT_THAT(e.what(), HasSubstr("Cannot validate and apply blocks"));
+      EXPECT_THAT(e.what(), HasSubstr("Bad signature"));
     } catch (...) {
       ADD_FAILURE() << "Unexpected exception thrown";
     }

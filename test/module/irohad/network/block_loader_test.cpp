@@ -15,7 +15,6 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
@@ -33,7 +32,6 @@ using namespace std::literals;
 using namespace iroha::network;
 using namespace iroha::ametsuchi;
 using namespace framework::expected;
-using namespace framework::test_subscriber;
 using namespace shared_model::crypto;
 using namespace shared_model::interface::types;
 using namespace shared_model::validation;
@@ -154,10 +152,12 @@ TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
   auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
-  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 0);
-  wrapper.subscribe();
-
-  ASSERT_TRUE(wrapper.validate());
+  size_t count = 0;
+  for (auto &block : retrieved_blocks) {
+    (void)block;
+    ++count;
+  }
+  ASSERT_EQ(0, count);
 }
 
 /**
@@ -189,10 +189,12 @@ TEST_F(BlockLoaderTest, ValidWhenOneBlock) {
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(top_block)))));
   auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
-  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 1);
-  wrapper.subscribe([&top_block](auto block) { ASSERT_EQ(*block, top_block); });
-
-  ASSERT_TRUE(wrapper.validate());
+  size_t count = 0;
+  for (auto &block : retrieved_blocks) {
+    ++count;
+    ASSERT_EQ(*block, top_block);
+  }
+  ASSERT_EQ(1, count);
 }
 
 /**
@@ -229,12 +231,13 @@ TEST_F(BlockLoaderTest, ValidWhenMultipleBlocks) {
 
   setPeerQuery();
   auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
-  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, num_blocks);
+  size_t count = 0;
   auto height = next_height;
-  wrapper.subscribe(
-      [&height](auto block) { ASSERT_EQ(block->height(), height++); });
-
-  ASSERT_TRUE(wrapper.validate());
+  for (auto &block : retrieved_blocks) {
+    ++count;
+    ASSERT_EQ(block->height(), height++);
+  }
+  ASSERT_EQ(num_blocks, count);
 }
 
 MATCHER_P(RefAndPointerEq, arg1, "") {
