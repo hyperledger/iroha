@@ -744,6 +744,9 @@ class PreparedBlockTest : public AmetsuchiTest {
  public:
   void SetUp() override {
     AmetsuchiTest::SetUp();
+    if (not prepared_blocks_enabled) {
+      GTEST_SKIP();
+    }
     genesis_block = createBlock({getGenesisTx()});
     initial_tx = clone(createAddAsset("5.00"));
     apply(storage, genesis_block);
