@@ -8,7 +8,6 @@ use std::{
 
 use async_std::{
     fs::{metadata, File},
-    prelude::*,
 };
 use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
@@ -67,7 +66,7 @@ impl Kura {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 //TODO: shouldn't we add block hash to merkle tree here?
-                self.block_sender.send(block).await;
+                self.block_sender.send(block).await?;
                 Ok(hash)
             }
             Err(error) => {
@@ -121,6 +120,8 @@ impl BlockStore {
     }
 
     async fn write(&self, block: &VersionedCommittedBlock) -> Result<Hash> {
+		use futures::AsyncWriteExt;
+
         //filename is its height
         let path = self.get_block_path(block.header().height);
         let mut file = File::create(path)
@@ -135,6 +136,8 @@ impl BlockStore {
     }
 
     async fn read(&self, height: u64) -> Result<VersionedCommittedBlock> {
+		use async_std::io::ReadExt;
+
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.wrap_err("No file found.")?;
         let metadata = metadata(&path).await.wrap_err("Unable to read metadata.")?;
@@ -212,7 +215,7 @@ pub mod config {
 mod tests {
     #![allow(clippy::cast_possible_truncation, clippy::restriction)]
 
-    use async_std::sync;
+    use async_std::channel;
     use iroha_crypto::KeyPair;
     use iroha_data_model::prelude::*;
     use tempfile::TempDir;
@@ -222,7 +225,7 @@ mod tests {
     #[async_std::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let (tx, _rx) = sync::channel(100);
+        let (tx, _rx) = channel::bounded(100);
         assert!(Kura::new(Mode::Strict, temp_dir.path(), tx)
             .unwrap()
             .init()
@@ -309,7 +312,7 @@ mod tests {
             .expect("Failed to sign blocks.")
             .commit();
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = sync::channel(100);
+        let (tx, _rx) = channel::bounded(100);
         let mut kura = Kura::new(Mode::Strict, dir.path(), tx).unwrap();
         drop(kura.init().await.expect("Failed to init Kura."));
         let _ = kura

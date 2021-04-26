@@ -51,7 +51,7 @@ pub fn impl_fmt(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         if field {
             quote! {
                 Self:: #variant (inner) => {
-                    write!(f, "{}. Caused by: {}", #fmt, inner) 
+                    write!(f, "{}", #fmt) 
                 }
             }
         } else {

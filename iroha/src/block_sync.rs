@@ -5,6 +5,7 @@ use std::{sync::Arc, time::Duration};
 use async_std::{sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_logger::{log, InstrumentFutures};
+use iroha_error::Result;
 
 use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
@@ -89,7 +90,9 @@ impl BlockSynchronizer {
     }
 
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.
-    pub async fn continue_sync(&mut self) {
+	/// # Errors
+	/// Fails if commiting of block fails
+    pub async fn continue_sync(&mut self) -> Result<()> {
         if let State::InProgress(blocks, peer_id) = self.state.clone() {
             iroha_logger::info!(
                 "Synchronizing blocks, {} blocks left in this batch.",
@@ -123,7 +126,7 @@ impl BlockSynchronizer {
                         .write()
                         .await
                         .commit_block(block.clone().into())
-                        .await;
+                        .await?;
                 } else {
                     self.state = State::Idle;
                 }
@@ -140,6 +143,7 @@ impl BlockSynchronizer {
                 }
             }
         }
+		Ok(())
     }
 }
 
@@ -197,7 +201,9 @@ pub mod message {
 
     impl Message {
         /// Handles the incoming message.
-        pub async fn handle(&self, block_sync: &mut BlockSynchronizer) {
+		/// # Errors
+		/// Fails if fails sending message to `block_sync`
+        pub async fn handle(&self, block_sync: &mut BlockSynchronizer) -> Result<()> {
             match self {
                 Message::LatestBlock(hash, peer) => {
                     let latest_block_hash = block_sync.wsv.latest_block_hash().await;
@@ -216,7 +222,7 @@ pub mod message {
                         iroha_logger::warn!(
                             "Error: not sending any blocks as batch_size is equal to zero."
                         );
-                        return;
+                        return Ok(());
                     }
 
                     if let Some(blocks) = block_sync.wsv.blocks_after(*hash).await {
@@ -243,10 +249,11 @@ pub mod message {
                 Message::ShareBlocks(blocks, peer_id) => {
                     if let State::Idle = block_sync.state.clone() {
                         block_sync.state = State::InProgress(blocks.clone(), peer_id.clone());
-                        block_sync.continue_sync().await;
+                        block_sync.continue_sync().await?;
                     }
                 }
             }
+			Ok(())
         }
 
         /// Send this message over the network to the specified `peer`.

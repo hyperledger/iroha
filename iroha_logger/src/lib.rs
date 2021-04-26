@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use async_std::sync::Receiver;
+use async_std::channel::Receiver;
 use layer::LevelFilter;
 use once_cell::sync::Lazy;
 use telemetry::{Telemetry, TelemetryLayer};

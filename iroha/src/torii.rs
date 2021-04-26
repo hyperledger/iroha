@@ -3,11 +3,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use async_std::{
-    prelude::*,
-    sync::{Receiver, RwLock},
-    task,
-};
+use async_std::{prelude::*, sync::RwLock, task, channel::{self, Receiver}};
 use config::ToriiConfiguration;
 use iroha_config::derive::Error as ConfigError;
 use iroha_config::Configurable;
@@ -77,6 +73,9 @@ pub enum Error {
     /// Error while getting or setting configuration
     #[error("Configuration error")]
     Config(#[source] ConfigError),
+	/// Failed to send accpeted transaction to channel
+    #[error("Failed to send accpeted transaction to channel")]
+	SendAcceptedTx(#[source] channel::SendError<VersionedAcceptedTransaction>),
 }
 
 impl iroha_http_server::http::HttpResponseError for Error {
@@ -87,7 +86,8 @@ impl iroha_http_server::http::HttpResponseError for Error {
             ExecuteQuery(_)
             | RequestPendingTransactions(_)
             | DecodeRequestPendingTransactions(_)
-            | EncodePendingTransactions(_) => {
+            | EncodePendingTransactions(_) 
+			| SendAcceptedTx(_) => {
                 iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR
             }
             TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) => {
@@ -246,7 +246,8 @@ async fn handle_instructions(
         .await
         .transaction_sender
         .send(transaction)
-        .await;
+        .await
+		.map_err(Error::SendAcceptedTx)?;
     Ok(())
 }
 
@@ -459,7 +460,7 @@ async fn handle_request(
                 .await
                 .sumeragi_message_sender
                 .send(message)
-                .await;
+                .await?;
             Ok(Response::empty_ok())
         }
         uri::BLOCK_SYNC_URI => {
@@ -476,7 +477,7 @@ async fn handle_request(
                 .await
                 .block_sync_message_sender
                 .send(message)
-                .await;
+                .await?;
             Ok(Response::empty_ok())
         }
         uri::HEALTH_URI => Ok(Response::empty_ok()),
@@ -574,7 +575,7 @@ mod tests {
 
     use std::{convert::TryInto, time::Duration};
 
-    use async_std::{future, sync};
+    use async_std::{future, channel};
     use futures::future::FutureExt;
     use iroha_data_model::account::Id;
 
@@ -593,11 +594,11 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        let (tx_tx, _) = sync::channel(100);
-        let (sumeragi_message_sender, _) = sync::channel(100);
-        let (block_sync_message_sender, _) = sync::channel(100);
-        let (block_sender, _) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
+        let (tx_tx, _) = channel::bounded(100);
+        let (sumeragi_message_sender, _) = channel::bounded(100);
+        let (block_sync_message_sender, _) = channel::bounded(100);
+        let (block_sender, _) = channel::bounded(100);
+        let (events_sender, events_receiver) = channel::bounded(100);
         let queue = Queue::from_configuration(&config.queue_configuration);
         let wsv = Arc::new(WorldStateView::new(World::with(
             ('a'..'z')

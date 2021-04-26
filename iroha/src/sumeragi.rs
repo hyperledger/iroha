@@ -316,10 +316,10 @@ impl Sumeragi {
             block.hash(),
         );
         for event in Vec::<Event>::from(&block.clone()) {
-            self.events_sender.send(event).await;
+            self.events_sender.send(event).await?;
         }
         if !network_topology.is_consensus_required() {
-            self.commit_block(block).await;
+            self.commit_block(block).await?;
             return Ok(());
         }
 
@@ -407,7 +407,7 @@ impl Sumeragi {
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
     #[iroha_logger::log(skip(self, block))]
-    pub async fn commit_block(&mut self, block: VersionedValidBlock) {
+    pub async fn commit_block(&mut self, block: VersionedValidBlock) -> Result<()> {
         let block_hash = block.hash();
         self.latest_block_hash = block_hash;
         self.invalidated_blocks_hashes.clear();
@@ -416,10 +416,10 @@ impl Sumeragi {
         self.block_height = block.header().height;
 
         for event in Vec::<Event>::from(&block.clone().commit()) {
-            self.events_sender.send(event).await;
+            self.events_sender.send(event).await?;
         }
 
-        self.blocks_sender.send(block.commit()).await;
+        self.blocks_sender.send(block.commit()).await?;
 
         let previous_role = self.network_topology.role(&self.peer_id);
         self.network_topology
@@ -434,6 +434,7 @@ impl Sumeragi {
         *self.voting_block.write().await = None;
         self.number_of_view_changes = 0;
         self.votes_for_blocks.clear();
+		Ok(())
     }
 
     async fn change_view(&mut self) {
@@ -945,7 +946,7 @@ pub mod message {
                 return Ok(());
             }
             for event in Vec::<Event>::from(&self.block.clone()) {
-                sumeragi.events_sender.send(event).await;
+                sumeragi.events_sender.send(event).await?;
             }
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             if network_topology
@@ -1102,7 +1103,7 @@ pub mod message {
                             )
                         });
                     sumeragi.votes_for_blocks.clear();
-                    sumeragi.commit_block(block).await;
+                    sumeragi.commit_block(block).await?;
                 }
             }
             Ok(())
@@ -1144,7 +1145,7 @@ pub mod message {
                 let mut block = self.block.clone();
                 block.as_mut_inner_v1().signatures.clear();
                 block.as_mut_inner_v1().signatures.append(&valid_signatures);
-                sumeragi.commit_block(block).await;
+                sumeragi.commit_block(block).await?;
             }
             Ok(())
         }
@@ -1438,7 +1439,7 @@ pub mod message {
             sumeragi
                 .transactions_sender
                 .send(self.transaction.clone())
-                .await;
+                .await?;
             Ok(())
         }
     }
@@ -1815,7 +1816,7 @@ mod tests {
     use {
         super::Role,
         crate::{config::Configuration, maintenance::System, queue::Queue, torii::Torii},
-        async_std::{prelude::*, sync, task},
+        async_std::{prelude::*, channel, task},
         network::*,
         std::collections::HashMap,
         std::time::Duration,
@@ -1997,12 +1998,12 @@ mod tests {
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = sync::channel(100);
-            let (transactions_sender, _transactions_receiver) = sync::channel(100);
-            let (tx, _rx) = sync::channel(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
-            let (block_sync_message_sender, _) = sync::channel(100);
-            let (events_sender, events_receiver) = sync::channel(100);
+            let (block_sender, mut block_receiver) = channel::bounded(100);
+            let (transactions_sender, _transactions_receiver) = channel::bounded(100);
+            let (tx, _rx) = channel::bounded(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
+            let (block_sync_message_sender, _) = channel::bounded(100);
+            let (events_sender, events_receiver) = channel::bounded(100);
             let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             )));
@@ -2020,7 +2021,7 @@ mod tests {
                     &config.sumeragi_configuration,
                     block_sender,
                     events_sender.clone(),
-                    wsv.clone(),
+                    Arc::clone(&wsv),
                     transactions_sender,
                     AllowAll.into(),
                 )
@@ -2031,7 +2032,7 @@ mod tests {
             )));
             let mut torii = Torii::from_configuration(
                 config.torii_configuration.clone(),
-                wsv.clone(),
+				Arc::clone(&wsv),
                 tx,
                 sumeragi_message_sender,
                 block_sync_message_sender,
@@ -2126,12 +2127,12 @@ mod tests {
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         let ids_set: HashSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = sync::channel(100);
-            let (tx, _rx) = sync::channel(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
-            let (block_sync_message_sender, _) = sync::channel(100);
-            let (transactions_sender, _transactions_receiver) = sync::channel(100);
-            let (events_sender, events_receiver) = sync::channel(100);
+            let (block_sender, mut block_receiver) = channel::bounded(100);
+            let (tx, _rx) = channel::bounded(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
+            let (block_sync_message_sender, _) = channel::bounded(100);
+            let (transactions_sender, _transactions_receiver) = channel::bounded(100);
+            let (events_sender, events_receiver) = channel::bounded(100);
             let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             )));
@@ -2149,7 +2150,7 @@ mod tests {
                     &config.sumeragi_configuration,
                     block_sender,
                     events_sender.clone(),
-                    wsv.clone(),
+					Arc::clone(&wsv),
                     transactions_sender,
                     AllowAll.into(),
                 )
@@ -2160,7 +2161,7 @@ mod tests {
             )));
             let mut torii = Torii::from_configuration(
                 config.torii_configuration.clone(),
-                wsv.clone(),
+					Arc::clone(&wsv),
                 tx,
                 sumeragi_message_sender,
                 block_sync_message_sender,
@@ -2279,12 +2280,12 @@ mod tests {
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         let ids_set: HashSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = sync::channel(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
-            let (block_sync_message_sender, _) = sync::channel(100);
-            let (tx, _rx) = sync::channel(100);
-            let (transactions_sender, mut transactions_receiver) = sync::channel(100);
-            let (events_sender, events_receiver) = sync::channel(100);
+            let (block_sender, mut block_receiver) = channel::bounded(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
+            let (block_sync_message_sender, _) = channel::bounded(100);
+            let (tx, _rx) = channel::bounded(100);
+            let (transactions_sender, mut transactions_receiver) = channel::bounded(100);
+            let (events_sender, events_receiver) = channel::bounded(100);
             let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             )));
@@ -2302,7 +2303,7 @@ mod tests {
                     &config.sumeragi_configuration,
                     block_sender,
                     events_sender.clone(),
-                    wsv.clone(),
+					Arc::clone(&wsv),
                     transactions_sender,
                     AllowAll.into(),
                 )
@@ -2313,7 +2314,7 @@ mod tests {
             )));
             let mut torii = Torii::from_configuration(
                 config.torii_configuration.clone(),
-                wsv.clone(),
+					Arc::clone(&wsv),
                 tx,
                 sumeragi_message_sender,
                 block_sync_message_sender,
@@ -2446,12 +2447,12 @@ mod tests {
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         let ids_set: HashSet<PeerId> = ids.clone().into_iter().collect();
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = sync::channel(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
-            let (block_sync_message_sender, _) = sync::channel(100);
-            let (tx, _rx) = sync::channel(100);
-            let (transactions_sender, mut transactions_receiver) = sync::channel(100);
-            let (events_sender, events_receiver) = sync::channel(100);
+            let (block_sender, mut block_receiver) = channel::bounded(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
+            let (block_sync_message_sender, _) = channel::bounded(100);
+            let (tx, _rx) = channel::bounded(100);
+            let (transactions_sender, mut transactions_receiver) = channel::bounded(100);
+            let (events_sender, events_receiver) = channel::bounded(100);
             let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             )));
@@ -2469,7 +2470,7 @@ mod tests {
                     &config.sumeragi_configuration,
                     block_sender,
                     events_sender.clone(),
-                    wsv.clone(),
+					Arc::clone(&wsv),
                     transactions_sender,
                     AllowAll.into(),
                 )
@@ -2480,7 +2481,7 @@ mod tests {
             )));
             let mut torii = Torii::from_configuration(
                 config.torii_configuration.clone(),
-                wsv.clone(),
+					Arc::clone(&wsv),
                 tx,
                 sumeragi_message_sender,
                 block_sync_message_sender,
@@ -2609,12 +2610,12 @@ mod tests {
         config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
         config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
-            let (block_sender, mut block_receiver) = sync::channel(100);
-            let (tx, _rx) = sync::channel(100);
-            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
-            let (block_sync_message_sender, _) = sync::channel(100);
-            let (transactions_sender, _transactions_receiver) = sync::channel(100);
-            let (events_sender, events_receiver) = sync::channel(100);
+            let (block_sender, mut block_receiver) = channel::bounded(100);
+            let (tx, _rx) = channel::bounded(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = channel::bounded(100);
+            let (block_sync_message_sender, _) = channel::bounded(100);
+            let (transactions_sender, _transactions_receiver) = channel::bounded(100);
+            let (events_sender, events_receiver) = channel::bounded(100);
             let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
                 root_key_pair.public_key.clone(),
             )));
@@ -2632,7 +2633,7 @@ mod tests {
                     &config.sumeragi_configuration,
                     block_sender,
                     events_sender.clone(),
-                    wsv.clone(),
+					Arc::clone(&wsv),
                     transactions_sender,
                     AllowAll.into(),
                 )
@@ -2643,7 +2644,7 @@ mod tests {
             )));
             let mut torii = Torii::from_configuration(
                 config.torii_configuration.clone(),
-                wsv.clone(),
+					Arc::clone(&wsv),
                 tx,
                 sumeragi_message_sender,
                 block_sync_message_sender,

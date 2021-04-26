@@ -23,6 +23,6 @@ iroha_data_model = { path = "../iroha_data_model" }
 iroha = { path = "../iroha" }
 iroha_client = { version = "=0.1.0", path = "../iroha_client" }
 test_network = { path = "../iroha/test_network" }
-async-std = { version = "=1.6.2", features = ["attributes"] }
+async-std = { version = "=1.9.0", features = ["attributes"] }
 port_check = "0.1.5"
 tempfile = "3"

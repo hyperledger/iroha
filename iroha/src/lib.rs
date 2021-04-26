@@ -29,7 +29,7 @@ use std::{sync::Arc, time::Duration};
 use async_std::{
     prelude::*,
     sync::RwLock,
-    sync::{self, Receiver, Sender},
+    channel::{self, Receiver, Sender},
     task,
 };
 use iroha_data_model::prelude::*;
@@ -105,12 +105,12 @@ impl Iroha {
         let telemetry = iroha_logger::init(config.logger_configuration);
         iroha_logger::info!(?config, "Loaded configuration");
 
-        let (transactions_sender, transactions_receiver) = sync::channel(100);
-        let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
-        let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
-        let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
-        let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
+        let (transactions_sender, transactions_receiver) = channel::bounded(100);
+        let (wsv_blocks_sender, wsv_blocks_receiver) = channel::bounded(100);
+        let (kura_blocks_sender, kura_blocks_receiver) = channel::bounded(100);
+        let (sumeragi_message_sender, sumeragi_message_receiver) = channel::bounded(100);
+        let (block_sync_message_sender, block_sync_message_receiver) = channel::bounded(100);
+        let (events_sender, events_receiver) = channel::bounded(100);
         let world_state_view = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             World::with(
@@ -252,7 +252,9 @@ impl Iroha {
                 while let Some(block) = wsv_blocks_receiver.next().await {
                     world_state_view.apply(block).await;
                     sumeragi.write().await.update_network_topology().await;
-                    block_sync.write().await.continue_sync().await;
+                    if let Err(e) = block_sync.write().await.continue_sync().await {
+                        iroha_logger::error!("Syncing block failed: {}", e);
+					}
                 }
             }
             .in_current_span(),
@@ -274,7 +276,9 @@ impl Iroha {
         let block_sync_message_handle = task::spawn(
             async move {
                 while let Some(message) = block_sync_message_receiver.next().await {
-                    message.handle(&mut *block_sync.write().await).await;
+                    if let Err(e) = message.handle(&mut *block_sync.write().await).await {
+                        iroha_logger::error!("Handle message from block sync failed: {}", e);
+                    }
                 }
             }
             .in_current_span(),
