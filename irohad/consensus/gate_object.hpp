@@ -32,11 +32,11 @@ namespace iroha {
 
     /// Current pair is valid
     struct PairValid : public BaseGateObject {
-      std::shared_ptr<shared_model::interface::Block> block;
+      std::shared_ptr<const shared_model::interface::Block> block;
 
       PairValid(consensus::Round round,
                 std::shared_ptr<const LedgerState> ledger_state,
-                std::shared_ptr<shared_model::interface::Block> block)
+                std::shared_ptr<const shared_model::interface::Block> block)
           : BaseGateObject(std::move(round), std::move(ledger_state)),
             block(std::move(block)) {}
     };

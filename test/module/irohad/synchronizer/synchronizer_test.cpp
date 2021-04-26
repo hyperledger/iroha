@@ -11,7 +11,6 @@
 #include <gmock/gmock-generated-matchers.h>
 #include <gmock/gmock.h>
 #include <boost/range/adaptor/transformed.hpp>
-#include <rxcpp/operators/rx-take.hpp>
 #include "backend/protobuf/block.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -44,9 +43,6 @@ using ::testing::DefaultValue;
 using ::testing::Eq;
 using ::testing::InSequence;
 using ::testing::Return;
-
-using Chain =
-    rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>;
 
 /**
  * Factory for mock mutable storage generation.
@@ -123,7 +119,7 @@ class SynchronizerTest : public ::testing::Test {
         ledger_peers, commit_message->height() - 1, commit_message->prevHash());
   }
 
-  std::shared_ptr<shared_model::interface::Block> makeCommit(
+  std::shared_ptr<const shared_model::interface::Block> makeCommit(
       shared_model::interface::types::HeightType height = kHeight,
       size_t time = iroha::time::now()) const {
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block> block{
@@ -142,7 +138,7 @@ class SynchronizerTest : public ::testing::Test {
   std::shared_ptr<MockConsensusGate> consensus_gate;
   std::shared_ptr<MockBlockQuery> block_query;
 
-  std::shared_ptr<shared_model::interface::Block> commit_message;
+  std::shared_ptr<const shared_model::interface::Block> commit_message;
   shared_model::interface::types::PublicKeyCollectionType public_keys;
   shared_model::interface::types::HashType hash;
   shared_model::interface::types::PeerList ledger_peers;
@@ -154,54 +150,9 @@ class SynchronizerTest : public ::testing::Test {
   std::shared_ptr<SynchronizerImpl> synchronizer;
 };
 
-class ChainMatcher : public ::testing::MatcherInterface<Chain> {
- public:
-  explicit ChainMatcher(
-      std::vector<std::shared_ptr<shared_model::interface::Block>>
-          expected_chain)
-      : expected_chain_(std::move(expected_chain)) {}
-
-  bool MatchAndExplain(
-      Chain test_chain,
-      ::testing::MatchResultListener *listener) const override {
-    size_t got_blocks = 0;
-    auto wrapper =
-        make_test_subscriber<CallExact>(test_chain, expected_chain_.size());
-    wrapper.subscribe([this, &got_blocks](const auto &block) {
-      EXPECT_LT(got_blocks, expected_chain_.size())
-          << "Tested chain provides more blocks than expected";
-      if (got_blocks < expected_chain_.size()) {
-        const auto &expected_block = expected_chain_[got_blocks];
-        EXPECT_THAT(*block, Eq(ByRef(*expected_block)))
-            << "Block number " << got_blocks << " does not match!";
-      }
-      ++got_blocks;
-    });
-    return wrapper.validate();
-  }
-
-  virtual void DescribeTo(::std::ostream *os) const {
-    *os << "Tested chain matches expected chain.";
-  }
-
-  virtual void DescribeNegationTo(::std::ostream *os) const {
-    *os << "Tested chain does not match expected chain.";
-  }
-
- private:
-  const std::vector<std::shared_ptr<shared_model::interface::Block>>
-      expected_chain_;
-};
-
-inline ::testing::Matcher<Chain> ChainEq(
-    std::vector<std::shared_ptr<shared_model::interface::Block>>
-        expected_chain) {
-  return ::testing::MakeMatcher(new ChainMatcher(expected_chain));
-}
-
 void mutableStorageExpectChain(
     iroha::ametsuchi::MockMutableFactory &mutable_factory,
-    std::vector<std::shared_ptr<shared_model::interface::Block>> chain) {
+    std::vector<std::shared_ptr<const shared_model::interface::Block>> chain) {
   const bool must_create_storage = not chain.empty();
   auto create_mutable_storage =
       [chain = std::move(chain)](auto) -> std::unique_ptr<MutableStorage> {
@@ -211,11 +162,7 @@ void mutableStorageExpectChain(
     } else {
       InSequence s;  // ensures the call order
       for (const auto &block : chain) {
-        EXPECT_CALL(
-            *mutable_storage,
-            apply(std::const_pointer_cast<const shared_model::interface::Block>(
-                block)))
-            .WillOnce(Return(true));
+        EXPECT_CALL(*mutable_storage, apply(block)).WillOnce(Return(true));
       }
     }
     return mutable_storage;
@@ -227,6 +174,20 @@ void mutableStorageExpectChain(
   } else {
     EXPECT_CALL(mutable_factory, createMutableStorage(_))
         .WillRepeatedly(::testing::Invoke(create_mutable_storage));
+  }
+}
+
+void chainValidatorExpectChain(
+    iroha::validation::MockChainValidator &chain_validator,
+    std::vector<std::shared_ptr<const shared_model::interface::Block>> chain) {
+  if (chain.empty()) {
+    EXPECT_CALL(chain_validator, validateAndApply(_, _)).Times(0);
+  } else {
+    InSequence s;  // ensures the call order
+    for (auto &block : chain) {
+      EXPECT_CALL(chain_validator, validateAndApply(block, _))
+          .WillOnce(Return(true));
+    }
   }
 }
 
@@ -268,10 +229,10 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
 
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
-  EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
+      .WillOnce(Return(std::vector{commit_message}));
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
@@ -303,12 +264,10 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   EXPECT_CALL(*mutable_factory, commit_(_))
       .WillOnce(Return(ByMove(expected::makeValue(std::make_shared<LedgerState>(
           ledger_peers, target_height, target_commit->hash())))));
-  std::vector<std::shared_ptr<shared_model::interface::Block>> commits{
+  std::vector<std::shared_ptr<const shared_model::interface::Block>> commits{
       commit_message, target_commit};
-  EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(commits), _))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(rxcpp::observable<>::iterate(commits)));
+  chainValidatorExpectChain(*chain_validator, commits);
+  EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).WillOnce(Return(commits));
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
@@ -335,20 +294,16 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
   {
     InSequence s;  // ensures the call order
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({}), _))
-        .WillOnce(Return(true));
-    EXPECT_CALL(*chain_validator,
-                validateAndApply(ChainEq({commit_message}), _))
+    EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
         .WillOnce(Return(false));
-    EXPECT_CALL(*chain_validator,
-                validateAndApply(ChainEq({commit_message}), _))
+    EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
         .WillOnce(Return(true));
   }
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(rxcpp::observable<>::empty<
-                       std::shared_ptr<shared_model::interface::Block>>()))
-      .WillOnce(Return(rxcpp::observable<>::just(commit_message)))
-      .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
+      .WillOnce(Return(
+          std::vector<std::shared_ptr<const shared_model::interface::Block>>{}))
+      .WillOnce(Return(std::vector{commit_message}))
+      .WillOnce(Return(std::vector{commit_message}));
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
@@ -394,8 +349,8 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
   const size_t kBadBlockNumber = 5;  // in the middle
   const size_t kBadBlockHeight =
       kInitTopBlockHeight + kBadBlockNumber;  // in the middle
-  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_bad;
-  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_good;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>> chain_bad;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>> chain_good;
 
   for (auto height = kInitTopBlockHeight + 1; height <= kConsensusHeight;
        ++height) {
@@ -413,13 +368,12 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
 
     // first attempt: get blocks till kBadBlockHeight, then fail
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
-        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
-                        Return(rxcpp::observable<>::iterate(chain_bad))));
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer), Return(chain_bad)));
     EXPECT_CALL(*chain_validator, validateAndApply(_, _))
-        .WillOnce([&](auto chain, auto const &) {
-          chain.take(kBadBlockNumber).as_blocking().last();
-          return false;
-        });
+        .Times(kBadBlockNumber - 1)
+        .WillRepeatedly(Return(true));
+    EXPECT_CALL(*chain_validator, validateAndApply(_, _))
+        .WillOnce(Return(false));
 
     // second attempt: request blocks from kBadBlockHeight and commit
     const auto kRetrieveBlocksArg =
@@ -427,9 +381,8 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
                               // with N, we need to pass N-1...
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, Not(first_asked_peer)))
-        .WillOnce(Return(rxcpp::observable<>::iterate(chain_good)));
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_good), _))
-        .WillOnce(Return(true));
+        .WillOnce(Return(chain_good));
+    chainValidatorExpectChain(*chain_validator, chain_good);
   }
 
   auto wrapper =
@@ -458,8 +411,10 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
   const size_t kBlocksFrom1stPeer = 5;  // in the middle
   const size_t k1stPeerHeight =
       kInitTopBlockHeight + kBlocksFrom1stPeer;  // in the middle
-  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_1st_peer;
-  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_2nd_peer;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>>
+      chain_1st_peer;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>>
+      chain_2nd_peer;
 
   for (auto height = kInitTopBlockHeight + 1; height <= k1stPeerHeight;
        ++height) {
@@ -477,10 +432,8 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
 
     // first attempt: get some blocks till k1stPeerHeight
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
-        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
-                        Return(rxcpp::observable<>::iterate(chain_1st_peer))));
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_1st_peer), _))
-        .WillOnce(Return(true));
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer), Return(chain_1st_peer)));
+    chainValidatorExpectChain(*chain_validator, chain_1st_peer);
 
     // then try again with same peer but he has no more blocks
     const auto kRetrieveBlocksArg =
@@ -491,17 +444,14 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, first_asked_peer))
         .WillRepeatedly(
-            Return(rxcpp::observable<>::empty<
-                   std::shared_ptr<shared_model::interface::Block>>()));
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({}), _))
-        .WillOnce(Return(true));
+            Return(std::vector<
+                   std::shared_ptr<const shared_model::interface::Block>>{}));
 
     // then request blocks from second peer starting from k1stPeerHeight
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, Not(first_asked_peer)))
-        .WillOnce(Return(rxcpp::observable<>::iterate(chain_2nd_peer)));
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_2nd_peer), _))
-        .WillOnce(Return(true));
+        .WillOnce(Return(chain_2nd_peer));
+    chainValidatorExpectChain(*chain_validator, chain_2nd_peer);
   }
 
   auto wrapper =
@@ -530,8 +480,10 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
   const size_t kBlocksIn1stTry = 5;  // in the middle
   const size_t kAbruptHeight =
       kInitTopBlockHeight + kBlocksIn1stTry;  // in the middle
-  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_1st_try;
-  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_2nd_try;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>>
+      chain_1st_try;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>>
+      chain_2nd_try;
 
   for (auto height = kInitTopBlockHeight + 1; height <= kAbruptHeight;
        ++height) {
@@ -550,9 +502,8 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
     // first attempt: get blocks till kAbruptHeight
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
         .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
-                        Return(rxcpp::observable<>::iterate(chain_1st_try))));
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_1st_try), _))
-        .WillOnce(Return(true));
+                        Return(chain_1st_try)));
+    chainValidatorExpectChain(*chain_validator, chain_1st_try);
 
     // second attempt: request blocks from same peer starting at kAbruptHeight
     const auto kRetrieveBlocksArg =
@@ -562,9 +513,8 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
                        // with N, we need to pass N-1...
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, first_asked_peer))
-        .WillOnce(Return(rxcpp::observable<>::iterate(chain_2nd_try)));
-    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_2nd_try), _))
-        .WillOnce(Return(true));
+        .WillOnce(Return(chain_2nd_try));
+    chainValidatorExpectChain(*chain_validator, chain_2nd_try);
   }
 
   auto wrapper =
@@ -588,9 +538,9 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
       SetFactory(&createMockMutableStorage);
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillRepeatedly(Return(rxcpp::observable<>::just(commit_message)));
+      .WillRepeatedly(Return(std::vector{commit_message}));
 
-  EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .Times(number_of_failures)
       .WillRepeatedly(Return(false));
 
@@ -710,9 +660,9 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillRepeatedly(Return(rxcpp::observable<>::just(commit_message)));
+      .WillRepeatedly(Return(std::vector{commit_message}));
 
-  EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
 
   auto wrapper =
@@ -786,10 +736,10 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
 
   mutableStorageExpectChain(*mutable_factory, {});
 
-  EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
+      .WillOnce(Return(std::vector{commit_message}));
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
@@ -811,10 +761,10 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
 
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
-  EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(rxcpp::observable<>::just(commit_message)));
+      .WillOnce(Return(std::vector{commit_message}));
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);

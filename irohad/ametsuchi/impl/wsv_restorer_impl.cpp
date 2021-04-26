@@ -6,7 +6,7 @@
 #include "wsv_restorer_impl.hpp"
 
 #include <chrono>
-#include <rxcpp/rx-lite.hpp>
+#include <thread>
 
 #include "ametsuchi/block_query.hpp"
 #include "ametsuchi/block_storage.hpp"
@@ -110,55 +110,38 @@ namespace {
       iroha::validation::ChainValidator &validator,
       HeightType starting_height,
       HeightType ending_height) {
-    auto blocks = rxcpp::observable<>::create<
-        std::shared_ptr<shared_model::interface::Block>>([&block_query,
-                                                          &interface_validator,
-                                                          &proto_validator,
-                                                          starting_height,
-                                                          ending_height](
-                                                             auto s) {
-      for (auto height = starting_height; height <= ending_height; ++height) {
-        auto result = block_query.getBlock(height);
-        if (auto e = iroha::expected::resultToOptionalError(result)) {
-          s.on_error(std::make_exception_ptr(
-              std::runtime_error(std::move(e).value().message)));
-          return;
-        }
-
-        auto block = std::move(result).assumeValue();
-        if (height != block->height()) {
-          s.on_error(std::make_exception_ptr(std::runtime_error(
-              "inconsistent block height in block storage")));
-          return;
-        }
-
-        // do not validate genesis block - transactions may not have creators,
-        // block is not signed
-        if (height != 1) {
-          if (auto error = proto_validator.validate(
-                  static_cast<shared_model::proto::Block *>(block.get())
-                      ->getTransport())) {
-            s.on_error(
-                std::make_exception_ptr(std::runtime_error(error->toString())));
-            return;
-          }
-
-          if (auto error = interface_validator.validate(*block)) {
-            s.on_error(
-                std::make_exception_ptr(std::runtime_error(error->toString())));
-            return;
-          }
-        }
-
-        s.on_next(std::move(block));
+    for (auto height = starting_height; height <= ending_height; ++height) {
+      auto result = block_query.getBlock(height);
+      if (auto e = iroha::expected::resultToOptionalError(result)) {
+        return iroha::expected::makeError(std::move(e).value().message);
       }
-      s.on_completed();
-    });
-    if (validator.validateAndApply(blocks, *mutable_storage)) {
-      return storage.commit(std::move(mutable_storage));
-    } else {
-      return iroha::expected::makeError("Cannot validate and apply blocks!");
+
+      auto block = std::move(result).assumeValue();
+      if (height != block->height()) {
+        return iroha::expected::makeError(
+            "inconsistent block height in block storage");
+      }
+
+      // do not validate genesis block - transactions may not have creators,
+      // block is not signed
+      if (height != 1) {
+        if (auto error = proto_validator.validate(
+                static_cast<shared_model::proto::Block *>(block.get())
+                    ->getTransport())) {
+          return iroha::expected::makeError(error->toString());
+        }
+
+        if (auto error = interface_validator.validate(*block)) {
+          return iroha::expected::makeError(error->toString());
+        }
+      }
+
+      if (not validator.validateAndApply(std::move(block), *mutable_storage)) {
+        return iroha::expected::makeError("Cannot validate and apply blocks!");
+      }
     }
+
+    return storage.commit(std::move(mutable_storage));
   }
 }  // namespace
 

@@ -9,7 +9,6 @@
 #include "ametsuchi/mutable_storage.hpp"
 
 #include <gmock/gmock.h>
-#include <rxcpp/rx-lite.hpp>
 
 namespace iroha {
   namespace ametsuchi {
@@ -18,8 +17,7 @@ namespace iroha {
      public:
       MOCK_METHOD2(
           apply,
-          bool(rxcpp::observable<
-                   std::shared_ptr<shared_model::interface::Block>>,
+          bool(std::shared_ptr<const shared_model::interface::Block>,
                std::function<
                    bool(std::shared_ptr<const shared_model::interface::Block>,
                         const iroha::LedgerState &)>));
