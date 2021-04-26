@@ -8,7 +8,6 @@
 
 #include <functional>
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "common/result.hpp"
@@ -56,16 +55,15 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block> block) = 0;
 
       /**
-       * Applies an observable of blocks to current mutable state using logic
-       * specified in function
-       * @param blocks Blocks to be applied
+       * Applies a block to current mutable state using logic specified in
+       * function
+       * @param block Block to be applied
        * @param predicate Checks whether block is applicable prior to applying
        * transactions
-       * @return True if blocks were successfully applied, false otherwise.
+       * @return True if block was successfully applied, false otherwise.
        */
       virtual bool apply(
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-              blocks,
+          std::shared_ptr<const shared_model::interface::Block> block,
           MutableStoragePredicate predicate) = 0;
 
       /// Apply the local changes made to this MutableStorage to block_storage

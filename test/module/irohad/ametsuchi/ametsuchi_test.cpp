@@ -448,9 +448,9 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
 class IdentityChainValidator : public iroha::validation::ChainValidator {
  public:
   bool validateAndApply(
-      rxcpp::observable<std::shared_ptr<shared_model::interface::Block>> blocks,
+      std::shared_ptr<const shared_model::interface::Block> block,
       MutableStorage &storage) const override {
-    return storage.apply(blocks, [](auto const &, auto &) { return true; });
+    return storage.apply(block, [](auto const &, auto &) { return true; });
   }
 };
 using MockBlockIValidator =
