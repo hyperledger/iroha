@@ -34,7 +34,9 @@ namespace iroha {
           std::unique_ptr<ClientFactory> client_factory);
 
       iroha::expected::Result<
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>,
+          boost::any_range<
+              std::shared_ptr<const shared_model::interface::Block>,
+              boost::single_pass_traversal_tag>,
           std::string>
       retrieveBlocks(const shared_model::interface::types::HeightType height,
                      shared_model::interface::types::PublicKeyHexStringView

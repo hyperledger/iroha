@@ -7,7 +7,8 @@
 #define IROHA_BLOCK_LOADER_HPP
 
 #include <memory>
-#include <rxcpp/rx-observable-fwd.hpp>
+
+#include <boost/range/any_range.hpp>
 
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -26,7 +27,9 @@ namespace iroha {
        * @return
        */
       virtual iroha::expected::Result<
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>,
+          boost::any_range<
+              std::shared_ptr<const shared_model::interface::Block>,
+              boost::single_pass_traversal_tag>,
           std::string>
       retrieveBlocks(const shared_model::interface::types::HeightType height,
                      shared_model::interface::types::PublicKeyHexStringView
