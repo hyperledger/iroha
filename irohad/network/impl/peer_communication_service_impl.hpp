@@ -26,7 +26,6 @@ namespace iroha {
      public:
       PeerCommunicationServiceImpl(
           std::shared_ptr<OrderingGate> ordering_gate,
-          std::shared_ptr<synchronizer::Synchronizer> synchronizer,
           std::shared_ptr<simulator::VerifiedProposalCreator> proposal_creator,
           logger::LoggerPtr log);
 
@@ -39,12 +38,8 @@ namespace iroha {
       rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
       onVerifiedProposal() const override;
 
-      rxcpp::observable<synchronizer::SynchronizationEvent> onSynchronization()
-          const override;
-
      private:
       std::shared_ptr<OrderingGate> ordering_gate_;
-      std::shared_ptr<synchronizer::Synchronizer> synchronizer_;
       std::shared_ptr<simulator::VerifiedProposalCreator> proposal_creator_;
       logger::LoggerPtr log_;
     };

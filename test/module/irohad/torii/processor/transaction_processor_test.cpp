@@ -13,7 +13,6 @@
 #include "framework/batch_helper.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -31,8 +30,6 @@
 using namespace iroha;
 using namespace iroha::network;
 using namespace iroha::torii;
-using namespace iroha::synchronizer;
-using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
