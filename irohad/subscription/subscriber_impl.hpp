@@ -108,9 +108,9 @@ namespace iroha::subscription {
       return ++next_id_;
     }
 
-    template <typename Dispatcher::Tid kTid = Dispatcher::kExecuteInPool>
     void subscribe(SubscriptionSetId id,
-                   const typename Parent::EventType &key) {
+                   const typename Parent::EventType &key,
+                   typename Dispatcher::Tid tid = Dispatcher::kExecuteInPool) {
       if (auto engine = engine_.lock()) {
         std::lock_guard lock(subscriptions_cs_);
         auto &&[it, inserted] = subscriptions_sets_[id].emplace(
@@ -119,8 +119,8 @@ namespace iroha::subscription {
         /// Here we check first local subscriptions because of strong connection
         /// with SubscriptionEngine.
         if (inserted)
-          it->second = engine->template subscribe<kTid>(
-              id, key, Parent::weak_from_this());
+          it->second =
+              engine->subscribe(tid, id, key, Parent::weak_from_this());
       }
     }
 

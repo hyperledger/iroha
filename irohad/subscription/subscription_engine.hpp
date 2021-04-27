@@ -6,6 +6,7 @@
 #ifndef IROHA_SUBSCRIPTION_SUBSCRIPTION_ENGINE_HPP
 #define IROHA_SUBSCRIPTION_SUBSCRIPTION_ENGINE_HPP
 
+#include <assert.h>
 #include <list>
 #include <memory>
 #include <shared_mutex>
@@ -82,7 +83,7 @@ namespace iroha::subscription {
    public:
     /**
      * Stores Subscriber object to retrieve later notifications
-     * @tparam kTid Thread ID in which subscribers callback will be executed
+     * @param tid Thread ID in which subscribers callback will be executed
      * @param set_id subscription set id is a group identifier in multiple
      * subscriptions
      * @param key notification event key that this subscriber will listen to
@@ -91,18 +92,17 @@ namespace iroha::subscription {
      * be kept valid in case the other subscriber will be deleted from this
      * container)
      */
-    template <typename Dispatcher::Tid kTid>
-    IteratorType subscribe(SubscriptionSetId set_id,
+    IteratorType subscribe(typename Dispatcher::Tid tid,
+                           SubscriptionSetId set_id,
                            const EventKeyType &key,
                            SubscriberWeakPtr ptr) {
-      Dispatcher::template checkTid<kTid>();
       std::unique_lock lock(subscribers_map_cs_);
       auto &subscribers_context = subscribers_map_[key];
 
       std::lock_guard l(subscribers_context.subscribers_list_cs);
       return subscribers_context.subscribers_list.emplace(
           subscribers_context.subscribers_list.end(),
-          std::make_tuple(kTid, set_id, std::move(ptr)));
+          std::make_tuple(tid, set_id, std::move(ptr)));
     }
 
     /**
