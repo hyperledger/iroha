@@ -54,9 +54,7 @@ namespace iroha {
 
   static constexpr uint32_t kThreadPoolSize = 3u;
 
-  using Dispatcher =
-      subscription::IDispatcher<SubscriptionEngineHandlers::kTotalCount,
-                                kThreadPoolSize>;
+  using Dispatcher = subscription::IDispatcher;
   using Subscription =
       subscription::SubscriptionManager<SubscriptionEngineHandlers::kTotalCount,
                                         kThreadPoolSize>;
@@ -72,11 +70,10 @@ namespace iroha {
 
   template <typename ObjectType, typename EventData>
   struct SubscriberCreator {
-    template <EventTypes key,
-              SubscriptionEngineHandlers tid,
-              typename F,
-              typename... Args>
-    static auto create(F &&callback, Args &&... args) {
+    template <EventTypes key, typename F, typename... Args>
+    static auto create(SubscriptionEngineHandlers tid,
+                       F &&callback,
+                       Args &&... args) {
       auto subscriber = BaseSubscriber<ObjectType, EventData>::create(
           getSubscription()->getEngine<EventTypes, EventData>(),
           std::forward<Args>(args)...);
@@ -88,7 +85,7 @@ namespace iroha {
             assert(key == event_key);
             std::forward<F>(f)(object, std::move(args));
           });
-      subscriber->template subscribe<tid>(0, key);
+      subscriber->subscribe(0, key, tid);
       return subscriber;
     }
   };

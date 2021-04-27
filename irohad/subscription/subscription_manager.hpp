@@ -6,6 +6,7 @@
 #ifndef IROHA_SUBSCRIPTION_SUBSCRIPTION_MANAGER_HPP
 #define IROHA_SUBSCRIPTION_SUBSCRIPTION_MANAGER_HPP
 
+#include <assert.h>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -31,7 +32,7 @@ namespace iroha::subscription {
         utils::NoMove,
         utils::NoCopy {
    public:
-    using Dispatcher = subscription::IDispatcher<kHandlersCount, kPoolSize>;
+    using Dispatcher = subscription::IDispatcher;
 
    private:
     using EngineHash = uint64_t;
