@@ -15,10 +15,8 @@
 #include "datetime/time.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_temporary_factory.hpp"
-#include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/validation/mock_stateful_validator.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
@@ -33,7 +31,6 @@ using namespace iroha::validation;
 using namespace iroha::ametsuchi;
 using namespace iroha::simulator;
 using namespace iroha::network;
-using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
@@ -54,7 +51,6 @@ class SimulatorTest : public ::testing::Test {
     auto command_executor = std::make_unique<MockCommandExecutor>();
     validator = std::make_shared<MockStatefulValidator>();
     factory = std::make_shared<NiceMock<MockTemporaryFactory>>();
-    ordering_gate = std::make_shared<MockOrderingGate>();
     crypto_signer = std::make_shared<CryptoSignerType>();
     block_factory = std::make_unique<shared_model::proto::ProtoBlockFactory>(
         std::make_unique<shared_model::validation::MockValidator<
@@ -62,11 +58,7 @@ class SimulatorTest : public ::testing::Test {
         std::make_unique<
             shared_model::validation::MockValidator<iroha::protocol::Block>>());
 
-    EXPECT_CALL(*ordering_gate, onProposal())
-        .WillOnce(Return(ordering_events.get_observable()));
-
     simulator = std::make_shared<Simulator>(std::move(command_executor),
-                                            ordering_gate,
                                             validator,
                                             factory,
                                             crypto_signer,
@@ -76,10 +68,8 @@ class SimulatorTest : public ::testing::Test {
 
   std::shared_ptr<MockStatefulValidator> validator;
   std::shared_ptr<MockTemporaryFactory> factory;
-  std::shared_ptr<MockOrderingGate> ordering_gate;
   std::shared_ptr<CryptoSignerType> crypto_signer;
   std::unique_ptr<shared_model::interface::UnsafeBlockFactory> block_factory;
-  rxcpp::subjects::subject<OrderingEvent> ordering_events;
 
   std::shared_ptr<Simulator> simulator;
   shared_model::interface::types::PeerList ledger_peers{
@@ -149,34 +139,24 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
 
   auto ledger_state = std::make_shared<LedgerState>(
       ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
-  auto ordering_event =
-      OrderingEvent{proposal, consensus::Round{}, ledger_state};
+  OrderingEvent ordering_event{proposal, consensus::Round{}, ledger_state};
 
-  auto proposal_wrapper =
-      make_test_subscriber<CallExact>(simulator->onVerifiedProposal(), 1);
-  proposal_wrapper.subscribe([&](auto event) {
-    auto verification_result = getVerifiedProposalUnsafe(event);
-    auto verified_proposal = verification_result->verified_proposal;
-    EXPECT_EQ(verified_proposal->height(), proposal->height());
-    EXPECT_EQ(verified_proposal->transactions(), proposal->transactions());
-    EXPECT_TRUE(verification_result->rejected_transactions.empty());
-    EXPECT_EQ(event.ledger_state->ledger_peers,
-              ordering_event.ledger_state->ledger_peers);
-  });
+  auto verified_proposal_event = simulator->processProposal(ordering_event);
+  auto verification_result = getVerifiedProposalUnsafe(verified_proposal_event);
+  auto verified_proposal = verification_result->verified_proposal;
+  EXPECT_EQ(verified_proposal->height(), proposal->height());
+  EXPECT_EQ(verified_proposal->transactions(), proposal->transactions());
+  EXPECT_TRUE(verification_result->rejected_transactions.empty());
+  EXPECT_EQ(verified_proposal_event.ledger_state->ledger_peers,
+            ordering_event.ledger_state->ledger_peers);
 
-  auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 1);
-  block_wrapper.subscribe([&](auto event) {
-    auto block = getBlockUnsafe(event);
-    EXPECT_EQ(block->height(), proposal->height());
-    EXPECT_EQ(block->transactions(), proposal->transactions());
-    EXPECT_EQ(event.ledger_state->ledger_peers,
-              ordering_event.ledger_state->ledger_peers);
-  });
-
-  ordering_events.get_subscriber().on_next(ordering_event);
-
-  EXPECT_TRUE(proposal_wrapper.validate());
-  EXPECT_TRUE(block_wrapper.validate());
+  auto block_event =
+      simulator->processVerifiedProposal(verified_proposal_event);
+  auto block = getBlockUnsafe(block_event);
+  EXPECT_EQ(block->height(), proposal->height());
+  EXPECT_EQ(block->transactions(), proposal->transactions());
+  EXPECT_EQ(block_event.ledger_state->ledger_peers,
+            ordering_event.ledger_state->ledger_peers);
 }
 
 /**
@@ -197,12 +177,13 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
   for (int i = 0; i < kNumTransactions; ++i) {
     txs.push_back(makeTx(created_time + i));
   }
-  auto proposal = std::make_shared<shared_model::proto::Proposal>(
-      shared_model::proto::ProposalBuilder()
-          .height(3)
-          .createdTime(iroha::time::now())
-          .transactions(txs)
-          .build());
+  std::shared_ptr<shared_model::interface::Proposal const> proposal =
+      std::make_shared<shared_model::proto::Proposal>(
+          shared_model::proto::ProposalBuilder()
+              .height(3)
+              .createdTime(iroha::time::now())
+              .transactions(txs)
+              .build());
   auto verified_proposal_and_errors =
       std::make_unique<VerifiedProposalAndErrors>();
   const shared_model::interface::types::HeightType verified_proposal_height = 2;
@@ -230,19 +211,24 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
         return std::move(verified_proposal_and_errors);
       }));
 
-  auto verification_result = simulator->processProposal(*proposal);
+  auto ledger_state = std::make_shared<LedgerState>(
+      ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
+  OrderingEvent ordering_event{
+      boost::make_optional(proposal), consensus::Round{}, ledger_state};
+  auto verification_result =
+      simulator->processProposal(ordering_event).verified_proposal_result;
   ASSERT_TRUE(verification_result);
-  auto verified_proposal = verification_result->verified_proposal;
+  auto verified_proposal = verification_result.value()->verified_proposal;
 
   // ensure that txs in verified proposal do not include failed ones
   EXPECT_EQ(verified_proposal->height(), verified_proposal_height);
   EXPECT_EQ(verified_proposal->transactions(), verified_proposal_transactions);
-  EXPECT_TRUE(verification_result->rejected_transactions.size()
+  EXPECT_TRUE(verification_result.value()->rejected_transactions.size()
               == kNumTransactions - 1);
   const auto verified_proposal_rejected_tx_hashes =
-      verification_result->rejected_transactions
+      verification_result.value()->rejected_transactions
       | boost::adaptors::transformed(
-            [](const auto &tx_error) { return tx_error.tx_hash; });
+          [](const auto &tx_error) { return tx_error.tx_hash; });
   for (auto rejected_tx = txs.begin() + 1; rejected_tx != txs.end();
        ++rejected_tx) {
     EXPECT_NE(boost::range::find(verified_proposal_rejected_tx_hashes,

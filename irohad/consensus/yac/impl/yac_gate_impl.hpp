@@ -41,7 +41,6 @@ namespace iroha {
             boost::optional<ClusterOrdering> alternative_order,
             std::shared_ptr<const LedgerState> ledger_state,
             std::shared_ptr<YacHashProvider> hash_provider,
-            std::shared_ptr<simulator::BlockCreator> block_creator,
             std::shared_ptr<consensus::ConsensusResultCache>
                 consensus_result_cache,
             logger::LoggerPtr log,
@@ -76,7 +75,6 @@ namespace iroha {
         rxcpp::observable<GateObject> published_events_;
         std::shared_ptr<YacPeerOrderer> orderer_;
         std::shared_ptr<YacHashProvider> hash_provider_;
-        std::shared_ptr<simulator::BlockCreator> block_creator_;
         std::shared_ptr<consensus::ConsensusResultCache>
             consensus_result_cache_;
         std::shared_ptr<HashGate> hash_gate_;

@@ -44,8 +44,6 @@ struct CommandFixture {
   std::shared_ptr<iroha::ametsuchi::MockTxPresenceCache> tx_presence_cache_;
 
   rxcpp::subjects::subject<iroha::network::OrderingEvent> prop_notifier_;
-  rxcpp::subjects::subject<iroha::simulator::VerifiedProposalCreatorEvent>
-      vprop_notifier_;
   rxcpp::subjects::subject<iroha::DataType> mst_notifier_;
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
@@ -55,8 +53,6 @@ struct CommandFixture {
     pcs_ = std::make_shared<iroha::network::MockPeerCommunicationService>();
     EXPECT_CALL(*pcs_, onProposal())
         .WillRepeatedly(Return(prop_notifier_.get_observable()));
-    EXPECT_CALL(*pcs_, onVerifiedProposal())
-        .WillRepeatedly(Return(vprop_notifier_.get_observable()));
 
     mst_processor_ =
         std::make_shared<iroha::MockMstProcessor>(logger::getDummyLoggerPtr());
