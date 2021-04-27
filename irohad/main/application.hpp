@@ -71,7 +71,7 @@ namespace iroha {
     class CommandService;
     class CommandServiceTransportGrpc;
     class QueryService;
-
+    class TransactionProcessor;
     struct TlsParams;
   }  // namespace torii
   namespace validation {
@@ -351,6 +351,7 @@ class Irohad {
 
   // transaction service
   rxcpp::composite_subscription tx_processor_lifetime_;
+  std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor;
   std::shared_ptr<iroha::torii::CommandService> command_service;
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc>
       command_service_transport;

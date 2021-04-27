@@ -41,7 +41,6 @@ namespace iroha {
           boost::optional<ClusterOrdering> alternative_order,
           std::shared_ptr<const LedgerState> ledger_state,
           std::shared_ptr<YacHashProvider> hash_provider,
-          std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<consensus::ConsensusResultCache>
               consensus_result_cache,
           logger::LoggerPtr log,
@@ -99,12 +98,8 @@ namespace iroha {
             }()),
             orderer_(std::move(orderer)),
             hash_provider_(std::move(hash_provider)),
-            block_creator_(std::move(block_creator)),
             consensus_result_cache_(std::move(consensus_result_cache)),
-            hash_gate_(std::move(hash_gate)) {
-        block_creator_->onBlock().subscribe(
-            [this](const auto &event) { this->vote(event); });
-      }
+            hash_gate_(std::move(hash_gate)) {}
 
       void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
         if (current_hash_.vote_round >= event.round) {
