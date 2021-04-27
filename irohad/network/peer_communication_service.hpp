@@ -8,7 +8,6 @@
 
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "network/ordering_gate_common.hpp"
-#include "simulator/verified_proposal_creator_common.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -39,13 +38,6 @@ namespace iroha {
        * (List of Proposals)
        */
       virtual rxcpp::observable<OrderingEvent> onProposal() const = 0;
-
-      /**
-       * Event is triggered when verified proposal arrives
-       * @return verified proposal and list of stateful validation errors
-       */
-      virtual rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
-      onVerifiedProposal() const = 0;
 
       virtual ~PeerCommunicationService() = default;
     };

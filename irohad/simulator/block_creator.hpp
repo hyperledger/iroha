@@ -6,15 +6,11 @@
 #ifndef IROHA_BLOCK_CREATOR_HPP
 #define IROHA_BLOCK_CREATOR_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "simulator/block_creator_common.hpp"
 
 namespace iroha {
-  namespace validation {
-    struct VerifiedProposalAndErrors;
-  }
-
   namespace simulator {
+    struct VerifiedProposalCreatorEvent;
 
     /**
      * Interface for creating blocks from proposal
@@ -24,16 +20,8 @@ namespace iroha {
       /**
        * Creates a block from given proposal and top block info
        */
-      virtual boost::optional<std::shared_ptr<shared_model::interface::Block>>
-      processVerifiedProposal(
-          const std::shared_ptr<validation::VerifiedProposalAndErrors>
-              &verified_proposal_and_errors,
-          const TopBlockInfo &top_block_info) = 0;
-
-      /**
-       * Emit blocks made from proposals
-       */
-      virtual rxcpp::observable<BlockCreatorEvent> onBlock() = 0;
+      virtual BlockCreatorEvent processVerifiedProposal(
+          VerifiedProposalCreatorEvent const &event) = 0;
 
       virtual ~BlockCreator() = default;
     };

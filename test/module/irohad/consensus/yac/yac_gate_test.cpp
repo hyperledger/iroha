@@ -96,14 +96,10 @@ class YacGateTest : public ::testing::Test {
     auto peer_orderer_ptr = std::make_unique<MockYacPeerOrderer>();
     peer_orderer = peer_orderer_ptr.get();
     hash_provider = std::make_shared<MockYacHashProvider>();
-    block_creator = std::make_shared<MockBlockCreator>();
     block_cache = std::make_shared<ConsensusResultCache>();
 
     ON_CALL(*hash_gate, onOutcome())
         .WillByDefault(Return(outcome_notifier.get_observable()));
-
-    ON_CALL(*block_creator, onBlock())
-        .WillByDefault(Return(block_notifier.get_observable()));
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<iroha::LedgerState>(
@@ -116,7 +112,6 @@ class YacGateTest : public ::testing::Test {
                                          alternative_order,
                                          ledger_state,
                                          hash_provider,
-                                         block_creator,
                                          block_cache,
                                          getTestLogger("YacGateImpl"));
   }
@@ -131,7 +126,6 @@ class YacGateTest : public ::testing::Test {
   VoteMessage message;
   CommitMessage commit_message;
   Answer expected_commit{commit_message};
-  rxcpp::subjects::subject<BlockCreatorEvent> block_notifier;
   rxcpp::subjects::subject<Answer> outcome_notifier;
 
   MockHashGate *hash_gate;
@@ -163,7 +157,7 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 
   // verify that block we voted for is in the cache
@@ -210,7 +204,7 @@ TEST_F(YacGateTest, CacheReleased) {
       .WillOnce(Return(expected_hash))
       .WillOnce(Return(empty_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 
   outcome_notifier.get_subscriber().on_next(expected_commit);
@@ -236,7 +230,7 @@ TEST_F(YacGateTest, YacGateSubscribtionTestFailCase) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 }
 
@@ -276,7 +270,7 @@ TEST_F(YacGateTest, DifferentCommit) {
 
   EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 
   // create another block, which will be "received", and generate a commit
@@ -332,7 +326,7 @@ TEST_F(YacGateTest, Future) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 
   iroha::consensus::Round future_round{round.block_round + 1,
@@ -374,7 +368,7 @@ TEST_F(YacGateTest, OutdatedFuture) {
   // make hash from block
   EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 
   // verify that yac gate does not emit anything
@@ -406,7 +400,7 @@ class CommitFromTheFuture : public YacGateTest {
 
     EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
 
-    block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+    gate->vote(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
 
     Hash actual_hash("actual_hash");
@@ -503,7 +497,7 @@ class YacGateOlderTest : public YacGateTest {
     // make hash from block
     ON_CALL(*hash_provider, makeHash(_)).WillByDefault(Return(expected_hash));
 
-    block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+    gate->vote(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
   }
 };
@@ -520,7 +514,7 @@ TEST_F(YacGateOlderTest, OlderVote) {
 
   EXPECT_CALL(*hash_provider, makeHash(_)).Times(0);
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       boost::none, {round.block_round - 1, round.reject_round}, ledger_state});
 }
 
@@ -617,7 +611,7 @@ TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsed) {
   // yac consensus
   EXPECT_CALL(*hash_gate, vote(expected_hash, _, alternative_order)).Times(1);
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
 }
 
@@ -636,10 +630,9 @@ TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsedOnce) {
         .Times(1);
   }
 
-  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+  gate->vote(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
-  block_notifier.get_subscriber().on_next(
-      BlockCreatorEvent{RoundData{expected_proposal, expected_block},
-                        {round.block_round + 1, 0},
-                        ledger_state});
+  gate->vote(BlockCreatorEvent{RoundData{expected_proposal, expected_block},
+                               {round.block_round + 1, 0},
+                               ledger_state});
 }
