@@ -13,7 +13,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include "backend/protobuf/block.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
@@ -32,7 +31,6 @@ using namespace iroha::ametsuchi;
 using namespace iroha::synchronizer;
 using namespace iroha::validation;
 using namespace iroha::network;
-using namespace framework::test_subscriber;
 using namespace shared_model::interface::types;
 
 using ::testing::_;
@@ -68,7 +66,6 @@ class SynchronizerTest : public ::testing::Test {
     block_query_factory =
         std::make_shared<::testing::NiceMock<MockBlockQueryFactory>>();
     block_loader = std::make_shared<MockBlockLoader>();
-    consensus_gate = std::make_shared<MockConsensusGate>();
     block_query = std::make_shared<::testing::NiceMock<MockBlockQuery>>();
 
     for (int i = 0; i < 3; ++i) {
@@ -89,9 +86,6 @@ class SynchronizerTest : public ::testing::Test {
               [](auto &signature) { return signature.publicKey(); }));
     hash = commit_message->hash();
 
-    EXPECT_CALL(*consensus_gate, onOutcome())
-        .WillOnce(Return(gate_outcome.get_observable()));
-
     ON_CALL(*block_query_factory, createBlockQuery())
         .WillByDefault(Return(boost::make_optional(
             std::shared_ptr<iroha::ametsuchi::BlockQuery>(block_query))));
@@ -108,7 +102,6 @@ class SynchronizerTest : public ::testing::Test {
 
     synchronizer =
         std::make_shared<SynchronizerImpl>(std::move(command_executor),
-                                           consensus_gate,
                                            chain_validator,
                                            mutable_factory,
                                            block_query_factory,
@@ -135,7 +128,6 @@ class SynchronizerTest : public ::testing::Test {
   std::shared_ptr<MockMutableFactory> mutable_factory;
   std::shared_ptr<MockBlockQueryFactory> block_query_factory;
   std::shared_ptr<MockBlockLoader> block_loader;
-  std::shared_ptr<MockConsensusGate> consensus_gate;
   std::shared_ptr<MockBlockQuery> block_query;
 
   std::shared_ptr<const shared_model::interface::Block> commit_message;
@@ -144,8 +136,6 @@ class SynchronizerTest : public ::testing::Test {
   shared_model::interface::types::PeerList ledger_peers;
   std::shared_ptr<LedgerState> ledger_state;
   std::vector<shared_model::crypto::Keypair> ledger_peer_keys;
-
-  rxcpp::subjects::subject<ConsensusGate::GateObject> gate_outcome;
 
   std::shared_ptr<SynchronizerImpl> synchronizer;
 };
@@ -204,17 +194,10 @@ TEST_F(SynchronizerTest, ValidWhenSingleCommitSynchronized) {
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
-
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
+  auto commit_event = synchronizer->processOutcome(consensus::PairValid(
       consensus::Round{kHeight, 1}, ledger_state, commit_message));
-
-  ASSERT_TRUE(wrapper.validate());
+  EXPECT_EQ(ledger_peers, commit_event.ledger_state->ledger_peers);
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
 }
 
 /**
@@ -234,18 +217,11 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(std::vector{commit_message}));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this, round](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-    ASSERT_EQ(commit_event.round, round);
-  });
-
-  gate_outcome.get_subscriber().on_next(
+  auto commit_event = synchronizer->processOutcome(
       consensus::VoteOther(round, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  EXPECT_EQ(ledger_peers, commit_event.ledger_state->ledger_peers);
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+  ASSERT_EQ(commit_event.round, round);
 }
 
 /**
@@ -269,18 +245,11 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   chainValidatorExpectChain(*chain_validator, commits);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).WillOnce(Return(commits));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this, target_height](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.round.block_round, target_height);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
-
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+  auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+  ASSERT_EQ(commit_event.round.block_round, target_height);
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
 }
 
 /**
@@ -305,14 +274,9 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
       .WillOnce(Return(std::vector{commit_message}))
       .WillOnce(Return(std::vector{commit_message}));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
-
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+  auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_NE(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 MATCHER_P(StringEqSharedPtr, ptr, "equals " + *ptr) {
@@ -385,14 +349,9 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
     chainValidatorExpectChain(*chain_validator, chain_good);
   }
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
-
-  gate_outcome.get_subscriber().on_next(consensus::Future{
+  auto commit_event = synchronizer->processOutcome(consensus::Future{
       consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_NE(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 /**
@@ -454,14 +413,9 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
     chainValidatorExpectChain(*chain_validator, chain_2nd_peer);
   }
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
-
-  gate_outcome.get_subscriber().on_next(consensus::Future{
+  auto commit_event = synchronizer->processOutcome(consensus::Future{
       consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_NE(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 /**
@@ -517,14 +471,9 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
     chainValidatorExpectChain(*chain_validator, chain_2nd_try);
   }
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe();
-
-  gate_outcome.get_subscriber().on_next(consensus::Future{
+  auto commit_event = synchronizer->processOutcome(consensus::Future{
       consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_NE(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 /**
@@ -544,14 +493,9 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
       .Times(number_of_failures)
       .WillRepeatedly(Return(false));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
-  wrapper.subscribe();
-
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+  auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_EQ(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 /**
@@ -560,19 +504,12 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
  * @then synchronizer output is also reject
  */
 TEST_F(SynchronizerTest, ProposalRejectOutcome) {
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
-  });
-
   mutableStorageExpectChain(*mutable_factory, {});
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
 
-  gate_outcome.get_subscriber().on_next(consensus::ProposalReject(
+  auto commit_event = synchronizer->processOutcome(consensus::ProposalReject(
       consensus::Round{kHeight, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
 }
 
 /**
@@ -581,19 +518,12 @@ TEST_F(SynchronizerTest, ProposalRejectOutcome) {
  * @then synchronizer output is also reject
  */
 TEST_F(SynchronizerTest, BlockRejectOutcome) {
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
-  });
-
   mutableStorageExpectChain(*mutable_factory, {});
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
 
-  gate_outcome.get_subscriber().on_next(consensus::BlockReject(
+  auto commit_event = synchronizer->processOutcome(consensus::BlockReject(
       consensus::Round{kHeight, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kReject);
 }
 
 /**
@@ -602,19 +532,12 @@ TEST_F(SynchronizerTest, BlockRejectOutcome) {
  * @then synchronizer output is also none
  */
 TEST_F(SynchronizerTest, NoneOutcome) {
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kNothing);
-  });
-
   mutableStorageExpectChain(*mutable_factory, {});
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
 
-  gate_outcome.get_subscriber().on_next(consensus::AgreementOnNone(
+  auto commit_event = synchronizer->processOutcome(consensus::AgreementOnNone(
       consensus::Round{kHeight, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kNothing);
 }
 
 /**
@@ -632,17 +555,12 @@ TEST_F(SynchronizerTest, VotedForBlockCommitPrepared) {
 
   EXPECT_CALL(*mutable_factory, commit_(_)).Times(0);
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
-
   mutableStorageExpectChain(*mutable_factory, {});
 
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
+  auto commit_event = synchronizer->processOutcome(consensus::PairValid(
       consensus::Round{kHeight, 1}, ledger_state, commit_message));
+  EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
 }
 
 /**
@@ -665,14 +583,9 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
-
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+  auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
 }
 
 /**
@@ -691,14 +604,9 @@ TEST_F(SynchronizerTest, VotedForThisCommitPreparedFailure) {
       .WillOnce(Return(ByMove(expected::makeValue(
           std::make_shared<LedgerState>(ledger_peers, kHeight, hash)))));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([](auto commit_event) {
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-  });
-
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
+  auto commit_event = synchronizer->processOutcome(consensus::PairValid(
       consensus::Round{kHeight, 1}, ledger_state, commit_message));
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
 }
 
 /**
@@ -716,13 +624,9 @@ TEST_F(SynchronizerTest, CommitFailureVoteSameBlock) {
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
-
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
+  auto commit_event = synchronizer->processOutcome(consensus::PairValid(
       consensus::Round{kHeight, 1}, ledger_state, commit_message));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_EQ(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 /**
@@ -735,19 +639,17 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
       SetFactory(&createMockMutableStorage);
 
   mutableStorageExpectChain(*mutable_factory, {});
+  EXPECT_CALL(*mutable_factory, commit_(_))
+      .WillOnce(Return(ByMove(expected::makeError(""))));
 
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(std::vector{commit_message}));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
-
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
+  auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_EQ(SynchronizationOutcomeType::kError, commit_event.sync_outcome);
 }
 
 /**
@@ -766,18 +668,10 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(std::vector{commit_message}));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this,
-                     expected_round = consensus::Round{commit_message->height(),
-                                                       0}](auto commit_event) {
-    EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
-    ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
-    ASSERT_EQ(commit_event.round, expected_round);
-  });
-
-  gate_outcome.get_subscriber().on_next(consensus::Future(
+  consensus::Round expected_round{commit_message->height(), 0};
+  auto commit_event = synchronizer->processOutcome(consensus::Future(
       consensus::Round{kHeight + 1, 1}, ledger_state, public_keys));
-
-  ASSERT_TRUE(wrapper.validate());
+  EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
+  ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+  ASSERT_EQ(commit_event.round, expected_round);
 }
