@@ -5,7 +5,6 @@
 
 #include "simulator/impl/simulator.hpp"
 
-#include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "common/bind.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -17,7 +16,6 @@ namespace iroha {
 
     Simulator::Simulator(
         std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
-        std::shared_ptr<network::OrderingGate> ordering_gate,
         std::shared_ptr<validation::StatefulValidator> statefulValidator,
         std::shared_ptr<ametsuchi::TemporaryFactory> factory,
         std::shared_ptr<CryptoSignerType> crypto_signer,
@@ -25,104 +23,65 @@ namespace iroha {
             block_factory,
         logger::LoggerPtr log)
         : command_executor_(std::move(command_executor)),
-          notifier_(notifier_lifetime_),
-          block_notifier_(block_notifier_lifetime_),
           validator_(std::move(statefulValidator)),
           ametsuchi_factory_(std::move(factory)),
           crypto_signer_(std::move(crypto_signer)),
           block_factory_(std::move(block_factory)),
-          log_(std::move(log)) {
-      ordering_gate->onProposal().subscribe(
-          proposal_subscription_, [this](const network::OrderingEvent &event) {
-            if (event.proposal) {
-              auto validated_proposal_and_errors =
-                  this->processProposal(*getProposalUnsafe(event));
+          log_(std::move(log)) {}
 
-              notifier_.get_subscriber().on_next(
-                  VerifiedProposalCreatorEvent{validated_proposal_and_errors,
-                                               event.round,
-                                               event.ledger_state});
-            } else {
-              notifier_.get_subscriber().on_next(VerifiedProposalCreatorEvent{
-                  boost::none, event.round, event.ledger_state});
-            }
-          });
+    VerifiedProposalCreatorEvent Simulator::processProposal(
+        network::OrderingEvent const &event) {
+      if (event.proposal) {
+        auto const &proposal = *getProposalUnsafe(event);
+        log_->info("process proposal: {}", proposal);
 
-      notifier_.get_observable().subscribe(
-          verified_proposal_subscription_,
-          [this](const VerifiedProposalCreatorEvent &event) {
-            if (event.verified_proposal_result) {
-              auto proposal_and_errors = getVerifiedProposalUnsafe(event);
-              auto block = this->processVerifiedProposal(
-                  proposal_and_errors, event.ledger_state->top_block_info);
-              if (block) {
-                block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
-                    RoundData{proposal_and_errors->verified_proposal, *block},
-                    event.round,
-                    event.ledger_state});
-              }
-            } else {
-              block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
-                  boost::none, event.round, event.ledger_state});
-            }
-          });
-    }
+        auto storage =
+            ametsuchi_factory_->createTemporaryWsv(command_executor_);
 
-    Simulator::~Simulator() {
-      notifier_lifetime_.unsubscribe();
-      block_notifier_lifetime_.unsubscribe();
-      proposal_subscription_.unsubscribe();
-      verified_proposal_subscription_.unsubscribe();
-    }
+        std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
+            validated_proposal_and_errors =
+                validator_->validate(proposal, *storage);
+        ametsuchi_factory_->prepareBlock(std::move(storage));
 
-    rxcpp::observable<VerifiedProposalCreatorEvent>
-    Simulator::onVerifiedProposal() {
-      return notifier_.get_observable();
-    }
-
-    std::shared_ptr<validation::VerifiedProposalAndErrors>
-    Simulator::processProposal(
-        const shared_model::interface::Proposal &proposal) {
-      log_->info("process proposal: {}", proposal);
-
-      auto storage = ametsuchi_factory_->createTemporaryWsv(command_executor_);
-
-      std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
-          validated_proposal_and_errors =
-              validator_->validate(proposal, *storage);
-      ametsuchi_factory_->prepareBlock(std::move(storage));
-
-      return validated_proposal_and_errors;
-    }
-
-    boost::optional<std::shared_ptr<shared_model::interface::Block>>
-    Simulator::processVerifiedProposal(
-        const std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
-            &verified_proposal_and_errors,
-        const TopBlockInfo &top_block_info) {
-      const auto &proposal = verified_proposal_and_errors->verified_proposal;
-      if (proposal)
-        log_->info("process verified proposal: {}", *proposal);
-      else
-        log_->info("process verified proposal: no proposal");
-      std::vector<shared_model::crypto::Hash> rejected_hashes;
-      for (const auto &rejected_tx :
-           verified_proposal_and_errors->rejected_transactions) {
-        rejected_hashes.push_back(rejected_tx.tx_hash);
+        return VerifiedProposalCreatorEvent{
+            validated_proposal_and_errors, event.round, event.ledger_state};
+      } else {
+        return VerifiedProposalCreatorEvent{
+            boost::none, event.round, event.ledger_state};
       }
-      std::shared_ptr<shared_model::interface::Block> block =
-          block_factory_->unsafeCreateBlock(top_block_info.height + 1,
-                                            top_block_info.top_hash,
-                                            proposal->createdTime(),
-                                            proposal->transactions(),
-                                            rejected_hashes);
-      crypto_signer_->sign(*block);
-      log_->info("Created block: {}", *block);
-      return block;
     }
 
-    rxcpp::observable<BlockCreatorEvent> Simulator::onBlock() {
-      return block_notifier_.get_observable();
+    BlockCreatorEvent Simulator::processVerifiedProposal(
+        VerifiedProposalCreatorEvent const &event) {
+      if (event.verified_proposal_result) {
+        auto verified_proposal_and_errors = getVerifiedProposalUnsafe(event);
+        auto const &top_block_info = event.ledger_state->top_block_info;
+        auto const &proposal = verified_proposal_and_errors->verified_proposal;
+        if (proposal) {
+          log_->info("process verified proposal: {}", *proposal);
+        } else {
+          log_->info("process verified proposal: no proposal");
+        }
+        std::vector<shared_model::crypto::Hash> rejected_hashes;
+        for (const auto &rejected_tx :
+             verified_proposal_and_errors->rejected_transactions) {
+          rejected_hashes.push_back(rejected_tx.tx_hash);
+        }
+        std::shared_ptr<shared_model::interface::Block> block =
+            block_factory_->unsafeCreateBlock(top_block_info.height + 1,
+                                              top_block_info.top_hash,
+                                              proposal->createdTime(),
+                                              proposal->transactions(),
+                                              rejected_hashes);
+        crypto_signer_->sign(*block);
+        log_->info("Created block: {}", *block);
+        return BlockCreatorEvent{
+            RoundData{verified_proposal_and_errors->verified_proposal, block},
+            event.round,
+            event.ledger_state};
+      } else {
+        return BlockCreatorEvent{boost::none, event.round, event.ledger_state};
+      }
     }
 
   }  // namespace simulator
