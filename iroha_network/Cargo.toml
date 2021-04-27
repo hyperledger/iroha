@@ -18,6 +18,7 @@ maintenance = { status = "actively-developed" }
 
 [features]
 mock = []
+test-no-timeout = []
 
 [dependencies]
 iroha_derive = { path = "../iroha_macro/iroha_derive" }
