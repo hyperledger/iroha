@@ -11,6 +11,7 @@
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "logger/logger.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
+#include "simulator/verified_proposal_creator_common.hpp"
 #include "validation/stateful_validator_common.hpp"
 
 namespace iroha {

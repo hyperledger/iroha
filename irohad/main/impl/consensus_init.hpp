@@ -22,7 +22,6 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "network/block_loader.hpp"
 #include "network/impl/async_grpc_client.hpp"
-#include "simulator/block_creator.hpp"
 
 namespace iroha {
   namespace network {
@@ -40,7 +39,6 @@ namespace iroha {
             boost::optional<shared_model::interface::types::PeerList>
                 alternative_peers,
             std::shared_ptr<const LedgerState> ledger_state,
-            std::shared_ptr<simulator::BlockCreator> block_creator,
             std::shared_ptr<network::BlockLoader> block_loader,
             const shared_model::crypto::Keypair &keypair,
             std::shared_ptr<consensus::ConsensusResultCache> block_cache,

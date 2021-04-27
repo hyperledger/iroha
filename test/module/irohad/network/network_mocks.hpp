@@ -35,10 +35,6 @@ namespace iroha {
           void(std::shared_ptr<shared_model::interface::TransactionBatch>));
 
       MOCK_CONST_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
-
-      MOCK_CONST_METHOD0(
-          onVerifiedProposal,
-          rxcpp::observable<simulator::VerifiedProposalCreatorEvent>());
     };
 
     class MockBlockLoader : public BlockLoader {
