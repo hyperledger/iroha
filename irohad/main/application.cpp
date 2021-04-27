@@ -732,7 +732,6 @@ Irohad::RunResult Irohad::initSynchronizer() {
              [this](auto &&command_executor) -> RunResult {
     synchronizer = std::make_shared<SynchronizerImpl>(
         std::move(command_executor),
-        consensus_gate,
         chain_validator,
         storage,
         storage,
@@ -744,35 +743,37 @@ Irohad::RunResult Irohad::initSynchronizer() {
   };
 }
 
+namespace {
+  void printSynchronizationEvent(
+      logger::LoggerPtr log, synchronizer::SynchronizationEvent const &event) {
+    using iroha::synchronizer::SynchronizationOutcomeType;
+    switch (event.sync_outcome) {
+      case SynchronizationOutcomeType::kCommit:
+        log->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
+        break;
+      case SynchronizationOutcomeType::kReject:
+        log->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");
+        break;
+      case SynchronizationOutcomeType::kNothing:
+        log->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
+        break;
+      default:
+        break;
+    }
+  }
+}  // namespace
+
 /**
  * Initializing peer communication service
  */
 Irohad::RunResult Irohad::initPeerCommunicationService() {
   pcs = std::make_shared<PeerCommunicationServiceImpl>(
       ordering_gate,
-      synchronizer,
       simulator,
       log_manager_->getChild("PeerCommunicationService")->getLogger());
 
   pcs->onProposal().subscribe([this](const auto &) {
     log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-  });
-
-  pcs->onSynchronization().subscribe([this](const auto &event) {
-    using iroha::synchronizer::SynchronizationOutcomeType;
-    switch (event.sync_outcome) {
-      case SynchronizationOutcomeType::kCommit:
-        log_->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
-        break;
-      case SynchronizationOutcomeType::kReject:
-        log_->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");
-        break;
-      case SynchronizationOutcomeType::kNothing:
-        log_->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
-        break;
-      default:
-        break;
-    }
   });
 
   log_->info("[Init] => pcs");
@@ -968,6 +969,22 @@ Irohad::RunResult Irohad::run() {
   using iroha::expected::operator|;
   using iroha::operator|;
 
+  consensus_gate->onOutcome().subscribe(
+      [synchronizer = std::weak_ptr(synchronizer),
+       sync_event_notifier = ordering_init.sync_event_notifier,
+       log = std::weak_ptr(log_),
+       subscription = std::weak_ptr(getSubscription())](consensus::GateObject object) {
+        auto maybe_synchronizer = synchronizer.lock();
+        auto maybe_log = log.lock();
+        auto maybe_subscription = subscription.lock();
+        if (maybe_synchronizer and maybe_log and maybe_subscription) {
+          auto event = maybe_synchronizer->processOutcome(std::move(object));
+          maybe_subscription->notify(EventTypes::kOnSynchronization, event);
+          printSynchronizationEvent(maybe_log, event);
+          sync_event_notifier.get_subscriber().on_next(std::move(event));
+        }
+      });
+
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(config_.torii_port),
@@ -1050,8 +1067,6 @@ Irohad::RunResult Irohad::run() {
       return expected::makeError("Failed to fetch ledger state!");
     }
 
-    pcs->onSynchronization().subscribe(
-        ordering_init.sync_event_notifier.get_subscriber());
     storage->on_commit().subscribe(
         ordering_init.commit_notifier.get_subscriber());
 
