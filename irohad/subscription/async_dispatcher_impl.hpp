@@ -14,34 +14,53 @@
 namespace iroha::subscription {
 
   template <uint32_t kCount, uint32_t kPoolSize>
-  class AsyncDispatcher final : public IDispatcher<kCount, kPoolSize>,
+  class AsyncDispatcher final : public IDispatcher,
                                 utils::NoCopy,
                                 utils::NoMove {
-   private:
-    using Parent = IDispatcher<kCount, kPoolSize>;
+   public:
+    static constexpr uint32_t kHandlersCount = kCount;
+    static constexpr uint32_t kPoolThreadsCount = kPoolSize;
 
-    struct ThreadHandlerContext {
-      /// Worker thread to execute tasks
-      std::shared_ptr<ThreadHandler> handler;
+   private:
+    using Parent = IDispatcher;
+
+    struct SchedulerContext {
+      /// Scheduler to execute tasks
+      std::shared_ptr<IScheduler> handler;
 
       /// Shows if this handler is static or if it was created to
       /// execute a single task and should be deleted after performing it
       bool is_temporary;
     };
 
-    ThreadHandlerContext handlers_[Parent::kHandlersCount];
-    ThreadHandlerContext pool_[Parent::kPoolThreadsCount];
+    SchedulerContext handlers_[kHandlersCount];
+    SchedulerContext pool_[kPoolThreadsCount];
 
-    inline ThreadHandlerContext findHandler(typename Parent::Tid const tid) {
-      assert(tid < Parent::kHandlersCount || tid == Parent::kExecuteInPool);
-      if (tid < Parent::kHandlersCount)
+    struct BoundContexts {
+      typename Parent::Tid next_tid_offset = 0u;
+      std::unordered_map<typename Parent::Tid, SchedulerContext> contexts;
+    };
+    utils::ReadWriteObject<BoundContexts> bound_;
+
+    inline SchedulerContext findHandler(typename Parent::Tid const tid) {
+      if (tid < kHandlersCount)
         return handlers_[tid];
+
+      if (auto context =
+              bound_.sharedAccess([tid](BoundContexts const &bound)
+                                      -> std::optional<SchedulerContext> {
+                if (auto it = bound.contexts.find(tid);
+                    it != bound.contexts.end())
+                  return it->second;
+                return std::nullopt;
+              }))
+        return *context;
 
       for (auto &handler : pool_)
         if (!handler.handler->isBusy())
           return handler;
 
-      return ThreadHandlerContext{
+      return SchedulerContext{
           std::make_shared<ThreadHandler>(),
           true  // temporary
       };
@@ -88,6 +107,26 @@ namespace iroha::subscription {
           h.handler->dispose(false);
         });
       }
+    }
+
+    std::optional<Tid> bind(std::shared_ptr<IScheduler> scheduler) override {
+      if (!scheduler)
+        return std::nullopt;
+
+      return bound_.exclusiveAccess(
+          [scheduler(std::move(scheduler))](BoundContexts &bound) {
+            auto const execution_tid = kHandlersCount + bound.next_tid_offset;
+            assert(bound.contexts.find(execution_tid) == bound.contexts.end());
+            bound.contexts[execution_tid] = SchedulerContext{scheduler, false};
+            ++bound.next_tid_offset;
+            return execution_tid;
+          });
+    }
+
+    bool unbind(Tid tid) override {
+      return bound_.exclusiveAccess([tid](BoundContexts &bound) {
+        return bound.contexts.erase(tid) == 1;
+      });
     }
   };
 

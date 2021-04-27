@@ -14,11 +14,11 @@
 namespace iroha::subscription {
 
   template <uint32_t kCount, uint32_t kPoolSize>
-  class SyncDispatcher final : public IDispatcher<kCount, kPoolSize>,
+  class SyncDispatcher final : public IDispatcher,
                                utils::NoCopy,
                                utils::NoMove {
    private:
-    using Parent = IDispatcher<kCount, kPoolSize>;
+    using Parent = IDispatcher;
 
    public:
     SyncDispatcher() = default;
@@ -34,6 +34,17 @@ namespace iroha::subscription {
                     std::chrono::microseconds /*timeout*/,
                     typename Parent::Task &&task) override {
       task();
+    }
+
+    std::optional<Tid> bind(std::shared_ptr<IScheduler> scheduler) override {
+      if (!scheduler)
+        return std::nullopt;
+
+      return kCount;
+    }
+
+    bool unbind(Tid tid) override {
+      return tid == kCount;
     }
   };
 

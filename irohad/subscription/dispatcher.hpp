@@ -6,27 +6,22 @@
 #ifndef IROHA_SUBSCRIPTION_DISPATCHER_HPP
 #define IROHA_SUBSCRIPTION_DISPATCHER_HPP
 
+#include <optional>
+
 #include "subscription/common.hpp"
-#include "subscription/thread_handler.hpp"
+#include "subscription/scheduler.hpp"
 
 namespace iroha::subscription {
 
-  template <uint32_t kCount, uint32_t kPoolSize>
   struct IDispatcher {
     using Tid = uint32_t;
-    using Task = ThreadHandler::Task;
-
+    using Task = IScheduler::Task;
     static constexpr Tid kExecuteInPool = std::numeric_limits<Tid>::max();
-    static constexpr uint32_t kHandlersCount = kCount;
-    static constexpr uint32_t kPoolThreadsCount = kPoolSize;
 
     virtual ~IDispatcher() {}
 
-    template <Tid kId>
-    static constexpr void checkTid() {
-      static_assert(kId < kHandlersCount || kId == kExecuteInPool,
-                    "Unexpected TID handler.");
-    }
+    virtual std::optional<Tid> bind(std::shared_ptr<IScheduler> scheduler) = 0;
+    virtual bool unbind(Tid tid) = 0;
 
     virtual void dispose() = 0;
     virtual void add(Tid tid, Task &&task) = 0;
