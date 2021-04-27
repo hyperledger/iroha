@@ -20,7 +20,6 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/network/network_mocks.hpp"
-#include "synchronizer/synchronizer_common.hpp"
 #include "torii/impl/command_service_impl.hpp"
 #include "torii/impl/status_bus_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
@@ -44,22 +43,15 @@ struct CommandFixture {
   rxcpp::subjects::subject<iroha::network::OrderingEvent> prop_notifier_;
   rxcpp::subjects::subject<iroha::simulator::VerifiedProposalCreatorEvent>
       vprop_notifier_;
-  rxcpp::subjects::subject<iroha::synchronizer::SynchronizationEvent>
-      sync_event_notifier_;
   rxcpp::subjects::subject<iroha::DataType> mst_notifier_;
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_notifier_;
-  rxcpp::subjects::subject<
-      std::shared_ptr<const shared_model::interface::Block>>
-      commit_notifier_;
 
   CommandFixture() {
     pcs_ = std::make_shared<iroha::network::MockPeerCommunicationService>();
     EXPECT_CALL(*pcs_, onProposal())
         .WillRepeatedly(Return(prop_notifier_.get_observable()));
-    EXPECT_CALL(*pcs_, onSynchronization())
-        .WillRepeatedly(Return(sync_event_notifier_.get_observable()));
     EXPECT_CALL(*pcs_, onVerifiedProposal())
         .WillRepeatedly(Return(vprop_notifier_.get_observable()));
 
@@ -82,7 +74,6 @@ struct CommandFixture {
         mst_processor_,
         status_bus,
         status_factory,
-        commit_notifier_.get_observable(),
         logger::getDummyLoggerPtr());
     auto storage = std::make_shared<iroha::ametsuchi::MockStorage>();
     service_ = std::make_shared<iroha::torii::CommandServiceImpl>(
