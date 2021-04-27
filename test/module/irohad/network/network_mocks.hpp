@@ -7,13 +7,14 @@
 #define IROHA_NETWORK_MOCKS_HPP
 
 #include <gmock/gmock.h>
+#include <rxcpp/rx-lite.hpp>
+
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "network/block_loader.hpp"
 #include "network/consensus_gate.hpp"
 #include "network/ordering_gate.hpp"
 #include "network/peer_communication_service.hpp"
 #include "simulator/block_creator_common.hpp"
-#include "synchronizer/synchronizer_common.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -34,10 +35,6 @@ namespace iroha {
           void(std::shared_ptr<shared_model::interface::TransactionBatch>));
 
       MOCK_CONST_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
-
-      MOCK_CONST_METHOD0(
-          onSynchronization,
-          rxcpp::observable<synchronizer::SynchronizationEvent>());
 
       MOCK_CONST_METHOD0(
           onVerifiedProposal,

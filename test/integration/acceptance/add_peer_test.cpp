@@ -24,6 +24,7 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "ordering/impl/on_demand_common.cpp"
@@ -31,6 +32,7 @@
 using namespace common_constants;
 using namespace shared_model;
 using namespace integration_framework;
+using namespace iroha;
 using namespace shared_model::interface::permissions;
 
 using interface::types::PublicKeyHexStringView;
@@ -56,8 +58,28 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   const auto new_peer_hex_pubkey = "b055"_hex_pubkey;
 
   // capture itf synchronization events
-  auto itf_sync_events_observable = itf_->getPcsOnCommitObservable().replay();
-  itf_sync_events_observable.connect();
+  utils::WaitForSingleObject completed;
+  auto subscriber = SubscriberCreator<bool,
+                                      synchronizer::SynchronizationEvent>::
+      template create<
+          EventTypes::kOnSynchronization,
+          static_cast<SubscriptionEngineHandlers>(decltype(
+              getSubscription())::element_type::Dispatcher::kExecuteInPool)>(
+          [prepared_height,
+           &completed,
+           itf_peer = itf_->getThisPeer(),
+           new_peer_address,
+           new_peer_hex_pubkey](auto, auto sync_event) {
+            if (sync_event.ledger_state->top_block_info.height
+                > prepared_height) {
+              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                          ::testing::UnorderedElementsAre(
+                              makePeerPointeeMatcher(itf_peer),
+                              makePeerPointeeMatcher(new_peer_address,
+                                                     new_peer_hex_pubkey)));
+              completed.set();
+            }
+          });
 
   // ------------------------ WHEN -------------------------
   // send addPeer command
@@ -68,28 +90,8 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
 
   // ------------------------ THEN -------------------------
   // check that ledger state contains the two peers
-  itf_sync_events_observable
-      .filter([prepared_height](const auto &sync_event) {
-        return sync_event.ledger_state->top_block_info.height > prepared_height;
-      })
-      .take(1)
-      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
-      .as_blocking()
-      .subscribe(
-          [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
-            EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                        ::testing::UnorderedElementsAre(
-                            makePeerPointeeMatcher(itf_peer),
-                            makePeerPointeeMatcher(new_peer_address,
-                                                   new_peer_hex_pubkey)));
-          },
-          [](std::exception_ptr ep) {
-            try {
-              std::rethrow_exception(ep);
-            } catch (const std::exception &e) {
-              FAIL() << "Error waiting for synchronization: " << e.what();
-            }
-          });
+  ASSERT_TRUE(completed.wait(kSynchronizerWaitingTime))
+      << "Error waiting for synchronization";
 
   // query WSV peers
   auto opt_peers = itf.getIrohaInstance()
@@ -257,8 +259,26 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
   itf_->setGenesisBlock(genesis_block);
 
   // capture itf synchronization events
-  auto itf_sync_events_observable = itf_->getPcsOnCommitObservable().replay();
-  itf_sync_events_observable.connect();
+  utils::WaitForSingleObject completed;
+  auto subscriber = SubscriberCreator<bool,
+                                      synchronizer::SynchronizationEvent>::
+      template create<
+          EventTypes::kOnSynchronization,
+          static_cast<SubscriptionEngineHandlers>(decltype(
+              getSubscription())::element_type::Dispatcher::kExecuteInPool)>(
+          [height = block_with_add_peer.height(),
+           &completed,
+           itf_peer = itf_->getThisPeer(),
+           initial_peer = initial_peer->getThisPeer()](auto, auto sync_event) {
+            if (sync_event.ledger_state->top_block_info.height >= height) {
+              EXPECT_EQ(sync_event.ledger_state->top_block_info.height, height);
+              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                          ::testing::UnorderedElementsAre(
+                              makePeerPointeeMatcher(itf_peer),
+                              makePeerPointeeMatcher(initial_peer)));
+              completed.set();
+            }
+          });
 
   // ------------------------ WHEN -------------------------
   // launch the itf peer
@@ -266,30 +286,8 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
 
   // ------------------------ THEN -------------------------
   // check that itf peer is synchronized
-  itf_sync_events_observable
-      .filter([height = block_with_add_peer.height()](const auto &sync_event) {
-        return sync_event.ledger_state->top_block_info.height >= height;
-      })
-      .take(1)
-      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
-      .as_blocking()
-      .subscribe(
-          [height = block_with_add_peer.height(),
-           itf_peer = itf_->getThisPeer(),
-           initial_peer = initial_peer->getThisPeer()](const auto &sync_event) {
-            EXPECT_EQ(sync_event.ledger_state->top_block_info.height, height);
-            EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                        ::testing::UnorderedElementsAre(
-                            makePeerPointeeMatcher(itf_peer),
-                            makePeerPointeeMatcher(initial_peer)));
-          },
-          [](std::exception_ptr ep) {
-            try {
-              std::rethrow_exception(ep);
-            } catch (const std::exception &e) {
-              FAIL() << "Error waiting for synchronization: " << e.what();
-            }
-          });
+  ASSERT_TRUE(completed.wait(kSynchronizerWaitingTime))
+      << "Error waiting for synchronization";
 
   // check that itf peer sees the two peers in the WSV
   auto opt_peers = itf_->getIrohaInstance()

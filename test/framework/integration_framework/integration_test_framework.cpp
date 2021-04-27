@@ -509,13 +509,6 @@ namespace integration_framework {
     return iroha_instance_->getIrohaInstance()->getConsensusGate()->onOutcome();
   }
 
-  rxcpp::observable<iroha::synchronizer::SynchronizationEvent>
-  IntegrationTestFramework::getPcsOnCommitObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getPeerCommunicationService()
-        ->onSynchronization();
-  }
-
   std::shared_ptr<iroha::ametsuchi::BlockQuery>
   IntegrationTestFramework::getBlockQuery() {
     return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();

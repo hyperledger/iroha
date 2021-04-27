@@ -24,7 +24,6 @@ namespace iroha {
 
     SynchronizerImpl::SynchronizerImpl(
         std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
-        std::shared_ptr<network::ConsensusGate> consensus_gate,
         std::shared_ptr<validation::ChainValidator> validator,
         std::shared_ptr<ametsuchi::MutableFactory> mutable_factory,
         std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory,
@@ -35,55 +34,49 @@ namespace iroha {
           mutable_factory_(std::move(mutable_factory)),
           block_query_factory_(std::move(block_query_factory)),
           block_loader_(std::move(block_loader)),
-          notifier_(notifier_lifetime_),
-          log_(std::move(log)) {
-      consensus_gate->onOutcome().subscribe(
-          subscription_, [this](consensus::GateObject object) {
-            this->processOutcome(object);
-          });
-    }
+          log_(std::move(log)) {}
 
-    void SynchronizerImpl::processOutcome(consensus::GateObject object) {
+    SynchronizationEvent SynchronizerImpl::processOutcome(
+        consensus::GateObject object) {
       log_->info("processing consensus outcome");
 
       auto process_reject = [this](auto outcome_type, const auto &msg) {
         assert(msg.ledger_state->top_block_info.height + 1
                == msg.round.block_round);
-        notifier_.get_subscriber().on_next(
-            SynchronizationEvent{outcome_type, msg.round, msg.ledger_state});
+        return SynchronizationEvent{outcome_type, msg.round, msg.ledger_state};
       };
 
-      visit_in_place(object,
-                     [this](const consensus::PairValid &msg) {
-                       assert(msg.ledger_state->top_block_info.height + 1
-                              == msg.round.block_round);
-                       this->processNext(msg);
-                     },
-                     [this](const consensus::VoteOther &msg) {
-                       assert(msg.ledger_state->top_block_info.height + 1
-                              == msg.round.block_round);
-                       this->processDifferent(msg, msg.round.block_round);
-                     },
-                     [&](const consensus::ProposalReject &msg) {
-                       process_reject(SynchronizationOutcomeType::kReject, msg);
-                     },
-                     [&](const consensus::BlockReject &msg) {
-                       process_reject(SynchronizationOutcomeType::kReject, msg);
-                     },
-                     [&](const consensus::AgreementOnNone &msg) {
-                       process_reject(SynchronizationOutcomeType::kNothing,
-                                      msg);
-                     },
-                     [this](const consensus::Future &msg) {
-                       assert(msg.ledger_state->top_block_info.height + 1
-                              < msg.round.block_round);
-                       // we do not know the ledger state for round n, so we
-                       // cannot claim that the bunch of votes we got is a
-                       // commit certificate and hence we do not know if the
-                       // block n is committed and cannot require its
-                       // acquisition.
-                       this->processDifferent(msg, msg.round.block_round - 1);
-                     });
+      return visit_in_place(
+          object,
+          [this](const consensus::PairValid &msg) {
+            assert(msg.ledger_state->top_block_info.height + 1
+                   == msg.round.block_round);
+            return this->processNext(msg);
+          },
+          [this](const consensus::VoteOther &msg) {
+            assert(msg.ledger_state->top_block_info.height + 1
+                   == msg.round.block_round);
+            return this->processDifferent(msg, msg.round.block_round);
+          },
+          [&](const consensus::ProposalReject &msg) {
+            return process_reject(SynchronizationOutcomeType::kReject, msg);
+          },
+          [&](const consensus::BlockReject &msg) {
+            return process_reject(SynchronizationOutcomeType::kReject, msg);
+          },
+          [&](const consensus::AgreementOnNone &msg) {
+            return process_reject(SynchronizationOutcomeType::kNothing, msg);
+          },
+          [this](const consensus::Future &msg) {
+            assert(msg.ledger_state->top_block_info.height + 1
+                   < msg.round.block_round);
+            // we do not know the ledger state for round n, so we
+            // cannot claim that the bunch of votes we got is a
+            // commit certificate and hence we do not know if the
+            // block n is committed and cannot require its
+            // acquisition.
+            return this->processDifferent(msg, msg.round.block_round - 1);
+          });
     }
 
     ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
@@ -155,48 +148,46 @@ namespace iroha {
       return mutable_factory_->createMutableStorage(command_executor_);
     }
 
-    void SynchronizerImpl::processNext(const consensus::PairValid &msg) {
+    SynchronizationEvent SynchronizerImpl::processNext(
+        const consensus::PairValid &msg) {
       log_->info("at handleNext");
       const auto notify =
           [this,
            &msg](std::shared_ptr<const iroha::LedgerState> &&ledger_state) {
-            this->notifier_.get_subscriber().on_next(
-                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                     msg.round,
-                                     std::move(ledger_state)});
+            return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                        msg.round,
+                                        std::move(ledger_state)};
           };
-      const bool committed_prepared = mutable_factory_->preparedCommitEnabled()
-          and mutable_factory_->commitPrepared(msg.block).match(
-                  [&notify](auto &&value) {
-                    notify(std::move(value.value));
-                    return true;
-                  },
-                  [this](const auto &error) {
-                    this->log_->error("Error committing prepared block: {}",
-                                      error.error);
-                    return false;
-                  });
-      if (not committed_prepared) {
-        auto commit_result =
-            getStorage() | [&](auto &&storage) -> ametsuchi::CommitResult {
-          if (storage->apply(msg.block)) {
-            return mutable_factory_->commit(std::move(storage));
-          } else {
-            return "Block failed to apply.";
-          }
-        };
-        std::move(commit_result)
-            .match(
-                [&notify](auto &&ledger_state) {
-                  notify(std::move(ledger_state.value));
-                },
-                [this](const auto &error) {
-                  this->log_->error("Failed to commit: {}", error.error);
-                });
+      if (mutable_factory_->preparedCommitEnabled()) {
+        auto result = mutable_factory_->commitPrepared(msg.block);
+        if (iroha::expected::hasValue(result)) {
+          return notify(std::move(result).assumeValue());
+        }
+        log_->error("Error committing prepared block: {}",
+                    result.assumeError());
       }
+      auto commit_result =
+          getStorage() | [&](auto &&storage) -> ametsuchi::CommitResult {
+        if (storage->apply(msg.block)) {
+          return mutable_factory_->commit(std::move(storage));
+        } else {
+          return "Block failed to apply.";
+        }
+      };
+      return std::move(commit_result)
+          .match(
+              [&notify](auto &&ledger_state) {
+                return notify(std::move(ledger_state.value));
+              },
+              [this, &msg](const auto &error) {
+                this->log_->error("Failed to commit: {}", error.error);
+                return SynchronizationEvent{SynchronizationOutcomeType::kError,
+                                            msg.round,
+                                            msg.ledger_state};
+              });
     }
 
-    void SynchronizerImpl::processDifferent(
+    SynchronizationEvent SynchronizerImpl::processDifferent(
         const consensus::Synchronizable &msg,
         shared_model::interface::types::HeightType required_height) {
       log_->info("at handleDifferent");
@@ -206,31 +197,23 @@ namespace iroha {
           required_height,
           msg.public_keys);
 
-      commit_result.match(
+      return commit_result.match(
           [this, &msg](auto &value) {
             auto &ledger_state = value.value;
             assert(ledger_state);
             const auto new_height = ledger_state->top_block_info.height;
-            notifier_.get_subscriber().on_next(
-                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                     new_height != msg.round.block_round
-                                         ? consensus::Round{new_height, 0}
-                                         : msg.round,
-                                     std::move(ledger_state)});
+            return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                        new_height != msg.round.block_round
+                                            ? consensus::Round{new_height, 0}
+                                            : msg.round,
+                                        std::move(ledger_state)};
           },
-          [this](const auto &error) {
+          [this, &msg](const auto &error) {
             log_->error("Synchronization failed: {}", error.error);
+            return SynchronizationEvent{SynchronizationOutcomeType::kError,
+                                        msg.round,
+                                        msg.ledger_state};
           });
-    }
-
-    rxcpp::observable<SynchronizationEvent>
-    SynchronizerImpl::on_commit_chain() {
-      return notifier_.get_observable();
-    }
-
-    SynchronizerImpl::~SynchronizerImpl() {
-      notifier_lifetime_.unsubscribe();
-      subscription_.unsubscribe();
     }
 
   }  // namespace synchronizer
