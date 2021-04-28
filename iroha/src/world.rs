@@ -103,6 +103,23 @@ pub mod query {
 
     use super::*;
 
+    #[cfg(feature = "roles")]
+    impl Query for FindAllRoles {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            Ok(Value::Vec(
+                world_state_view
+                    .world
+                    .roles
+                    .iter()
+                    .map(|pair| Box::new(pair.value().clone()))
+                    .map(IdentifiableBox::Role)
+                    .map(Value::Identifiable)
+                    .collect::<Vec<_>>(),
+            ))
+        }
+    }
+
     impl Query for FindAllPeers {
         #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
