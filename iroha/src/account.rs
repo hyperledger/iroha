@@ -135,11 +135,55 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Account related implementations.
 pub mod query {
+    #[cfg(feature = "roles")]
+    use std::ops::Deref;
+
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
     use super::*;
     use crate::expression::Evaluate;
+
+    #[cfg(feature = "roles")]
+    impl Query for FindRolesByAccountId {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let mut roles: Vec<RoleId> = Vec::new();
+            let account_id = self.id.evaluate(world_state_view, &Context::new())?;
+            world_state_view.account(&account_id, |account| {
+                roles.extend(account.roles.iter().map(|role| role.deref().clone()))
+            })?;
+            Ok(Value::Vec(
+                roles
+                    .into_iter()
+                    .map(IdBox::RoleId)
+                    .map(Value::Id)
+                    .collect::<Vec<_>>(),
+            ))
+        }
+    }
+
+    impl Query for FindPermissionTokensByAccountId {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+            let mut tokens: Vec<PermissionToken> = Vec::new();
+            let account_id = self.id.evaluate(world_state_view, &Context::new())?;
+            world_state_view.account(&account_id, |account| {
+                tokens.extend(
+                    account
+                        .permission_tokens(&world_state_view.world)
+                        .iter()
+                        .cloned(),
+                )
+            })?;
+            Ok(Value::Vec(
+                tokens
+                    .into_iter()
+                    .map(Value::PermissionToken)
+                    .collect::<Vec<_>>(),
+            ))
+        }
+    }
 
     impl Query for FindAllAccounts {
         #[log]

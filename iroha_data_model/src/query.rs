@@ -13,7 +13,9 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use self::{account::*, asset::*, domain::*, peer::*, transaction::*};
+#[cfg(feature = "roles")]
+use self::role::*;
+use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
 use crate::Value;
 
 /// Sized container for all possible Queries.
@@ -75,6 +77,14 @@ pub enum QueryBox {
     FindAllParameters(FindAllParameters),
     /// `FindTransactionsByAccountId` variant.
     FindTransactionsByAccountId(FindTransactionsByAccountId),
+    /// `FindAllRoles` variant.
+    #[cfg(feature = "roles")]
+    FindAllRoles(FindAllRoles),
+    /// `FindRolesByAccountId` variant.
+    #[cfg(feature = "roles")]
+    FindRolesByAccountId(FindRolesByAccountId),
+    /// `FindPermissionTokensByAccountId` variant.
+    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
 }
 
 /// I/O ready structure to send queries.
@@ -166,10 +176,75 @@ impl SignedQueryRequest {
     }
 }
 
+#[cfg(feature = "roles")]
+pub mod role {
+    //! Queries related to `Role`.
+
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use crate::prelude::*;
+
+    /// `FindAllRoles` Iroha Query will find all `Roles`s presented.
+    #[derive(
+        Default,
+        Copy,
+        Clone,
+        Debug,
+        Io,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+    )]
+    pub struct FindAllRoles {}
+
+    /// `FindRolesByAccountId` Iroha Query will find an `Role`s for a specified account.
+    #[derive(
+        Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord,
+    )]
+    pub struct FindRolesByAccountId {
+        /// `Id` of an account to find.
+        pub id: EvaluatesTo<AccountId>,
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
+    pub mod prelude {
+        pub use super::{FindAllRoles, FindRolesByAccountId};
+    }
+}
+
+pub mod permissions {
+    //! Queries related to `PermissionToken`.
+
+    use iroha_derive::Io;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use crate::prelude::*;
+
+    /// `FindPermissionTokensByAccountId` Iroha Query will find an `Role`s for a specified account.
+    #[derive(
+        Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord,
+    )]
+    pub struct FindPermissionTokensByAccountId {
+        /// `Id` of an account to find.
+        pub id: EvaluatesTo<AccountId>,
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this module.
+    pub mod prelude {
+        pub use super::FindPermissionTokensByAccountId;
+    }
+}
+
 pub mod account {
     //! Queries related to `Account`.
-
-    #![allow(clippy::missing_inline_in_public_items)]
 
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
@@ -705,9 +780,11 @@ pub mod transaction {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
+    #[cfg(feature = "roles")]
+    pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        transaction::*, QueryBox, QueryRequest, QueryResult, SignedQueryRequest,
-        VersionedQueryResult, VersionedSignedQueryRequest,
+        permissions::prelude::*, transaction::*, QueryBox, QueryRequest, QueryResult,
+        SignedQueryRequest, VersionedQueryResult, VersionedSignedQueryRequest,
     };
 }
