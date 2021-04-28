@@ -160,6 +160,11 @@ impl Query for QueryBox {
             QueryBox::FindAssetKeyValueByIdAndKey(query) => query.execute(world_state_view),
             QueryBox::FindAccountKeyValueByIdAndKey(query) => query.execute(world_state_view),
             QueryBox::FindTransactionsByAccountId(query) => query.execute(world_state_view),
+            #[cfg(feature = "roles")]
+            QueryBox::FindAllRoles(query) => query.execute(world_state_view),
+            #[cfg(feature = "roles")]
+            QueryBox::FindRolesByAccountId(query) => query.execute(world_state_view),
+            QueryBox::FindPermissionTokensByAccountId(query) => query.execute(world_state_view),
         }
     }
 }
