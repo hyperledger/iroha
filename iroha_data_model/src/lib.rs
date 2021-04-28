@@ -836,7 +836,7 @@ pub mod account {
         #[allow(unused_variables)]
         #[allow(unused_mut)]
         #[allow(clippy::let_and_return)]
-        pub async fn permission_tokens(&self, world: &World) -> Permissions {
+        pub fn permission_tokens(&self, world: &World) -> Permissions {
             let mut tokens = self.permission_tokens.read().clone();
             #[cfg(feature = "roles")]
             {
