@@ -48,6 +48,8 @@ namespace shared_model {
       using HeightType = uint64_t;
       /// Type of peer address
       using AddressType = std::string;
+      /// Type of peer address
+      using AddressTypeView = std::string_view;
       /// Type of public keys' collection
       using PublicKeyCollectionType = std::vector<std::string>;
       /// Type of role (i.e admin, user)
