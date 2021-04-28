@@ -12,3 +12,11 @@ addtest(tbb_test tbb_test.cpp)
 target_link_libraries(tbb_test
     TBB::tbb
     )
+
+addtest(rocksdb_test rocksdb_test.cpp)
+target_link_libraries(rocksdb_test
+    Boost::filesystem
+    common
+    logger
+    RocksDB::rocksdb
+    )
