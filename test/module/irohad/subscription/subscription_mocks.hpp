@@ -24,9 +24,9 @@ namespace iroha::subscription {
     SubscriptionEnginePtr engine_;
     MockSubscriber(SubscriptionEnginePtr const &engine) : engine_(engine) {}
 
-    template <typename Dispatcher::Tid kTid>
-    void subscribe(const typename Parent::EventType &key) {
-      engine_->template subscribe<kTid>(0ull, key, Parent::weak_from_this());
+    void subscribe(typename Dispatcher::Tid kTid,
+                   const typename Parent::EventType &key) {
+      engine_->subscribe(kTid, 0ull, key, Parent::weak_from_this());
     }
 
     MOCK_METHOD3_T(on_notify,

@@ -22,13 +22,13 @@ class SubscriptionTest : public ::testing::Test {
         std::make_shared<subscription::AsyncDispatcher<ThreadsCount, 1u>>());
   }
 
-  template <uint32_t Tid,
-            uint64_t Event,
+  template <uint64_t Event,
             typename EventData,
             typename ObjectType,
             typename Manager,
             typename F>
-  auto createSubscriber(std::shared_ptr<Manager> const &manager,
+  auto createSubscriber(uint32_t Tid,
+                        std::shared_ptr<Manager> const &manager,
                         ObjectType &&initial,
                         F &&f) {
     using Dispatcher = typename Manager::Dispatcher;
@@ -44,7 +44,7 @@ class SubscriptionTest : public ::testing::Test {
           ASSERT_EQ(key, Event);
           std::forward<F>(f)(obj, std::move(data));
         });
-    subscriber->template subscribe<Tid>(0, Event);
+    subscriber->subscribe(0, Event, Tid);
     return subscriber;
   }
 
@@ -80,8 +80,8 @@ TEST_F(SubscriptionTest, SimpleExecutionTest) {
   utils::WaitForSingleObject complete;
 
   std::string test_value = "the fast and the furious";
-  auto subscriber = createSubscriber<0ul, 1ull, std::string>(
-      manager, false, [&complete, test_value](auto, std::string value) {
+  auto subscriber = createSubscriber<1ull, std::string>(
+      0ul, manager, false, [&complete, test_value](auto, std::string value) {
         ASSERT_EQ(test_value, value);
         complete.set();
       });
@@ -103,12 +103,14 @@ TEST_F(SubscriptionTest, PoolSimpleExecutionTest) {
   utils::WaitForSingleObject complete;
 
   std::string test_value = "the fast and the furious";
-  auto subscriber =
-      createSubscriber<std::numeric_limits<uint32_t>::max(), 1ull, std::string>(
-          manager, false, [&complete, test_value](auto, std::string value) {
-            ASSERT_EQ(test_value, value);
-            complete.set();
-          });
+  auto subscriber = createSubscriber<1ull, std::string>(
+      std::numeric_limits<uint32_t>::max(),
+      manager,
+      false,
+      [&complete, test_value](auto, std::string value) {
+        ASSERT_EQ(test_value, value);
+        complete.set();
+      });
 
   manager->notify(1ull, test_value);
   ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
@@ -128,20 +130,24 @@ TEST_F(SubscriptionTest, BusyPoolSimpleExecutionTest) {
   utils::WaitForSingleObject complete;
   utils::WaitForSingleObject complete1;
   auto subscriber1 =
-      createSubscriber<std::numeric_limits<uint32_t>::max(), 1ull, bool>(
-          manager, false, [&complete, &complete1](auto, auto) {
-            complete1.set();
-            complete.wait();
-            complete.set();
-          });
+      createSubscriber<1ull, bool>(std::numeric_limits<uint32_t>::max(),
+                                   manager,
+                                   false,
+                                   [&complete, &complete1](auto, auto) {
+                                     complete1.set();
+                                     complete.wait();
+                                     complete.set();
+                                   });
 
   std::string test_value = "the fast and the furious";
-  auto subscriber2 =
-      createSubscriber<std::numeric_limits<uint32_t>::max(), 2ull, std::string>(
-          manager, false, [&complete, test_value](auto, std::string value) {
-            ASSERT_EQ(test_value, value);
-            complete.set();
-          });
+  auto subscriber2 = createSubscriber<2ull, std::string>(
+      std::numeric_limits<uint32_t>::max(),
+      manager,
+      false,
+      [&complete, test_value](auto, std::string value) {
+        ASSERT_EQ(test_value, value);
+        complete.set();
+      });
 
   manager->notify(1ull, false);
   complete1.wait();
@@ -164,14 +170,15 @@ TEST_F(SubscriptionTest, DoubleExecutionTest) {
 
   uint32_t counter = 0ul;
   std::string test_value = "the fast and the furious";
-  auto subscriber_1 = createSubscriber<0ul, 1ull, std::string>(
-      manager, false, [&counter, test_value](auto, std::string value) {
+  auto subscriber_1 = createSubscriber<1ull, std::string>(
+      0ul, manager, false, [&counter, test_value](auto, std::string value) {
         ASSERT_EQ(test_value, value);
         ASSERT_EQ(counter, 0ul);
         ++counter;
       });
 
-  auto subscriber_2 = createSubscriber<0ul, 1ull, std::string>(
+  auto subscriber_2 = createSubscriber<1ull, std::string>(
+      0ul,
       manager,
       false,
       [&complete, &counter, test_value](auto, std::string value) {
@@ -199,14 +206,14 @@ TEST_F(SubscriptionTest, XExecutionTest) {
   uint32_t counter[2] = {0ul};
 
   [[maybe_unused]] auto subscriber_1 =
-      createSubscriber<0ul, 1ull, bool>(manager, false, [&](auto, auto) {
+      createSubscriber<1ull, bool>(0ul, manager, false, [&](auto, auto) {
         ASSERT_EQ(counter[0], 0ul);
         ++counter[0];
         complete[0].set();
       });
 
   [[maybe_unused]] auto subscriber_2 =
-      createSubscriber<0ul, 2ull, bool>(manager, false, [&](auto, auto) {
+      createSubscriber<2ull, bool>(0ul, manager, false, [&](auto, auto) {
         ASSERT_EQ(counter[1], 0ul);
         ++counter[1];
         complete[1].set();
@@ -239,7 +246,8 @@ TEST_F(SubscriptionTest, ParallelExecutionTest) {
 
   SharedObject shared_object;
 
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 1ull, bool>(
+  [[maybe_unused]] auto subscriber_0 = createSubscriber<1ull, bool>(
+      0ul,
       manager,
       SharedObjectRef(shared_object),
       [&](SharedObjectRef object, auto) {
@@ -247,7 +255,8 @@ TEST_F(SubscriptionTest, ParallelExecutionTest) {
             [](auto &data) { ++data[std::this_thread::get_id()]; });
         complete[0].set();
       });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<1ul, 1ull, bool>(
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<1ull, bool>(
+      1ul,
       manager,
       SharedObjectRef(shared_object),
       [&](SharedObjectRef object, auto) {
@@ -255,7 +264,8 @@ TEST_F(SubscriptionTest, ParallelExecutionTest) {
             [](auto &data) { ++data[std::this_thread::get_id()]; });
         complete[1].set();
       });
-  [[maybe_unused]] auto subscriber_2 = createSubscriber<2ul, 1ull, bool>(
+  [[maybe_unused]] auto subscriber_2 = createSubscriber<1ull, bool>(
+      2ul,
       manager,
       SharedObjectRef(shared_object),
       [&](SharedObjectRef object, auto) {
@@ -263,7 +273,8 @@ TEST_F(SubscriptionTest, ParallelExecutionTest) {
             [](auto &data) { ++data[std::this_thread::get_id()]; });
         complete[2].set();
       });
-  [[maybe_unused]] auto subscriber_3 = createSubscriber<3ul, 1ull, bool>(
+  [[maybe_unused]] auto subscriber_3 = createSubscriber<1ull, bool>(
+      3ul,
       manager,
       SharedObjectRef(shared_object),
       [&](SharedObjectRef object, auto) {
@@ -295,14 +306,14 @@ TEST_F(SubscriptionTest, PingPongExecutionTest) {
   utils::WaitForSingleObject complete;
 
   [[maybe_unused]] auto subscriber_0 =
-      createSubscriber<0ul, 0ull, uint32_t, uint32_t>(
-          manager, 0ul, [&](uint32_t &obj, uint32_t value) {
+      createSubscriber<0ull, uint32_t, uint32_t>(
+          0ul, manager, 0ul, [&](uint32_t &obj, uint32_t value) {
             obj = value;
             manager->notify<uint64_t, uint32_t>(1ull, value + 7ul);
           });
   [[maybe_unused]] auto subscriber_1 =
-      createSubscriber<1ul, 1ull, uint32_t, uint32_t>(
-          manager, 0ul, [&](uint32_t &obj, uint32_t value) {
+      createSubscriber<1ull, uint32_t, uint32_t>(
+          1ul, manager, 0ul, [&](uint32_t &obj, uint32_t value) {
             obj = value;
             if (value > 40ul)
               complete.set();
@@ -331,18 +342,18 @@ TEST_F(SubscriptionTest, RotationExecutionTest_1) {
 
   std::atomic<uint32_t> counter = 0;
   std::string result;
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 0ull, std::string>(
-      manager, false, [&](auto, std::string value) {
+  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ull, std::string>(
+      0ul, manager, false, [&](auto, std::string value) {
         result += value;
         ++counter;
       });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ul, 0ull, std::string>(
-      manager, false, [&](auto, std::string value) {
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ull, std::string>(
+      0ul, manager, false, [&](auto, std::string value) {
         result += value;
         ++counter;
       });
-  [[maybe_unused]] auto subscriber_2 = createSubscriber<0ul, 0ull, std::string>(
-      manager, false, [&](auto, std::string value) {
+  [[maybe_unused]] auto subscriber_2 = createSubscriber<0ull, std::string>(
+      0ul, manager, false, [&](auto, std::string value) {
         result += value;
         ++counter;
       });
@@ -371,17 +382,17 @@ TEST_F(SubscriptionTest, RotationExecutionTest_2) {
   std::atomic<uint32_t> counter = 0;
   std::string result;
   [[maybe_unused]] auto subscriber_0 =
-      createSubscriber<0ul, 0ull, bool>(manager, false, [&](auto, auto value) {
+      createSubscriber<0ull, bool>(0ul, manager, false, [&](auto, auto value) {
         result += 'A';
         ++counter;
       });
   [[maybe_unused]] auto subscriber_1 =
-      createSubscriber<0ul, 0ull, bool>(manager, false, [&](auto, auto value) {
+      createSubscriber<0ull, bool>(0ul, manager, false, [&](auto, auto value) {
         result += 'B';
         ++counter;
       });
   [[maybe_unused]] auto subscriber_2 =
-      createSubscriber<0ul, 0ull, bool>(manager, false, [&](auto, auto value) {
+      createSubscriber<0ull, bool>(0ul, manager, false, [&](auto, auto value) {
         result += 'C';
         ++counter;
       });
@@ -408,8 +419,8 @@ TEST_F(SubscriptionTest, RotationExecutionTest_3) {
 
   std::atomic<uint32_t> counter = 0;
   std::string result;
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 0ull, std::string>(
-      manager, false, [&](auto, auto value) {
+  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ull, std::string>(
+      0ul, manager, false, [&](auto, auto value) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5ull));
         result += value;
         ++counter;
@@ -441,28 +452,28 @@ TEST_F(SubscriptionTest, StarExecutionTest) {
   auto manager = createSubscriptionManager<5>();
   utils::WaitForSingleObject complete;
   std::string result;
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 0ull, std::string>(
-      manager, false, [&](auto, auto value) {
+  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ull, std::string>(
+      0ul, manager, false, [&](auto, auto value) {
         result += value;
         manager->notify(1ull, std::string("t"));
       });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<1ul, 1ull, std::string>(
-      manager, false, [&](auto, auto value) {
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<1ull, std::string>(
+      1ul, manager, false, [&](auto, auto value) {
         result += value;
         manager->notify(2ull, std::string("a"));
       });
-  [[maybe_unused]] auto subscriber_2 = createSubscriber<2ul, 2ull, std::string>(
-      manager, false, [&](auto, auto value) {
+  [[maybe_unused]] auto subscriber_2 = createSubscriber<2ull, std::string>(
+      2ul, manager, false, [&](auto, auto value) {
         result += value;
         manager->notify(3ull, std::string("r"));
       });
-  [[maybe_unused]] auto subscriber_3 = createSubscriber<3ul, 3ull, std::string>(
-      manager, false, [&](auto, auto value) {
+  [[maybe_unused]] auto subscriber_3 = createSubscriber<3ull, std::string>(
+      3ul, manager, false, [&](auto, auto value) {
         result += value;
         manager->notify(4ull, std::string("!"));
       });
-  [[maybe_unused]] auto subscriber_4 = createSubscriber<4ul, 4ull, std::string>(
-      manager, false, [&](auto, auto value) {
+  [[maybe_unused]] auto subscriber_4 = createSubscriber<4ull, std::string>(
+      4ul, manager, false, [&](auto, auto value) {
         result += value;
         complete.set();
       });
@@ -484,10 +495,12 @@ TEST_F(SubscriptionTest, UnsubExecutionTest) {
   auto manager = createSubscriptionManager<1>();
   utils::WaitForSingleObject complete;
 
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 0ull, bool>(
-      manager, false, [&](auto, auto) { ASSERT_FALSE("Must not be called!"); });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ul, 0ull, bool>(
-      manager, false, [&](auto, auto) { complete.set(); });
+  [[maybe_unused]] auto subscriber_0 =
+      createSubscriber<0ull, bool>(0ul, manager, false, [&](auto, auto) {
+        ASSERT_FALSE("Must not be called!");
+      });
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ull, bool>(
+      0ul, manager, false, [&](auto, auto) { complete.set(); });
 
   subscriber_0->unsubscribe();
   manager->notify(0ull, false);
@@ -505,10 +518,12 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_1) {
   auto manager = createSubscriptionManager<1>();
   utils::WaitForSingleObject complete;
 
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 0ull, bool>(
-      manager, false, [&](auto, auto) { ASSERT_FALSE("Must not be called!"); });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ul, 0ull, bool>(
-      manager, false, [&](auto, auto) { complete.set(); });
+  [[maybe_unused]] auto subscriber_0 =
+      createSubscriber<0ull, bool>(0ul, manager, false, [&](auto, auto) {
+        ASSERT_FALSE("Must not be called!");
+      });
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ull, bool>(
+      0ul, manager, false, [&](auto, auto) { complete.set(); });
 
   subscriber_0->unsubscribe(0ul);
   manager->notify(0ull, false);
@@ -526,10 +541,12 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_2) {
   auto manager = createSubscriptionManager<1>();
   utils::WaitForSingleObject complete;
 
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 1ull, bool>(
-      manager, false, [&](auto, auto) { ASSERT_FALSE("Must not be called!"); });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ul, 1ull, bool>(
-      manager, false, [&](auto, auto) { complete.set(); });
+  [[maybe_unused]] auto subscriber_0 =
+      createSubscriber<1ull, bool>(0ul, manager, false, [&](auto, auto) {
+        ASSERT_FALSE("Must not be called!");
+      });
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<1ull, bool>(
+      0ul, manager, false, [&](auto, auto) { complete.set(); });
 
   subscriber_0->unsubscribe(0ul, 1ull);
   manager->notify(1ull, false);
@@ -550,10 +567,10 @@ TEST_F(SubscriptionTest, UnsubExecutionTest_3) {
   std::atomic_flag flag;
   flag.clear();
 
-  [[maybe_unused]] auto subscriber_0 = createSubscriber<0ul, 1ull, bool>(
-      manager, false, [&](auto, auto) { flag.test_and_set(); });
-  [[maybe_unused]] auto subscriber_1 = createSubscriber<0ul, 1ull, bool>(
-      manager, false, [&](auto, auto) { complete.set(); });
+  [[maybe_unused]] auto subscriber_0 = createSubscriber<1ull, bool>(
+      0ul, manager, false, [&](auto, auto) { flag.test_and_set(); });
+  [[maybe_unused]] auto subscriber_1 = createSubscriber<1ull, bool>(
+      0ul, manager, false, [&](auto, auto) { complete.set(); });
 
   subscriber_0->unsubscribe(1ul);
   subscriber_0->unsubscribe(0ul, 2ull);
@@ -577,7 +594,7 @@ TEST_F(SubscriptionTest, Notify) {
   std::string test_data("test_data");
   uint32_t event_id = 10ul;
 
-  subscriber->subscribe<1ull>(event_id);
+  subscriber->subscribe(1u, event_id);
   EXPECT_CALL(*subscriber, on_notify(0ull, event_id, std::string(test_data)))
       .Times(1);
   engine->notify(event_id, test_data);
@@ -597,7 +614,7 @@ TEST_F(SubscriptionTest, NotifyDelayed) {
   std::string test_data("test_data");
   uint32_t event_id = 10ul;
 
-  subscriber->subscribe<1ull>(event_id);
+  subscriber->subscribe(1u, event_id);
   EXPECT_CALL(*subscriber, on_notify(0ull, event_id, std::string(test_data)))
       .Times(1);
   engine->notifyDelayed(std::chrono::microseconds(10ull), event_id, test_data);
@@ -619,8 +636,8 @@ TEST_F(SubscriptionTest, Notify_1) {
   uint32_t event_id = 10ul;
   uint32_t event_id_fake = 11ul;
 
-  subscriber1->subscribe<1ull>(event_id);
-  subscriber2->subscribe<1ull>(event_id_fake);
+  subscriber1->subscribe(1u, event_id);
+  subscriber2->subscribe(1u, event_id_fake);
 
   EXPECT_CALL(*subscriber1, on_notify(0ull, event_id, std::string(test_data)))
       .Times(1);
@@ -645,12 +662,59 @@ TEST_F(SubscriptionTest, Notify_2) {
   std::string test_data("test_data");
   uint32_t event_id = 10ul;
 
-  subscriber1->subscribe<1ull>(event_id);
-  subscriber2->subscribe<1ull>(event_id);
+  subscriber1->subscribe(1u, event_id);
+  subscriber2->subscribe(1u, event_id);
 
   EXPECT_CALL(*subscriber1, on_notify(0ull, event_id, std::string(test_data)))
       .Times(1);
   EXPECT_CALL(*subscriber2, on_notify(0ull, event_id, std::string(test_data)))
       .Times(1);
   engine->notify(event_id, test_data);
+}
+
+/**
+ * @given subscription engine and scheduler
+ * @when 2 subscribers are present
+ * @and they subscribe to different events in a single current scheduler
+ * @and both events are notified followed by dispose and process
+ * @then the handlers of each subscriber must be called once and process finish
+ * its loop
+ */
+TEST_F(SubscriptionTest, InThreadDispatcherTest) {
+  auto manager = createSubscriptionManager<1>();
+  auto scheduler = std::make_shared<subscription::SchedulerBase>();
+
+  auto const current_thread_id = std::this_thread::get_id();
+  auto tid = manager->dispatcher()->bind(scheduler);
+  ASSERT_TRUE(tid);
+
+  uint32_t counter[2] = {0ul};
+
+  [[maybe_unused]] auto subscriber_2 =
+      createSubscriber<2ull, bool>(*tid, manager, false, [&](auto, auto) {
+        ASSERT_EQ(counter[0], 1ul);
+        ASSERT_EQ(counter[1], 0ul);
+        ASSERT_EQ(current_thread_id, std::this_thread::get_id());
+        ++counter[1];
+      });
+
+  [[maybe_unused]] auto subscriber_1 =
+      createSubscriber<1ull, bool>(*tid, manager, false, [&](auto, auto) {
+        ASSERT_EQ(counter[0], 0ul);
+        ASSERT_EQ(counter[1], 0ul);
+        ASSERT_EQ(current_thread_id, std::this_thread::get_id());
+        ++counter[0];
+      });
+
+  manager->notify(1ull, false);
+  manager->notify(2ull, false);
+
+  scheduler->dispose();
+  scheduler->process();
+
+  ASSERT_EQ(counter[0], 1ul);
+  ASSERT_EQ(counter[1], 1ul);
+
+  manager->dispatcher()->unbind(*tid);
+  manager->dispose();
 }

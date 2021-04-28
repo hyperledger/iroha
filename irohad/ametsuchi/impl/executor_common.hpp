@@ -8,15 +8,17 @@
 
 #include "interfaces/common_objects/types.hpp"
 
-namespace iroha {
-  namespace ametsuchi {
+namespace iroha::ametsuchi {
 
-    extern const std::string kRootRolePermStr;
+  extern const std::string kRootRolePermStr;
 
-    shared_model::interface::types::DomainIdType getDomainFromName(
-        const shared_model::interface::types::AccountIdType &account_id);
+  std::string_view getDomainFromName(std::string_view account_id);
 
-  }  // namespace ametsuchi
-}  // namespace iroha
+  std::vector<std::string_view> splitId(std::string_view id);
+
+  std::vector<std::string_view> split(std::string_view str,
+                                      std::string_view delims);
+
+}  // namespace iroha::ametsuchi
 
 #endif  // IROHA_AMETSUCHI_EXECUTOR_COMMON_HPP
