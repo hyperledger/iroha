@@ -22,10 +22,18 @@ target_link_libraries(wsv_query_command_test
 
 addtest(wsv_query_test wsv_query_test.cpp)
 target_link_libraries(wsv_query_test
-        ametsuchi
-        ametsuchi_fixture
-        test_logger
-        )
+    ametsuchi
+    ametsuchi_fixture
+    test_logger
+    )
+
+addtest(rocksdb_common_test rocksdb_common_test.cpp)
+target_link_libraries(rocksdb_common_test
+    Boost::filesystem
+    shared_model_interfaces
+    common
+    RocksDB::rocksdb
+    )
 
 addtest(flat_file_test flat_file_test.cpp)
 target_link_libraries(flat_file_test
