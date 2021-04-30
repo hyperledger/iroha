@@ -51,9 +51,7 @@ mod tests {
         iroha_client.poll_request(&client::asset::by_account_id(account_id), |result| {
             result
                 .find_asset_by_id(&asset_definition_id)
-                .map_or(false, |asset| {
-                    *asset.value.read() == AssetValue::Quantity(quantity)
-                })
+                .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
         });
         Ok(())
     }

@@ -52,17 +52,6 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<World, Parameter> {
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
-        ) -> Result<(), Error> {
-            world_state_view.parameters().write().push(self.object);
-            Ok(())
-        }
-    }
-
     #[cfg(feature = "roles")]
     impl Execute for Register<Role> {
         fn execute(
@@ -84,12 +73,11 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let _ = world_state_view.world.roles.remove(&self.object_id);
-            for domain in world_state_view.domains().iter() {
-                for account in domain.accounts.iter() {
+            for mut domain in world_state_view.domains().iter_mut() {
+                for account in domain.accounts.values_mut() {
                     let _ = account.roles.remove(&self.object_id);
                 }
             }
-
             Ok(())
         }
     }
@@ -125,27 +113,13 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
             Ok(Value::Vec(
                 world_state_view
-                    .read_all_peers()
+                    .peers()
                     .into_iter()
                     .map(Box::new)
                     .map(IdentifiableBox::Peer)
                     .map(Value::Identifiable)
                     .collect::<Vec<_>>(),
             ))
-        }
-    }
-
-    impl Query for FindAllParameters {
-        #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(world_state_view
-                .parameters()
-                .read()
-                .iter()
-                .map(Clone::clone)
-                .map(Value::Parameter)
-                .collect::<Vec<Value>>()
-                .into())
         }
     }
 }

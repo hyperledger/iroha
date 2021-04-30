@@ -76,10 +76,7 @@ pub enum Error {
     TxTooBig,
     /// Error while getting or setting configuration
     #[error("Configuration error")]
-    FieldNotFound(Vec<String>),
-    /// Error while getting or setting configuration
-    #[error("Invalid field error")]
-    InvalidFieldValue(#[source] iroha_config::derive::FieldError),
+    Config(#[source] ConfigError),
 }
 
 impl iroha_http_server::http::HttpResponseError for Error {
@@ -93,10 +90,10 @@ impl iroha_http_server::http::HttpResponseError for Error {
             | EncodePendingTransactions(_) => {
                 iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR
             }
-            TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | InvalidFieldValue(_) => {
+            TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) => {
                 iroha_http_server::http::HTTP_CODE_BAD_REQUEST
             }
-            FieldNotFound(_) => iroha_http_server::http::HTTP_CODE_NOT_FOUND,
+            Config(_) => iroha_http_server::http::HTTP_CODE_NOT_FOUND,
         }
     }
 
@@ -372,13 +369,7 @@ async fn handle_get_configuration(
         }),
         GetConfigurationType::Value => todo!(),
     }
-    .map_err(|err| {
-        if let ConfigError::UnknownField(field) = err {
-            Error::FieldNotFound(field)
-        } else {
-            unreachable!()
-        }
-    })
+    .map_err(Error::Config)
 }
 
 async fn handle_metrics(

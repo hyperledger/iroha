@@ -299,8 +299,8 @@ impl PermissionsValidator for GrantedTokenValidatorBox {
             .should_have_token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
         let contain = wsv
-            .account(authority, |account| {
-                account.permission_tokens.read().contains(&permission_token)
+            .map_account(authority, |account| {
+                account.permission_tokens.contains(&permission_token)
             })
             .map_err(|e| e.to_string())?;
         if contain {
@@ -409,9 +409,9 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
 
     use iroha_data_model::isi::*;
-    use iroha_structs::HashSet;
 
     use super::*;
 
@@ -538,15 +538,14 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let domain = Domain::new("test");
-        let bob_account = Account::new(bob_id.clone());
+        let mut domain = Domain::new("test");
+        let mut bob_account = Account::new(bob_id.clone());
         let _ = bob_account
             .permission_tokens
-            .write()
             .insert(PermissionToken::new("token", BTreeMap::default()));
         drop(domain.accounts.insert(bob_id.clone(), bob_account));
         let domains = vec![("test".to_string(), domain)];
-        let wsv = WorldStateView::new(World::with(domains, HashSet::default()));
+        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let validator: GrantedTokenValidatorBox = Box::new(GrantedToken);
         assert!(validator
             .check_instruction(&alice_id, &instruction_burn, &wsv)

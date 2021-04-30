@@ -118,6 +118,8 @@ impl Configuration {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use std::collections::HashSet;
+
     use super::*;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -173,7 +175,7 @@ mod tests {
             },
         ]
         .into_iter()
-        .collect::<iroha_structs::HashSet<_>>();
+        .collect::<HashSet<_>>();
         assert_eq!(1000, configuration.sumeragi_configuration.block_time_ms);
         assert_eq!(
             expected_trusted_peers,

@@ -4,7 +4,11 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::ops::Range;
+use std::{
+    error::Error as StdError,
+    fmt::{Display, Formatter, Result as FmtResult},
+    ops::Range,
+};
 
 #[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
@@ -89,6 +93,14 @@ pub struct UnsupportedVersion {
     /// Raw content.
     pub raw: RawVersioned,
 }
+
+impl Display for UnsupportedVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "Unsupported version: {}", self.version)
+    }
+}
+
+impl StdError for UnsupportedVersion {}
 
 impl UnsupportedVersion {
     /// Constructs [`UnsupportedVersion`].
