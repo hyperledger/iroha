@@ -171,6 +171,11 @@ pub mod data {
 
 /// Pipeline events.
 pub mod pipeline {
+    use std::{
+        error::Error as StdError,
+        fmt::{Display, Formatter, Result as FmtResult},
+    };
+
     use iroha_crypto::{Hash, Signature};
     use iroha_derive::FromVariant;
     use iroha_error::derive::Error;
@@ -248,8 +253,9 @@ pub mod pipeline {
         /// Error which happened during verification
         pub reason: String,
     }
-    impl std::fmt::Display for SignatureVerificationFail {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+    impl Display for SignatureVerificationFail {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
             write!(
                 f,
                 "Failed to verify signatures because of signature {}: {}",
@@ -257,7 +263,8 @@ pub mod pipeline {
             )
         }
     }
-    impl std::error::Error for SignatureVerificationFail {}
+
+    impl StdError for SignatureVerificationFail {}
 
     /// Transaction was reject because it doesn't satisfy signature condition
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
@@ -265,8 +272,9 @@ pub mod pipeline {
         /// Reason why signature condition failed
         pub reason: String,
     }
-    impl std::fmt::Display for UnsatisfiedSignatureConditionFail {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+    impl Display for UnsatisfiedSignatureConditionFail {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
             write!(
                 f,
                 "Failed to verify signature condition specified in the account: {}",
@@ -274,9 +282,10 @@ pub mod pipeline {
             )
         }
     }
-    impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 
-    /// Transaction was reject because of fail of instruction
+    impl StdError for UnsatisfiedSignatureConditionFail {}
+
+    /// Transaction was rejected because of one of its instructions failing.
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
     pub struct InstructionExecutionFail {
         /// Instruction which execution failed
@@ -284,8 +293,9 @@ pub mod pipeline {
         /// Error which happened during execution
         pub reason: String,
     }
-    impl std::fmt::Display for InstructionExecutionFail {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+    impl Display for InstructionExecutionFail {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
             use Instruction::*;
             let type_ = match self.instruction {
                 Burn(_) => "burn",
@@ -308,7 +318,7 @@ pub mod pipeline {
             )
         }
     }
-    impl std::error::Error for InstructionExecutionFail {}
+    impl StdError for InstructionExecutionFail {}
 
     /// Transaction was reject because of low authority
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode)]
@@ -316,12 +326,14 @@ pub mod pipeline {
         /// Reason of failure
         pub reason: String,
     }
-    impl std::fmt::Display for NotPermittedFail {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+    impl Display for NotPermittedFail {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
             write!(f, "Action not permitted: {}", self.reason)
         }
     }
-    impl std::error::Error for NotPermittedFail {}
+
+    impl StdError for NotPermittedFail {}
 
     /// The reason for rejecting transaction which happened because of new blocks.
     #[derive(
@@ -355,7 +367,7 @@ pub mod pipeline {
         /// Failed verify signature condition specified in the account.
         #[error("Transaction rejected due to unsatisfied signature condition")]
         UnsatisfiedSignatureCondition(#[source] UnsatisfiedSignatureConditionFail),
-        /// Failed execute instruction.
+        /// Failed to execute instruction.
         #[error("Transaction rejected due to instruction execution")]
         InstructionExecution(#[source] InstructionExecutionFail),
         /// Failed to verify signatures.

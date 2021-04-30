@@ -293,9 +293,8 @@ pub mod public_blockchain {
             ));
         };
         let registered_by_signer_account = wsv
-            .asset_definition_entry(definition_id, |asset_definiton_entry| {
-                &asset_definiton_entry.registered_by == authority
-            })
+            .asset_definition_entry(definition_id)
+            .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err(
@@ -439,8 +438,9 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?;
                 let asset_definition_id: AssetDefinitionId = try_into_or_exit!(object_id);
                 let registered_by_signer_account = wsv
-                    .asset_definition_entry(&asset_definition_id, |asset_definiton_entry| {
-                        &asset_definiton_entry.registered_by == authority
+                    .asset_definition_entry(&asset_definition_id)
+                    .map(|asset_definition_entry| {
+                        &asset_definition_entry.registered_by == authority
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
@@ -549,14 +549,13 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 let asset_id: AssetId = try_into_or_exit!(destination_id);
-
-                let low_authority = wsv
-                    .asset_definition_entry(&asset_id.definition_id, |asset_definiton_entry| {
-                        &asset_definiton_entry.registered_by != authority
+                let registered_by_signer_account = wsv
+                    .asset_definition_entry(&asset_id.definition_id)
+                    .map(|asset_definition_entry| {
+                        &asset_definition_entry.registered_by == authority
                     })
                     .unwrap_or(false);
-
-                if low_authority {
+                if !registered_by_signer_account {
                     return Err("Can't mint assets registered by other accounts.".to_owned());
                 }
                 Ok(())
@@ -664,14 +663,14 @@ pub mod public_blockchain {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
                 let asset_id: AssetId = try_into_or_exit!(destination_id);
-
-                let low_authority = wsv
-                    .asset_definition_entry(&asset_id.definition_id, |asset_definiton_entry| {
-                        &asset_definiton_entry.registered_by != authority
+                let registered_by_signer_account = wsv
+                    .asset_definition_entry(&asset_id.definition_id)
+                    .map(|asset_definition_entry| {
+                        &asset_definition_entry.registered_by == authority
                     })
                     .unwrap_or(false);
-                if low_authority {
-                    return Err("Can't mint assets registered by other accounts.".to_owned());
+                if !registered_by_signer_account {
+                    return Err("Can't burn assets registered by other accounts.".to_owned());
                 }
                 Ok(())
             }
@@ -1239,7 +1238,8 @@ pub mod public_blockchain {
     mod tests {
         #![allow(clippy::restriction)]
 
-        use iroha_structs::{HashMap, HashSet};
+        use std::collections::{BTreeMap, BTreeSet};
+
         use maplit::{btreemap, btreeset};
 
         use super::*;
@@ -1272,20 +1272,17 @@ pub mod public_blockchain {
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
-            let domain = Domain::new("test");
-            let bob_account = Account::new(bob_id.clone());
-            let _ = bob_account
-                .permission_tokens
-                .write()
-                .insert(PermissionToken::new(
-                    transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
-                    btreemap! {
-                        ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
-                    },
-                ));
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
+                btreemap! {
+                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                },
+            ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             let domains = vec![("test".to_string(), domain)];
-            let wsv = WorldStateView::new(World::with(domains, HashSet::new()));
+            let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
             let transfer = Instruction::Transfer(TransferBox {
                 source_id: IdBox::AssetId(alice_xor_id).into(),
                 object: Value::U32(10).into(),
@@ -1333,7 +1330,7 @@ pub mod public_blockchain {
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: HashMap::new(),
+                    accounts: BTreeMap::new(),
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
                         xor_id.clone() =>
@@ -1361,17 +1358,14 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
-            let domain = Domain::new("test");
-            let bob_account = Account::new(bob_id.clone());
-            let _ = bob_account
-                .permission_tokens
-                .write()
-                .insert(PermissionToken::new(
-                    unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
-                    btreemap! {
-                        ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
-                    },
-                ));
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             drop(domain.asset_definitions.insert(
                 xor_id.clone(),
@@ -1405,7 +1399,7 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             );
-            let domain = Domain::new("test");
+            let mut domain = Domain::new("test");
             drop(domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
@@ -1434,7 +1428,7 @@ pub mod public_blockchain {
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: HashMap::new(),
+                    accounts: BTreeMap::new(),
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
                         xor_id =>
@@ -1468,17 +1462,14 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
-            let domain = Domain::new("test");
-            let bob_account = Account::new(bob_id.clone());
-            let _ = bob_account
-                .permission_tokens
-                .write()
-                .insert(PermissionToken::new(
-                    mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
-                    btreemap! {
-                        ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
-                    },
-                ));
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             drop(domain.asset_definitions.insert(
                 xor_id,
@@ -1515,7 +1506,7 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             );
-            let domain = Domain::new("test");
+            let mut domain = Domain::new("test");
             drop(domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
@@ -1544,7 +1535,7 @@ pub mod public_blockchain {
             let wsv = WorldStateView::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: HashMap::new(),
+                    accounts: BTreeMap::new(),
                     name: "test".to_string(),
                     asset_definitions: btreemap! {
                         xor_id =>
@@ -1579,17 +1570,14 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
-            let domain = Domain::new("test");
-            let bob_account = Account::new(bob_id.clone());
-            let _ = bob_account
-                .permission_tokens
-                .write()
-                .insert(PermissionToken::new(
-                    burn::CAN_BURN_ASSET_WITH_DEFINITION,
-                    btreemap! {
-                        ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
-                    },
-                ));
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                burn::CAN_BURN_ASSET_WITH_DEFINITION,
+                btreemap! {
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
+                },
+            ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             drop(domain.asset_definitions.insert(
                 xor_id,
@@ -1626,7 +1614,7 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned() => xor_id.clone().into(),
                 },
             );
-            let domain = Domain::new("test");
+            let mut domain = Domain::new("test");
             drop(domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
@@ -1669,17 +1657,14 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
-            let domain = Domain::new("test");
-            let bob_account = Account::new(bob_id.clone());
-            let _ = bob_account
-                .permission_tokens
-                .write()
-                .insert(PermissionToken::new(
-                    burn::CAN_BURN_USER_ASSETS_TOKEN,
-                    btreemap! {
-                        ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
-                    },
-                ));
+            let mut domain = Domain::new("test");
+            let mut bob_account = Account::new(bob_id.clone());
+            let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+                burn::CAN_BURN_USER_ASSETS_TOKEN,
+                btreemap! {
+                    ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
+                },
+            ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             let domains = vec![("test".to_string(), domain)];
             let wsv = WorldStateView::new(World::with(domains, vec![]));

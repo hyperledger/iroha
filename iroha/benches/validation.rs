@@ -1,9 +1,10 @@
 #![allow(missing_docs, clippy::restriction)]
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::{prelude::*, tx::AcceptedTransaction};
 use iroha_data_model::prelude::*;
-use iroha_structs::{HashMap, HashSet};
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -42,14 +43,14 @@ fn build_test_transaction(keys: &KeyPair) -> Transaction {
 
 fn build_test_wsv(keys: &KeyPair) -> WorldStateView {
     WorldStateView::new({
-        let domains = HashMap::new();
-        let domain = Domain::new(START_DOMAIN);
+        let mut domains = BTreeMap::new();
+        let mut domain = Domain::new(START_DOMAIN);
         let account_id = AccountId::new(START_ACCOUNT, START_DOMAIN);
-        let account = Account::new(account_id.clone());
-        account.signatories.write().push(keys.public_key.clone());
+        let mut account = Account::new(account_id.clone());
+        account.signatories.push(keys.public_key.clone());
         drop(domain.accounts.insert(account_id, account));
         drop(domains.insert(START_DOMAIN.to_string(), domain));
-        World::with(domains, HashSet::new())
+        World::with(domains, BTreeSet::new())
     })
 }
 
@@ -160,19 +161,19 @@ fn validate_blocks(criterion: &mut Criterion) {
     // Prepare WSV
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let domain_name = "global".to_string();
-    let asset_definitions = HashMap::new();
+    let asset_definitions = BTreeMap::new();
     let account_id = AccountId::new("root", &domain_name);
     let account = Account::with_signatory(account_id.clone(), key_pair.public_key);
-    let accounts = HashMap::new();
+    let mut accounts = BTreeMap::new();
     drop(accounts.insert(account_id, account));
     let domain = Domain {
         name: domain_name.clone(),
         accounts,
         asset_definitions,
     };
-    let domains = HashMap::new();
+    let mut domains = BTreeMap::new();
     drop(domains.insert(domain_name, domain));
-    let world_state_view = WorldStateView::new(World::with(domains, HashSet::new()));
+    let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)

@@ -20,7 +20,7 @@ pub fn impl_source(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         let ident = &variant.ident;
         match variant.fields {
             syn::Fields::Unnamed(ref fields) if fields.unnamed.len() == 1 && attrs_have_ident(&fields.unnamed[0].attrs, SOURCE_ATTR) => {
-                quote! { Self:: #ident (var) => std::error::Error::source(var) }
+                quote! { Self:: #ident (var) => Some(var) }
             },
             syn::Fields::Unnamed(ref fields) if fields.unnamed.len() == 1 => {
                 quote! { Self:: #ident (_) => None }
