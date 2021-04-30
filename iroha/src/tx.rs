@@ -187,7 +187,6 @@ impl AcceptedTransaction {
         if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
-
         drop(
             self.signatures
                 .iter()
@@ -286,7 +285,7 @@ impl AcceptedTransaction {
     /// Can fail if signature conditionon account fails or if account is not found
     pub fn check_signature_condition(&self, world_state_view: &WorldStateView) -> Result<bool> {
         let account_id = self.payload.account_id.clone();
-        world_state_view.account(&account_id, |account| {
+        world_state_view.map_account(&account_id, |account| {
             account
                 .check_signature_condition(&self.signatures)
                 .evaluate(world_state_view, &Context::new())
@@ -498,7 +497,7 @@ pub mod query {
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get id")?;
             Ok(Value::Vec(
-                block_on(world_state_view.read_transactions(&id))
+                block_on(world_state_view.transactions_as_values(&id))
                     .into_iter()
                     .map(Value::TransactionValue)
                     .collect::<Vec<_>>(),
@@ -511,12 +510,13 @@ pub mod query {
 mod tests {
     #![allow(clippy::default_trait_access, clippy::restriction)]
 
+    use std::collections::BTreeSet;
+
     use iroha_data_model::{
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
         transaction::MAX_INSTRUCTION_NUMBER,
     };
     use iroha_error::{Error, MessageError, Result, WrappedError};
-    use iroha_structs::HashSet;
 
     use super::*;
     use crate::{config::Configuration, init, permissions::AllowAll};
@@ -547,7 +547,7 @@ mod tests {
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
-                &WorldStateView::new(World::with(init::domains(&config), HashSet::default())),
+                &WorldStateView::new(World::with(init::domains(&config), BTreeSet::new())),
                 &AllowAll.into(),
                 true,
             )

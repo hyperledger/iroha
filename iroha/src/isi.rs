@@ -196,10 +196,6 @@ impl Execute for MintBox {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
                 Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
             }
-            (IdBox::WorldId, Value::Parameter(parameter)) => {
-                Mint::<World, Parameter>::new(parameter, WorldId)
-                    .execute(authority, world_state_view)
-            }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Mint::<Account, PublicKey>::new(public_key, account_id)
                     .execute(authority, world_state_view)
@@ -410,11 +406,11 @@ mod tests {
 
     fn world_with_test_domains() -> Result<World> {
         let domains = DomainsMap::new();
-        let domain = Domain::new("wonderland");
+        let mut domain = Domain::new("wonderlasnd");
         let account_id = AccountId::new("alice", "wonderland");
-        let account = Account::new(account_id.clone());
+        let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
-        account.signatories.write().push(key_pair.public_key);
+        account.signatories.push(key_pair.public_key);
         drop(domain.accounts.insert(account_id.clone(), account));
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         drop(domain.asset_definitions.insert(
@@ -436,16 +432,10 @@ mod tests {
             "Bytes".to_owned(),
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &wsv)?;
-        let bytes = wsv.account(&account_id, |account| -> Result<_> {
-            let asset = account
-                .assets
-                .get(&asset_id)
-                .ok_or_else(|| error!("Failed to find asset."))?;
-            let lock = asset.value().value.read();
-            let asset_store: &Metadata = lock.try_as_ref()?;
-            Ok(asset_store.get("Bytes").cloned())
-        })??;
+        .execute(account_id, &wsv)?;
+        let asset = wsv.asset(&asset_id)?;
+        let metadata: &Metadata = asset.try_as_ref()?;
+        let bytes = metadata.get("Bytes").cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
@@ -467,8 +457,8 @@ mod tests {
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
-        let bytes = wsv.account(&account_id, |account| {
-            account.metadata.read().get("Bytes").cloned()
+        let bytes = wsv.map_account(&account_id, |account| {
+            account.metadata.get("Bytes").cloned()
         })?;
         assert_eq!(
             bytes,

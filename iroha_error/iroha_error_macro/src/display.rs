@@ -49,7 +49,11 @@ pub fn impl_fmt(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     })
     .map(|(variant, field, fmt)| {
         if field {
-            quote! { Self:: #variant (_) => write!(f, #fmt) }
+            quote! {
+                Self:: #variant (inner) => {
+                    write!(f, "{}. Caused by: {}", #fmt, inner) 
+                }
+            }
         } else {
             quote! { Self:: #variant => write!(f, #fmt) }
         }
