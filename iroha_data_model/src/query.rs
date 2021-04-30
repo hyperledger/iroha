@@ -73,8 +73,6 @@ pub enum QueryBox {
     FindDomainByName(FindDomainByName),
     /// `FindAllPeers` variant.
     FindAllPeers(FindAllPeers),
-    /// `FindAllParameters` variant.
-    FindAllParameters(FindAllParameters),
     /// `FindTransactionsByAccountId` variant.
     FindTransactionsByAccountId(FindTransactionsByAccountId),
     /// `FindAllRoles` variant.
@@ -252,6 +250,7 @@ pub mod account {
 
     use crate::prelude::*;
 
+    // TODO: Better to have find all account ids query instead.
     /// `FindAllAccounts` Iroha Query will find all `Account`s presented.
     #[derive(
         Default,
@@ -460,6 +459,7 @@ pub mod asset {
         pub domain_name: EvaluatesTo<Name>,
     }
 
+    // TODO: remove as it is the same as `FindAssetById`
     /// `FindAssetsByAccountIdAndAssetDefinitionId` Iroha Query will get `AccountId` and
     /// `AssetDefinitionId` as inputs and find all `Asset`s owned by the `Account`
     /// with this `AssetDefinition` in Iroha Peer.

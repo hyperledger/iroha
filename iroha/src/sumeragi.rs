@@ -5,7 +5,7 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::{self, Debug, Formatter},
     iter,
     sync::Arc,
@@ -13,11 +13,11 @@ use std::{
 };
 
 use async_std::{sync::RwLock, task};
+use dashmap::DashSet;
 use futures::future;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::{events::Event, peer::Id as PeerId};
 use iroha_error::{error, Result};
-use iroha_structs::HashSet;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -53,9 +53,9 @@ pub struct Sumeragi {
     transactions_sender: TransactionSender,
     world_state_view: Arc<WorldStateView>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
-    transactions_awaiting_receipts: Arc<HashSet<Hash>>,
+    transactions_awaiting_receipts: Arc<DashSet<Hash>>,
     /// Hashes of the transactions that were accepted by the leader and are waiting to be stored in CreatedBlock.
-    transactions_awaiting_created_block: Arc<HashSet<Hash>>,
+    transactions_awaiting_created_block: Arc<DashSet<Hash>>,
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
@@ -98,8 +98,8 @@ impl Sumeragi {
             blocks_sender,
             events_sender,
             world_state_view,
-            transactions_awaiting_receipts: Arc::new(HashSet::new()),
-            transactions_awaiting_created_block: Arc::new(HashSet::new()),
+            transactions_awaiting_receipts: Arc::new(DashSet::new()),
+            transactions_awaiting_created_block: Arc::new(DashSet::new()),
             commit_time: Duration::from_millis(configuration.commit_time_ms),
             transactions_sender,
             tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_ms),
@@ -127,7 +127,7 @@ impl Sumeragi {
     pub async fn update_network_topology(&mut self) {
         let wsv_peers = self.world_state_view.trusted_peers_ids().clone();
         self.network_topology
-            .update(&wsv_peers, self.latest_block_hash);
+            .update(wsv_peers, self.latest_block_hash);
     }
 
     /// Returns `true` if some block is in discussion, `false` otherwise.
@@ -589,10 +589,11 @@ impl InitializedNetworkTopology {
     }
 
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
-    pub fn update(&mut self, peers: &HashSet<PeerId>, latest_block_hash: Hash) {
+    pub fn update(&mut self, peers: impl IntoIterator<Item = PeerId>, latest_block_hash: Hash) {
         let current_peers: HashSet<_> = self.sorted_peers.iter().cloned().collect();
-        if peers != &current_peers {
-            self.sorted_peers = peers.iter().map(|peer| (&*peer).clone()).collect();
+        let peers: HashSet<_> = peers.into_iter().collect();
+        if peers != current_peers {
+            self.sorted_peers = peers.into_iter().collect();
             self.sort_peers_by_hash(Some(latest_block_hash));
         }
     }
@@ -1678,13 +1679,12 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
+    use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
     use iroha_config::derive::Configurable;
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
     use iroha_error::{Result, WrapErr};
-    use iroha_structs::HashSet;
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
@@ -1803,15 +1803,16 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use std::collections::HashSet;
+
     use iroha_data_model::prelude::*;
-    use iroha_structs::HashSet;
     #[cfg(feature = "network-mock")]
     use {
         super::Role,
         crate::{config::Configuration, maintenance::System, queue::Queue, torii::Torii},
         async_std::{prelude::*, sync, task},
-        iroha_structs::HashMap,
         network::*,
+        std::collections::HashMap,
         std::time::Duration,
     };
 
@@ -1852,11 +1853,11 @@ mod tests {
 
     #[cfg(feature = "network-mock")]
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
-        let domains = HashMap::new();
-        let domain = Domain::new("global");
+        let mut domains = HashMap::new();
+        let mut domain = Domain::new("global");
         let account_id = AccountId::new("root", "global");
-        let account = Account::new(account_id.clone());
-        account.signatories.write().push(public_key);
+        let mut account = Account::new(account_id.clone());
+        account.signatories.push(public_key);
         drop(domain.accounts.insert(account_id, account));
         drop(domains.insert("global".to_string(), domain));
         World::with(domains, HashSet::new())

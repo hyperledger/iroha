@@ -233,7 +233,7 @@ impl Peer {
         configuration: Configuration,
         permissions: impl Into<PermissionsValidatorBox> + Send + 'static,
     ) -> task::JoinHandle<()> {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let mut configuration = self.get_config(configuration);
         let info_span = iroha_logger::info_span!("test-peer", "{}", &self.api_address);
         let join_handle = task::spawn(
@@ -296,7 +296,7 @@ impl Peer {
     /// Returns its info and client for connecting to it.
     pub fn start_test() -> (Self, Client) {
         let mut configuration = Configuration::test();
-        let peer = Self::new().expect("Failed to create peer");
+        let peer = Self::new().expect("Failed to create peer.");
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
         peer.start_with_config(configuration.clone());
@@ -311,7 +311,7 @@ impl Peer {
     /// Returns its info and client for connecting to it.
     pub fn start_test_with_permissions(permissions: PermissionsValidatorBox) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        let peer = Self::new().expect("Failed to create peer");
+        let peer = Self::new().expect("Failed to create peer.");
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
         peer.start_with_config_permissions(configuration.clone(), permissions);
@@ -430,7 +430,7 @@ impl TestClient for Client {
     fn loop_on_events(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
         for event in self
             .listen_for_events(event_filter)
-            .expect("Failed to create event iterator")
+            .expect("Failed to create event iterator.")
         {
             f(event)
         }
@@ -443,7 +443,7 @@ impl TestClient for Client {
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult {
         self.submit(instruction)
-            .expect("Failed to submit instruction");
+            .expect("Failed to submit instruction.");
         self.poll_request(request, f)
     }
 
@@ -454,7 +454,7 @@ impl TestClient for Client {
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult {
         self.submit_all(instructions)
-            .expect("Failed to submit instruction");
+            .expect("Failed to submit instruction.");
         self.poll_request(request, f)
     }
 
@@ -466,16 +466,17 @@ impl TestClient for Client {
     ) -> QueryResult {
         let tries = 10;
         let pipeline_time = Configuration::pipeline_time() * multiplier / tries;
+        let mut query_result = None;
         for _ in 0..tries {
             thread::sleep(pipeline_time);
-            if let Ok(result) = self.request(request) {
-                if f(&result) {
-                    return result;
+            query_result = Some(self.request(request));
+            if let Some(Ok(result)) = &query_result {
+                if f(result) {
+                    return result.clone();
                 }
             }
         }
-
-        panic!("Failed to wait till consensus")
+        panic!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", query_result)
     }
 
     fn poll_request(

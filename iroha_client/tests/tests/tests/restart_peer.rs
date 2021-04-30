@@ -78,7 +78,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
             })
             .expect("Asset should exist.");
 
-        assert_eq!(&AssetValue::Quantity(quantity), &*asset.value.read());
+        assert_eq!(AssetValue::Quantity(quantity), asset.value);
     } else {
         panic!("Wrong Query Result Type.");
     }
@@ -105,7 +105,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
             })
             .expect("Asset should exist.");
 
-        assert_eq!(&AssetValue::Quantity(quantity), &*asset.value.read());
+        assert_eq!(AssetValue::Quantity(quantity), asset.value);
     } else {
         panic!("Wrong Query Result Type.");
     }

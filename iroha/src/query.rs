@@ -156,7 +156,6 @@ impl Query for QueryBox {
             QueryBox::FindAllDomains(query) => query.execute(world_state_view),
             QueryBox::FindDomainByName(query) => query.execute(world_state_view),
             QueryBox::FindAllPeers(query) => query.execute(world_state_view),
-            QueryBox::FindAllParameters(query) => query.execute(world_state_view),
             QueryBox::FindAssetKeyValueByIdAndKey(query) => query.execute(world_state_view),
             QueryBox::FindAccountKeyValueByIdAndKey(query) => query.execute(world_state_view),
             QueryBox::FindTransactionsByAccountId(query) => query.execute(world_state_view),
@@ -180,11 +179,11 @@ mod tests {
 
     fn world_with_test_domains() -> Result<World> {
         let domains = DomainsMap::new();
-        let domain = Domain::new("wonderland");
+        let mut domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
-        let account = Account::new(account_id.clone());
+        let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
-        account.signatories.write().push(key_pair.public_key);
+        account.signatories.push(key_pair.public_key);
         drop(domain.accounts.insert(account_id.clone(), account));
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         drop(domain.asset_definitions.insert(
@@ -223,12 +222,13 @@ mod tests {
     fn account_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
-        let _ = wsv.account(&account_id, |account| {
-            account.metadata.write().insert_with_limits(
+        wsv.modify_account(&account_id, |account| {
+            let _ = account.metadata.insert_with_limits(
                 "Bytes".to_string(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
-            )
+            )?;
+            Ok(())
         })?;
         let bytes =
             FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_owned()).execute(&wsv)?;

@@ -1,7 +1,8 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
+use std::collections::btree_map::Entry;
+
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result};
-use iroha_structs::hashmap::Entry;
 
 use crate::{isi::prelude::*, prelude::*};
 
@@ -20,19 +21,23 @@ pub mod isi {
             let account = self.object;
             account.validate_len(world_state_view.config.length_limits)?;
             let name = account.id.domain_name.clone();
-            world_state_view.domain(&name, |domain| {
-                match domain.accounts.entry(account.id.clone()) {
-                    Entry::Occupied(_) => Err(error!(
-                        "Domain already contains an account with an Id: {:?}",
+            match world_state_view
+                .domain_mut(&name)?
+                .accounts
+                .entry(account.id.clone())
+            {
+                Entry::Occupied(_) => {
+                    return Err(error!(
+                        "Domain already contains an account with this Id: {:?}",
                         &account.id
                     )
-                    .into()),
-                    Entry::Vacant(entry) => {
-                        drop(entry.insert(account.into()));
-                        Ok(())
-                    }
+                    .into())
                 }
-            })?
+                Entry::Vacant(entry) => {
+                    let _ = entry.insert(account.into());
+                }
+            }
+            Ok(())
         }
     }
 
@@ -43,10 +48,10 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let account_id = self.object_id;
-            world_state_view.domain(&account_id.domain_name, |domain| {
-                // TODO: Should we fail if no domain found?
-                drop(domain.accounts.remove(&account_id));
-            })?;
+            let _ = world_state_view
+                .domain_mut(&account_id.domain_name)?
+                .accounts
+                .remove(&account_id);
             Ok(())
         }
     }
@@ -60,22 +65,23 @@ pub mod isi {
             let asset_definition = self.object;
             asset_definition.validate_len(world_state_view.config.length_limits)?;
             let name = asset_definition.id.domain_name.clone();
-            world_state_view.domain(&name, |domain| {
-                match domain.asset_definitions.entry(asset_definition.id.clone()) {
-                    Entry::Vacant(entry) => {
-                        drop(entry.insert(AssetDefinitionEntry {
-                            definition: asset_definition,
-                            registered_by: authority,
-                        }));
-                        Ok(())
-                    }
-                    Entry::Occupied(entry) => Err(error!(
+            let mut domain = world_state_view.domain_mut(&name)?;
+            match domain.asset_definitions.entry(asset_definition.id.clone()) {
+                Entry::Vacant(entry) => {
+                    let _ = entry.insert(AssetDefinitionEntry {
+                        definition: asset_definition,
+                        registered_by: authority,
+                    });
+                }
+                Entry::Occupied(entry) => {
+                    return Err(error!(
                         "Asset definition already exists and was registered by {}",
                         entry.get().registered_by
                     )
-                    .into()),
+                    .into())
                 }
-            })?
+            }
+            Ok(())
         }
     }
 
@@ -86,19 +92,19 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
-            // :TODO: Should we fail if no domain found?
             drop(
-                world_state_view.domain(&asset_definition_id.domain_name, |domain| {
-                    domain.asset_definitions.remove(&asset_definition_id)
-                })?,
+                world_state_view
+                    .domain_mut(&asset_definition_id.domain_name)?
+                    .asset_definitions
+                    .remove(&asset_definition_id),
             );
-            for domain in world_state_view.domains().iter() {
-                for account in domain.accounts.iter() {
+            for mut domain in world_state_view.domains().iter_mut() {
+                for account in domain.accounts.values_mut() {
                     let keys = account
                         .assets
                         .iter()
-                        .filter(|read_guard| read_guard.key().definition_id == asset_definition_id)
-                        .map(|read_guard| read_guard.key().clone())
+                        .filter(|(asset_id, _asset)| asset_id.definition_id == asset_definition_id)
+                        .map(|(asset_id, _asset)| asset_id.clone())
                         .collect::<Vec<_>>();
                     keys.iter().for_each(|asset_id| {
                         drop(account.assets.remove(asset_id));
@@ -136,7 +142,7 @@ pub mod query {
                 .name
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get domain name")?;
-            Ok(world_state_view.domain(&name, Clone::clone)?.into())
+            Ok(world_state_view.domain(&name)?.clone().into())
         }
     }
 }
