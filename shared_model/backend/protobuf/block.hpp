@@ -6,10 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_BLOCK_HPP
 #define IROHA_SHARED_MODEL_PROTO_BLOCK_HPP
 
-#include "interfaces/iroha_internal/block.hpp"
-
 #include "block.pb.h"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/iroha_internal/block.hpp"
 
 namespace shared_model {
   namespace proto {
