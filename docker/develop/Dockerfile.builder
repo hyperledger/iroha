@@ -83,15 +83,15 @@ RUN apt-get -y clean && \
 #   -u = userid, default for Ubuntu is 1000
 #   -U = create a group same as username
 #   no password
-RUN useradd -ms /bin/bash iroha-ci -u 1000 -U
+# RUN useradd -ms /bin/bash iroha-ci -u 1000 -U
 
-WORKDIR /opt/iroha
-RUN set -e; \
-    chmod -R 777 /opt/iroha; \
-    mkdir -p /tmp/ccache -m 777; \
-    ccache --clear
+# WORKDIR /opt/iroha
+# RUN set -e; \
+#     chmod -R 777 /opt/iroha; \
+#     mkdir -p /tmp/ccache -m 777; \
+#     ccache --clear
 
 
-USER iroha-ci
-ENV CMAKE_TOOLCHAIN_FILE /opt/dependencies/scripts/buildsystems/vcpkg.cmake
-CMD ["/bin/bash"]
+# USER iroha-ci
+# ENV CMAKE_TOOLCHAIN_FILE /opt/dependencies/scripts/buildsystems/vcpkg.cmake
+# CMD ["/bin/bash"]
