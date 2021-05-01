@@ -37,6 +37,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
@@ -114,7 +115,8 @@ Irohad::Irohad(
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
-    : config_(config),
+    : se_(getSubscription()),
+      config_(config),
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
@@ -154,6 +156,7 @@ Irohad::~Irohad() {
   }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
+  se_->dispose();
 }
 
 /**
@@ -1011,7 +1014,10 @@ Irohad::RunResult Irohad::run() {
     storage->on_commit().subscribe(
         ordering_init.commit_notifier.get_subscriber());
 
-    ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
+    std::shared_ptr<const shared_model::interface::Block> sh_block{
+        std::move(block)};
+    ordering_init.commit_notifier.get_subscriber().on_next(sh_block);
+    getSubscription()->notify(EventTypes::kOnInitialBlock, sh_block);
 
     ordering_init.sync_event_notifier.get_subscriber().on_next(
         synchronizer::SynchronizationEvent{

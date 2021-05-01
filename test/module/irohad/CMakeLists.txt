@@ -4,8 +4,9 @@
 #
 
 # Reusable tests
-add_subdirectory(ametsuchi)
 add_subdirectory(common)
+add_subdirectory(subscription)
+add_subdirectory(ametsuchi)
 add_subdirectory(consensus)
 add_subdirectory(logger)
 add_subdirectory(main)
@@ -18,4 +19,3 @@ add_subdirectory(synchronizer)
 add_subdirectory(torii)
 add_subdirectory(validation)
 add_subdirectory(pending_txs_storage)
-add_subdirectory(subscription)

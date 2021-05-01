@@ -39,6 +39,11 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
   endif()
 endif()
 
+## FIXME revert this after change CI to GitHub actions.
+## Temporal fix for 'bytecode stream version incompatible' between gcc-9 and gcc-10 and clang
+## when dependancies were build via vcpkg with default GCC9 could not be linked with iroha built with GCC-10
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
+
 if(WIN32)
     # We have to set _WIN32_WINNT for gRPC
     if(${CMAKE_SYSTEM_VERSION} EQUAL 10) # Windows 10

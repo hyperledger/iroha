@@ -5,6 +5,7 @@
 
 #include <gmock/gmock.h>
 
+#include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "backend/plain/account.hpp"
@@ -51,6 +52,8 @@ namespace iroha {
      * @then peer list successfully received
      */
     TEST_F(WsvQueryTest, GetPeers) {
+      ASSERT_EQ(query->countPeers().assumeValue(), 0);
+
       shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt};
       command->insertPeer(peer1);
       shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt};
@@ -61,6 +64,45 @@ namespace iroha {
       ASSERT_THAT(*result,
                   testing::ElementsAre(testing::Pointee(testing::Eq(peer1)),
                                        testing::Pointee(testing::Eq(peer2))));
+
+      ASSERT_EQ(query->countPeers().assumeValue(), 2);
+    }
+
+    TEST_F(WsvQueryTest, countDomains) {
+      using shared_model::plain::Domain;
+      using namespace iroha::expected;
+      command->insertRole("user");
+      ASSERT_EQ(query->countDomains().assumeValue(), 0);
+      ASSERT_FALSE(hasError(command->insertDomain(Domain{"aaa", "user"})));
+      ASSERT_FALSE(hasError(command->insertDomain(Domain{"ccc", "user"})));
+      ASSERT_EQ(query->countDomains().assumeValue(), 2);
+    }
+
+    TEST_F(WsvQueryTest, countPeers) {
+      ASSERT_EQ(query->countPeers().assumeValue(), 0);
+      command->insertPeer(
+          shared_model::plain::Peer{"127.0.0.1", "111", std::nullopt});
+      command->insertPeer(
+          shared_model::plain::Peer{"127.0.0.2", "222", std::nullopt});
+      ASSERT_EQ(query->countPeers().assumeValue(), 2);
+    }
+
+    TEST_F(WsvQueryTest, countTransactions) {
+      ASSERT_EQ(query->countTransactions().assumeValue(), 0);
+      auto indexer = iroha::ametsuchi::PostgresIndexer(*sql);
+      using shared_model::crypto::Hash, iroha::ametsuchi::Indexer;
+      indexer.txPositions("account_type",
+                          Hash("abdef1"),
+                          boost::none,
+                          123346,
+                          Indexer::TxPosition{1, 2});
+      indexer.txPositions("account_type",
+                          Hash("abdef2"),
+                          boost::none,
+                          123347,
+                          Indexer::TxPosition{1, 3});
+      indexer.flush();
+      ASSERT_EQ(query->countTransactions().assumeValue(), 2);
     }
 
     /**

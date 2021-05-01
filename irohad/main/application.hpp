@@ -21,6 +21,7 @@
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
@@ -215,6 +216,7 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
+  std::shared_ptr<iroha::Subscription> se_;
   IrohadConfig config_;
   const std::string listen_ip_;
   boost::optional<shared_model::crypto::Keypair> keypair_;

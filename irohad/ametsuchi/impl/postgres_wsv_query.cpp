@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 
 #include <soci/boost-tuple.h>
+
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -77,6 +78,32 @@ namespace iroha {
       });
 
       return getPeersFromSociRowSet(result);
+    }
+
+    iroha::expected::Result<size_t, std::string> PostgresWsvQuery::count(
+        std::string_view what) try {
+      int count;
+      sql_ << "SELECT count(*) FROM " << what, soci::into(count);
+      return count;
+    } catch (const std::exception &e) {
+      auto msg = fmt::format("Failed to count {}, query: {}", what, e.what());
+      log_->error(msg);
+      return iroha::expected::makeError(msg);
+    }
+
+    iroha::expected::Result<size_t, std::string>
+    PostgresWsvQuery::countPeers() {
+      return count("peer");
+    }
+
+    iroha::expected::Result<size_t, std::string>
+    PostgresWsvQuery::countDomains() {
+      return count("domain");
+    }
+
+    iroha::expected::Result<size_t, std::string>
+    PostgresWsvQuery::countTransactions() {
+      return count("tx_positions");
     }
 
     boost::optional<std::shared_ptr<shared_model::interface::Peer>>

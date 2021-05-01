@@ -6,7 +6,9 @@
 #include "backend/protobuf/proto_query_response_factory.hpp"
 
 #include <gtest/gtest.h>
+
 #include <optional>
+
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
@@ -499,7 +501,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateBlockQueryResponseWithBlock) {
         boost::get<const shared_model::interface::BlockResponse &>(
             response->get());
 
-    ASSERT_EQ(block_resp.block().txsNumber(), 0);
     ASSERT_EQ(block_resp.block().height(), kBlockHeight);
     ASSERT_EQ(block_resp.block().createdTime(), kCreatedTime);
   });

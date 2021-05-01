@@ -6,9 +6,9 @@
 #ifndef IROHA_POSTGRES_WSV_QUERY_HPP
 #define IROHA_POSTGRES_WSV_QUERY_HPP
 
-#include "ametsuchi/wsv_query.hpp"
-
 #include <soci/soci.h>
+
+#include "ametsuchi/wsv_query.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -28,6 +28,10 @@ namespace iroha {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() override;
 
+      iroha::expected::Result<size_t, std::string> countPeers() override;
+      iroha::expected::Result<size_t, std::string> countDomains() override;
+      iroha::expected::Result<size_t, std::string> countTransactions() override;
+
       boost::optional<std::shared_ptr<shared_model::interface::Peer>>
       getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
                              public_key) override;
@@ -42,6 +46,8 @@ namespace iroha {
        */
       template <typename T, typename F>
       auto execute(F &&f) -> boost::optional<soci::rowset<T>>;
+
+      iroha::expected::Result<size_t, std::string> count(std::string_view);
 
       // TODO andrei 24.09.2018: IR-1718 Consistent soci::session fields in
       // storage classes

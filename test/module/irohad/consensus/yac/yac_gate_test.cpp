@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "consensus/yac/impl/yac_gate_impl.hpp"
-
 #include <memory>
-
 #include <rxcpp/rx-lite.hpp>
+
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/yac/impl/yac_gate_impl.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
@@ -62,7 +61,6 @@ class YacGateTest : public ::testing::Test {
             A<shared_model::interface::types::PublicKeyHexStringView>()))
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(round.block_round));
-    EXPECT_CALL(*block, txsNumber()).WillRepeatedly(Return(0));
     EXPECT_CALL(*block, createdTime()).WillRepeatedly(Return(1));
     EXPECT_CALL(*block, transactions())
         .WillRepeatedly(
