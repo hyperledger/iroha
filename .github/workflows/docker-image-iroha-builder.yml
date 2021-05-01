@@ -81,7 +81,7 @@ jobs:
         name: Checkout
         uses: actions/checkout@v2
       -
-        name: Cache Docker layers
+        name: Cache /opt/vcpkg
         uses: actions/cache@v2
         with:
           path: /opt/vcpkg
