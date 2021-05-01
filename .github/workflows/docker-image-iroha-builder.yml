@@ -1,11 +1,12 @@
 name: Build Docker-image iroha-builder
 
 on:
-  # push:
-  #   paths: ['docker/**']
+  push:
+    branches: [ main, support/1.2.x ]
+    # paths: ['docker/**']
   pull_request:
     branches: [ main, support/1.2.x ]
-    paths: ['docker/**']
+    # paths: ['docker/**']
 
 jobs:
   Build-Docker-image-iroha-builder:
@@ -50,17 +51,51 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-  # Explore-GitHub-Actions:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-  #     - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-  #     - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-  #     - name: Check out repository code
-  #       uses: actions/checkout@v2
-  #     - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-  #     - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-  #     - name: List files in the repository
-  #       run: |
-  #         ls ${{ github.workspace }}
-  #     - run: echo "🍏 This job's status is ${{ job.status }}."
+  Build-vcpkg-dependancies:
+    needs: Build-Docker-image-iroha-builder
+    runs-on: ubuntu-latest
+    container: ikyb/iroha:builder
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v2
+      -
+        name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /opt/vcpkg
+          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+      - 
+        name: Build Iroha dependancies
+        run: |
+          ./vcpkg/build_iroha_deps.sh /opt/vcpkg $PWD/vcpkg
+
+  Build-iroha:
+    needs: Build-vcpkg-dependancies
+    runs-on: ubuntu-latest
+    container: ikyb/iroha:builder
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v2
+      -
+        name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /opt/vcpkg
+          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+      - 
+        name: CMake Configure
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake #-DCMAKE_VERBOSE_MAKEFILE=ON
+      -
+        name: CMake build
+        run: cmake --build build #--config
+      -
+        name: CTest
+        run: |
+          cd build
+          ctest
