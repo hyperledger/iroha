@@ -131,11 +131,6 @@ namespace shared_model {
       return impl_->payload_.created_time();
     }
 
-    interface::types::TransactionsNumberType Block::txsNumber() const {
-      // return boost::size(transactions());
-      return impl_->payload_.tx_number();
-    }
-
     interface::types::HashCollectionType Block::rejected_transactions_hashes()
         const {
       return impl_->rejected_transactions_hashes_;
