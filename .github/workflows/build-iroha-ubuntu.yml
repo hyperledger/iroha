@@ -26,7 +26,7 @@ on:
 #     os: [ "windows-latest", "windows-2019", "windows-2016" ]
 
 jobs:
-  Build-Docker-image-iroha-builder:
+  Docker-iroha-builder:
     runs-on: ubuntu-latest
     steps:
       -
@@ -68,51 +68,51 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-  Build-vcpkg-dependancies:
-    needs: Build-Docker-image-iroha-builder
-    runs-on: ubuntu-latest
-    container: ikyb/iroha:builder
-    steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v2
-      -
-        name: Cache /opt/vcpkg
-        uses: actions/cache@v2
-        with:
-          path: /opt/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-vcpkg-
-      - 
-        name: Build Iroha dependancies
-        run: |
-          ./vcpkg/build_iroha_deps.sh /opt/vcpkg $PWD/vcpkg
+  # Build-vcpkg-dependancies:
+  #   needs: Build-Docker-image-iroha-builder
+  #   runs-on: ubuntu-latest
+  #   container: ikyb/iroha:builder
+  #   steps:
+  #     -
+  #       name: Checkout
+  #       uses: actions/checkout@v2
+  #     -
+  #       name: Cache /opt/vcpkg
+  #       uses: actions/cache@v2
+  #       with:
+  #         path: /opt/vcpkg
+  #         key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+  #         restore-keys: |
+  #           ${{ runner.os }}-vcpkg-
+  #     - 
+  #       name: Build Iroha dependancies
+  #       run: |
+  #         ./vcpkg/build_iroha_deps.sh /opt/vcpkg $PWD/vcpkg
 
-  Build-iroha:
-    needs: Build-vcpkg-dependancies
-    runs-on: ubuntu-latest
-    container: ikyb/iroha:builder
-    steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v2
-      -
-        name: Cache /opt/vcpkg
-        uses: actions/cache@v2
-        with:
-          path: /opt/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-vcpkg-
-      - 
-        name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake #-DCMAKE_VERBOSE_MAKEFILE=ON
-      -
-        name: CMake build
-        run: cmake --build build #--config Debug
-      -
-        name: CTest
-        run: |
-          cd build
-          ctest
+  # Build-iroha:
+  #   needs: Build-vcpkg-dependancies
+  #   runs-on: ubuntu-latest
+  #   container: ikyb/iroha:builder
+  #   steps:
+  #     -
+  #       name: Checkout
+  #       uses: actions/checkout@v2
+  #     -
+  #       name: Cache /opt/vcpkg
+  #       uses: actions/cache@v2
+  #       with:
+  #         path: /opt/vcpkg
+  #         key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+  #         restore-keys: |
+  #           ${{ runner.os }}-vcpkg-
+  #     - 
+  #       name: CMake configure
+  #       run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake #-DCMAKE_VERBOSE_MAKEFILE=ON
+  #     -
+  #       name: CMake build
+  #       run: cmake --build build #--config Debug
+  #     -
+  #       name: CTest
+  #       run: |
+  #         cd build
+  #         ctest
