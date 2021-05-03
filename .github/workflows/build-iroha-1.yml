@@ -1,3 +1,4 @@
+name: Iroha1
 
 on:
   push:
@@ -56,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cc: [ gcc-9, gcc-10, clang ]  ##todo g++-10
+        cc: [ gcc-9, gcc-10, clang-10 ]  ##todo g++-10
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         USE_BURROW: [ -DUSE_BURROW=OFF ]
         # USE_URSA: [ -DUSE_URSA=OFF ]
@@ -67,6 +68,12 @@ jobs:
         name: Homebrew
         run: brew install cmake ninja coreutils
         if: ${{ runner.os == 'MacOS' }}
+      - 
+        name: export CC and CXX
+        run: |
+          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
+          echo "::set-env name=CC::$CC"
+          echo "::set-env name=CXX::$CXX"
       -
         name: Checkout
         uses: actions/checkout@v2
@@ -83,6 +90,7 @@ jobs:
       - 
         name: Build Iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
+        ## Takes 48m16s on default GitHub runner with 2 cores
         # ________________________________________________________
         # Executed in   32,08 mins    fish           external
         #    usr time  110,52 mins    0,24 millis  110,52 mins
@@ -96,7 +104,6 @@ jobs:
       - 
         name: CMake configure
         run: |
-          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
           cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake \
              ${{ matrix.USE_BURROW }} -GNinja #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
@@ -125,6 +132,12 @@ jobs:
         name: Homebrew
         run: brew install cmake ninja coreutils
         if: ${{ runner.os == 'MacOS' }}
+      - 
+        name: export CC and CXX
+        run: |
+          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
+          echo "::set-env name=CC::$CC"
+          echo "::set-env name=CXX::$CXX"
       -
         name: Checkout
         uses: actions/checkout@v2
