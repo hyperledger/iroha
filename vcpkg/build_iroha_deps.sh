@@ -20,6 +20,7 @@ for i in "$script_dir"/patches/*.patch; do
     git -C $vcpkg_path apply --ignore-whitespace $i
 done
 
+## maybe todo - simpler way to add and patch custom ports
 # cp -r "$script_dir"/ports $vcpkg_path/
 
 ## Every time clean build of vcpkgtool takes 43 seconds on MacBook 2016 i7 2.8GHz
