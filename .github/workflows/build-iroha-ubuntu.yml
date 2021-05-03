@@ -1,4 +1,4 @@
-name: Build Docker-image iroha-builder
+name: Iroha Ubuntu
 
 on:
   push:
@@ -15,6 +15,7 @@ on:
 #     debrel: [ Debug ]
 #     USE_LIBURSA: [ ON, OFF ]
 #     USE_BURROW: [ ON, OFF ]
+#     include: cpp: g++-9, os: ubuntu-18.04, debrel: Release
 # strategy:
 #   matrix:
 #     cpp: [ clang++, /usr/local/opt/llvm/bin/clang++ ]  ##todo g++-10

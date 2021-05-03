@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <rxcpp/rx-observable.hpp>
 #include "network/ordering_gate_common.hpp"
 #include "network/peer_communication_service.hpp"
 

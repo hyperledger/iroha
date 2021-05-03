@@ -6,7 +6,7 @@
 #ifndef TORII_STATUS_BUS
 #define TORII_STATUS_BUS
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <rxcpp/rx-observable.hpp>
 #include "interfaces/transaction_responses/tx_response.hpp"
 
 namespace iroha {

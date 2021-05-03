@@ -34,7 +34,7 @@ index 000000000..70d3edcc0
 +--- a/cmake/ed25519_merge_libraries.cmake
 ++++ b/cmake/ed25519_merge_libraries.cmake
 +@@ -46,7 +46,7 @@ function(ed25519_merge_libraries TARGET LIBTYPE)
-+ 
++
 +       else()
 +         # it is shared library
 +-        if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
@@ -42,7 +42,7 @@ index 000000000..70d3edcc0
 +           ed25519_target_link_libraries(amd64-64-24k-pic
 +             "-Wl,--version-script=${CMAKE_SOURCE_DIR}/linker_exportmap"
 +             )
-+-- 
++--
 +2.25.1
 +
 diff --git a/ports/iroha-ed25519/CONTROL b/ports/iroha-ed25519/CONTROL
@@ -92,4 +92,3 @@ index 000000000..675b9226d
 +file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/iroha-ed25519 RENAME copyright)
 -- 
 2.25.1
-
