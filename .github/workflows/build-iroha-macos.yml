@@ -1,4 +1,4 @@
-name: Build Docker-image iroha-builder
+name: Iroha MacOS
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
     steps:
       - 
         name: Homebrew
-        run: brew install cmake ninja
+        run: brew install cmake ninja coreutils
       -
         name: Checkout
         uses: actions/checkout@v2
@@ -41,15 +41,27 @@ jobs:
         name: Cache vcpkg
         uses: actions/cache@v2
         with:
-          path: $PWD/build-vcpkg
+          path: |
+            build/vcpkg_installed
+            $HOME/.cache/vcpkg
           key:          ${{ runner.os }}-vcpkg-${{ github.sha }}
           restore-keys: ${{ runner.os }}-vcpkg-
+      # - 
+      #   name: Build Iroha vcpkg dependancies
+      #   run: |
+      #     ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
+# ________________________________________________________
+# Executed in   32,08 mins    fish           external
+#    usr time  110,52 mins    0,24 millis  110,52 mins
+#    sys time   12,26 mins    1,34 millis   12,26 mins
+# 
+# All requested packages are currently installed.
+# ________________________________________________________
+# Executed in    3,17 secs    fish           external
+#    usr time    2,05 secs  128,00 micros    2,05 secs
+#    sys time    0,70 secs  575,00 micros    0,70 secs
       - 
-        name: Build Iroha vcpkg dependancies
-        run: |
-          ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg $PWD/vcpkg
-      - 
-        name: CMake configure
+        name: CMake configure, vcpkg install
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
              ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
       -

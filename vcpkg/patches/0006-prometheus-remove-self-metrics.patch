@@ -3,8 +3,8 @@ index 4a9a749d5..4b49237c3 100644
 --- a/ports/prometheus-cpp/portfile.cmake
 +++ b/ports/prometheus-cpp/portfile.cmake
 @@ -8,7 +8,7 @@ vcpkg_from_github(
-     REF v0.9.0
-     SHA512 d9d5fbbd8c8aad5dd6a5e872275324d689a0c57199e4158d74e13ea62b286fa71dee01bb4197b906b79792bf1ca4e67a46b5c04621d7070241ac32876f6de891
+     REF 2412990ee9ad89245e7d1df9ec85ab19b24674d3 # v0.12.2
+     SHA512 52ecf1984c709dab749f2b4b0010796be49b9db5416678baf77f645054f85b1cae4d67f06ffb1643c0fbcfbf2e65c81f2157a22c0b75a346f9b1feba6537b87d
      HEAD_REF master
 -    PATCHES Add-CivetCallbacks-to-Exposer.patch
 +    PATCHES Add-CivetCallbacks-to-Exposer.patch remove-handler-self-metrics.patch
@@ -24,7 +24,7 @@ index 000000000..a26427035
 +@@ -23,25 +23,25 @@
 + namespace prometheus {
 + namespace detail {
-+ 
++
 +-MetricsHandler::MetricsHandler(Registry& registry)
 +-    : bytes_transferred_family_(
 +-          BuildCounter()
@@ -63,7 +63,7 @@ index 000000000..a26427035
 ++    //           .Register(registry)),
 ++    //   request_latencies_(request_latencies_family_.Add(
 ++    //       {}, Summary::Quantiles{{0.5, 0.05}, {0.9, 0.01}, {0.99, 0.001}})) {}
-+ 
++
 + #ifdef HAVE_ZLIB
 + static bool IsEncodingAccepted(struct mg_connection* conn,
 +@@ -158,10 +158,10 @@ bool MetricsHandler::handleGet(CivetServer*, struct mg_connection* conn) {
@@ -72,20 +72,20 @@ index 000000000..a26427035
 +       stop_time_of_request - start_time_of_request);
 +-  request_latencies_.Observe(duration.count());
 ++  // request_latencies_.Observe(duration.count());
-+ 
++
 +-  bytes_transferred_.Increment(bodySize);
 +-  num_scrapes_.Increment();
 ++  // bytes_transferred_.Increment(bodySize);
 ++  // num_scrapes_.Increment();
 +   return true;
 + }
-+ 
++
 +diff --git a/pull/src/handler.h b/pull/src/handler.h
 +index 10c90f9..94c433c 100644
 +--- a/pull/src/handler.h
 ++++ b/pull/src/handler.h
 +@@ -28,12 +28,12 @@ class MetricsHandler : public CivetHandler {
-+ 
++
 +   std::mutex collectables_mutex_;
 +   std::vector<std::weak_ptr<Collectable>> collectables_;
 +-  Family<Counter>& bytes_transferred_family_;

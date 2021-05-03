@@ -9,6 +9,12 @@ if(CCACHE_PROGRAM)
   message(STATUS "ccache enabled (${CCACHE_PROGRAM})")
 endif()
 
+# set(VCPKG_FEATURE_FLAGS versions)
+# set(VCPKG_BOOTSTRAP_OPTIONS -useSystemBinaries CACHE FORCE)
+set(VCPKG_MANIFEST_MODE OFF)
+set(VCPKG_MANIFEST_INSTALL OFF)
+set(ENV{VCPKG_FORCE_SYSTEM_BINARIES} 1)
+
 PROJECT(iroha
   VERSION 1.2.0
   LANGUAGES C CXX)
@@ -46,7 +52,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
 if(WIN32)
     # We have to set _WIN32_WINNT for gRPC
-    if(${CMAKE_SYSTEM_VERSION} EQUAL 10) # Windows 10
+    if    (${CMAKE_SYSTEM_VERSION} EQUAL 10) # Windows 10
         add_definitions(-D _WIN32_WINNT=0x0A00)
     elseif(${CMAKE_SYSTEM_VERSION} EQUAL 6.3) # Windows 8.1
         add_definitions(-D _WIN32_WINNT=0x0603)
