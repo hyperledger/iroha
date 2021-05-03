@@ -1,33 +1,37 @@
-## DO NOT EDIT
-## Generated from build-iroha-1.src.yml with make-workflows.sh
-
 name: Iroha1
+
 on:
   push:
-    branches: [main, support/1.2.x]
+    branches: [ main, support/1.2.x ]
   pull_request:
-    branches: [main, support/1.2.x]
+    branches: [ main, support/1.2.x ]
+
 jobs:
   Docker-iroha-builder:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      -
+        name: Checkout
         uses: actions/checkout@v2
-      - name: Set up Docker Buildx
+      -
+        name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
+      -
+        name: Cache Docker layers
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
+      -
+        name: Login to DockerHub
+        uses: docker/login-action@v1 
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push
+      -
+        name: Build and push
         uses: docker/build-push-action@v2
         with:
           file: docker/develop/Dockerfile.builder
@@ -36,13 +40,16 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_ORG }}/iroha:builder
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
-      - # Temp fix
+      -
+        # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
         name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+
   build-iroha-ubuntu:
     needs: Docker-iroha-builder
     runs-on: ubuntu-latest
@@ -50,34 +57,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cc: [gcc-9, gcc-10, clang-10] ##todo g++-10
+        cc: [ gcc-9, gcc-10, clang-10 ]  ##todo g++-10
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        USE_BURROW: [-DUSE_BURROW=OFF]
+        USE_BURROW: [ -DUSE_BURROW=OFF ]
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-        debrel: [Debug] #,Release, RelWithDebInfo
-    steps:
-      - name: Homebrew
+        debrel: [ Debug ] #,Release, RelWithDebInfo
+    steps: &build_steps
+      - &step_brew_install
+        name: Homebrew
         run: brew install cmake ninja coreutils
         if: ${{ runner.os == 'MacOS' }}
         ## Takes 22 seconds with default github runner
-      - name: export CC and CXX
+      -  &step_export_cxx
+        name: export CC and CXX
         run: |
           export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
           echo "::set-env name=CC::$CC"
           echo "::set-env name=CXX::$CXX"
-      - name: Checkout
+      - &step_checkout
+        name: Checkout
         uses: actions/checkout@v2
-      - name: Cache vcpkg
+      - &step_vcpkg_cache
+        name: Cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
             build-vcpkg
             build/vcpkg_installed
             $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+          key:          ${{ runner.os }}-vcpkg-${{ github.sha }}
           restore-keys: ${{ runner.os }}-vcpkg-
-      - name: Build Iroha vcpkg dependancies
+      - &step_vcpkg_build
+        name: Build Iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
         ## Takes 48m16s on default GitHub runner with 2 cores
         # ________________________________________________________
@@ -90,21 +102,29 @@ jobs:
         # Executed in    3,17 secs    fish           external
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
-      - name: CMake configure
-        run: "cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake \\\n  -GNinja ${{ matrix.USE_BURROW }} \n  #-DCMAKE_VERBOSE_MAKEFILE=ON\n"
+      - &step_cmake_configure
+        name: CMake configure
+        run: |
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -GNinja ${{ matrix.USE_BURROW }} 
+            #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
-      - name: CMake build
+      - &step_cmake_build
+        name: CMake build
         run: cmake --build build --config ${{ matrix.debrel }}
         ## Takes 18m44s on regular GitHub runner
-      - name: Install Postgres on MacOS
+      - &step_brew_postgres
+        name: Install Postgres on MacOS
         run: brew install postgresql
         if: ${{ runner.os == 'MacOS' }}
         ## ToDo may be optimize, i.e. cache package
-      - name: CTest
+      - &step_ctest
+        name: CTest
         run: |
           initdb --locale=C -E UTF-8 $PWD/postgres_database &&
           pg_ctl -D $PWD/postgres_database & cd build && ctest
         ## Takes over 4h on regular GitHub runner
+
   build-iroha-macos:
     runs-on: macos-latest
     strategy:
@@ -112,59 +132,12 @@ jobs:
       matrix:
         # cpp: [ clang++, /usr/local/opt/llvm/bin/clang++ ]  ##todo g++-10
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        USE_BURROW: [-DUSE_BURROW=OFF]
+        USE_BURROW: [ -DUSE_BURROW=OFF ]
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-        debrel: [Debug] #,Release, RelWithDebInfo
-    steps:
-      - name: Homebrew
-        run: brew install cmake ninja coreutils
-        if: ${{ runner.os == 'MacOS' }}
-        ## Takes 22 seconds with default github runner
-      - name: export CC and CXX
-        run: |
-          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
-          echo "::set-env name=CC::$CC"
-          echo "::set-env name=CXX::$CXX"
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: Cache vcpkg
-        uses: actions/cache@v2
-        with:
-          path: |
-            build-vcpkg
-            build/vcpkg_installed
-            $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-vcpkg-
-      - name: Build Iroha vcpkg dependancies
-        run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
-        ## Takes 48m16s on default GitHub runner with 2 cores
-        # ________________________________________________________
-        # Executed in   32,08 mins    fish           external
-        #    usr time  110,52 mins    0,24 millis  110,52 mins
-        #    sys time   12,26 mins    1,34 millis   12,26 mins
-        # 
-        # All requested packages are currently installed.
-        # ________________________________________________________
-        # Executed in    3,17 secs    fish           external
-        #    usr time    2,05 secs  128,00 micros    2,05 secs
-        #    sys time    0,70 secs  575,00 micros    0,70 secs
-      - name: CMake configure
-        run: "cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake \\\n  -GNinja ${{ matrix.USE_BURROW }} \n  #-DCMAKE_VERBOSE_MAKEFILE=ON\n"
-        ## Takes 13s on regular GitHub runner
-      - name: CMake build
-        run: cmake --build build --config ${{ matrix.debrel }}
-        ## Takes 18m44s on regular GitHub runner
-      - name: Install Postgres on MacOS
-        run: brew install postgresql
-        if: ${{ runner.os == 'MacOS' }}
-        ## ToDo may be optimize, i.e. cache package
-      - name: CTest
-        run: |
-          initdb --locale=C -E UTF-8 $PWD/postgres_database &&
-          pg_ctl -D $PWD/postgres_database & cd build && ctest
-        ## Takes over 4h on regular GitHub runner
+        debrel: [ Debug ] #,Release, RelWithDebInfo
+    steps: *build_steps
+
   build-iroha-windows:
     runs-on: windows-latest
     strategy:
@@ -175,7 +148,8 @@ jobs:
         # USE_BURROW: [ -DUSE_BURROW=OFF ]
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-        debrel: [Debug] #,Release, RelWithDebInfo
-    steps:
-      - name: Chocolatey install
+        debrel: [ Debug ] #,Release, RelWithDebInfo
+    steps: 
+      - &step_choco_install
+        name: Chocolatey install
         run: choco
