@@ -8,7 +8,7 @@
 
 #include <functional>
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <rxcpp/rx-observable.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "common/result.hpp"

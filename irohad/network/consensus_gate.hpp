@@ -6,7 +6,7 @@
 #ifndef IROHA_CONSENSUS_GATE_HPP
 #define IROHA_CONSENSUS_GATE_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <rxcpp/rx-observable.hpp>
 #include "consensus/gate_object.hpp"
 
 namespace shared_model {

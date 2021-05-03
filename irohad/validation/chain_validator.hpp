@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <rxcpp/rx-observable.hpp>
 
 namespace shared_model {
   namespace interface {

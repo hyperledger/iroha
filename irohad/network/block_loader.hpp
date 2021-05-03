@@ -7,7 +7,7 @@
 #define IROHA_BLOCK_LOADER_HPP
 
 #include <memory>
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <rxcpp/rx-observable.hpp>
 
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
