@@ -25,8 +25,7 @@ RUN apt-get -y --no-install-recommends install \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config
 
 # compiler clang-10 and libc++ only on x86_64, for debug purpose
-RUN set -e; \
-    if [ `uname -m` = "x86_64" ]; then \
+RUN if [ `uname -m` = "x86_64" ]; then \
       apt-get -y --no-install-recommends install \
         clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format-7; \
     fi
