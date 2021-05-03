@@ -26,14 +26,17 @@ jobs:
   build-iroha-macos:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
         # cpp: [ clang++, /usr/local/opt/llvm/bin/clang++ ]  ##todo g++-10
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         USE_BURROW: [ -DUSE_BURROW=ON, -DUSE_BURROW=OFF ]
+        debrel: [ Debug ] #,Release, RelWithDebInfo
     steps:
       - 
         name: Homebrew
         run: brew install cmake ninja coreutils
+        ## ToDo cache installed packages or prepare image
       -
         name: Checkout
         uses: actions/checkout@v2
@@ -42,14 +45,14 @@ jobs:
         uses: actions/cache@v2
         with:
           path: |
+            build-vcpkg
             build/vcpkg_installed
             $HOME/.cache/vcpkg
           key:          ${{ runner.os }}-vcpkg-${{ github.sha }}
           restore-keys: ${{ runner.os }}-vcpkg-
-      # - 
-      #   name: Build Iroha vcpkg dependancies
-      #   run: |
-      #     ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
+      - 
+        name: Build Iroha vcpkg dependancies
+        run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
 # ________________________________________________________
 # Executed in   32,08 mins    fish           external
 #    usr time  110,52 mins    0,24 millis  110,52 mins
@@ -63,10 +66,10 @@ jobs:
       - 
         name: CMake configure, vcpkg install
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
-             ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
+             ${{ matrix.USE_BURROW }} -GNinja #-DCMAKE_VERBOSE_MAKEFILE=ON
       -
         name: CMake build
-        run: cmake --build build #--config Debug
+        run: cmake --build build --config ${{ matrix.debrel }}
       -
         name: CTest
         run: |
