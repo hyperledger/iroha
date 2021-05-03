@@ -33,10 +33,9 @@ jobs:
         USE_BURROW: [ -DUSE_BURROW=ON, -DUSE_BURROW=OFF ]
         debrel: [ Debug ] #,Release, RelWithDebInfo
     steps:
-      - 
+      - ## Takes 22 seconds with default github runner
         name: Homebrew
         run: brew install cmake ninja coreutils
-        ## ToDo cache installed packages or prepare image
       -
         name: Checkout
         uses: actions/checkout@v2
@@ -64,7 +63,7 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - 
-        name: CMake configure, vcpkg install
+        name: CMake configure
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
              ${{ matrix.USE_BURROW }} -GNinja #-DCMAKE_VERBOSE_MAKEFILE=ON
       -

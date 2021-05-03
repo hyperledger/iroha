@@ -23,15 +23,17 @@ done
 # cp -r "$script_dir"/ports $vcpkg_path/
 
 ## Every time clean build of vcpkgtool takes 43 seconds on MacBook 2016 i7 2.8GHz
+##                                 and takes 3 minutes on default GitHub runner
 ## ToDo try reuse existing vcpkg_tool
 $vcpkg_path/bootstrap-vcpkg.sh -useSystemBinaries
 
 #todo use --x-manifest-root=$(git rev-parse --show-toplevel)
-vcpkg --x-manifest-root=$(realpath $script_dir/..) \
+$vcpkg_path/vcpkg install \
+    --x-manifest-root=$(realpath $script_dir/..) \
     --binarysource=files,$vcpkg_path/binarycache,readwrite \
-    --x-install-root=$build_dir/vcpkg_installed \
-    install
+    --x-install-root=$vcpkg_path/installed \
 
+#    --x-install-root=$build_dir/vcpkg_installed \
 #    --x-install-root=$vcpkg_path/installed \  #default for manifest mode is PWD/vcpkg_installed
 
 ## Profiling
@@ -42,4 +44,6 @@ vcpkg --x-manifest-root=$(realpath $script_dir/..) \
 ## time cmake -Bbuild -DCMAKE_TOOLCHAIN_FILE=/Users/tanya/devel/vcpkg2/scripts/buildsystems/vcpkg.cmake
 ## Executed in    7,56 secs
 ##
-## CMake cl
+## CMake clean build using make
+## time cmake --build build -- -j
+## Executed in   18,35 mins
