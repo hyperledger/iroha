@@ -72,9 +72,10 @@ jobs:
       -  &step_export_cxx
         name: export CC and CXX
         run: |
-          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
-          echo "::set-env name=CC::$CC"
-          echo "::set-env name=CXX::$CXX"
+          echo CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+        #  export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
+        #  echo "::set-env name=CC::$CC"
+        #  echo "::set-env name=CXX::$CXX"
       - &step_checkout
         name: Checkout
         uses: actions/checkout@v2

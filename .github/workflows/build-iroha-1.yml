@@ -63,9 +63,10 @@ jobs:
         ## Takes 22 seconds with default github runner
       - name: export CC and CXX
         run: |
-          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
-          echo "::set-env name=CC::$CC"
-          echo "::set-env name=CXX::$CXX"
+          echo CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+        #  export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
+        #  echo "::set-env name=CC::$CC"
+        #  echo "::set-env name=CXX::$CXX"
       - name: Checkout
         uses: actions/checkout@v2
       - name: Cache vcpkg
@@ -123,9 +124,10 @@ jobs:
         ## Takes 22 seconds with default github runner
       - name: export CC and CXX
         run: |
-          export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
-          echo "::set-env name=CC::$CC"
-          echo "::set-env name=CXX::$CXX"
+          echo CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+        #  export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
+        #  echo "::set-env name=CC::$CC"
+        #  echo "::set-env name=CXX::$CXX"
       - name: Checkout
         uses: actions/checkout@v2
       - name: Cache vcpkg
