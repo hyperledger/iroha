@@ -1,3 +1,6 @@
+## DO NOT EDIT
+## Generated from build-iroha-1.src.yml with make-workflows.sh
+
 name: Iroha1
 on:
   push:
@@ -54,10 +57,10 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         debrel: [Debug] #,Release, RelWithDebInfo
     steps:
-      - ## Takes 22 seconds with default github runner
-        name: Homebrew
+      - name: Homebrew
         run: brew install cmake ninja coreutils
         if: ${{ runner.os == 'MacOS' }}
+        ## Takes 22 seconds with default github runner
       - name: export CC and CXX
         run: |
           export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
@@ -93,10 +96,15 @@ jobs:
       - name: CMake build
         run: cmake --build build --config ${{ matrix.debrel }}
         ## Takes 18m44s on regular GitHub runner
-    # - ## FIXME requires postrges database installed
-    #   name: CTest
-    #   run: cd build && ctest
-    #   ## Takes over 4h on regular GitHub runner
+      - name: Install Postgres on MacOS
+        run: brew install postgresql
+        if: ${{ runner.os == 'MacOS' }}
+        ## ToDo may be optimize, i.e. cache package
+      - name: CTest
+        run: |
+          initdb --locale=C -E UTF-8 $PWD/postgres_database &&
+          pg_ctl -D $PWD/postgres_database & cd build && ctest
+        ## Takes over 4h on regular GitHub runner
   build-iroha-macos:
     runs-on: macos-latest
     strategy:
@@ -109,10 +117,10 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         debrel: [Debug] #,Release, RelWithDebInfo
     steps:
-      - ## Takes 22 seconds with default github runner
-        name: Homebrew
+      - name: Homebrew
         run: brew install cmake ninja coreutils
         if: ${{ runner.os == 'MacOS' }}
+        ## Takes 22 seconds with default github runner
       - name: export CC and CXX
         run: |
           export CC=${{ matrix.cc }} CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,)
@@ -148,3 +156,26 @@ jobs:
       - name: CMake build
         run: cmake --build build --config ${{ matrix.debrel }}
         ## Takes 18m44s on regular GitHub runner
+      - name: Install Postgres on MacOS
+        run: brew install postgresql
+        if: ${{ runner.os == 'MacOS' }}
+        ## ToDo may be optimize, i.e. cache package
+      - name: CTest
+        run: |
+          initdb --locale=C -E UTF-8 $PWD/postgres_database &&
+          pg_ctl -D $PWD/postgres_database & cd build && ctest
+        ## Takes over 4h on regular GitHub runner
+  build-iroha-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # cpp: [ clang++, /usr/local/opt/llvm/bin/clang++ ]  ##todo g++-10
+        # os: [ macos-latest, macos-11.0, macos-10.15 ]
+        # USE_BURROW: [ -DUSE_BURROW=OFF ]
+        # USE_URSA: [ -DUSE_URSA=OFF ]
+        ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
+        debrel: [Debug] #,Release, RelWithDebInfo
+    steps:
+      - name: Chocolatey install
+        run: choco
