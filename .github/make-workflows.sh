@@ -14,7 +14,7 @@ for f in $(git status -s -- \*.src.yml | sed 's,^.. ,,') ;do
     echo >>$tempout "## Generated from $f with $(basename $0)"
     echo >>$tempout ""
     yq eval 'explode(.)' $f >>$tempout
-    if ! diff -q $wout $tempout ;then
+    if ! diff -q $wout $tempout &>/dev/null ;then
         mv $tempout $wout
         edited+="'$out' "
     fi
