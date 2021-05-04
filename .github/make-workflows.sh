@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+## The script expands '*.src.yml' from $1(default: script's directory) 
+## to $2 (default:subdirectory 'workflows') with corresponding name '*.yml'
+## Main goal is to dereference YAML anchors.
+## Deals only with Git cached/indexed files
+## Set -x to debug
+
 script_dir=$(dirname $(realpath "$0"))
-cd $script_dir
+dir_from=${1:-${script_dir}}
+dir_to=${2:-workflows}
+cd $dir_from
 
 edited=
 for f in $(git status -s -- \*.src.yml | sed 's,^.. ,,') ;do
     readonly out=$(echo $f | sed s,.src.yml\$,.yml,)
-    readonly wout=workflows/$out
+    readonly wout=$dir_to/$out
     readonly tempout=$(mktemp)
     trap "rm -f $tempout" EXIT
     echo >>$tempout "## DO NOT EDIT"
