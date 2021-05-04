@@ -13,7 +13,7 @@ dir_to=${2:-workflows}
 cd $dir_from
 
 edited=
-for f in $(git status -s -- \*.src.yml | sed 's,^.. ,,') ;do
+for f in $(git diff --cached --name-only --relative -- '*.src.yml') ;do
     readonly out=$(echo $f | sed s,.src.yml\$,.yml,)
     readonly wout=$dir_to/$out
     readonly tempout=$(mktemp)
