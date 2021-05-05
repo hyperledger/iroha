@@ -783,9 +783,6 @@ TEST_F(PreparedBlockTest, PrepareBlockNoStateChanged) {
  * @then state of the ledger is changed
  */
 TEST_F(PreparedBlockTest, CommitPreparedStateChanged) {
-  if (not storage->preparedBlocksEnabled())
-    GTEST_SKIP();
-
   auto other_tx = createAddAsset("5.00");
 
   auto block = createBlock({other_tx}, 2);
