@@ -7,8 +7,8 @@ Shepherd is a command line utility that helps to perform maintenance tasks with 
 Prerequisites
 =============
 
-To access irohad daemon, utility service has to be configured in it.
-See `the configuration details <#configuring-irohad>`_.
+To access irohad daemon, ``utility service`` has to be configured in it.
+See `the configuration details <../configure/index.html#deployment-specific-parameters>`_.
 
 Next, when invoking ``shepherd``, pass the ``--irohad`` command line argument with address and port of irohad utility service:
 
