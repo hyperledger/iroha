@@ -38,11 +38,6 @@ namespace iroha {
       bool validate(const shared_model::interface::BlocksQuery &query,
                     const bool validate_signatories) override;
 
-      //     private:
-      //      std::shared_ptr<soci::session> sql(){
-      //        return std::shared_ptr<soci::session>(sql_);
-      //      }
-
      private:
       template <class Q>
       bool validateSignatures(const Q &query);
