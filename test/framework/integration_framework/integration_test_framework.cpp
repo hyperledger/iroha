@@ -502,11 +502,6 @@ namespace integration_framework {
         ->onExpiredBatches();
   }
 
-  rxcpp::observable<iroha::consensus::GateObject>
-  IntegrationTestFramework::getYacOnCommitObservable() {
-    return iroha_instance_->getIrohaInstance()->getConsensusGate()->onOutcome();
-  }
-
   std::shared_ptr<iroha::ametsuchi::BlockQuery>
   IntegrationTestFramework::getBlockQuery() {
     return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();

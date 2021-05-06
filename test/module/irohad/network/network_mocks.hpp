@@ -74,8 +74,6 @@ namespace iroha {
      public:
       MOCK_METHOD1(vote, void(const simulator::BlockCreatorEvent &));
 
-      MOCK_METHOD0(onOutcome, rxcpp::observable<GateObject>());
-
       MOCK_METHOD0(stop, void());
     };
 
