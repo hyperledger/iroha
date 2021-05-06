@@ -7,14 +7,28 @@
 #define IROHA_BLOCK_LOADER_HPP
 
 #include <memory>
-
-#include <boost/range/any_range.hpp>
+#include <variant>
 
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 
 namespace iroha {
   namespace network {
+    class BlockReader {
+     public:
+      /**
+       * Try to read the next block. Returns monostate when the iteration is
+       * completed, std::string when an error occurred
+       */
+      virtual std::variant<
+          std::monostate,
+          std::shared_ptr<const shared_model::interface::Block>,
+          std::string>
+      read() = 0;
+
+      virtual ~BlockReader() = default;
+    };
+
     /**
      * Interface for downloading blocks from a network
      */
@@ -26,11 +40,7 @@ namespace iroha {
        * @param peer_pubkey - peer for requesting blocks
        * @return
        */
-      virtual iroha::expected::Result<
-          boost::any_range<
-              std::shared_ptr<const shared_model::interface::Block>,
-              boost::single_pass_traversal_tag>,
-          std::string>
+      virtual expected::Result<std::unique_ptr<BlockReader>, std::string>
       retrieveBlocks(const shared_model::interface::types::HeightType height,
                      shared_model::interface::types::PublicKeyHexStringView
                          peer_pubkey) = 0;
