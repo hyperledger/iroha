@@ -10,6 +10,7 @@
 
 #include "ametsuchi/peer_query_factory.hpp"
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/gate_object.hpp"
 #include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/outcome_messages.hpp"
@@ -29,6 +30,8 @@ namespace iroha {
   }
   namespace consensus {
     namespace yac {
+      class Yac;
+      class YacGateImpl;
 
       class YacInit {
        public:
@@ -53,11 +56,15 @@ namespace iroha {
 
         std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
 
+        void subscribe(std::function<void(GateObject const&)> callback);
+
        private:
         auto createTimer(std::chrono::milliseconds delay_milliseconds);
 
         bool initialized_{false};
         std::shared_ptr<NetworkImpl> consensus_network_;
+        std::shared_ptr<Yac> yac_;
+        std::shared_ptr<YacGateImpl> yac_gate_;
       };
     }  // namespace yac
   }    // namespace consensus

@@ -12,6 +12,7 @@
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "consensus/gate_object.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/dummy_logger.hpp"
