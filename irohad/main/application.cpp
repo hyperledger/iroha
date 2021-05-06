@@ -100,6 +100,11 @@ static constexpr uint32_t kStaleStreamMaxRoundsDefault = 2;
 static constexpr uint32_t kMstExpirationTimeDefault = 1440;
 static constexpr uint32_t kMaxRoundsDelayDefault = 3000;
 
+namespace std {
+  template <class T>
+  weak_ptr(std::shared_ptr<T>)->weak_ptr<T>;
+}
+
 /**
  * Configuring iroha daemon
  */
