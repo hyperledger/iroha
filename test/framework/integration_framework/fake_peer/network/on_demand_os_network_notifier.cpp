@@ -45,6 +45,21 @@ namespace integration_framework {
       return {};
     }
 
+    void OnDemandOsNetworkNotifier::onCollaborationOutcome(
+        iroha::consensus::Round round) {}
+
+    void OnDemandOsNetworkNotifier::onTxsCommitted(
+        const HashesSetType &hashes) {}
+
+    void OnDemandOsNetworkNotifier::forCachedBatches(
+        std::function<void(const iroha::ordering::transport::OdOsNotification::
+                               BatchesSetType &)> const &f) {}
+
+    bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() const {
+      auto fake_peer = fake_peer_wptr_.lock();
+      return true;
+    }
+
     rxcpp::observable<iroha::consensus::Round>
     OnDemandOsNetworkNotifier::getProposalRequestsObservable() {
       return rounds_subject_.get_observable();

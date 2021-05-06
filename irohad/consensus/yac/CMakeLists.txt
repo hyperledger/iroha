@@ -19,7 +19,6 @@ add_library(yac
     impl/peer_orderer_impl.cpp
     impl/yac_gate_impl.cpp
     impl/yac_hash_provider_impl.cpp
-    impl/consensus_outcome_delay.cpp
 
     storage/impl/yac_common.cpp
     storage/impl/yac_block_storage.cpp

@@ -47,7 +47,8 @@ struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
                                                transaction_factory_,
                                                batch_parser_,
                                                transaction_batch_factory_,
-                                               logger::getDummyLoggerPtr());
+                                               logger::getDummyLoggerPtr(),
+                                               std::chrono::seconds(0));
   }
 };
 
