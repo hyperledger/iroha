@@ -245,7 +245,8 @@ TEST_F(BlockLoaderTest, ValidWhenMultipleBlocks) {
     ASSERT_EQ(std::get<std::shared_ptr<const shared_model::interface::Block>>(
                   maybe_block)
                   ->height(),
-              height++);
+              height);
+    ++height;
   }
   ASSERT_EQ(num_blocks, count);
 }

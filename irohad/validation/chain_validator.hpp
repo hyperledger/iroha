@@ -35,7 +35,7 @@ namespace iroha {
        * While applying the block it will validate all its signatures
        * and related meta information such as previous hash, height and
        * other meta information
-       * @param block - blocks that should be applied atomically
+       * @param block - block to be applied atomically
        * @param storage - storage to which the blocks are applied
        * @return true if commit is valid and successfully applied, false
        * otherwise

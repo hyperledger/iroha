@@ -15,12 +15,9 @@ namespace iroha {
 
     class MockMutableStorage : public MutableStorage {
      public:
-      MOCK_METHOD2(
-          apply,
-          bool(std::shared_ptr<const shared_model::interface::Block>,
-               std::function<
+      MOCK_METHOD2(applyIf,
                    bool(std::shared_ptr<const shared_model::interface::Block>,
-                        const iroha::LedgerState &)>));
+                        MutableStorage::MutableStoragePredicate));
       MOCK_METHOD1(apply,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(applyPrepared,

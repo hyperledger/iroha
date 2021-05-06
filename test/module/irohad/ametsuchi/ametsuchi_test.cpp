@@ -450,7 +450,7 @@ class IdentityChainValidator : public iroha::validation::ChainValidator {
   bool validateAndApply(
       std::shared_ptr<const shared_model::interface::Block> block,
       MutableStorage &storage) const override {
-    return storage.apply(block, [](auto const &, auto &) { return true; });
+    return storage.apply(block);
   }
 };
 using MockBlockIValidator =
