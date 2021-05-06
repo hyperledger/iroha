@@ -94,46 +94,50 @@ namespace iroha {
       using namespace iroha::expected;
       for (const auto &public_key : public_keys) {
         while (true) {
-          bool got_some_blocks_from_this_peer = false;
+          bool peer_ok = false;
           log_->debug(
               "trying to download blocks from {} to {} from peer with key {}",
               my_height + 1,
               target_height,
               public_key);
-          auto retrieve_blocks_result = block_loader_->retrieveBlocks(
+          auto maybe_reader = block_loader_->retrieveBlocks(
               my_height, PublicKeyHexStringView{public_key});
 
-          if (hasValue(retrieve_blocks_result)) {
-            auto blocks = retrieve_blocks_result.assumeValue();
-            bool result = false;
-            for (auto &block : blocks) {
-              if ((result = validator_->validateAndApply(block, *storage))) {
-                got_some_blocks_from_this_peer = true;
-                my_height = block->height();
-              } else {
-                break;
-              }
-            }
-            if (result) {
-              if (my_height >= target_height) {
-                return mutable_factory_->commit(std::move(storage));
-              }
-              if (not got_some_blocks_from_this_peer) {
-                // if we got no new blocks from this peer we should switch to
-                // next peer
-                break;
-              }
-            } else {
-              // last block did not apply - need to ask it again from other peer
-              my_height = std::max(my_height, start_height);
-              break;
-            }
-          } else {
+          if (hasError(maybe_reader)) {
             log_->warn(
                 "failed to retrieve blocks starting from {} from peer {}: {}",
                 my_height,
                 public_key,
-                retrieve_blocks_result.assumeError());
+                maybe_reader.assumeError());
+            continue;
+          }
+
+          auto block_var = maybe_reader.assumeValue()->read();
+          for (auto maybe_block = std::get_if<
+                   std::shared_ptr<const shared_model::interface::Block>>(
+                   &block_var);
+               maybe_block;
+               block_var = maybe_reader.assumeValue()->read(),
+                    maybe_block = std::get_if<
+                        std::shared_ptr<const shared_model::interface::Block>>(
+                        &block_var)) {
+            if (not(peer_ok =
+                        validator_->validateAndApply(*maybe_block, *storage))) {
+              break;
+            }
+
+            my_height = (*maybe_block)->height();
+          }
+          if (auto error = std::get_if<std::string>(&block_var)) {
+            log_->warn("failed to retrieve block: {}", *error);
+          }
+          if (my_height >= target_height) {
+            return mutable_factory_->commit(std::move(storage));
+          }
+          if (not peer_ok) {
+            // if the last block did not apply or we got no new blocks from this
+            // peer we should switch to next peer
+            break;
           }
         }
       }

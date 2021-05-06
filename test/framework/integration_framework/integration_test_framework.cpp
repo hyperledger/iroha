@@ -419,10 +419,10 @@ namespace integration_framework {
     verified_proposal_subscription_ = iroha::SubscriberCreator<
         bool,
         iroha::simulator::VerifiedProposalCreatorEvent>::
-        template create<iroha::EventTypes::kOnVerifiedProposal,
-                        static_cast<iroha::SubscriptionEngineHandlers>(
-                            decltype(iroha::getSubscription())::element_type::
-                                Dispatcher::kExecuteInPool)>(
+        template create<iroha::EventTypes::kOnVerifiedProposal>(
+            static_cast<iroha::SubscriptionEngineHandlers>(
+                decltype(iroha::getSubscription())::element_type::Dispatcher::
+                    kExecuteInPool),
             [verified_proposal_queue = std::weak_ptr(verified_proposal_queue_),
              log = std::weak_ptr(log_)](auto,
                                         auto verified_proposal_and_errors) {

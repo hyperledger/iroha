@@ -27,7 +27,7 @@
 #include "main/subscription.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
-#include "ordering/impl/on_demand_common.cpp"
+#include "ordering/impl/on_demand_common.hpp"
 
 using namespace common_constants;
 using namespace shared_model;
@@ -59,27 +59,26 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
 
   // capture itf synchronization events
   utils::WaitForSingleObject completed;
-  auto subscriber = SubscriberCreator<bool,
-                                      synchronizer::SynchronizationEvent>::
-      template create<
-          EventTypes::kOnSynchronization,
-          static_cast<SubscriptionEngineHandlers>(decltype(
-              getSubscription())::element_type::Dispatcher::kExecuteInPool)>(
-          [prepared_height,
-           &completed,
-           itf_peer = itf_->getThisPeer(),
-           new_peer_address,
-           new_peer_hex_pubkey](auto, auto sync_event) {
-            if (sync_event.ledger_state->top_block_info.height
-                > prepared_height) {
-              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                          ::testing::UnorderedElementsAre(
-                              makePeerPointeeMatcher(itf_peer),
-                              makePeerPointeeMatcher(new_peer_address,
-                                                     new_peer_hex_pubkey)));
-              completed.set();
-            }
-          });
+  auto subscriber =
+      SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+          template create<EventTypes::kOnSynchronization>(
+              static_cast<SubscriptionEngineHandlers>(decltype(
+                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
+              [prepared_height,
+               &completed,
+               itf_peer = itf_->getThisPeer(),
+               new_peer_address,
+               new_peer_hex_pubkey](auto, auto sync_event) {
+                if (sync_event.ledger_state->top_block_info.height
+                    > prepared_height) {
+                  EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                              ::testing::UnorderedElementsAre(
+                                  makePeerPointeeMatcher(itf_peer),
+                                  makePeerPointeeMatcher(new_peer_address,
+                                                         new_peer_hex_pubkey)));
+                  completed.set();
+                }
+              });
 
   // ------------------------ WHEN -------------------------
   // send addPeer command
@@ -260,25 +259,26 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
 
   // capture itf synchronization events
   utils::WaitForSingleObject completed;
-  auto subscriber = SubscriberCreator<bool,
-                                      synchronizer::SynchronizationEvent>::
-      template create<
-          EventTypes::kOnSynchronization,
-          static_cast<SubscriptionEngineHandlers>(decltype(
-              getSubscription())::element_type::Dispatcher::kExecuteInPool)>(
-          [height = block_with_add_peer.height(),
-           &completed,
-           itf_peer = itf_->getThisPeer(),
-           initial_peer = initial_peer->getThisPeer()](auto, auto sync_event) {
-            if (sync_event.ledger_state->top_block_info.height >= height) {
-              EXPECT_EQ(sync_event.ledger_state->top_block_info.height, height);
-              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                          ::testing::UnorderedElementsAre(
-                              makePeerPointeeMatcher(itf_peer),
-                              makePeerPointeeMatcher(initial_peer)));
-              completed.set();
-            }
-          });
+  auto subscriber =
+      SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+          template create<EventTypes::kOnSynchronization>(
+              static_cast<SubscriptionEngineHandlers>(decltype(
+                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
+              [height = block_with_add_peer.height(),
+               &completed,
+               itf_peer = itf_->getThisPeer(),
+               initial_peer = initial_peer->getThisPeer()](auto,
+                                                           auto sync_event) {
+                if (sync_event.ledger_state->top_block_info.height >= height) {
+                  EXPECT_EQ(sync_event.ledger_state->top_block_info.height,
+                            height);
+                  EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                              ::testing::UnorderedElementsAre(
+                                  makePeerPointeeMatcher(itf_peer),
+                                  makePeerPointeeMatcher(initial_peer)));
+                  completed.set();
+                }
+              });
 
   // ------------------------ WHEN -------------------------
   // launch the itf peer

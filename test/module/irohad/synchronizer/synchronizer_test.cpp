@@ -181,6 +181,34 @@ void chainValidatorExpectChain(
   }
 }
 
+class TestBlockReader : public BlockReader {
+ public:
+  TestBlockReader(
+      std::vector<std::shared_ptr<const shared_model::interface::Block>> blocks)
+      : blocks_(blocks), it_(blocks_.begin()) {}
+
+  std::variant<std::monostate,
+               std::shared_ptr<const shared_model::interface::Block>,
+               std::string>
+  read() override {
+    if (it_ != blocks_.end()) {
+      return *it_++;
+    }
+    return std::monostate{};
+  }
+
+ private:
+  std::vector<std::shared_ptr<const shared_model::interface::Block>> blocks_;
+  std::vector<std::shared_ptr<const shared_model::interface::Block>>::iterator
+      it_;
+};
+
+auto make_reader(
+    std::vector<std::shared_ptr<const shared_model::interface::Block>> blocks =
+        {}) {
+  return std::make_unique<TestBlockReader>(blocks);
+}
+
 /**
  * @given A commit from consensus and initialized components
  * @when a valid block that can be applied
@@ -215,7 +243,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(std::vector{commit_message}));
+      .WillOnce(Return(ByMove(make_reader({commit_message}))));
 
   auto commit_event = synchronizer->processOutcome(
       consensus::VoteOther(round, ledger_state, public_keys, hash));
@@ -243,7 +271,8 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   std::vector<std::shared_ptr<const shared_model::interface::Block>> commits{
       commit_message, target_commit};
   chainValidatorExpectChain(*chain_validator, commits);
-  EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).WillOnce(Return(commits));
+  EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
+      .WillOnce(Return(ByMove(make_reader(commits))));
 
   auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
@@ -269,10 +298,9 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
         .WillOnce(Return(true));
   }
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(
-          std::vector<std::shared_ptr<const shared_model::interface::Block>>{}))
-      .WillOnce(Return(std::vector{commit_message}))
-      .WillOnce(Return(std::vector{commit_message}));
+      .WillOnce(Return(ByMove(make_reader())))
+      .WillOnce(Return(ByMove(make_reader({commit_message}))))
+      .WillOnce(Return(ByMove(make_reader({commit_message}))));
 
   auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
@@ -332,7 +360,8 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
 
     // first attempt: get blocks till kBadBlockHeight, then fail
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
-        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer), Return(chain_bad)));
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
+                        Return(ByMove(make_reader(chain_bad)))));
     EXPECT_CALL(*chain_validator, validateAndApply(_, _))
         .Times(kBadBlockNumber - 1)
         .WillRepeatedly(Return(true));
@@ -345,7 +374,7 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
                               // with N, we need to pass N-1...
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, Not(first_asked_peer)))
-        .WillOnce(Return(chain_good));
+        .WillOnce(Return(ByMove(make_reader(chain_good))));
     chainValidatorExpectChain(*chain_validator, chain_good);
   }
 
@@ -391,7 +420,8 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
 
     // first attempt: get some blocks till k1stPeerHeight
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
-        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer), Return(chain_1st_peer)));
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
+                        Return(ByMove(make_reader(chain_1st_peer)))));
     chainValidatorExpectChain(*chain_validator, chain_1st_peer);
 
     // then try again with same peer but he has no more blocks
@@ -402,14 +432,12 @@ TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
                         // with N, we need to pass N-1...
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, first_asked_peer))
-        .WillRepeatedly(
-            Return(std::vector<
-                   std::shared_ptr<const shared_model::interface::Block>>{}));
+        .WillRepeatedly(Return(ByMove(make_reader())));
 
     // then request blocks from second peer starting from k1stPeerHeight
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, Not(first_asked_peer)))
-        .WillOnce(Return(chain_2nd_peer));
+        .WillOnce(Return(ByMove(make_reader(chain_2nd_peer))));
     chainValidatorExpectChain(*chain_validator, chain_2nd_peer);
   }
 
@@ -456,7 +484,7 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
     // first attempt: get blocks till kAbruptHeight
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
         .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
-                        Return(chain_1st_try)));
+                        Return(ByMove(make_reader(chain_1st_try)))));
     chainValidatorExpectChain(*chain_validator, chain_1st_try);
 
     // second attempt: request blocks from same peer starting at kAbruptHeight
@@ -467,7 +495,7 @@ TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
                        // with N, we need to pass N-1...
     EXPECT_CALL(*block_loader,
                 retrieveBlocks(kRetrieveBlocksArg, first_asked_peer))
-        .WillOnce(Return(chain_2nd_try));
+        .WillOnce(Return(ByMove(make_reader(chain_2nd_try))));
     chainValidatorExpectChain(*chain_validator, chain_2nd_try);
   }
 
@@ -487,7 +515,8 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
       SetFactory(&createMockMutableStorage);
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillRepeatedly(Return(std::vector{commit_message}));
+      .WillRepeatedly(
+          [this](auto, auto) { return make_reader({commit_message}); });
 
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .Times(number_of_failures)
@@ -578,7 +607,7 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillRepeatedly(Return(std::vector{commit_message}));
+      .WillRepeatedly(Return(ByMove(make_reader({commit_message}))));
 
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
@@ -645,7 +674,7 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(std::vector{commit_message}));
+      .WillOnce(Return(ByMove(make_reader({commit_message}))));
 
   auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
       consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
@@ -666,7 +695,7 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
   EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
-      .WillOnce(Return(std::vector{commit_message}));
+      .WillOnce(Return(ByMove(make_reader({commit_message}))));
 
   consensus::Round expected_round{commit_message->height(), 0};
   auto commit_event = synchronizer->processOutcome(consensus::Future(

@@ -151,10 +151,11 @@ TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
   setPeerQuery();
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
-  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
+  auto reader = loader->retrieveBlocks(1, peer_key).assumeValue();
   size_t count = 0;
-  for (auto &block : retrieved_blocks) {
-    (void)block;
+  while (std::holds_alternative<
+         std::shared_ptr<const shared_model::interface::Block>>(
+      reader->read())) {
     ++count;
   }
   ASSERT_EQ(0, count);
@@ -188,11 +189,15 @@ TEST_F(BlockLoaderTest, ValidWhenOneBlock) {
   EXPECT_CALL(*storage, getBlock(top_block.height()))
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(top_block)))));
-  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
+  auto reader = loader->retrieveBlocks(1, peer_key).assumeValue();
   size_t count = 0;
-  for (auto &block : retrieved_blocks) {
+  for (auto maybe_block = reader->read(); std::holds_alternative<
+           std::shared_ptr<const shared_model::interface::Block>>(maybe_block);
+       maybe_block = reader->read()) {
     ++count;
-    ASSERT_EQ(*block, top_block);
+    ASSERT_EQ(*std::get<std::shared_ptr<const shared_model::interface::Block>>(
+                  maybe_block),
+              top_block);
   }
   ASSERT_EQ(1, count);
 }
@@ -230,12 +235,17 @@ TEST_F(BlockLoaderTest, ValidWhenMultipleBlocks) {
   }
 
   setPeerQuery();
-  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
+  auto reader = loader->retrieveBlocks(1, peer_key).assumeValue();
   size_t count = 0;
   auto height = next_height;
-  for (auto &block : retrieved_blocks) {
+  for (auto maybe_block = reader->read(); std::holds_alternative<
+           std::shared_ptr<const shared_model::interface::Block>>(maybe_block);
+       maybe_block = reader->read()) {
     ++count;
-    ASSERT_EQ(block->height(), height++);
+    ASSERT_EQ(std::get<std::shared_ptr<const shared_model::interface::Block>>(
+                  maybe_block)
+                  ->height(),
+              height++);
   }
   ASSERT_EQ(num_blocks, count);
 }
