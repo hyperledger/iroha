@@ -429,8 +429,6 @@ namespace integration_framework {
         std::shared_ptr<shared_model::interface::TransactionBatch>>
     getMstExpiredBatchesObservable();
 
-    rxcpp::observable<iroha::consensus::GateObject> getYacOnCommitObservable();
-
     /// Get block query for iroha block storage.
     std::shared_ptr<iroha::ametsuchi::BlockQuery> getBlockQuery();
 

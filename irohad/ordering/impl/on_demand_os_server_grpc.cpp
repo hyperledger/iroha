@@ -74,12 +74,12 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
         std::shared_ptr<shared_model::interface::TransactionBatch>>::
         template create<EventTypes::kOnNewBatchInCache>(
             static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [scheduler(std::weak_ptr(scheduler))](auto, auto) {
+            [scheduler(utils::make_weak(scheduler))](auto, auto) {
               if (auto maybe_scheduler = scheduler.lock()) {
                 maybe_scheduler->dispose();
               }
             });
-    scheduler->addDelayed(delay_, [scheduler(std::weak_ptr(scheduler))] {
+    scheduler->addDelayed(delay_, [scheduler(utils::make_weak(scheduler))] {
       if (auto maybe_scheduler = scheduler.lock()) {
         maybe_scheduler->dispose();
       }

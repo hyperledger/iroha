@@ -155,7 +155,6 @@ Irohad::~Irohad() {
     ordering_gate->stop();
   }
   consensus_gate_objects_lifetime.unsubscribe();
-  consensus_gate_events_subscription.unsubscribe();
   subscription_engine_->dispose();
 }
 
@@ -715,9 +714,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
       inter_peer_client_factory_);
-  consensus_gate->onOutcome().subscribe(
-      consensus_gate_events_subscription,
-      consensus_gate_objects.get_subscriber());
   log_->info("[Init] => consensus gate");
   return {};
 }
@@ -978,22 +974,23 @@ Irohad::RunResult Irohad::run() {
   using iroha::expected::operator|;
   using iroha::operator|;
 
-  consensus_gate->onOutcome().subscribe(
-      [synchronizer(utils::make_weak(synchronizer)),
-       sync_event_notifier(ordering_init.sync_event_notifier),
-       log(utils::make_weak(log_)),
-       subscription(utils::make_weak(getSubscription()))](
-          consensus::GateObject object) {
-        auto maybe_synchronizer = synchronizer.lock();
-        auto maybe_log = log.lock();
-        auto maybe_subscription = subscription.lock();
-        if (maybe_synchronizer and maybe_log and maybe_subscription) {
-          auto event = maybe_synchronizer->processOutcome(std::move(object));
-          maybe_subscription->notify(EventTypes::kOnSynchronization, event);
-          printSynchronizationEvent(maybe_log, event);
-          sync_event_notifier.get_subscriber().on_next(std::move(event));
-        }
-      });
+  yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
+                       sync_event_notifier(ordering_init.sync_event_notifier),
+                       consensus_gate_objects(consensus_gate_objects),
+                       log(utils::make_weak(log_)),
+                       subscription(utils::make_weak(getSubscription()))](
+                          consensus::GateObject object) {
+    auto maybe_synchronizer = synchronizer.lock();
+    auto maybe_log = log.lock();
+    auto maybe_subscription = subscription.lock();
+    if (maybe_synchronizer and maybe_log and maybe_subscription) {
+      consensus_gate_objects.get_subscriber().on_next(object);
+      auto event = maybe_synchronizer->processOutcome(std::move(object));
+      maybe_subscription->notify(EventTypes::kOnSynchronization, event);
+      printSynchronizationEvent(maybe_log, event);
+      sync_event_notifier.get_subscriber().on_next(std::move(event));
+    }
+  });
 
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(
