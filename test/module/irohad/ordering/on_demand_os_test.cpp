@@ -44,9 +44,9 @@ class OnDemandOsTest : public ::testing::Test {
   const uint64_t transaction_limit = 20;
   const uint32_t proposal_limit = 5;
   const consensus::Round initial_round = {2, kFirstRejectRound},
-                         target_round = {4, kNextCommitRoundConsumer},
                          commit_round = {3, kFirstRejectRound},
-                         reject_round = {2, kNextRejectRoundConsumer};
+                         target_round = nextCommitRound(commit_round),
+                         reject_round = nextRejectRound(initial_round);
   NiceMock<iroha::ametsuchi::MockTxPresenceCache> *mock_cache;
   std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;
 
