@@ -35,7 +35,8 @@ namespace iroha {
           std::shared_ptr<network::BlockLoader> block_loader,
           logger::LoggerPtr log);
 
-      SynchronizationEvent processOutcome(consensus::GateObject object) override;
+      SynchronizationEvent processOutcome(
+          consensus::GateObject object) override;
 
      private:
       /**
