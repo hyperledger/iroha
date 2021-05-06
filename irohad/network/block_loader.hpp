@@ -40,10 +40,10 @@ namespace iroha {
        * @param peer_pubkey - peer for requesting blocks
        * @return
        */
-      virtual expected::Result<std::unique_ptr<BlockReader>, std::string>
-      retrieveBlocks(const shared_model::interface::types::HeightType height,
-                     shared_model::interface::types::PublicKeyHexStringView
-                         peer_pubkey) = 0;
+      virtual expected::Result<std::unique_ptr<BlockReader>> retrieveBlocks(
+          const shared_model::interface::types::HeightType height,
+          shared_model::interface::types::PublicKeyHexStringView
+              peer_pubkey) = 0;
 
       /**
        * Retrieve block by its block_height from given peer

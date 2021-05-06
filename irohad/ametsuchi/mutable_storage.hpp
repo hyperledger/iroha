@@ -62,7 +62,7 @@ namespace iroha {
        * transactions
        * @return True if block was successfully applied, false otherwise.
        */
-      virtual bool apply(
+      virtual bool applyIf(
           std::shared_ptr<const shared_model::interface::Block> block,
           MutableStoragePredicate predicate) = 0;
 
