@@ -46,7 +46,7 @@ namespace iroha {
       sql_ << "BEGIN";
     }
 
-    bool MutableStorageImpl::applyBlock(
+    bool MutableStorageImpl::applyBlockIf(
         std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
       auto execute_transaction = [this](auto &transaction) -> bool {
@@ -114,14 +114,16 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block) {
       return withSavepoint([&] {
-        return this->applyBlock(block, [](const auto &, auto &) { return true; });
+        return this->applyBlockIf(block,
+                                  [](const auto &, auto &) { return true; });
       });
     }
 
-    bool MutableStorageImpl::apply(
+    bool MutableStorageImpl::applyIf(
         std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
-      return withSavepoint([&] { return this->applyBlock(block, predicate); });
+      return withSavepoint(
+          [&] { return this->applyBlockIf(block, predicate); });
     }
 
     boost::optional<std::shared_ptr<const iroha::LedgerState>>

@@ -350,7 +350,6 @@ class Irohad {
   std::shared_ptr<iroha::MstProcessor> mst_processor;
 
   // transaction service
-  rxcpp::composite_subscription tx_processor_lifetime_;
   std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor;
   std::shared_ptr<iroha::torii::CommandService> command_service;
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc>

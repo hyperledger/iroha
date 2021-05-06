@@ -102,7 +102,7 @@ namespace iroha {
       return block;
     }
 
-    /// Create an observable from chain and return its validation status
+    /// Apply a chain of blocks and return its validation status
     auto createAndValidateChain(
         std::vector<std::shared_ptr<const shared_model::interface::Block>>
             chain) {

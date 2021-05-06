@@ -27,9 +27,10 @@ namespace iroha {
         ametsuchi::MutableStorage &storage) const {
       log_->info("validate block...");
 
-      return storage.apply(block, [this](auto block, const auto &ledger_state) {
-        return this->validateBlock(block, ledger_state);
-      });
+      return storage.applyIf(block,
+                             [this](auto block, const auto &ledger_state) {
+                               return this->validateBlock(block, ledger_state);
+                             });
     }
 
     bool ChainValidatorImpl::validatePreviousHash(
