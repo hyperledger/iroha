@@ -17,6 +17,7 @@
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
 #include "logger/logger_manager.hpp"
+#include "subscription/common.hpp"
 #include "network/impl/client_factory_impl.hpp"
 
 using namespace iroha::consensus;
@@ -76,6 +77,23 @@ namespace iroha {
         return consensus_network_;
       }
 
+      void YacInit::subscribe(
+          std::function<void(GateObject const &)> callback) {
+        BOOST_ASSERT_MSG(initialized_,
+                         "YacInit::initConsensusGate(...) must be called prior "
+                         "to YacInit::subscribe()!");
+        yac_->onOutcome().subscribe(
+            [yac_gate(utils::make_weak(yac_gate_)),
+             callback(std::move(callback))](Answer const &outcome) {
+              if (auto maybe_yac_gate = yac_gate.lock()) {
+                auto maybe_outcome = maybe_yac_gate->processOutcome(outcome);
+                if (maybe_outcome) {
+                  callback(*std::move(maybe_outcome));
+                }
+              }
+            });
+      }
+
       auto YacInit::createTimer(std::chrono::milliseconds delay_milliseconds) {
         return std::make_shared<TimerImpl>(
             delay_milliseconds,
@@ -113,7 +131,7 @@ namespace iroha {
                 std::move(client_factory)),
             consensus_log_manager->getChild("Network")->getLogger());
 
-        auto yac = createYac(*ClusterOrdering::create(peers.value()),
+        yac_ = createYac(*ClusterOrdering::create(peers.value()),
                              initial_round,
                              keypair,
                              createTimer(vote_delay_milliseconds),
@@ -121,14 +139,14 @@ namespace iroha {
                              consistency_model,
                              rxcpp::observe_on_new_thread(),
                              consensus_log_manager);
-        consensus_network_->subscribe(yac);
+        consensus_network_->subscribe(yac_);
 
         auto hash_provider = createHashProvider();
 
         initialized_ = true;
 
-        return std::make_shared<YacGateImpl>(
-            std::move(yac),
+        yac_gate_ = std::make_shared<YacGateImpl>(
+            yac_,
             std::move(peer_orderer),
             alternative_peers |
                 [](auto &peers) { return ClusterOrdering::create(peers); },
@@ -136,6 +154,7 @@ namespace iroha {
             hash_provider,
             std::move(consensus_result_cache),
             consensus_log_manager->getChild("Gate")->getLogger());
+        return yac_gate_;
       }
     }  // namespace yac
   }    // namespace consensus

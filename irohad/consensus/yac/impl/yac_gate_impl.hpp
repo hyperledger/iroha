@@ -9,9 +9,10 @@
 #include "consensus/yac/yac_gate.hpp"
 
 #include <memory>
+#include <optional>
 
-#include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/gate_object.hpp"
 #include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"
@@ -34,18 +35,17 @@ namespace iroha {
 
       class YacGateImpl : public YacGate {
        public:
-        YacGateImpl(
-            std::shared_ptr<HashGate> hash_gate,
-            std::shared_ptr<YacPeerOrderer> orderer,
-            boost::optional<ClusterOrdering> alternative_order,
-            std::shared_ptr<const LedgerState> ledger_state,
-            std::shared_ptr<YacHashProvider> hash_provider,
-            std::shared_ptr<consensus::ConsensusResultCache>
-                consensus_result_cache,
-            logger::LoggerPtr log);
+        YacGateImpl(std::shared_ptr<HashGate> hash_gate,
+                    std::shared_ptr<YacPeerOrderer> orderer,
+                    boost::optional<ClusterOrdering> alternative_order,
+                    std::shared_ptr<const LedgerState> ledger_state,
+                    std::shared_ptr<YacHashProvider> hash_provider,
+                    std::shared_ptr<consensus::ConsensusResultCache>
+                        consensus_result_cache,
+                    logger::LoggerPtr log);
         void vote(const simulator::BlockCreatorEvent &event) override;
 
-        rxcpp::observable<GateObject> onOutcome() override;
+        std::optional<GateObject> processOutcome(Answer const &outcome);
 
         void stop() override;
 
@@ -56,9 +56,9 @@ namespace iroha {
          */
         void copySignatures(const CommitMessage &commit);
 
-        rxcpp::observable<GateObject> handleCommit(const CommitMessage &msg);
-        rxcpp::observable<GateObject> handleReject(const RejectMessage &msg);
-        rxcpp::observable<GateObject> handleFuture(const FutureMessage &msg);
+        std::optional<GateObject> handleCommit(const CommitMessage &msg);
+        std::optional<GateObject> handleReject(const RejectMessage &msg);
+        std::optional<GateObject> handleFuture(const FutureMessage &msg);
 
         logger::LoggerPtr log_;
 
@@ -68,7 +68,6 @@ namespace iroha {
         boost::optional<ClusterOrdering> alternative_order_;
         std::shared_ptr<const LedgerState> current_ledger_state_;
 
-        rxcpp::observable<GateObject> published_events_;
         std::shared_ptr<YacPeerOrderer> orderer_;
         std::shared_ptr<YacHashProvider> hash_provider_;
         std::shared_ptr<consensus::ConsensusResultCache>
