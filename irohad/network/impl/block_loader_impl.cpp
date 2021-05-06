@@ -87,8 +87,7 @@ BlockLoaderImpl::BlockLoaderImpl(
       client_factory_(std::move(client_factory)),
       log_(std::move(log)) {}
 
-Result<std::unique_ptr<BlockReader>, std::string>
-BlockLoaderImpl::retrieveBlocks(
+Result<std::unique_ptr<BlockReader>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
     types::PublicKeyHexStringView peer_pubkey) {
   auto maybe_peer = findPeer(peer_pubkey);

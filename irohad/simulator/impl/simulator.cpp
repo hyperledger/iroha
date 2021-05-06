@@ -63,6 +63,8 @@ namespace iroha {
           log_->info("process verified proposal: no proposal");
         }
         std::vector<shared_model::crypto::Hash> rejected_hashes;
+        rejected_hashes.reserve(
+            verified_proposal_and_errors->rejected_transactions.size());
         for (const auto &rejected_tx :
              verified_proposal_and_errors->rejected_transactions) {
           rejected_hashes.push_back(rejected_tx.tx_hash);
@@ -72,7 +74,7 @@ namespace iroha {
                                               top_block_info.top_hash,
                                               proposal->createdTime(),
                                               proposal->transactions(),
-                                              rejected_hashes);
+                                              std::move(rejected_hashes));
         crypto_signer_->sign(*block);
         log_->info("Created block: {}", *block);
         return BlockCreatorEvent{

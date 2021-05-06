@@ -755,7 +755,8 @@ namespace {
       case SynchronizationOutcomeType::kNothing:
         log->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
         break;
-      default:
+      case SynchronizationOutcomeType::kError:
+        log->info(R"(~~~~~~~~~| ERROR :-?????? |~~~~~~~~~ )");
         break;
     }
   }
@@ -855,37 +856,33 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
   storage->on_commit().subscribe(
-      tx_processor_lifetime_,
-      [tx_processor_ = std::weak_ptr(tx_processor)](
+      [tx_processor(std::weak_ptr(tx_processor))](
           std::shared_ptr<shared_model::interface::Block const> const &block) {
-        if (auto tx_processor = tx_processor_.lock()) {
-          tx_processor->processCommit(block);
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processCommit(block);
         }
       });
   mst_processor->onStateUpdate().subscribe(
-      tx_processor_lifetime_,
-      [tx_processor_ = std::weak_ptr(tx_processor)](
+      [tx_processor(std::weak_ptr(tx_processor))](
           std::shared_ptr<MstState> const &state) {
-        if (auto tx_processor = tx_processor_.lock()) {
-          tx_processor->processStateUpdate(state);
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processStateUpdate(state);
         }
       });
   mst_processor->onPreparedBatches().subscribe(
-      tx_processor_lifetime_,
-      [tx_processor_ = std::weak_ptr(tx_processor)](
+      [tx_processor(std::weak_ptr(tx_processor))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
-        if (auto tx_processor = tx_processor_.lock()) {
-          tx_processor->processPreparedBatch(batch);
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processPreparedBatch(batch);
         }
       });
   mst_processor->onExpiredBatches().subscribe(
-      tx_processor_lifetime_,
-      [tx_processor_ = std::weak_ptr(tx_processor)](
+      [tx_processor(std::weak_ptr(tx_processor))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
-        if (auto tx_processor = tx_processor_.lock()) {
-          tx_processor->processExpiredBatch(batch);
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processExpiredBatch(batch);
         }
       });
   command_service = std::make_shared<::torii::CommandServiceImpl>(
@@ -956,24 +953,25 @@ Irohad::RunResult Irohad::initWsvRestorer() {
  */
 Irohad::RunResult Irohad::run() {
   ordering_gate->onProposal().subscribe(
-      [simulator_ = std::weak_ptr(simulator),
-       consensus_gate_ = std::weak_ptr(consensus_gate),
-       tx_processor_ = std::weak_ptr(tx_processor),
-       subscription = std::weak_ptr(getSubscription())](
+      [simulator(std::weak_ptr(simulator)),
+       consensus_gate(std::weak_ptr(consensus_gate)),
+       tx_processor(std::weak_ptr(tx_processor)),
+       subscription(std::weak_ptr(getSubscription()))](
           network::OrderingEvent const &event) {
-        auto simulator = simulator_.lock();
-        auto consensus_gate = consensus_gate_.lock();
-        auto tx_processor = tx_processor_.lock();
+        auto maybe_simulator = simulator.lock();
+        auto maybe_consensus_gate = consensus_gate.lock();
+        auto maybe_tx_processor = tx_processor.lock();
         auto maybe_subscription = subscription.lock();
-        if (simulator and consensus_gate and tx_processor
+        if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
             and maybe_subscription) {
-          auto verified_proposal = simulator->processProposal(event);
+          auto verified_proposal = maybe_simulator->processProposal(event);
           maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
                                      verified_proposal);
-          tx_processor->processVerifiedProposalCreatorEvent(verified_proposal);
-          auto block =
-              simulator->processVerifiedProposal(std::move(verified_proposal));
-          consensus_gate->vote(std::move(block));
+          maybe_tx_processor->processVerifiedProposalCreatorEvent(
+              verified_proposal);
+          auto block = maybe_simulator->processVerifiedProposal(
+              std::move(verified_proposal));
+          maybe_consensus_gate->vote(std::move(block));
         }
       });
 
@@ -981,11 +979,11 @@ Irohad::RunResult Irohad::run() {
   using iroha::operator|;
 
   consensus_gate->onOutcome().subscribe(
-      [synchronizer = std::weak_ptr(synchronizer),
-       sync_event_notifier = ordering_init.sync_event_notifier,
-       log = std::weak_ptr(log_),
-       subscription =
-           std::weak_ptr(getSubscription())](consensus::GateObject object) {
+      [synchronizer(std::weak_ptr(synchronizer)),
+       sync_event_notifier(ordering_init.sync_event_notifier),
+       log(std::weak_ptr(log_)),
+       subscription(std::weak_ptr(getSubscription()))](
+          consensus::GateObject object) {
         auto maybe_synchronizer = synchronizer.lock();
         auto maybe_log = log.lock();
         auto maybe_subscription = subscription.lock();

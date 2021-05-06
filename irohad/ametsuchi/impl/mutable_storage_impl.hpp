@@ -37,8 +37,8 @@ namespace iroha {
       bool apply(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
-      bool apply(std::shared_ptr<const shared_model::interface::Block> block,
-                 MutableStoragePredicate predicate) override;
+      bool applyIf(std::shared_ptr<const shared_model::interface::Block> block,
+                   MutableStoragePredicate predicate) override;
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const;
@@ -62,8 +62,9 @@ namespace iroha {
        * Verifies whether the block is applicable using predicate, and applies
        * the block
        */
-      bool applyBlock(std::shared_ptr<const shared_model::interface::Block> block,
-                 MutableStoragePredicate predicate);
+      bool applyBlockIf(
+          std::shared_ptr<const shared_model::interface::Block> block,
+          MutableStoragePredicate predicate);
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 
