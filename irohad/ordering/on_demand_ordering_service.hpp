@@ -39,6 +39,8 @@ namespace iroha {
       virtual void forCachedBatches(
           std::function<void(const transport::OdOsNotification::BatchesSetType
                                  &)> const &f) = 0;
+
+      virtual bool isEmptyBatchesCache() const = 0;
     };
 
   }  // namespace ordering

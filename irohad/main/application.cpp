@@ -612,7 +612,9 @@ Irohad::RunResult Irohad::initOrderingGate() {
       persistent_cache,
       proposal_strategy,
       log_manager_->getChild("Ordering"),
-      inter_peer_client_factory_);
+      inter_peer_client_factory_,
+      std::chrono::milliseconds(
+          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)));
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
   return {};
@@ -712,8 +714,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
       async_call_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
-      std::chrono::milliseconds(
-          config_.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       inter_peer_client_factory_);
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,

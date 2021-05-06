@@ -7,6 +7,7 @@ target_link_libraries(on_demand_os_test
     shared_model_default_builders
     ametsuchi
     test_logger
+    sync_subscription
     )
 
 addtest(on_demand_os_client_grpc_test on_demand_os_client_grpc_test.cpp)
@@ -19,6 +20,7 @@ addtest(on_demand_os_server_grpc_test on_demand_os_server_grpc_test.cpp)
 target_link_libraries(on_demand_os_server_grpc_test
     on_demand_ordering_service_transport_grpc
     test_logger
+    sync_subscription
     )
 
 addtest(on_demand_connection_manager_test on_demand_connection_manager_test.cpp)
