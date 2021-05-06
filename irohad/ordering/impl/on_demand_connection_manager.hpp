@@ -25,15 +25,12 @@ namespace iroha {
       /**
        * Responsibilities of individual peers from the peers array
        * Transactions are sent to three ordering services:
-       * reject round for current block, reject round for next block, and
-       * commit for subsequent next round
+       * current round (issuer), reject round, and commit round
        * Proposal is requested from the current ordering service: issuer
        */
       enum PeerType {
-        kRejectRejectConsumer = 0,
-        kRejectCommitConsumer,
-        kCommitRejectConsumer,
-        kCommitCommitConsumer,
+        kRejectConsumer = 0,
+        kCommitConsumer,
         kIssuer,
         kCount
       };
