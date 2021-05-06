@@ -172,11 +172,8 @@ namespace iroha::ametsuchi {
 
       do {
         res = storage.createMutableStorage(command_executor, storage_factory) |
-            [this,
-             &storage,
-             &block_query,
-             &last_block_in_storage]
-             (auto &&mutable_storage) -> CommitResult {
+            [this, &storage, &block_query, &last_block_in_storage](
+                  auto &&mutable_storage) -> CommitResult {
           if (not block_query) {
             return expected::makeError("Cannot create BlockQuery");
           }

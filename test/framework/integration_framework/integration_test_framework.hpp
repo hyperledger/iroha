@@ -81,7 +81,7 @@ namespace iroha {
     class Transaction;
   }  // namespace protocol
   namespace simulator {
-      struct VerifiedProposalCreatorEvent;
+    struct VerifiedProposalCreatorEvent;
   }
   namespace validation {
     struct VerifiedProposalAndErrors;

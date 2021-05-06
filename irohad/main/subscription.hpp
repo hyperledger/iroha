@@ -23,7 +23,7 @@ namespace iroha {
     template <EventTypes key, typename F, typename... Args>
     static auto create(SubscriptionEngineHandlers tid,
                        F &&callback,
-                       Args &&...args) {
+                       Args &&... args) {
       auto subscriber = BaseSubscriber<ObjectType, EventData>::create(
           getSubscription()->getEngine<EventTypes, EventData>(),
           std::forward<Args>(args)...);

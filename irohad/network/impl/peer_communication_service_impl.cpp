@@ -13,10 +13,8 @@
 namespace iroha {
   namespace network {
     PeerCommunicationServiceImpl::PeerCommunicationServiceImpl(
-        std::shared_ptr<OrderingGate> ordering_gate,
-        logger::LoggerPtr log)
-        : ordering_gate_(std::move(ordering_gate)),
-          log_{std::move(log)} {}
+        std::shared_ptr<OrderingGate> ordering_gate, logger::LoggerPtr log)
+        : ordering_gate_(std::move(ordering_gate)), log_{std::move(log)} {}
 
     void PeerCommunicationServiceImpl::propagate_batch(
         std::shared_ptr<shared_model::interface::TransactionBatch> batch)

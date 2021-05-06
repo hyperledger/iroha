@@ -44,11 +44,10 @@ namespace iroha {
           simulator::VerifiedProposalCreatorEvent const &event) override;
 
       void processCommit(
-          std::shared_ptr<const shared_model::interface::Block> const
-              &block) override;
+          std::shared_ptr<const shared_model::interface::Block> const &block)
+          override;
 
-      void processStateUpdate(
-          std::shared_ptr<MstState> const &state) override;
+      void processStateUpdate(std::shared_ptr<MstState> const &state) override;
 
       void processPreparedBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> const

@@ -16,9 +16,8 @@ namespace iroha {
 
     class PeerCommunicationServiceImpl : public PeerCommunicationService {
      public:
-      PeerCommunicationServiceImpl(
-          std::shared_ptr<OrderingGate> ordering_gate,
-          logger::LoggerPtr log);
+      PeerCommunicationServiceImpl(std::shared_ptr<OrderingGate> ordering_gate,
+                                   logger::LoggerPtr log);
 
       void propagate_batch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
