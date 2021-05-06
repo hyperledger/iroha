@@ -41,11 +41,7 @@ namespace iroha {
      public:
       MOCK_METHOD2(
           retrieveBlocks,
-          iroha::expected::Result<
-              boost::any_range<
-                  std::shared_ptr<const shared_model::interface::Block>,
-                  boost::single_pass_traversal_tag>,
-              std::string>(
+          iroha::expected::Result<std::unique_ptr<BlockReader>, std::string>(
               const shared_model::interface::types::HeightType,
               shared_model::interface::types::PublicKeyHexStringView));
       MOCK_METHOD2(retrieveBlock,
