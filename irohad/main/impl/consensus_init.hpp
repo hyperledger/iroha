@@ -48,7 +48,6 @@ namespace iroha {
                 async_call,
             ConsistencyModel consistency_model,
             const logger::LoggerManagerTreePtr &consensus_log_manager,
-            std::chrono::milliseconds delay,
             std::shared_ptr<iroha::network::GenericClientFactory>
                 client_factory);
 

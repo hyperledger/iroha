@@ -5,6 +5,7 @@
 
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 
+#include <grpcpp/impl/grpc_library.h>
 #include <gtest/gtest.h>
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
@@ -12,7 +13,7 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
-#include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
+#include "module/irohad/ordering/ordering_mocks.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
@@ -26,9 +27,12 @@ using ::testing::ByMove;
 using ::testing::Invoke;
 using ::testing::Return;
 
+// required for g_core_codegen_interface intialization
+static grpc::internal::GrpcLibraryInitializer g_gli_initializer;
+
 struct OnDemandOsServerGrpcTest : public ::testing::Test {
   void SetUp() override {
-    notification = std::make_shared<MockOdOsNotification>();
+    notification = std::make_shared<MockOnDemandOrderingService>();
     std::unique_ptr<shared_model::validation::AbstractValidator<
         shared_model::interface::Transaction>>
         interface_transaction_validator =
@@ -52,10 +56,11 @@ struct OnDemandOsServerGrpcTest : public ::testing::Test {
                                                std::move(transaction_factory),
                                                std::move(batch_parser),
                                                batch_factory,
-                                               getTestLogger("OdOsServerGrpc"));
+                                               getTestLogger("OdOsServerGrpc"),
+                                               std::chrono::seconds(0));
   }
 
-  std::shared_ptr<MockOdOsNotification> notification;
+  std::shared_ptr<MockOnDemandOrderingService> notification;
   std::shared_ptr<MockTransactionBatchFactory> batch_factory;
   std::shared_ptr<OnDemandOsServerGrpc> server;
   consensus::Round round{1, 2};
@@ -128,8 +133,10 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
       std::make_shared<const shared_model::proto::Proposal>(proposal));
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(iproposal))));
+  EXPECT_CALL(*notification, isEmptyBatchesCache()).WillOnce(Return(false));
 
-  server->RequestProposal(nullptr, &request, &response);
+  grpc::ServerContext context;
+  server->RequestProposal(&context, &request, &response);
 
   ASSERT_TRUE(response.has_proposal());
   ASSERT_EQ(response.proposal()
@@ -154,8 +161,10 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   proto::ProposalResponse response;
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(boost::none))));
+  EXPECT_CALL(*notification, isEmptyBatchesCache()).WillOnce(Return(true));
 
-  server->RequestProposal(nullptr, &request, &response);
+  grpc::ServerContext context;
+  server->RequestProposal(&context, &request, &response);
 
   ASSERT_FALSE(response.has_proposal());
 }
