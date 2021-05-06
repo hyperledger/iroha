@@ -310,7 +310,8 @@ OnDemandOrderingInit::initOrderingGate(
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> creation_strategy,
     logger::LoggerManagerTreePtr ordering_log_manager,
-    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
+    std::chrono::milliseconds proposal_creation_timeout) {
   auto ordering_service = createService(max_number_of_transactions,
                                         proposal_factory,
                                         tx_cache,
@@ -321,7 +322,8 @@ OnDemandOrderingInit::initOrderingGate(
       std::move(transaction_factory),
       std::move(batch_parser),
       std::move(transaction_batch_factory),
-      ordering_log_manager->getChild("Server")->getLogger());
+      ordering_log_manager->getChild("Server")->getLogger(),
+      proposal_creation_timeout);
   return createGate(
       ordering_service,
       createConnectionManager(std::move(async_call),

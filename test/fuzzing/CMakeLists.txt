@@ -52,6 +52,7 @@ target_link_libraries(send_batches_fuzz
   ametsuchi
   on_demand_ordering_service
   on_demand_ordering_service_transport_grpc
+  sync_subscription
   ${fuzzing_engine}
   )
 
@@ -64,6 +65,7 @@ target_link_libraries(request_proposal_fuzz
   GTest::gmock
   on_demand_ordering_service
   on_demand_ordering_service_transport_grpc
+  sync_subscription
   ${fuzzing_engine}
   )
 

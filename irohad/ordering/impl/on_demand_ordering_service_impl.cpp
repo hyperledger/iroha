@@ -18,6 +18,7 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -43,8 +44,10 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
 void OnDemandOrderingServiceImpl::onCollaborationOutcome(
     consensus::Round round) {
   log_->info("onCollaborationOutcome => {}", round);
-  current_round_ = round;
-  uploadProposal(round);
+  {
+    std::lock_guard lock(proposals_mutex_);
+    current_round_ = round;
+  }
   tryErase(round);
 }
 
@@ -77,6 +80,8 @@ void OnDemandOrderingServiceImpl::insertBatchToCache(
     std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
   std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
   batches_cache_.insert(batch);
+  getSubscription()->notify(EventTypes::kOnNewBatchInCache,
+                            std::shared_ptr(batch));
 }
 
 void OnDemandOrderingServiceImpl::removeFromBatchesCache(

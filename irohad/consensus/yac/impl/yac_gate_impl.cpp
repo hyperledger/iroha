@@ -43,42 +43,15 @@ namespace iroha {
           std::shared_ptr<YacHashProvider> hash_provider,
           std::shared_ptr<consensus::ConsensusResultCache>
               consensus_result_cache,
-          logger::LoggerPtr log,
-          std::function<std::chrono::milliseconds(ConsensusOutcomeType)>
-              delay_func)
+          logger::LoggerPtr log)
           : log_(std::move(log)),
             current_hash_(),
             alternative_order_(std::move(alternative_order)),
             current_ledger_state_(std::move(ledger_state)),
             published_events_([&] {
               rxcpp::observable<Answer> outcomes = hash_gate->onOutcome();
-              rxcpp::observable<Answer> delayed_outcomes = outcomes.concat_map(
-                  [delay_func = std::move(delay_func)](auto message) {
-                    auto delay = delay_func(visit_in_place(
-                        message,
-                        [](const CommitMessage &msg) {
-                          auto const hash = getHash(msg.votes).value();
-                          if (hash.vote_hashes.proposal_hash.empty()) {
-                            return ConsensusOutcomeType::kNothing;
-                          }
-                          return ConsensusOutcomeType::kCommit;
-                        },
-                        [](const RejectMessage &msg) {
-                          return ConsensusOutcomeType::kReject;
-                        },
-                        [](const FutureMessage &msg) {
-                          return ConsensusOutcomeType::kFuture;
-                        }));
-                    rxcpp::observable<Answer> just_message =
-                        rxcpp::observable<>::just(std::move(message));
-                    rxcpp::observable<Answer> delayed_message =
-                        just_message.delay(delay,
-                                           rxcpp::identity_current_thread());
-                    return delayed_message;
-                  },
-                  rxcpp::identity_current_thread());
               rxcpp::observable<GateObject> events =
-                  delayed_outcomes.flat_map([this](auto message) {
+                  outcomes.flat_map([this](auto message) {
                     return visit_in_place(message,
                                           [this](const CommitMessage &msg) {
                                             return this->handleCommit(msg);

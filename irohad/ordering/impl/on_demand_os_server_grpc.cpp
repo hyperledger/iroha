@@ -3,35 +3,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "common/default_constructible_unary_fn.hpp"  // non-copyable value workaround
-
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 
-#include <boost/range/adaptor/filtered.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/proposal.hpp"
 #include "common/bind.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
+#include "ordering/on_demand_ordering_service.hpp"
+#include "subscription/scheduler_impl.hpp"
 
 using namespace iroha::ordering;
 using namespace iroha::ordering::transport;
 
 OnDemandOsServerGrpc::OnDemandOsServerGrpc(
-    std::shared_ptr<OdOsNotification> ordering_service,
+    std::shared_ptr<OnDemandOrderingService> ordering_service,
     std::shared_ptr<TransportFactoryType> transaction_factory,
     std::shared_ptr<shared_model::interface::TransactionBatchParser>
         batch_parser,
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory,
-    logger::LoggerPtr log)
+    logger::LoggerPtr log,
+    std::chrono::milliseconds delay)
     : ordering_service_(ordering_service),
       transaction_factory_(std::move(transaction_factory)),
       batch_parser_(std::move(batch_parser)),
       batch_factory_(std::move(transaction_batch_factory)),
-      log_(std::move(log)) {}
+      log_(std::move(log)),
+      delay_(delay) {}
 
 grpc::Status OnDemandOsServerGrpc::SendBatches(
     ::grpc::ServerContext *context,
@@ -61,12 +62,38 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     ::grpc::ServerContext *context,
     const proto::ProposalRequest *request,
     proto::ProposalResponse *response) {
-  ordering_service_->onRequestProposal(
-      {request->round().block_round(), request->round().reject_round()})
-      | [&](auto &&proposal) {
-          *response->mutable_proposal() =
-              static_cast<const shared_model::proto::Proposal *>(proposal.get())
-                  ->getTransport();
-        };
+  consensus::Round round{request->round().block_round(),
+                         request->round().reject_round()};
+  log_->info("Received RequestProposal for {} from {}", round, context->peer());
+  if (ordering_service_->isEmptyBatchesCache()) {
+    auto scheduler = std::make_shared<subscription::SchedulerBase>();
+    auto tid = getSubscription()->dispatcher()->bind(scheduler);
+
+    auto batches_subscription = SubscriberCreator<
+        bool,
+        std::shared_ptr<shared_model::interface::TransactionBatch>>::
+        template create<EventTypes::kOnNewBatchInCache>(
+            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+            [scheduler(std::weak_ptr(scheduler))](auto, auto) {
+              if (auto maybe_scheduler = scheduler.lock()) {
+                maybe_scheduler->dispose();
+              }
+            });
+    scheduler->addDelayed(delay_, [scheduler(std::weak_ptr(scheduler))] {
+      if (auto maybe_scheduler = scheduler.lock()) {
+        maybe_scheduler->dispose();
+      }
+    });
+
+    scheduler->process();
+
+    getSubscription()->dispatcher()->unbind(*tid);
+  }
+
+  ordering_service_->onRequestProposal(round) | [&](auto &&proposal) {
+    *response->mutable_proposal() =
+        static_cast<const shared_model::proto::Proposal *>(proposal.get())
+            ->getTransport();
+  };
   return ::grpc::Status::OK;
 }
