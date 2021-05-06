@@ -29,7 +29,7 @@ using namespace iroha::ordering;
 
 namespace {
   /// indexes to permutations for corresponding rounds
-  enum RoundType { kCurrentRound, kNextRound, kRoundAfterNext, kCount };
+  enum RoundType { kCurrentRound, kNextRound, kCount };
 
   template <RoundType V>
   using RoundTypeConstant = std::integral_constant<RoundType, V>;
@@ -73,7 +73,7 @@ auto OnDemandOrderingInit::createConnectionManager(
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   // since top block will be the first in commit_notifier observable,
   // hashes of two previous blocks are prepended
-  const size_t kBeforePreviousTop = 0, kPreviousTop = 1;
+  const size_t kPreviousTop = 0;
 
   // flat map hashes from committed blocks
   rxcpp::observable<std::shared_ptr<shared_model::interface::Block const>>
@@ -84,23 +84,17 @@ auto OnDemandOrderingInit::createConnectionManager(
       });
   // prepend hashes for the first two rounds
   rxcpp::observable<shared_model::crypto::Hash> all_hashes =
-      block_hashes.start_with(initial_hashes.at(kBeforePreviousTop),
-                              initial_hashes.at(kPreviousTop));
+      block_hashes.start_with(initial_hashes.at(kPreviousTop));
 
   // emit last k + 1 hashes, where k is the delay parameter
-  // current implementation assumes k = 2
+  // current implementation assumes k = 1
   // first hash is used for kCurrentRound
   // second hash is used for kNextRound
-  // third hash is used for kRoundAfterNext
   rxcpp::observable<shared_model::crypto::Hash> hashes_without_first =
       all_hashes.skip(1);
-  rxcpp::observable<shared_model::crypto::Hash> hashes_without_first_two =
-      all_hashes.skip(2);
-  rxcpp::observable<std::tuple<shared_model::crypto::Hash,
-                               shared_model::crypto::Hash,
-                               shared_model::crypto::Hash>>
-      latest_hashes =
-          all_hashes.zip(hashes_without_first, hashes_without_first_two);
+  rxcpp::observable<
+      std::tuple<shared_model::crypto::Hash, shared_model::crypto::Hash>>
+      latest_hashes = all_hashes.zip(hashes_without_first);
 
   auto map_peers =
       [this](auto &&latest_data) -> OnDemandConnectionManager::CurrentPeers {
@@ -127,7 +121,6 @@ auto OnDemandOrderingInit::createConnectionManager(
 
     generate_permutation(RoundTypeConstant<kCurrentRound>{});
     generate_permutation(RoundTypeConstant<kNextRound>{});
-    generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
 
     using iroha::synchronizer::SynchronizationOutcomeType;
     switch (latest_commit.sync_outcome) {
@@ -161,29 +154,21 @@ auto OnDemandOrderingInit::createConnectionManager(
      * See detailed description in
      * irohad/ordering/impl/on_demand_connection_manager.cpp
      *
-     *    0 1 2         0 1 2         0 1 2         0 1 2
-     *  0 o x v       0 o . .       0 o x .       0 o . .
-     *  1 . . .       1 x v .       1 v . .       1 x . .
-     *  2 . . .       2 . . .       2 . . .       2 v . .
-     * RejectReject  CommitReject  RejectCommit  CommitCommit
+     *    0 1         0 1         0 1
+     *  0 o .       0 o x       0 o .
+     *  1 . .       1 . .       1 x .
+     * Issuer      Reject      Commit
      *
      * o - current round, x - next round, v - target round
      *
-     * v, round 0,2 - kRejectRejectConsumer
-     * v, round 1,1 - kCommitRejectConsumer
-     * v, round 1,0 - kRejectCommitConsumer
-     * v, round 2,0 - kCommitCommitConsumer
+     * v, round 0,1 - kRejectConsumer
+     * v, round 1,0 - kCommitConsumer
      * o, round 0,0 - kIssuer
      */
-    peers.peers.at(OnDemandConnectionManager::kRejectRejectConsumer) =
-        getOsPeer(kCurrentRound,
-                  currentRejectRoundConsumer(current_round.reject_round));
-    peers.peers.at(OnDemandConnectionManager::kRejectCommitConsumer) =
-        getOsPeer(kNextRound, kNextCommitRoundConsumer);
-    peers.peers.at(OnDemandConnectionManager::kCommitRejectConsumer) =
-        getOsPeer(kNextRound, kNextRejectRoundConsumer);
-    peers.peers.at(OnDemandConnectionManager::kCommitCommitConsumer) =
-        getOsPeer(kRoundAfterNext, kNextCommitRoundConsumer);
+    peers.peers.at(OnDemandConnectionManager::kRejectConsumer) =
+        getOsPeer(kCurrentRound, nextRejectRound(current_round).reject_round);
+    peers.peers.at(OnDemandConnectionManager::kCommitConsumer) =
+        getOsPeer(kNextRound, nextCommitRound(current_round).reject_round);
     peers.peers.at(OnDemandConnectionManager::kIssuer) =
         getOsPeer(kCurrentRound, current_round.reject_round);
     return peers;
@@ -191,10 +176,9 @@ auto OnDemandOrderingInit::createConnectionManager(
 
   rxcpp::observable<synchronizer::SynchronizationEvent> sync_events =
       sync_event_notifier.get_observable();
-  rxcpp::observable<std::tuple<synchronizer::SynchronizationEvent,
-                               std::tuple<shared_model::crypto::Hash,
-                                          shared_model::crypto::Hash,
-                                          shared_model::crypto::Hash>>>
+  rxcpp::observable<std::tuple<
+      synchronizer::SynchronizationEvent,
+      std::tuple<shared_model::crypto::Hash, shared_model::crypto::Hash>>>
       sync_events_with_hashes = sync_events.with_latest_from(latest_hashes);
   rxcpp::observable<OnDemandConnectionManager::CurrentPeers> peers =
       sync_events_with_hashes.map(map_peers);

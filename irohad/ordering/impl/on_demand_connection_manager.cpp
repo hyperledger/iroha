@@ -47,16 +47,14 @@ OnDemandConnectionManager::~OnDemandConnectionManager() {
 
 void OnDemandConnectionManager::onBatches(CollectionType batches) {
   /*
-   * Transactions are always sent to the round after the next round (+2)
-   * There are 4 possibilities - all combinations of commits and rejects in the
-   * following two rounds. This can be visualised as a diagram, where: o -
-   * current round, x - next round, v - target round
+   * Transactions are sent to the current and next rounds (+1)
+   * There are 3 possibilities. This can be visualised as a diagram,
+   * where: o - current round, x - next round
    *
-   *    0 1 2         0 1 2         0 1 2         0 1 2
-   *  0 o x v       0 o . .       0 o x .       0 o . .
-   *  1 . . .       1 x v .       1 v . .       1 x . .
-   *  2 . . .       2 . . .       2 . . .       2 v . .
-   * RejectReject  CommitReject  RejectCommit  CommitCommit
+   *    0 1         0 1         0 1
+   *  0 o .       0 o x       0 o .
+   *  1 . .       1 . .       1 x .
+   * Issuer      Reject      Commit
    */
 
   auto propagate = [&](auto consumer) {
@@ -68,10 +66,9 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
     }
   };
 
-  propagate(kRejectRejectConsumer);
-  propagate(kRejectCommitConsumer);
-  propagate(kCommitRejectConsumer);
-  propagate(kCommitCommitConsumer);
+  propagate(kIssuer);
+  propagate(kRejectConsumer);
+  propagate(kCommitConsumer);
 }
 
 boost::optional<std::shared_ptr<const OnDemandConnectionManager::ProposalType>>
