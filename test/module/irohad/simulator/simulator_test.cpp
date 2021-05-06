@@ -228,7 +228,7 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
   const auto verified_proposal_rejected_tx_hashes =
       verification_result.value()->rejected_transactions
       | boost::adaptors::transformed(
-          [](const auto &tx_error) { return tx_error.tx_hash; });
+            [](const auto &tx_error) { return tx_error.tx_hash; });
   for (auto rejected_tx = txs.begin() + 1; rejected_tx != txs.end();
        ++rejected_tx) {
     EXPECT_NE(boost::range::find(verified_proposal_rejected_tx_hashes,
