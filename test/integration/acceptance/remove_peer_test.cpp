@@ -46,22 +46,21 @@ TEST_F(FakePeerFixture, FakePeerIsRemoved) {
 
   // capture itf synchronization events
   utils::WaitForSingleObject completed;
-  auto subscriber = SubscriberCreator<bool,
-                                      synchronizer::SynchronizationEvent>::
-      template create<
-          EventTypes::kOnSynchronization,
-          static_cast<SubscriptionEngineHandlers>(decltype(
-              getSubscription())::element_type::Dispatcher::kExecuteInPool)>(
-          [prepared_height, &completed, itf_peer = itf_->getThisPeer()](
-              auto, auto sync_event) {
-            if (sync_event.ledger_state->top_block_info.height
-                > prepared_height) {
-              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                          ::testing::UnorderedElementsAre(
-                              makePeerPointeeMatcher(itf_peer)));
-              completed.set();
-            }
-          });
+  auto subscriber =
+      SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+          template create<EventTypes::kOnSynchronization>(
+              static_cast<SubscriptionEngineHandlers>(decltype(
+                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
+              [prepared_height, &completed, itf_peer = itf_->getThisPeer()](
+                  auto, auto sync_event) {
+                if (sync_event.ledger_state->top_block_info.height
+                    > prepared_height) {
+                  EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                              ::testing::UnorderedElementsAre(
+                                  makePeerPointeeMatcher(itf_peer)));
+                  completed.set();
+                }
+              });
 
   // ------------------------ WHEN -------------------------
   // send removePeer command
@@ -107,22 +106,22 @@ TEST_F(FakePeerFixture, RealPeerIsRemoved) {
 
   // capture itf synchronization events
   utils::WaitForSingleObject completed;
-  auto subscriber = SubscriberCreator<bool,
-                                      synchronizer::SynchronizationEvent>::
-      template create<
-          EventTypes::kOnSynchronization,
-          static_cast<SubscriptionEngineHandlers>(decltype(
-              getSubscription())::element_type::Dispatcher::kExecuteInPool)>(
-          [prepared_height, &completed, fake_peer = fake_peer->getThisPeer()](
-              auto, auto sync_event) {
-            if (sync_event.ledger_state->top_block_info.height
-                > prepared_height) {
-              EXPECT_THAT(sync_event.ledger_state->ledger_peers,
-                          ::testing::UnorderedElementsAre(
-                              makePeerPointeeMatcher(fake_peer)));
-              completed.set();
-            }
-          });
+  auto subscriber =
+      SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
+          template create<EventTypes::kOnSynchronization>(
+              static_cast<SubscriptionEngineHandlers>(decltype(
+                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
+              [prepared_height,
+               &completed,
+               fake_peer = fake_peer->getThisPeer()](auto, auto sync_event) {
+                if (sync_event.ledger_state->top_block_info.height
+                    > prepared_height) {
+                  EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                              ::testing::UnorderedElementsAre(
+                                  makePeerPointeeMatcher(fake_peer)));
+                  completed.set();
+                }
+              });
 
   // ------------------------ WHEN -------------------------
   // send removePeer command

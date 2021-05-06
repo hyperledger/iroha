@@ -24,6 +24,59 @@ using namespace iroha::network;
 using namespace shared_model::crypto;
 using namespace shared_model::interface;
 
+namespace {
+  class BlockReaderImpl : public BlockReader {
+   public:
+    BlockReaderImpl(
+        std::weak_ptr<shared_model::proto::ProtoBlockFactory> block_factory,
+        std::unique_ptr<iroha::network::proto::Loader::StubInterface> client,
+        proto::BlockRequest request)
+        : block_factory_(std::move(block_factory)),
+          client_(std::move(client)),
+          reader_(client_->retrieveBlocks(&context_, std::move(request))) {
+      context_.set_deadline(std::chrono::system_clock::now()
+                            + std::chrono::minutes(1ull));
+    }
+
+    std::variant<std::monostate,
+                 std::shared_ptr<const shared_model::interface::Block>,
+                 std::string>
+    read() override {
+      iroha::protocol::Block proto_block;
+      auto maybe_block_factory = block_factory_.lock();
+      if (not maybe_block_factory) {
+        return fmt::format("Failed to lock block factory");
+      }
+
+      if (not reader_->Read(&proto_block)) {
+        auto status = reader_->Finish();
+        if (not status.ok()) {
+          return fmt::format("Failed to read block: {}",
+                             status.error_message());
+        }
+        return std::monostate{};
+      }
+
+      auto maybe_block =
+          maybe_block_factory->createBlock(std::move(proto_block));
+      if (hasError(maybe_block)) {
+        context_.TryCancel();
+        return fmt::format("Failed to parse received block: {}",
+                           std::move(maybe_block).assumeError());
+      }
+
+      return std::move(maybe_block).assumeValue();
+    }
+
+   private:
+    std::weak_ptr<shared_model::proto::ProtoBlockFactory> block_factory_;
+    grpc::ClientContext context_;
+    std::unique_ptr<iroha::network::proto::Loader::StubInterface> client_;
+    std::unique_ptr<grpc::ClientReaderInterface<iroha::protocol::Block>>
+        reader_;
+  };
+}  // namespace
+
 BlockLoaderImpl::BlockLoaderImpl(
     std::shared_ptr<PeerQueryFactory> peer_query_factory,
     std::shared_ptr<shared_model::proto::ProtoBlockFactory> factory,
@@ -34,101 +87,27 @@ BlockLoaderImpl::BlockLoaderImpl(
       client_factory_(std::move(client_factory)),
       log_(std::move(log)) {}
 
-Result<boost::any_range<std::shared_ptr<const shared_model::interface::Block>,
-                        boost::single_pass_traversal_tag>,
-       std::string>
+Result<std::unique_ptr<BlockReader>, std::string>
 BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
     types::PublicKeyHexStringView peer_pubkey) {
-  return findPeer(peer_pubkey) | [&](const auto &peer) {
-    return client_factory_->createClient(*peer) | [&](auto client) {
-      using ClientType = decltype(client);
+  auto maybe_peer = findPeer(peer_pubkey);
+  if (hasError(maybe_peer)) {
+    return maybe_peer.assumeError();
+  }
 
-      proto::BlockRequest request;
-      request.set_height(height + 1);  // request next block to our top
+  auto maybe_client = client_factory_->createClient(*maybe_peer.assumeValue());
+  if (hasError(maybe_client)) {
+    return maybe_client.assumeError();
+  }
 
-      struct iterator {
-        using iterator_category = std::input_iterator_tag;
-        using value_type =
-            std::shared_ptr<const shared_model::interface::Block>;
-        using difference_type = std::ptrdiff_t;
-        using pointer = std::add_pointer_t<value_type>;
-        using reference =
-            std::add_lvalue_reference_t<std::add_const_t<value_type>>;
+  proto::BlockRequest request;
+  request.set_height(height + 1);  // request next block to our top
 
-        iterator() {}
-
-        iterator(
-            std::weak_ptr<shared_model::proto::ProtoBlockFactory> block_factory,
-            std::weak_ptr<logger::Logger> log,
-            ClientType client,
-            proto::BlockRequest request)
-            : state(std::make_shared<struct state>()) {
-          state->block_factory = std::move(block_factory);
-          state->log = std::move(log);
-          state->reader = client->retrieveBlocks(&state->context, request);
-          state->client = std::move(client);
-          state->context.set_deadline(std::chrono::system_clock::now()
-                                      + std::chrono::minutes(1ull));
-          ++(*this);
-        }
-
-        iterator &operator++() {
-          auto maybe_block_factory = state->block_factory.lock();
-          auto maybe_log = state->log.lock();
-          protocol::Block proto_block;
-          if (maybe_block_factory and state->reader->Read(&proto_block)) {
-            maybe_block_factory->createBlock(std::move(proto_block))
-                .match([&](auto &&result) { block = std::move(result.value); },
-                       [&](const auto &error) {
-                         state->context.TryCancel();
-                         state->reader->Finish();
-                         block.reset();
-                         maybe_log->error("Failed to parse received block: {}.",
-                                          error.error);
-                       });
-          } else {
-            state->reader->Finish();
-            block.reset();
-          }
-          return *this;
-        }
-
-        iterator operator++(int) {
-          iterator ret = *this;
-          ++(*this);
-          return ret;
-        }
-
-        reference operator*() const {
-          return block;
-        }
-
-        bool operator==(iterator const &other) const {
-          return block == other.block;
-        }
-
-        bool operator!=(iterator const &other) const {
-          return !(*this == other);
-        }
-
-        struct state {
-          std::weak_ptr<shared_model::proto::ProtoBlockFactory> block_factory;
-          std::weak_ptr<logger::Logger> log;
-          grpc::ClientContext context;
-          ClientType client;
-          std::unique_ptr<grpc::ClientReaderInterface<protocol::Block>> reader;
-        };
-
-        std::shared_ptr<state> state;
-        std::shared_ptr<const shared_model::interface::Block> block;
-      };
-
-      return boost::make_iterator_range(
-          iterator(block_factory_, log_, std::move(client), std::move(request)),
-          iterator{});
-    };
-  };
+  return std::make_unique<BlockReaderImpl>(
+      block_factory_,
+      std::move(maybe_client).assumeValue(),
+      std::move(request));
 }
 
 Result<std::unique_ptr<Block>, std::string> BlockLoaderImpl::retrieveBlock(
