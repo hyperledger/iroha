@@ -10,17 +10,6 @@ namespace iroha {
 
     const consensus::RejectRoundType kFirstRejectRound = 0;
 
-    consensus::RejectRoundType currentRejectRoundConsumer(
-        consensus::RejectRoundType round) {
-      return round + 2;
-    }
-
-    const consensus::RejectRoundType kNextRejectRoundConsumer =
-        kFirstRejectRound + 1;
-
-    const consensus::RejectRoundType kNextCommitRoundConsumer =
-        kFirstRejectRound;
-
     consensus::Round nextCommitRound(const consensus::Round &round) {
       return {round.block_round + 1, kFirstRejectRound};
     }
