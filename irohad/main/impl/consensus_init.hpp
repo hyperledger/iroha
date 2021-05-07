@@ -15,12 +15,13 @@
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/timer.hpp"
-#include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/transport/impl/service_impl.hpp"
 #include "consensus/yac/yac_gate.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "consensus/yac/yac_peer_orderer.hpp"
 #include "cryptography/keypair.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/subscription_fwd.hpp"
 #include "network/block_loader.hpp"
 #include "network/impl/async_grpc_client.hpp"
 
@@ -54,7 +55,7 @@ namespace iroha {
             std::shared_ptr<iroha::network::GenericClientFactory>
                 client_factory);
 
-        std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
+        std::shared_ptr<ServiceImpl> getConsensusNetwork() const;
 
         void subscribe(std::function<void(GateObject const&)> callback);
 
@@ -62,9 +63,11 @@ namespace iroha {
         auto createTimer(std::chrono::milliseconds delay_milliseconds);
 
         bool initialized_{false};
-        std::shared_ptr<NetworkImpl> consensus_network_;
+        std::shared_ptr<ServiceImpl> consensus_network_;
         std::shared_ptr<Yac> yac_;
         std::shared_ptr<YacGateImpl> yac_gate_;
+        std::shared_ptr<BaseSubscriber<bool, std::vector<VoteMessage>>>
+            states_subscription_;
       };
     }  // namespace yac
   }    // namespace consensus

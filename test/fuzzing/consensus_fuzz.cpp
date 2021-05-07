@@ -11,7 +11,7 @@
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
-#include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/transport/impl/service_impl.hpp"
 #include "consensus/yac/yac.hpp"
 #include "framework/test_logger.hpp"
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
@@ -31,36 +31,26 @@ using namespace testing;
 
 namespace fuzzing {
   struct ConsensusFixture {
+    const shared_model::crypto::Keypair keypair_;
     std::shared_ptr<iroha::consensus::yac::Timer> timer_;
     std::shared_ptr<iroha::consensus::yac::YacCryptoProvider> crypto_provider_;
     std::shared_ptr<iroha::consensus::yac::CleanupStrategy> cleanup_strategy_;
-    const shared_model::crypto::Keypair keypair_;
     std::shared_ptr<iroha::consensus::yac::YacNetworkNotifications> yac_;
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call_;
-    std::shared_ptr<iroha::consensus::yac::NetworkImpl> network_;
+    std::shared_ptr<iroha::consensus::yac::YacNetwork> network_;
+    std::shared_ptr<iroha::consensus::yac::ServiceImpl> service_;
     iroha::consensus::Round initial_round_;
 
     ConsensusFixture()
-        : timer_(std::make_shared<iroha::consensus::yac::MockTimer>()),
+        : keypair_(shared_model::crypto::DefaultCryptoAlgorithmType::
+                       generateKeypair()),
+          timer_(std::make_shared<iroha::consensus::yac::MockTimer>()),
+          crypto_provider_(
+              std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
+                  keypair_, logger::getDummyLoggerPtr())),
           cleanup_strategy_(std::make_shared<
                             iroha::consensus::yac::BufferedCleanupStrategy>()),
-          keypair_(shared_model::crypto::DefaultCryptoAlgorithmType::
-                       generateKeypair()),
-          async_call_(std::make_shared<
-                      iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
-              logger::getDummyLoggerPtr())),
+          network_(std::make_shared<iroha::consensus::yac::MockYacNetwork>()),
           initial_round_{1, 1} {
-      network_ = std::make_shared<iroha::consensus::yac::NetworkImpl>(
-          async_call_,
-          std::make_unique<iroha::network::MockClientFactory<
-              iroha::consensus::yac::NetworkImpl::Service>>(),
-          logger::getDummyLoggerPtr());
-
-      crypto_provider_ =
-          std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
-              keypair_, logger::getDummyLoggerPtr());
-
       std::vector<std::shared_ptr<shared_model::interface::Peer>>
           default_peers = [] {
             std::vector<std::shared_ptr<shared_model::interface::Peer>> result;
@@ -89,13 +79,20 @@ namespace fuzzing {
           timer_,
           *initial_order,
           initial_round_,
-          rxcpp::observe_on_one_worker(
-              rxcpp::schedulers::make_current_thread()),
           getTestLoggerManager(logger::LogLevel::kCritical)
               ->getChild("Yac")
               ->getLogger());
 
-      network_->subscribe(yac_);
+      service_ = std::make_shared<iroha::consensus::yac::ServiceImpl>(
+          getTestLoggerManager(logger::LogLevel::kCritical)
+              ->getChild("Service")
+              ->getLogger(),
+          [yac(std::weak_ptr(yac_))](
+              std::vector<iroha::consensus::yac::VoteMessage> state) {
+            if (auto maybe_yac = yac.lock()) {
+              maybe_yac->onState(std::move(state));
+            }
+          });
     }
   };
 }  // namespace fuzzing
@@ -111,7 +108,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   if (protobuf_mutator::libfuzzer::LoadProtoInput(true, data, size, &request)) {
     grpc::ServerContext context;
     google::protobuf::Empty response;
-    fixture.network_->SendState(&context, &request, &response);
+    fixture.service_->SendState(&context, &request, &response);
   }
 
   return 0;

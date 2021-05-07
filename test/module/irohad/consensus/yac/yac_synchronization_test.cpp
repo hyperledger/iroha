@@ -75,7 +75,6 @@ class YacSynchronizationTest : public YacTest {
 
     initYac(order);
     EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
-    EXPECT_CALL(*timer, deny()).Times(number_of_committed_rounds_);
 
     for (auto i = 0u; i < number_of_committed_rounds_; i++) {
       top_hash_ = createHash(Round{i, 0});

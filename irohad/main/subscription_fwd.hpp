@@ -44,6 +44,7 @@ namespace iroha {
 
     // YAC
     kTimer,
+    kOnState,
 
     // TEST
     kOnTestOperationComplete
