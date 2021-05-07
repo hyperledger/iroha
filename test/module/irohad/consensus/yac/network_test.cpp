@@ -4,6 +4,7 @@
  */
 
 #include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/transport/impl/service_impl.hpp"
 
 #include <grpc++/grpc++.h>
 
@@ -42,7 +43,6 @@ namespace iroha {
         }
 
         void SetUp() override {
-          notifications = std::make_shared<MockYacNetworkNotifications>();
           async_call = std::make_shared<
               network::AsyncGrpcClient<google::protobuf::Empty>>(
               getTestLogger("AsyncCall"));
@@ -52,6 +52,8 @@ namespace iroha {
               async_call,
               std::unique_ptr<NetworkImpl::ClientFactory>(mock_client_factory_),
               getTestLogger("YacNetwork"));
+          service = std::make_shared<ServiceImpl>(getTestLogger("Service"),
+                                                  [](auto) {});
 
           message.hash.vote_hashes.proposal_hash = "proposal";
           message.hash.vote_hashes.block_hash = "block";
@@ -61,7 +63,6 @@ namespace iroha {
           message.hash.block_signature = createSig();
           message.signature = createSig();
           message.hash.vote_round = {};
-          network->subscribe(notifications);
 
           int port = 0;
           peer = makePeer(std::string(default_ip) + ":" + std::to_string(port));
@@ -69,10 +70,10 @@ namespace iroha {
 
         iroha::network::MockClientFactory<NetworkImpl::Service>
             *mock_client_factory_;
-        std::shared_ptr<MockYacNetworkNotifications> notifications;
         std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
             async_call;
         std::shared_ptr<NetworkImpl> network;
+        std::shared_ptr<ServiceImpl> service;
         std::shared_ptr<shared_model::interface::Peer> peer;
         VoteMessage message;
       };
@@ -108,7 +109,7 @@ namespace iroha {
         auto pb_vote = request.add_votes();
         *pb_vote = PbConverters::serializeVote(message);
 
-        auto response = network->SendState(&context, &request, nullptr);
+        auto response = service->SendState(&context, &request, nullptr);
         ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);
       }
 
@@ -120,7 +121,7 @@ namespace iroha {
       TEST_F(YacNetworkTest, SendMessageEmptyKeys) {
         proto::State request;
         grpc::ServerContext context;
-        auto response = network->SendState(&context, &request, nullptr);
+        auto response = service->SendState(&context, &request, nullptr);
         ASSERT_EQ(response.error_code(), grpc::StatusCode::CANCELLED);
       }
     }  // namespace yac

@@ -58,6 +58,7 @@ target_link_libraries(yac_proposal_storage_test
 addtest(yac_timer_test timer_test.cpp)
 target_link_libraries(yac_timer_test
     yac
+    sync_subscription
     )
 
 addtest(yac_network_test network_test.cpp)
