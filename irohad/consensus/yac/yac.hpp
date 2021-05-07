@@ -10,16 +10,12 @@
 #include "consensus/yac/yac_gate.hpp"                         // for HashGate
 
 #include <memory>
-#include <mutex>
 
 #include <boost/optional.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "consensus/yac/cluster_order.hpp"     //  for ClusterOrdering
 #include "consensus/yac/outcome_messages.hpp"  // because messages passed by value
 #include "consensus/yac/storage/yac_vote_storage.hpp"  // for VoteStorage
 #include "logger/logger_fwd.hpp"
-
-#include <rxcpp/operators/rx-observe_on.hpp>
 
 namespace iroha {
   namespace consensus {
@@ -41,7 +37,6 @@ namespace iroha {
             std::shared_ptr<Timer> timer,
             ClusterOrdering order,
             Round round,
-            rxcpp::observe_on_one_worker worker,
             logger::LoggerPtr log);
 
         Yac(YacVoteStorage vote_storage,
@@ -50,10 +45,7 @@ namespace iroha {
             std::shared_ptr<Timer> timer,
             ClusterOrdering order,
             Round round,
-            rxcpp::observe_on_one_worker worker,
             logger::LoggerPtr log);
-
-        ~Yac() override;
 
         // ------|Hash gate|------
 
@@ -62,11 +54,9 @@ namespace iroha {
                   boost::optional<ClusterOrdering> alternative_order =
                       boost::none) override;
 
-        rxcpp::observable<Answer> onOutcome() override;
-
         // ------|Network notifications|------
 
-        void onState(std::vector<VoteMessage> state) override;
+        std::optional<Answer> onState(std::vector<VoteMessage> state) override;
 
         void stop() override;
 
@@ -78,11 +68,6 @@ namespace iroha {
          * until commit/reject message received
          */
         void votingStep(VoteMessage vote, uint32_t attempt = 0);
-
-        /**
-         * Erase temporary data of current round
-         */
-        void closeRound();
 
         /// Get cluster_order_ or alternative_order_ if present
         ClusterOrdering &getCurrentOrder();
@@ -104,8 +89,7 @@ namespace iroha {
          * @pre lock is locked
          * @post lock is unlocked
          */
-        void applyState(const std::vector<VoteMessage> &state,
-                        std::unique_lock<std::mutex> &lock);
+        std::optional<Answer> applyState(const std::vector<VoteMessage> &state);
 
         // ------|Propagation|------
         void propagateState(const std::vector<VoteMessage> &msg);
@@ -116,17 +100,12 @@ namespace iroha {
         // ------|Logger|------
         logger::LoggerPtr log_;
 
-        std::mutex mutex_;
-
         // ------|One round|------
         ClusterOrdering cluster_order_;
         boost::optional<ClusterOrdering> alternative_order_;
         Round round_;
 
         // ------|Fields|------
-        rxcpp::observe_on_one_worker worker_;
-        rxcpp::composite_subscription notifier_lifetime_;
-        rxcpp::subjects::synchronize<Answer, decltype(worker_)> notifier_;
         YacVoteStorage vote_storage_;
         std::shared_ptr<YacNetwork> network_;
         std::shared_ptr<YacCryptoProvider> crypto_;

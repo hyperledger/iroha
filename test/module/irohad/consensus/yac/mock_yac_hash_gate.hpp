@@ -7,7 +7,6 @@
 #define IROHA_MOCK_YAC_HASH_GATE_HPP
 
 #include <gmock/gmock.h>
-#include <rxcpp/rx-lite.hpp>
 
 #include "consensus/yac/yac_gate.hpp"
 
@@ -22,19 +21,7 @@ namespace iroha {
                           ClusterOrdering,
                           boost::optional<ClusterOrdering>));
 
-        MOCK_METHOD0(onOutcome, rxcpp::observable<Answer>());
-
         MOCK_METHOD0(stop, void());
-
-        MockHashGate() = default;
-
-        MockHashGate(const MockHashGate &rhs) {}
-
-        MockHashGate(MockHashGate &&rhs) {}
-
-        MockHashGate &operator=(const MockHashGate &rhs) {
-          return *this;
-        }
       };
 
     }  // namespace yac

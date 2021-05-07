@@ -6,9 +6,7 @@
 #ifndef IROHA_YAC_GATE_HPP
 #define IROHA_YAC_GATE_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "consensus/yac/cluster_order.hpp"
-#include "consensus/yac/storage/storage_result.hpp"
 #include "network/consensus_gate.hpp"
 
 namespace iroha {
@@ -35,12 +33,6 @@ namespace iroha {
                           ClusterOrdering order,
                           boost::optional<ClusterOrdering> alternative_order =
                               boost::none) = 0;
-
-        /**
-         * Observable with consensus outcomes - commits and rejects - in network
-         * @return observable for subscription
-         */
-        virtual rxcpp::observable<Answer> onOutcome() = 0;
 
         /// Prevent any new outgoing network activity. Be passive.
         virtual void stop() = 0;

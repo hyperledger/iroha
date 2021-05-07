@@ -14,6 +14,7 @@
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "consensus/yac/consensus_outcome_type.hpp"
+#include "consensus/yac/storage/storage_result.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"
 

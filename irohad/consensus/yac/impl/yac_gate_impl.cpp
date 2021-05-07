@@ -6,9 +6,6 @@
 #include "consensus/yac/impl/yac_gate_impl.hpp"
 
 #include <boost/range/adaptor/transformed.hpp>
-#include <rxcpp/operators/rx-concat_map.hpp>
-#include <rxcpp/operators/rx-delay.hpp>
-#include <rxcpp/operators/rx-flat_map.hpp>
 #include "common/visitor.hpp"
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/outcome_messages.hpp"

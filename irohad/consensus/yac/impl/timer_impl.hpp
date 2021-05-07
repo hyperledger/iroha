@@ -6,12 +6,9 @@
 #ifndef IROHA_TIMER_IMPL_HPP
 #define IROHA_TIMER_IMPL_HPP
 
-#include <mutex>
-
-#include <rxcpp/rx-lite.hpp>
 #include "consensus/yac/timer.hpp"
 
-#include <rxcpp/operators/rx-observe_on.hpp>
+#include <chrono>
 
 namespace iroha {
   namespace consensus {
@@ -23,22 +20,14 @@ namespace iroha {
          * @param delay_milliseconds delay before the next method invoke
          * @param coordination factory for coordinators to run the timer on
          */
-        TimerImpl(std::chrono::milliseconds delay_milliseconds,
-                  rxcpp::observe_on_one_worker coordination);
+        TimerImpl(std::chrono::milliseconds delay_milliseconds);
         TimerImpl(const TimerImpl &) = delete;
         TimerImpl &operator=(const TimerImpl &) = delete;
 
         void invokeAfterDelay(std::function<void()> handler) override;
-        void deny() override;
-
-        ~TimerImpl() override;
 
        private:
-        std::mutex timer_lifetime_mutex;
         std::chrono::milliseconds delay_milliseconds_;
-        rxcpp::composite_subscription coordinator_lifetime_;
-        rxcpp::observe_on_one_worker coordination_;
-        rxcpp::composite_subscription timer_lifetime_;
       };
     }  // namespace yac
   }    // namespace consensus

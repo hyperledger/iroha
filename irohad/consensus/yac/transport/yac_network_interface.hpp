@@ -7,7 +7,10 @@
 #define IROHA_YAC_NETWORK_INTERFACE_HPP
 
 #include <memory>
+#include <optional>
 #include <vector>
+
+#include "consensus/yac/storage/storage_result.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -27,16 +30,14 @@ namespace iroha {
          * Callback on receiving collection of votes
          * @param state - provided message
          */
-        virtual void onState(std::vector<VoteMessage> state) = 0;
+        virtual std::optional<Answer> onState(
+            std::vector<VoteMessage> state) = 0;
 
         virtual ~YacNetworkNotifications() = default;
       };
 
       class YacNetwork {
        public:
-        virtual void subscribe(
-            std::shared_ptr<YacNetworkNotifications> handler) = 0;
-
         /**
          * Directly share collection of votes
          * @param to - peer recipient
