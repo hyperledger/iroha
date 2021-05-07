@@ -24,7 +24,7 @@ namespace integration_framework {
 
       void onBatches(CollectionType batches) override;
 
-      boost::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
+      std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
           iroha::consensus::Round round) override;
 
       void onCollaborationOutcome(iroha::consensus::Round round) override;
@@ -32,9 +32,8 @@ namespace integration_framework {
       void onTxsCommitted(const HashesSetType &hashes) override;
 
       void forCachedBatches(
-          std::function<void(
-              const iroha::ordering::transport::OdOsNotification::BatchesSetType
-                  &)> const &f) override;
+          std::function<void(const iroha::ordering::OnDemandOrderingService::
+                                 BatchesSetType &)> const &f) override;
 
       bool isEmptyBatchesCache() const override;
 

@@ -8,6 +8,7 @@
 
 #include <optional>
 
+#include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
@@ -17,13 +18,16 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
-#include "main/impl/on_demand_ordering_init.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
+
+namespace google::protobuf {
+  class Empty;
+}
 
 namespace iroha {
   class PendingTransactionStorage;
@@ -44,6 +48,8 @@ namespace iroha {
     }  // namespace yac
   }    // namespace consensus
   namespace network {
+    template <typename Response>
+    class AsyncGrpcClient;
     class BlockLoader;
     class ChannelPool;
     class GenericClientFactory;
@@ -55,7 +61,11 @@ namespace iroha {
     struct GrpcChannelParams;
     struct TlsCredentials;
   }  // namespace network
+  namespace ordering {
+    class OnDemandOrderingInit;
+  }
   namespace protocol {
+    class Proposal;
     class Query;
     class BlocksQuery;
   }  // namespace protocol
@@ -85,8 +95,12 @@ namespace shared_model {
     class Keypair;
   }
   namespace interface {
+    template <typename Interface, typename Transport>
+    class AbstractTransportFactory;
+    class Proposal;
     class QueryResponseFactory;
     class TransactionBatchFactory;
+    class TransactionBatchParser;
   }  // namespace interface
   namespace validation {
     struct Settings;
@@ -254,7 +268,7 @@ class Irohad {
   rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
 
   // initialization objects
-  iroha::ordering::OnDemandOrderingInit ordering_init;
+  std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 

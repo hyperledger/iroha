@@ -6,7 +6,18 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 #define IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 
-#include "ordering/on_demand_os_transport.hpp"
+#include <unordered_set>
+
+#include "consensus/round.hpp"
+#include "cryptography/hash.hpp"
+#include "interfaces/iroha_internal/transaction_batch.hpp"
+
+namespace shared_model {
+  namespace interface {
+    class TransactionBatch;
+    class Proposal;
+  }  // namespace interface
+}  // namespace shared_model
 
 namespace iroha {
   namespace ordering {
@@ -14,8 +25,47 @@ namespace iroha {
     /**
      * Ordering Service aka OS which can share proposals by request
      */
-    class OnDemandOrderingService : public transport::OdOsNotification {
+    class OnDemandOrderingService {
      public:
+      /**
+       * Type of stored proposals
+       */
+      using ProposalType = shared_model::interface::Proposal;
+
+      struct BatchPointerHasher {
+        shared_model::crypto::Hash::Hasher hasher_;
+        size_t operator()(
+            const std::shared_ptr<shared_model::interface::TransactionBatch> &a)
+            const {
+          return hasher_(a->reducedHash());
+        }
+      };
+
+      using BatchesSetType = std::unordered_set<
+          std::shared_ptr<shared_model::interface::TransactionBatch>,
+          BatchPointerHasher,
+          shared_model::interface::BatchHashEquality>;
+
+      /**
+       * Type of stored transaction batches
+       */
+      using TransactionBatchType =
+          std::shared_ptr<shared_model::interface::TransactionBatch>;
+
+      /**
+       * Type of inserted collections
+       */
+      using CollectionType = std::vector<TransactionBatchType>;
+
+      /**
+       * Callback on receiving transactions
+       * @param batches - vector of passed transaction batches
+       */
+      virtual void onBatches(CollectionType batches) = 0;
+
+      virtual std::optional<std::shared_ptr<const ProposalType>>
+      onRequestProposal(consensus::Round round) = 0;
+
       using HashesSetType =
           std::unordered_set<shared_model::crypto::Hash,
                              shared_model::crypto::Hash::Hasher>;
@@ -37,8 +87,7 @@ namespace iroha {
        * @param f - callback function
        */
       virtual void forCachedBatches(
-          std::function<void(const transport::OdOsNotification::BatchesSetType
-                                 &)> const &f) = 0;
+          std::function<void(const BatchesSetType &)> const &f) = 0;
 
       virtual bool isEmptyBatchesCache() const = 0;
     };

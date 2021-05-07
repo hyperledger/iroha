@@ -214,7 +214,7 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
   auto ledger_state = std::make_shared<LedgerState>(
       ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
   OrderingEvent ordering_event{
-      boost::make_optional(proposal), consensus::Round{}, ledger_state};
+      std::make_optional(proposal), consensus::Round{}, ledger_state};
   auto verification_result =
       simulator->processProposal(ordering_event).verified_proposal_result;
   ASSERT_TRUE(verification_result);

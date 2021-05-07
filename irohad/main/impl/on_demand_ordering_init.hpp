@@ -9,10 +9,11 @@
 #include <chrono>
 #include <vector>
 
-#include <rxcpp/rx-lite.hpp>
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
+#include "main/subscription_fwd.hpp"
 
 namespace google {
   namespace protobuf {
@@ -42,6 +43,7 @@ namespace iroha {
     class GenericClientFactory;
     template <typename Response>
     class AsyncGrpcClient;
+    class OrderingEvent;
     class OrderingGate;
   }  // namespace network
   namespace protocol {
@@ -55,13 +57,13 @@ namespace iroha {
     struct SynchronizationEvent;
   }
   namespace ordering {
+    class OnDemandConnectionManager;
+    class OnDemandOrderingGate;
     class OnDemandOrderingService;
     class ProposalCreationStrategy;
+    struct ProposalEvent;
     namespace transport {
       class OdOsNotification;
-    }
-    namespace cache {
-      class OrderingGateCache;
     }
 
     /**
@@ -85,7 +87,6 @@ namespace iroha {
               async_call,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::chrono::milliseconds delay,
-          std::vector<shared_model::interface::types::HashType> initial_hashes,
           const logger::LoggerManagerTreePtr &ordering_log_manager,
           std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
@@ -95,11 +96,10 @@ namespace iroha {
        */
       auto createGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
-          std::unique_ptr<transport::OdOsNotification> network_client,
+          std::shared_ptr<transport::OdOsNotification> network_client,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
-          std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           size_t max_number_of_transactions,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
@@ -112,18 +112,12 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
-          std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
-
-      rxcpp::composite_subscription sync_event_notifier_lifetime_;
-      rxcpp::composite_subscription commit_notifier_lifetime_;
 
      public:
       /// Constructor.
       /// @param log - the logger to use for internal messages.
       OnDemandOrderingInit(logger::LoggerPtr log);
-
-      ~OnDemandOrderingInit();
 
       /**
        * Initializes on-demand ordering gate and ordering sevice components
@@ -131,8 +125,6 @@ namespace iroha {
        * @param max_number_of_transactions maximum number of transactions in a
        * proposal
        * @param delay timeout for ordering service response on proposal request
-       * @param initial_hashes seeds for peer list permutations for first k
-       * rounds they are required since hash of block i defines round i + k
        * @param transaction_factory transport factory for transactions required
        * by ordering service network endpoint
        * @param batch_parser transaction batch parser required by ordering
@@ -143,15 +135,12 @@ namespace iroha {
        * requests to ordering service and processing responses
        * @param proposal_factory factory required by ordering service to produce
        * proposals
-       * @param creation_strategy - provides a strategy for creating proposals
-       * in OS
        * @param client_factory - a factory of client stubs
        * @return initialized ordering gate
        */
       std::shared_ptr<network::OrderingGate> initOrderingGate(
           size_t max_number_of_transactions,
           std::chrono::milliseconds delay,
-          std::vector<shared_model::interface::types::HashType> initial_hashes,
           std::shared_ptr<shared_model::interface::AbstractTransportFactory<
               shared_model::interface::Transaction,
               iroha::protocol::Transaction>> transaction_factory,
@@ -165,23 +154,30 @@ namespace iroha {
               proposal_factory,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
-          std::shared_ptr<ProposalCreationStrategy> creation_strategy,
           logger::LoggerManagerTreePtr ordering_log_manager,
           std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
           std::chrono::milliseconds proposal_creation_timeout);
 
+      void processSynchronizationEvent(
+          synchronizer::SynchronizationEvent event);
+
+      void processCommittedBlock(
+          std::shared_ptr<shared_model::interface::Block const> block);
+
+      void subscribe(
+          std::function<void(network::OrderingEvent const &)> callback);
+
       /// gRPC service for ordering service
       std::shared_ptr<grpc::Service> service;
 
-      /// commit notifier from peer communication service
-      rxcpp::subjects::subject<synchronizer::SynchronizationEvent>
-          sync_event_notifier;
-      rxcpp::subjects::subject<
-          std::shared_ptr<shared_model::interface::Block const>>
-          commit_notifier;
-
      private:
+      shared_model::crypto::Hash previous_hash_, current_hash_;
       logger::LoggerPtr log_;
+      std::shared_ptr<OnDemandOrderingService> ordering_service_;
+      std::shared_ptr<OnDemandConnectionManager> connection_manager_;
+      std::shared_ptr<OnDemandOrderingGate> ordering_gate_;
+      std::shared_ptr<BaseSubscriber<bool, ProposalEvent>>
+            proposals_subscription_;
     };
   }  // namespace ordering
 }  // namespace iroha

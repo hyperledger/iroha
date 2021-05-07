@@ -11,7 +11,6 @@
 #include <atomic>
 #include <shared_mutex>
 
-#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -50,12 +49,10 @@ namespace iroha {
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          rxcpp::observable<CurrentPeers> peers,
           logger::LoggerPtr log);
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          rxcpp::observable<CurrentPeers> peers,
           CurrentPeers initial_peers,
           logger::LoggerPtr log);
 
@@ -63,8 +60,13 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      boost::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-          consensus::Round round) override;
+      void onRequestProposal(consensus::Round round) override;
+
+      /**
+       * Initialize corresponding peers in connections_ using factory_
+       * @param peers to initialize connections with
+       */
+      void initializeConnections(const CurrentPeers &peers);
 
      private:
       /**
@@ -73,19 +75,12 @@ namespace iroha {
        */
       struct CurrentConnections {
         PeerCollectionType<
-            boost::optional<std::unique_ptr<transport::OdOsNotification>>>
+            std::optional<std::unique_ptr<transport::OdOsNotification>>>
             peers;
       };
 
-      /**
-       * Initialize corresponding peers in connections_ using factory_
-       * @param peers to initialize connections with
-       */
-      void initializeConnections(const CurrentPeers &peers);
-
       logger::LoggerPtr log_;
       std::shared_ptr<transport::OdOsNotificationFactory> factory_;
-      rxcpp::composite_subscription subscription_;
 
       CurrentConnections connections_;
 

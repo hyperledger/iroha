@@ -10,15 +10,13 @@
 
 #include <shared_mutex>
 
-#include <boost/variant.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
-#include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
+#include "ordering/impl/on_demand_common.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
-#include "ordering/ordering_service_proposal_creation_strategy.hpp"
+#include "ordering/on_demand_os_transport.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -45,15 +43,10 @@ namespace iroha {
 
       OnDemandOrderingGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
-          std::unique_ptr<transport::OdOsNotification> network_client,
-          rxcpp::observable<
-              std::shared_ptr<const cache::OrderingGateCache::HashesSetType>>
-              processed_tx_hashes,
-          rxcpp::observable<RoundSwitch> round_switch_events,
+          std::shared_ptr<transport::OdOsNotification> network_client,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
-          std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
           size_t transaction_limit,
           logger::LoggerPtr log);
 
@@ -63,20 +56,17 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           override;
 
-      rxcpp::observable<network::OrderingEvent> onProposal() override;
+      void processRoundSwitch(RoundSwitch const &event);
+
+      /**
+       * Handle an incoming proposal from ordering service
+       */
+      std::optional<network::OrderingEvent> processProposalRequest(
+          ProposalEvent const &event) const;
 
       void stop() override;
 
      private:
-      /**
-       * Handle an incoming proposal from ordering service
-       */
-      boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      processProposalRequest(
-          boost::optional<
-              std::shared_ptr<const OnDemandOrderingService::ProposalType>>
-              proposal) const;
-
       void sendCachedTransactions();
 
       /**
@@ -92,18 +82,15 @@ namespace iroha {
       /// max number of transactions passed to one ordering service
       size_t transaction_limit_;
       std::shared_ptr<OnDemandOrderingService> ordering_service_;
-      std::unique_ptr<transport::OdOsNotification> network_client_;
-      rxcpp::composite_subscription processed_tx_hashes_subscription_;
-      rxcpp::composite_subscription round_switch_subscription_;
+      std::shared_ptr<transport::OdOsNotification> network_client_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
+      consensus::Round current_round_;
+      std::shared_ptr<const LedgerState> current_ledger_state_;
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};
-
-      rxcpp::composite_subscription proposal_notifier_lifetime_;
-      rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;
     };
 
   }  // namespace ordering

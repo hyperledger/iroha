@@ -24,58 +24,17 @@ using namespace iroha::ordering;
 
 OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<OnDemandOrderingService> ordering_service,
-    std::unique_ptr<transport::OdOsNotification> network_client,
-    rxcpp::observable<
-        std::shared_ptr<const cache::OrderingGateCache::HashesSetType>>
-        processed_tx_hashes,
-    rxcpp::observable<RoundSwitch> round_switch_events,
+    std::shared_ptr<transport::OdOsNotification> network_client,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory> factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
-    std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     size_t transaction_limit,
     logger::LoggerPtr log)
     : log_(std::move(log)),
       transaction_limit_(transaction_limit),
       ordering_service_(std::move(ordering_service)),
       network_client_(std::move(network_client)),
-      processed_tx_hashes_subscription_(
-          processed_tx_hashes.subscribe([this](auto hashes) {
-            // remove transaction hashes from cache
-            log_->debug("Asking to remove {} transactions from cache.",
-                        hashes->size());
-            ordering_service_->onTxsCommitted(*hashes);
-          })),
-      round_switch_subscription_(round_switch_events.subscribe(
-          [this,
-           proposal_creation_strategy =
-               std::move(proposal_creation_strategy)](auto event) {
-            log_->debug("Current: {}", event.next_round);
-
-            std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
-            if (stop_requested_) {
-              log_->warn("Not doing anything because stop was requested.");
-              return;
-            }
-
-            // notify our ordering service about new round
-            proposal_creation_strategy->onCollaborationOutcome(
-                event.next_round, event.ledger_state->ledger_peers.size());
-            ordering_service_->onCollaborationOutcome(event.next_round);
-
-            this->sendCachedTransactions();
-
-            // request proposal for the current round
-            auto proposal = this->processProposalRequest(
-                network_client_->onRequestProposal(event.next_round));
-            // vote for the object received from the network
-            proposal_notifier_.get_subscriber().on_next(
-                network::OrderingEvent{std::move(proposal),
-                                       event.next_round,
-                                       std::move(event.ledger_state)});
-          })),
       proposal_factory_(std::move(factory)),
-      tx_cache_(std::move(tx_cache)),
-      proposal_notifier_(proposal_notifier_lifetime_) {}
+      tx_cache_(std::move(tx_cache)) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();
@@ -96,8 +55,24 @@ void OnDemandOrderingGate::propagateBatch(
       transport::OdOsNotification::CollectionType{batch});
 }
 
-rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
-  return proposal_notifier_.get_observable();
+void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
+  log_->debug("Current: {}", event.next_round);
+  current_round_ = event.next_round;
+  current_ledger_state_ = event.ledger_state;
+
+  std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+  if (stop_requested_) {
+    log_->warn("Not doing anything because stop was requested.");
+    return;
+  }
+
+  // notify our ordering service about new round
+  ordering_service_->onCollaborationOutcome(event.next_round);
+
+  this->sendCachedTransactions();
+
+  // request proposal for the current round
+  network_client_->onRequestProposal(event.next_round);
 }
 
 void OnDemandOrderingGate::stop() {
@@ -105,28 +80,27 @@ void OnDemandOrderingGate::stop() {
   if (not stop_requested_) {
     stop_requested_ = true;
     log_->info("Stopping.");
-    proposal_notifier_lifetime_.unsubscribe();
-    processed_tx_hashes_subscription_.unsubscribe();
-    round_switch_subscription_.unsubscribe();
     network_client_.reset();
   }
 }
 
-boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-OnDemandOrderingGate::processProposalRequest(
-    boost::optional<
-        std::shared_ptr<const OnDemandOrderingService::ProposalType>> proposal)
-    const {
-  if (not proposal) {
-    return boost::none;
+std::optional<network::OrderingEvent>
+OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
+  if (not current_ledger_state_ || event.round != current_round_) {
+    return std::nullopt;
   }
-  auto proposal_without_replays =
-      removeReplaysAndDuplicates(*std::move(proposal));
+  if (not event.proposal) {
+    return network::OrderingEvent{
+        std::nullopt, event.round, current_ledger_state_};
+  }
+  auto result = removeReplaysAndDuplicates(*event.proposal);
   // no need to check empty proposal
-  if (boost::empty(proposal_without_replays->transactions())) {
-    return boost::none;
+  if (boost::empty(result->transactions())) {
+    return network::OrderingEvent{
+        std::nullopt, event.round, current_ledger_state_};
   }
-  return proposal_without_replays;
+  return network::OrderingEvent{
+      std::move(result), event.round, current_ledger_state_};
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {
