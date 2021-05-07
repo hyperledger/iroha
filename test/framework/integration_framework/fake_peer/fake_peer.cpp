@@ -10,6 +10,7 @@
 #include <boost/assert.hpp>
 #include "backend/protobuf/transaction.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
+#include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/transport/yac_network_interface.hpp"
 #include "consensus/yac/yac_crypto_provider.hpp"
@@ -116,21 +117,30 @@ namespace integration_framework {
               mst_log_manager_->getChild("Transport")->getLogger(),
               iroha::network::makeTransportClientFactory<MstTransport>(
                   client_factory_))),
-          yac_transport_(std::make_shared<YacTransport>(
+          yac_transport_client_(std::make_shared<YacTransportClient>(
               async_call_,
-              iroha::network::makeTransportClientFactory<YacTransport>(
+              iroha::network::makeTransportClientFactory<YacTransportClient>(
                   client_factory_),
               consensus_log_manager_->getChild("Transport")->getLogger())),
           mst_network_notifier_(std::make_shared<MstNetworkNotifier>()),
           yac_network_notifier_(std::make_shared<YacNetworkNotifier>()),
           os_network_notifier_(std::make_shared<OsNetworkNotifier>()),
           og_network_notifier_(std::make_shared<OgNetworkNotifier>()),
+          yac_transport_server_(std::make_shared<YacTransportServer>(
+              consensus_log_manager_->getChild("Server")->getLogger(),
+              [yac_network_notifier(std::weak_ptr(yac_network_notifier_))](
+                  std::vector<iroha::consensus::yac::VoteMessage> state) {
+                auto maybe_yac_network_notifier = yac_network_notifier.lock();
+                if (not maybe_yac_network_notifier) {
+                  return;
+                }
+                maybe_yac_network_notifier->onState(std::move(state));
+              })),
           yac_crypto_(
               std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
                   *keypair_,
                   consensus_log_manager_->getChild("Crypto")->getLogger())) {
       mst_transport_->subscribe(mst_network_notifier_);
-      yac_transport_->subscribe(yac_network_notifier_);
     }
 
     FakePeer::~FakePeer() {
@@ -208,7 +218,7 @@ namespace integration_framework {
           getAddress(),
           log_manager_->getChild("InternalServer")->getLogger(),
           false);
-      internal_server->append(yac_transport_)
+      internal_server->append(yac_transport_server_)
           .append(mst_transport_)
           .append(od_os_transport_)
           .append(synchronizer_transport_)
@@ -319,7 +329,7 @@ namespace integration_framework {
 
     void FakePeer::sendYacState(
         const std::vector<iroha::consensus::yac::VoteMessage> &state) {
-      yac_transport_->sendState(*real_peer_, state);
+      yac_transport_client_->sendState(*real_peer_, state);
     }
 
     void FakePeer::voteForTheSame(

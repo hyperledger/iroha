@@ -12,6 +12,7 @@
 #include <boost/core/noncopyable.hpp>
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "common/result_fwd.hpp"
+#include "consensus/yac/transport/impl/service_impl.hpp"
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
@@ -205,7 +206,8 @@ namespace integration_framework {
 
      private:
       using MstTransport = iroha::network::MstTransportGrpc;
-      using YacTransport = iroha::consensus::yac::NetworkImpl;
+      using YacTransportClient = iroha::consensus::yac::NetworkImpl;
+      using YacTransportServer = iroha::consensus::yac::ServiceImpl;
       using OsTransport = iroha::ordering::OrderingServiceTransportGrpc;
       using OgTransport = iroha::ordering::OrderingGateTransportGrpc;
       using OdOsTransport = iroha::ordering::transport::OnDemandOsServerGrpc;
@@ -247,7 +249,7 @@ namespace integration_framework {
       std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
 
       std::shared_ptr<MstTransport> mst_transport_;
-      std::shared_ptr<YacTransport> yac_transport_;
+      std::shared_ptr<YacTransportClient> yac_transport_client_;
       std::shared_ptr<OdOsTransport> od_os_transport_;
       std::shared_ptr<LoaderGrpc> synchronizer_transport_;
 
@@ -256,6 +258,8 @@ namespace integration_framework {
       std::shared_ptr<OsNetworkNotifier> os_network_notifier_;
       std::shared_ptr<OgNetworkNotifier> og_network_notifier_;
       std::shared_ptr<OnDemandOsNetworkNotifier> od_os_network_notifier_;
+
+      std::shared_ptr<YacTransportServer> yac_transport_server_;
 
       std::shared_ptr<iroha::consensus::yac::YacCryptoProvider> yac_crypto_;
 

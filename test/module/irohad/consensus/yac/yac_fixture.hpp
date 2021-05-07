@@ -56,10 +56,6 @@ namespace iroha {
           initYac(ordering.value());
         }
 
-        void TearDown() override {
-          network->release();
-        }
-
         void initYac(ClusterOrdering ordering) {
           yac = Yac::create(
               YacVoteStorage(
@@ -72,10 +68,7 @@ namespace iroha {
               timer,
               ordering,
               initial_round,
-              rxcpp::observe_on_one_worker(
-                  rxcpp::schedulers::make_current_thread()),
               getTestLogger("Yac"));
-          network->subscribe(yac);
         }
 
        private:
