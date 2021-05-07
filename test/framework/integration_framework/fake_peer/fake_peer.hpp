@@ -192,18 +192,6 @@ namespace integration_framework {
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>
               transactions);
 
-      /**
-       * Request the real peer's on demand ordering service a proposal for the
-       * given round.
-       *
-       * @param round - the round of requested proposal.
-       * @param timeout - time to wait for the reply.
-       * @return The proposal if it was received
-       */
-      boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      sendProposalRequest(iroha::consensus::Round round,
-                          std::chrono::milliseconds timeout) const;
-
      private:
       using MstTransport = iroha::network::MstTransportGrpc;
       using YacTransportClient = iroha::consensus::yac::NetworkImpl;

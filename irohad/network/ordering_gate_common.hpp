@@ -7,8 +7,8 @@
 #define IROHA_ORDERING_GATE_COMMON_HPP
 
 #include <memory>
+#include <optional>
 
-#include <boost/optional.hpp>
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
 
@@ -25,7 +25,7 @@ namespace iroha {
      * Event, which is emitted by ordering gate, when it requests a proposal
      */
     struct OrderingEvent {
-      boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+      std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
           proposal;
       consensus::Round round;
       std::shared_ptr<const LedgerState> ledger_state;

@@ -10,7 +10,6 @@
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
-#include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   static fuzzing::OrderingServiceFixture fixture;
@@ -28,13 +27,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
           iroha::test::kTestsValidatorsConfig);
   auto storage = std::make_shared<NiceMock<iroha::ametsuchi::MockStorage>>();
   auto cache = std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage);
-  auto proposal_creation_strategy =
-      std::make_shared<NiceMock<MockProposalCreationStrategy>>();
   ordering_service_ = std::make_shared<OnDemandOrderingServiceImpl>(
       data[0],
       std::move(proposal_factory),
       std::move(cache),
-      proposal_creation_strategy,
       logger::getDummyLoggerPtr());
   server_ =
       std::make_shared<OnDemandOsServerGrpc>(ordering_service_,

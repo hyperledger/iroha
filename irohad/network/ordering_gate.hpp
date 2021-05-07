@@ -8,7 +8,6 @@
 
 #include <memory>
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "network/ordering_gate_common.hpp"
 #include "network/peer_communication_service.hpp"
 
@@ -33,12 +32,6 @@ namespace iroha {
        */
       virtual void propagateBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch) = 0;
-
-      /**
-       * Return observable of all proposals in the consensus
-       * @return observable with notifications
-       */
-      virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
 
       virtual ~OrderingGate() = default;
 
