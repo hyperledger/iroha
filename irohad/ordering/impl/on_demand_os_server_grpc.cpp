@@ -7,7 +7,6 @@
 
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/proposal.hpp"
-#include "common/bind.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
@@ -90,10 +89,11 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     getSubscription()->dispatcher()->unbind(*tid);
   }
 
-  ordering_service_->onRequestProposal(round) | [&](auto &&proposal) {
+  if (auto maybe_proposal = ordering_service_->onRequestProposal(round)) {
     *response->mutable_proposal() =
-        static_cast<const shared_model::proto::Proposal *>(proposal.get())
+        static_cast<const shared_model::proto::Proposal *>(
+            maybe_proposal->get())
             ->getTransport();
-  };
+  }
   return ::grpc::Status::OK;
 }

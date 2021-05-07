@@ -403,27 +403,27 @@ namespace integration_framework {
   void IntegrationTestFramework::subscribeQueuesAndRun() {
     // subscribing for components
 
-    rxcpp::observable<iroha::network::OrderingEvent> requested_proposals =
-        iroha_instance_->getIrohaInstance()
-            ->getPeerCommunicationService()
-            ->onProposal();
-
-    rxcpp::observable<iroha::network::OrderingEvent> received_proposals =
-        requested_proposals.filter(
-            [](const auto &event) { return event.proposal; });
-
-    received_proposals.subscribe([this](const auto &event) {
-      proposal_queue_->push(getProposalUnsafe(event));
-      log_->info("proposal");
-    });
+    proposal_subscription_ =
+        iroha::SubscriberCreator<bool, iroha::network::OrderingEvent>::
+            template create<iroha::EventTypes::kOnProposal>(
+                static_cast<iroha::SubscriptionEngineHandlers>(
+                    iroha::getSubscription()->dispatcher()->kExecuteInPool),
+                [proposal_queue(iroha::utils::make_weak(proposal_queue_)),
+                 log(iroha::utils::make_weak(log_))](auto, auto event) {
+                  auto maybe_proposal_queue = proposal_queue.lock();
+                  auto maybe_log = log.lock();
+                  if (maybe_proposal_queue and maybe_log and event.proposal) {
+                    maybe_proposal_queue->push(getProposalUnsafe(event));
+                    maybe_log->info("proposal");
+                  }
+                });
 
     verified_proposal_subscription_ = iroha::SubscriberCreator<
         bool,
         iroha::simulator::VerifiedProposalCreatorEvent>::
         template create<iroha::EventTypes::kOnVerifiedProposal>(
             static_cast<iroha::SubscriptionEngineHandlers>(
-                decltype(iroha::getSubscription())::element_type::Dispatcher::
-                    kExecuteInPool),
+                iroha::getSubscription()->dispatcher()->kExecuteInPool),
             [verified_proposal_queue(
                  iroha::utils::make_weak(verified_proposal_queue_)),
              log(iroha::utils::make_weak(log_))](
@@ -689,44 +689,6 @@ namespace integration_framework {
       const shared_model::proto::Query &qry) {
     sendQuery(qry, [](const auto &) {});
     return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendBatches(
-      const std::vector<TransactionBatchSPtr> &batches) {
-    auto on_demand_os_transport =
-        iroha::ordering::transport::OnDemandOsClientGrpcFactory(
-            async_call_,
-            proposal_factory_,
-            [] { return std::chrono::system_clock::now(); },
-            // the proposal waiting timeout is only used when waiting a response
-            // for a proposal request, which our client does not do
-            std::chrono::milliseconds(0),
-            log_manager_->getChild("OrderingClientTransport")->getLogger(),
-            makeTransportClientFactory<
-                iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
-                client_factory_))
-            .create(*this_peer_)
-            .assumeValue();
-    on_demand_os_transport->onBatches(batches);
-    return *this;
-  }
-
-  boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-  IntegrationTestFramework::requestProposal(
-      const iroha::consensus::Round &round, std::chrono::milliseconds timeout) {
-    auto on_demand_os_transport =
-        iroha::ordering::transport::OnDemandOsClientGrpcFactory(
-            async_call_,
-            proposal_factory_,
-            [] { return std::chrono::system_clock::now(); },
-            timeout,
-            log_manager_->getChild("OrderingClientTransport")->getLogger(),
-            makeTransportClientFactory<
-                iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
-                client_factory_))
-            .create(*this_peer_)
-            .assumeValue();
-    return on_demand_os_transport->onRequestProposal(round);
   }
 
   IntegrationTestFramework &IntegrationTestFramework::sendMstState(

@@ -10,6 +10,7 @@
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 #include "network/impl/client_factory.hpp"
 
 using namespace iroha;
@@ -23,13 +24,15 @@ OnDemandOsClientGrpc::OnDemandOsClientGrpc(
     std::shared_ptr<TransportFactoryType> proposal_factory,
     std::function<TimepointType()> time_provider,
     std::chrono::milliseconds proposal_request_timeout,
-    logger::LoggerPtr log)
+    logger::LoggerPtr log,
+    std::function<void(ProposalEvent)> callback)
     : log_(std::move(log)),
       stub_(std::move(stub)),
       async_call_(std::move(async_call)),
       proposal_factory_(std::move(proposal_factory)),
       time_provider_(std::move(time_provider)),
-      proposal_request_timeout_(proposal_request_timeout) {}
+      proposal_request_timeout_(proposal_request_timeout),
+      callback_(std::move(callback)) {}
 
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   proto::BatchesRequest request;
@@ -48,34 +51,53 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   });
 }
 
-boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
-OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
-  grpc::ClientContext context;
-  context.set_deadline(time_provider_() + proposal_request_timeout_);
+void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
+  // Cancel an unfinished request
+  if (auto maybe_context = context_.lock()) {
+    maybe_context->TryCancel();
+  }
+
+  auto context = std::make_shared<grpc::ClientContext>();
+  context_ = context;
+  context->set_deadline(time_provider_() + proposal_request_timeout_);
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
-  proto::ProposalResponse response;
-  auto status = stub_->RequestProposal(&context, request, &response);
-  if (not status.ok()) {
-    log_->warn("RPC failed: {}", status.error_message());
-    return boost::none;
-  }
-  if (not response.has_proposal()) {
-    return boost::none;
-  }
-  return proposal_factory_->build(response.proposal())
-      .match(
-          [&](auto &&v) {
-            return boost::make_optional(
-                std::shared_ptr<const OdOsNotification::ProposalType>(
-                    std::move(v).value));
-          },
-          [this](const auto &error) {
-            log_->info("{}", error.error.error);  // error
-            return boost::optional<
-                std::shared_ptr<const OdOsNotification::ProposalType>>();
-          });
+  getSubscription()->dispatcher()->add(
+      getSubscription()->dispatcher()->kExecuteInPool,
+      [round,
+       context(std::move(context)),
+       request(std::move(request)),
+       stub(std::weak_ptr(stub_)),
+       log(std::weak_ptr(log_)),
+       proposal_factory(std::weak_ptr(proposal_factory_)),
+       callback(callback_)] {
+        auto maybe_stub = stub.lock();
+        auto maybe_log = log.lock();
+        auto maybe_proposal_factory = proposal_factory.lock();
+        if (not(maybe_stub and maybe_log and maybe_proposal_factory)) {
+          return;
+        }
+        proto::ProposalResponse response;
+        auto status =
+            maybe_stub->RequestProposal(context.get(), request, &response);
+        if (not status.ok()) {
+          maybe_log->warn("RPC failed: {}", status.error_message());
+          callback({std::nullopt, round});
+          return;
+        }
+        if (not response.has_proposal()) {
+          callback({std::nullopt, round});
+          return;
+        }
+        auto maybe_proposal =
+            maybe_proposal_factory->build(response.proposal());
+        if (expected::hasError(maybe_proposal)) {
+          maybe_log->info("{}", maybe_proposal.assumeError().error);
+          callback({std::nullopt, round});
+        }
+        callback({std::move(maybe_proposal).assumeValue(), round});
+      });
 }
 
 OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
@@ -85,13 +107,15 @@ OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
     std::function<OnDemandOsClientGrpc::TimepointType()> time_provider,
     OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
     logger::LoggerPtr client_log,
-    std::unique_ptr<ClientFactory> client_factory)
+    std::unique_ptr<ClientFactory> client_factory,
+    std::function<void(ProposalEvent)> callback)
     : async_call_(std::move(async_call)),
       proposal_factory_(std::move(proposal_factory)),
       time_provider_(time_provider),
       proposal_request_timeout_(proposal_request_timeout),
       client_log_(std::move(client_log)),
-      client_factory_(std::move(client_factory)) {}
+      client_factory_(std::move(client_factory)),
+      callback_(callback) {}
 
 expected::Result<std::unique_ptr<OdOsNotification>, std::string>
 OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
@@ -102,6 +126,7 @@ OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
                                                   proposal_factory_,
                                                   time_provider_,
                                                   proposal_request_timeout_,
-                                                  client_log_);
+                                                  client_log_,
+                                                  callback_);
   };
 }

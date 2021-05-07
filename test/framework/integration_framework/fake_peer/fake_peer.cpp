@@ -404,24 +404,6 @@ namespace integration_framework {
       };
     }
 
-    boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-    FakePeer::sendProposalRequest(iroha::consensus::Round round,
-                                  std::chrono::milliseconds timeout) const {
-      using iroha::ordering::transport::OnDemandOsClientGrpcFactory;
-      auto on_demand_os_transport =
-          OnDemandOsClientGrpcFactory(
-              async_call_,
-              proposal_factory_,
-              [] { return std::chrono::system_clock::now(); },
-              timeout,
-              ordering_log_manager_->getChild("NetworkClient")->getLogger(),
-              iroha::network::makeTransportClientFactory<
-                  OnDemandOsClientGrpcFactory>(client_factory_))
-              .create(*real_peer_)
-              .assumeValue();
-      return on_demand_os_transport->onRequestProposal(round);
-    }
-
     void FakePeer::ensureInitialized() {
       BOOST_VERIFY_MSG(initialized_, "Instance not initialized!");
     }

@@ -11,12 +11,10 @@ target_link_libraries(on_demand_common
 
 add_library(on_demand_ordering_service
     impl/on_demand_ordering_service_impl.cpp
-    impl/kick_out_proposal_creation_strategy.cpp
     )
 
 target_link_libraries(on_demand_ordering_service
     on_demand_common
-    TBB::tbb
     mst_hash
     mst_state
     shared_model_interfaces
@@ -47,20 +45,16 @@ target_link_libraries(on_demand_connection_manager
     on_demand_common
     shared_model_interfaces
     consensus_round
-    rxcpp
     Boost::boost
     logger
     )
 
 add_library(on_demand_ordering_gate
     impl/on_demand_ordering_gate.cpp
-    impl/ordering_gate_cache/ordering_gate_cache.cpp
-    impl/ordering_gate_cache/on_demand_cache.cpp
     )
 target_link_libraries(on_demand_ordering_gate
     on_demand_common
     consensus_round
-    rxcpp
     Boost::boost
     logger
     common
