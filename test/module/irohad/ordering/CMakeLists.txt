@@ -14,6 +14,7 @@ addtest(on_demand_os_client_grpc_test on_demand_os_client_grpc_test.cpp)
 target_link_libraries(on_demand_os_client_grpc_test
     on_demand_ordering_service_transport_grpc
     test_logger
+    sync_subscription
     )
 
 addtest(on_demand_os_server_grpc_test on_demand_os_server_grpc_test.cpp)
@@ -36,24 +37,4 @@ target_link_libraries(on_demand_ordering_gate_test
     shared_model_interfaces_factories
     test_logger
     shared_model_proto_backend
-    )
-
-addtest(on_demand_cache_test on_demand_cache_test.cpp)
-target_link_libraries(on_demand_cache_test
-    on_demand_ordering_gate
-    shared_model_interfaces_factories
-    )
-
-addtest(kick_out_proposal_creation_strategy_test
-    kick_out_proposal_creation_strategy_test.cpp
-    )
-target_link_libraries(kick_out_proposal_creation_strategy_test
-    on_demand_ordering_service
-    )
-
-addtest(unique_creation_proposal_strategy_test
-    unique_creation_proposal_strategy_test.cpp
-    )
-target_link_libraries(unique_creation_proposal_strategy_test
-    on_demand_ordering_service
     )

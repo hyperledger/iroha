@@ -7,7 +7,6 @@
 
 #include <unordered_set>
 
-#include <boost/optional.hpp>
 #include <boost/range/adaptor/indirected.hpp>
 #include <boost/range/size.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
@@ -22,21 +21,18 @@
 
 using namespace iroha;
 using namespace iroha::ordering;
-using TransactionBatchType = transport::OdOsNotification::TransactionBatchType;
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t transaction_limit,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
-    std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     logger::LoggerPtr log,
     size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
-      proposal_creation_strategy_(std::move(proposal_creation_strategy)),
       log_(std::move(log)) {}
 
 // -------------------------| OnDemandOrderingService |-------------------------
@@ -51,8 +47,6 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
   tryErase(round);
 }
 
-// ----------------------------| OdOsNotification |-----------------------------
-
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
   for (auto &batch : batches) {
     if (not batchAlreadyProcessed(*batch)) {
@@ -60,19 +54,6 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
     }
   }
   log_->info("onBatches => collection size = {}", batches.size());
-}
-
-boost::optional<
-    std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
-  log_->debug("Requesting a proposal for round {}", round);
-  boost::optional<
-      std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-      result = uploadProposal(round);
-  log_->debug("onRequestProposal, {}, {}returning a proposal.",
-              round,
-              result ? "" : "NOT ");
-  return result;
 }
 
 // ---------------------------------| Private |---------------------------------
@@ -106,8 +87,7 @@ bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() const {
 }
 
 void OnDemandOrderingServiceImpl::forCachedBatches(
-    std::function<
-        void(const transport::OdOsNotification::BatchesSetType &)> const &f) {
+    std::function<void(const BatchesSetType &)> const &f) {
   std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
   f(batches_cache_);
 }
@@ -132,10 +112,10 @@ OnDemandOrderingServiceImpl::getTransactionsFromBatchesCache(
   return collection;
 }
 
-boost::optional<
-    std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-OnDemandOrderingServiceImpl::uploadProposal(consensus::Round round) {
-  boost::optional<
+std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
+  log_->debug("Requesting a proposal for round {}", round);
+  std::optional<
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
       result;
   do {
@@ -155,15 +135,18 @@ OnDemandOrderingServiceImpl::uploadProposal(consensus::Round round) {
     if (is_current_round_or_next2)
       result = packNextProposals(round);
   } while (false);
+  log_->debug("uploadProposal, {}, {}returning a proposal.",
+              round,
+              result ? "" : "NOT ");
   return result;
 }
 
-boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
+std::optional<std::shared_ptr<shared_model::interface::Proposal>>
 OnDemandOrderingServiceImpl::tryCreateProposal(
     consensus::Round const &round,
     const TransactionsCollectionType &txs,
     shared_model::interface::types::TimestampType created_time) {
-  boost::optional<std::shared_ptr<shared_model::interface::Proposal>> proposal;
+  std::optional<std::shared_ptr<shared_model::interface::Proposal>> proposal;
   if (not txs.empty()) {
     proposal = proposal_factory_->unsafeCreateProposal(
         round.block_round, created_time, txs | boost::adaptors::indirected);
@@ -173,7 +156,7 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
         round,
         txs.size());
   } else {
-    proposal = boost::none;
+    proposal = std::nullopt;
     log_->debug("No transactions to create a proposal for {}", round);
   }
 
@@ -182,7 +165,7 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
   return proposal;
 }
 
-boost::optional<std::shared_ptr<shared_model::interface::Proposal>>
+std::optional<std::shared_ptr<shared_model::interface::Proposal>>
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto now = iroha::time::now();
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;

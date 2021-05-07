@@ -24,6 +24,7 @@
 #include "common/files.hpp"
 #include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/consistency_model.hpp"
+#include "consensus/yac/supermajority_checker.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "generator/generator.hpp"
@@ -33,6 +34,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/impl/on_demand_ordering_init.hpp"
 #include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
@@ -54,10 +56,8 @@
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
 #include "network/impl/peer_tls_certificates_provider_wsv.hpp"
 #include "network/impl/tls_credentials.hpp"
-#include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
-#include "ordering/impl/unique_creation_proposal_strategy.hpp"
 #include "simulator/impl/simulator.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
@@ -125,7 +125,8 @@ Irohad::Irohad(
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
       pg_opt_(std::move(pg_opt)),
-      ordering_init(logger_manager->getLogger()),
+      ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
+          logger_manager->getLogger())),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
@@ -564,44 +565,13 @@ Irohad::RunResult Irohad::initOrderingGate() {
     return iroha::expected::makeError<std::string>(
         "Failed to create block query");
   }
-  // since delay is 1, it is required to get one more hash from block store in
-  // addition to the top block
-  const size_t kNumBlocks = 2;
-  auto top_height = (*block_query)->getTopBlockHeight();
-  decltype(top_height) block_hashes =
-      top_height > kNumBlocks ? kNumBlocks : top_height;
-
-  auto hash_stub = shared_model::interface::types::HashType{
-      std::string(shared_model::crypto::DefaultHashProvider::kHashLength, '0')};
-  std::vector<shared_model::interface::types::HashType> hashes{
-      kNumBlocks - block_hashes, hash_stub};
-
-  for (decltype(top_height) i = top_height - block_hashes + 1; i <= top_height;
-       ++i) {
-    auto block_result = (*block_query)->getBlock(i);
-
-    if (auto e = expected::resultToOptionalError(block_result)) {
-      return iroha::expected::makeError(std::move(e->message));
-    }
-
-    auto &block =
-        boost::get<
-            expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
-            block_result)
-            .value;
-    hashes.push_back(block->hash());
-  }
 
   auto factory = std::make_unique<shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>>(validators_config_);
 
-  std::shared_ptr<iroha::ordering::ProposalCreationStrategy> proposal_strategy =
-      std::make_shared<ordering::UniqueCreationProposalStrategy>();
-
-  ordering_gate = ordering_init.initOrderingGate(
+  ordering_gate = ordering_init->initOrderingGate(
       config_.max_proposal_size,
       std::chrono::milliseconds(config_.proposal_delay),
-      std::move(hashes),
       transaction_factory,
       batch_parser,
       transaction_batch_factory_,
@@ -609,7 +579,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
       std::move(factory),
       proposal_factory,
       persistent_cache,
-      proposal_strategy,
       log_manager_->getChild("Ordering"),
       inter_peer_client_factory_,
       std::chrono::milliseconds(
@@ -765,10 +734,6 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
   pcs = std::make_shared<PeerCommunicationServiceImpl>(
       ordering_gate,
       log_manager_->getChild("PeerCommunicationService")->getLogger());
-
-  pcs->onProposal().subscribe([this](const auto &) {
-    log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-  });
 
   log_->info("[Init] => pcs");
   return {};
@@ -948,7 +913,7 @@ Irohad::RunResult Irohad::initWsvRestorer() {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
-  ordering_gate->onProposal().subscribe(
+  ordering_init->subscribe(
       [simulator(utils::make_weak(simulator)),
        consensus_gate(utils::make_weak(consensus_gate)),
        tx_processor(utils::make_weak(tx_processor)),
@@ -960,6 +925,7 @@ Irohad::RunResult Irohad::run() {
         auto maybe_subscription = subscription.lock();
         if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
             and maybe_subscription) {
+          maybe_subscription->notify(EventTypes::kOnProposal, event);
           auto verified_proposal = maybe_simulator->processProposal(event);
           maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
                                      verified_proposal);
@@ -975,20 +941,23 @@ Irohad::RunResult Irohad::run() {
   using iroha::operator|;
 
   yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
-                       sync_event_notifier(ordering_init.sync_event_notifier),
+                       ordering_init(utils::make_weak(ordering_init)),
                        consensus_gate_objects(consensus_gate_objects),
                        log(utils::make_weak(log_)),
                        subscription(utils::make_weak(getSubscription()))](
                           consensus::GateObject object) {
     auto maybe_synchronizer = synchronizer.lock();
+    auto maybe_ordering_init = ordering_init.lock();
     auto maybe_log = log.lock();
     auto maybe_subscription = subscription.lock();
-    if (maybe_synchronizer and maybe_log and maybe_subscription) {
+    if (maybe_synchronizer and maybe_ordering_init and maybe_log
+        and maybe_subscription) {
+      maybe_log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
       consensus_gate_objects.get_subscriber().on_next(object);
       auto event = maybe_synchronizer->processOutcome(std::move(object));
       maybe_subscription->notify(EventTypes::kOnSynchronization, event);
       printSynchronizationEvent(maybe_log, event);
-      sync_event_notifier.get_subscriber().on_next(std::move(event));
+      maybe_ordering_init->processSynchronizationEvent(std::move(event));
     }
   });
 
@@ -1039,7 +1008,7 @@ Irohad::RunResult Irohad::run() {
       internal_server->append(
           std::static_pointer_cast<MstTransportGrpc>(mst_transport));
     }
-    return internal_server->append(ordering_init.service)
+    return internal_server->append(ordering_init->service)
                .append(yac_init->getConsensusNetwork())
                .append(loader_init.service)
                .run()
@@ -1075,15 +1044,26 @@ Irohad::RunResult Irohad::run() {
     }
 
     storage->on_commit().subscribe(
-        ordering_init.commit_notifier.get_subscriber());
+        [ordering_init(std::weak_ptr(ordering_init))](auto block) {
+          if (auto maybe_ordering_init = ordering_init.lock()) {
+            maybe_ordering_init->processCommittedBlock(block);
+          }
+        });
 
-    ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
+    ordering_init->processCommittedBlock(std::move(block));
 
-    ordering_init.sync_event_notifier.get_subscriber().on_next(
-        synchronizer::SynchronizationEvent{
-            SynchronizationOutcomeType::kCommit,
-            {block_height, ordering::kFirstRejectRound},
-            *initial_ledger_state});
+    subscription_engine_->dispatcher()->add(
+        iroha::SubscriptionEngineHandlers::kYac,
+        [ordering_init(std::weak_ptr(ordering_init)),
+         block_height,
+         initial_ledger_state] {
+          if (auto maybe_ordering_init = ordering_init.lock()) {
+            maybe_ordering_init->processSynchronizationEvent(
+                {SynchronizationOutcomeType::kCommit,
+                 {block_height, ordering::kFirstRejectRound},
+                 *initial_ledger_state});
+          }
+        });
 
     return {};
   };

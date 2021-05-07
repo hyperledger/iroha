@@ -23,8 +23,6 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           const override;
 
-      rxcpp::observable<OrderingEvent> onProposal() const override;
-
      private:
       std::shared_ptr<OrderingGate> ordering_gate_;
       logger::LoggerPtr log_;
