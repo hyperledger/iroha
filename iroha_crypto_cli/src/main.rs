@@ -2,9 +2,10 @@
 
 use clap::{App, Arg, ArgGroup};
 use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
-use iroha_error::{error, Result, WrapErr};
+use iroha_error::{error, Reporter, Result, WrapErr};
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Reporter> {
+    iroha_error::install_panic_reporter();
     let default_algorithm = Algorithm::default().to_string();
     let matches = App::new("iroha_crypto_cli")
         .version("0.1")
