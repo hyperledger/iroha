@@ -29,6 +29,7 @@ fn unstable_network(
     n_transactions: usize,
     polling_max_attempts: u32,
 ) {
+    iroha_error::install_panic_reporter();
     // Given
     let (_, mut iroha_client) = Network::start_test_with_offline_and_set_max_faults(
         n_peers,

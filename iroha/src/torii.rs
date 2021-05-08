@@ -47,7 +47,7 @@ pub struct Torii {
     events_receiver: EventsReceiver,
     transactions_queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
-    telemetry: Option<Arc<Receiver<Telemetry>>>,
+    telemetry: Option<Receiver<Telemetry>>,
 }
 
 /// Errors of torii
@@ -131,7 +131,7 @@ impl Torii {
             events_receiver,
             transactions_queue,
             sumeragi,
-            telemetry: telemetry.map(Arc::new),
+            telemetry,
         }
     }
 
@@ -186,7 +186,7 @@ impl Torii {
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
         if let Some(telemetry) = &self.telemetry {
-            let _drop = task::spawn(Self::handle_telemetry(Arc::clone(telemetry)));
+            let _drop = task::spawn(Self::handle_telemetry(telemetry.clone()));
         }
 
         let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
@@ -203,7 +203,7 @@ impl Torii {
         Ok(())
     }
 
-    async fn handle_telemetry(telemetry: Arc<Receiver<Telemetry>>) {
+    async fn handle_telemetry(telemetry: Receiver<Telemetry>) {
         while let Ok(telemetry) = telemetry.recv().await {
             iroha_logger::info!(recieved_telemetry = ?telemetry);
         }

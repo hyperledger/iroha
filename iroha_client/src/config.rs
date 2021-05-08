@@ -50,7 +50,7 @@ impl Configuration {
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration> {
-        let file = File::open(path).wrap_err("Failed to open a file")?;
+        let file = File::open(path).wrap_err("Failed to open the config file")?;
         let reader = BufReader::new(file);
         serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")
     }

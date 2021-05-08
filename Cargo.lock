@@ -1623,7 +1623,9 @@ dependencies = [
 name = "iroha_error"
 version = "0.1.0"
 dependencies = [
+ "backtrace",
  "iroha_error_macro",
+ "owo-colors",
 ]
 
 [[package]]
@@ -1669,7 +1671,6 @@ dependencies = [
  "chrono",
  "iroha_config",
  "iroha_error",
- "once_cell",
  "serde",
  "serde_json",
  "tracing",
@@ -2094,6 +2095,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "owo-colors"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2fe43bf372b08cc9ccee5144715db59c79ab00168bbe4cf0d274dc0d5f64d7f"
 
 [[package]]
 name = "parity-scale-codec"
