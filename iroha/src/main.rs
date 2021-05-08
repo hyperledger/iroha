@@ -3,14 +3,15 @@
 use async_std::task;
 use clap::{App, Arg};
 use iroha::{config::Configuration, permissions::AllowAll, Iroha};
-use iroha_error::Result;
+use iroha_error::Reporter;
 
 const CONFIGURATION_PATH: &str = "config.json";
 const GENESIS: &str = "genesis";
 
 #[async_std::main]
 #[allow(clippy::non_ascii_literal)]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Reporter> {
+    iroha_error::install_panic_reporter();
     iroha_logger::info!("Hyperledgerいろは2にようこそ！");
     // TODO Add more information about iroha2
     let matches = App::new("Hyperledger/iroha 2")

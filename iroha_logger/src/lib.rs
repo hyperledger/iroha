@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_std::sync::Receiver;
 use layer::LevelFilter;
-use once_cell::sync::Lazy;
 use telemetry::{Telemetry, TelemetryLayer};
 pub use tracing::instrument as log;
 use tracing::subscriber::set_global_default;
@@ -17,7 +16,7 @@ pub use tracing_futures::Instrument as InstrumentFutures;
 pub mod layer;
 pub mod telemetry;
 
-static LOGGER_SET: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
 /// Initializes `Logger` with given `LoggerConfiguration`.
 /// After the initialization `log` macros will print with the use of this `Logger`.
