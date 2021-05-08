@@ -9,7 +9,7 @@ use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
-use iroha_error::{error, Result, WrapErr};
+use iroha_error::{error, Reporter, Result, WrapErr};
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
@@ -23,10 +23,11 @@ const FILE_VALUE_NAME: &str = "FILE";
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST_MS: u64 = 100;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Reporter> {
+    iroha_error::install_panic_reporter();
     let matches = App::new("Iroha CLI Client")
         .version("0.1.0")
-        .author("Nikita Puzankov <puzankov@soramitsu.co.jp>")
+        .author("Soramitsu Iroha2 team (https://github.com/orgs/soramitsu/teams/iroha2)")
         .about("Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.")
         .arg(
             Arg::with_name(CONFIG)
@@ -344,7 +345,7 @@ mod account {
     fn signature_condition_from_file(
         path: impl AsRef<Path> + Debug,
     ) -> Result<SignatureCheckCondition> {
-        let file = File::open(path).wrap_err("Failed to open a file")?;
+        let file = File::open(path).wrap_err("Failed to open the signature condition file")?;
         let reader = BufReader::new(file);
         let condition: Box<Expression> =
             serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
@@ -357,8 +358,8 @@ mod account {
         metadata: UnlimitedMetadata,
     ) -> Result<()> {
         let account = Account::new(configuration.account_id.clone());
-        let condition = signature_condition_from_file(file)
-            .wrap_err("Failed to get signature condition from file")?;
+        let condition =
+            signature_condition_from_file(file).wrap_err("Failed to get signature condition")?;
         submit(
             MintBox::new(account, condition).into(),
             configuration,

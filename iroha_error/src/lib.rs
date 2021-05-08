@@ -74,7 +74,10 @@ use std::ops::{Deref, DerefMut};
 use std::result::Result as StdResult;
 
 pub use message_error::MessageError;
+pub use reporter::{install as install_panic_reporter, Reporter};
 pub use wrap_err::{WrapErr, WrappedError};
+
+pub mod reporter;
 
 /// Module with derive macroses
 pub mod derive {
@@ -152,6 +155,11 @@ impl Error {
     pub fn wrap_err(self, msg: impl Display + Send + Sync + 'static) -> Self {
         let error = self;
         WrappedError { msg, error }.into()
+    }
+
+    /// Constructs reporter from error
+    pub const fn report(self) -> Reporter {
+        Reporter(self)
     }
 
     /// Creates error from message
