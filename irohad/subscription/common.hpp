@@ -10,19 +10,13 @@
 #include <mutex>
 #include <shared_mutex>
 
-#ifdef _LIBCPP_VERSION
-namespace std {
+namespace iroha::utils {
 
   template <typename To, typename From>
   inline std::shared_ptr<To> reinterpret_pointer_cast(
       std::shared_ptr<From> const &ptr) noexcept {
     return std::shared_ptr<To>(ptr, reinterpret_cast<To *>(ptr.get()));
   }
-
-}  // namespace std
-#endif  //_LIBCPP_VERSION
-
-namespace iroha::utils {
 
   struct NoCopy {
     NoCopy(NoCopy const &) = delete;
