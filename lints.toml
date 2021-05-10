@@ -28,6 +28,7 @@ allow = [
     'clippy::enum_glob_use',
     'clippy::exhaustive_enums',
     'clippy::exhaustive_structs',
+	'clippy::else-if-without-else',
     'clippy::implicit_return',
     'clippy::indexing_slicing',
     'clippy::integer_arithmetic',
