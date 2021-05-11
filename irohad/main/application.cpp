@@ -100,11 +100,6 @@ static constexpr uint32_t kStaleStreamMaxRoundsDefault = 2;
 static constexpr uint32_t kMstExpirationTimeDefault = 1440;
 static constexpr uint32_t kMaxRoundsDelayDefault = 3000;
 
-namespace std {
-  template <class T>
-  weak_ptr(std::shared_ptr<T>)->weak_ptr<T>;
-}
-
 /**
  * Configuring iroha daemon
  */
@@ -861,21 +856,21 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
   storage->on_commit().subscribe(
-      [tx_processor(std::weak_ptr(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor))](
           std::shared_ptr<shared_model::interface::Block const> const &block) {
         if (auto maybe_tx_processor = tx_processor.lock()) {
           maybe_tx_processor->processCommit(block);
         }
       });
   mst_processor->onStateUpdate().subscribe(
-      [tx_processor(std::weak_ptr(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor))](
           std::shared_ptr<MstState> const &state) {
         if (auto maybe_tx_processor = tx_processor.lock()) {
           maybe_tx_processor->processStateUpdate(state);
         }
       });
   mst_processor->onPreparedBatches().subscribe(
-      [tx_processor(std::weak_ptr(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
         if (auto maybe_tx_processor = tx_processor.lock()) {
@@ -883,7 +878,7 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
         }
       });
   mst_processor->onExpiredBatches().subscribe(
-      [tx_processor(std::weak_ptr(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
         if (auto maybe_tx_processor = tx_processor.lock()) {
@@ -958,10 +953,10 @@ Irohad::RunResult Irohad::initWsvRestorer() {
  */
 Irohad::RunResult Irohad::run() {
   ordering_gate->onProposal().subscribe(
-      [simulator(std::weak_ptr(simulator)),
-       consensus_gate(std::weak_ptr(consensus_gate)),
-       tx_processor(std::weak_ptr(tx_processor)),
-       subscription(std::weak_ptr(getSubscription()))](
+      [simulator(utils::make_weak(simulator)),
+       consensus_gate(utils::make_weak(consensus_gate)),
+       tx_processor(utils::make_weak(tx_processor)),
+       subscription(utils::make_weak(getSubscription()))](
           network::OrderingEvent const &event) {
         auto maybe_simulator = simulator.lock();
         auto maybe_consensus_gate = consensus_gate.lock();
@@ -984,10 +979,10 @@ Irohad::RunResult Irohad::run() {
   using iroha::operator|;
 
   consensus_gate->onOutcome().subscribe(
-      [synchronizer(std::weak_ptr(synchronizer)),
+      [synchronizer(utils::make_weak(synchronizer)),
        sync_event_notifier(ordering_init.sync_event_notifier),
-       log(std::weak_ptr(log_)),
-       subscription(std::weak_ptr(getSubscription()))](
+       log(utils::make_weak(log_)),
+       subscription(utils::make_weak(getSubscription()))](
           consensus::GateObject object) {
         auto maybe_synchronizer = synchronizer.lock();
         auto maybe_log = log.lock();

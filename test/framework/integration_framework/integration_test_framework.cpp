@@ -423,9 +423,10 @@ namespace integration_framework {
             static_cast<iroha::SubscriptionEngineHandlers>(
                 decltype(iroha::getSubscription())::element_type::Dispatcher::
                     kExecuteInPool),
-            [verified_proposal_queue = std::weak_ptr(verified_proposal_queue_),
-             log = std::weak_ptr(log_)](auto,
-                                        auto verified_proposal_and_errors) {
+            [verified_proposal_queue(
+                 iroha::utils::make_weak(verified_proposal_queue_)),
+             log(iroha::utils::make_weak(log_))](
+                auto, auto verified_proposal_and_errors) {
               auto maybe_verified_proposal_queue =
                   verified_proposal_queue.lock();
               auto maybe_log = log.lock();
