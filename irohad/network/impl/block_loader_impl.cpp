@@ -38,7 +38,7 @@ namespace {
                             + std::chrono::minutes(1ull));
     }
 
-    std::variant<std::monostate,
+    std::variant<iteration_complete,
                  std::shared_ptr<const shared_model::interface::Block>,
                  std::string>
     read() override {
@@ -54,7 +54,7 @@ namespace {
           return fmt::format("Failed to read block: {}",
                              status.error_message());
         }
-        return std::monostate{};
+        return iteration_complete{};
       }
 
       auto maybe_block =
