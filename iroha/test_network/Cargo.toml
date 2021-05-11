@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 tempfile = "3"
-unique_port = { version = "0.1.0", git = "https://github.com/soramitsu/iroha2-unique_port" }
+unique_port = "0.1.0"
 iroha = { path = "../../iroha" }
 iroha_client = { path = "../../iroha_client" }
 iroha_data_model = { path = "../../iroha_data_model" }
