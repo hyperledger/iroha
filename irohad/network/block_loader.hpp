@@ -17,11 +17,12 @@ namespace iroha {
     class BlockReader {
      public:
       /**
-       * Try to read the next block. Returns monostate when the iteration is
-       * completed, std::string when an error occurred
+       * Try to read the next block. Returns iteration_complete when the
+       * iteration is completed, std::string when an error occurred
        */
+      struct iteration_complete {};
       virtual std::variant<
-          std::monostate,
+          iteration_complete,
           std::shared_ptr<const shared_model::interface::Block>,
           std::string>
       read() = 0;
