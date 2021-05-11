@@ -73,7 +73,7 @@ namespace iroha::subscription {
         {
           std::shared_lock lock(engines_cs_);
           for (auto &descriptor : engines_)
-            std::reinterpret_pointer_cast<IDisposable>(descriptor.second)
+            utils::reinterpret_pointer_cast<IDisposable>(descriptor.second)
                 ->dispose();
         }
         dispatcher_->dispose();
@@ -97,12 +97,12 @@ namespace iroha::subscription {
       {
         std::shared_lock lock(engines_cs_);
         if (auto it = engines_.find(engineId); it != engines_.end()) {
-          return std::reinterpret_pointer_cast<EngineType>(it->second);
+          return utils::reinterpret_pointer_cast<EngineType>(it->second);
         }
       }
       std::unique_lock lock(engines_cs_);
       if (auto it = engines_.find(engineId); it != engines_.end()) {
-        return std::reinterpret_pointer_cast<EngineType>(it->second);
+        return utils::reinterpret_pointer_cast<EngineType>(it->second);
       }
 
       /// To be sure IDisposable is the first base class, because of later cast
@@ -113,7 +113,7 @@ namespace iroha::subscription {
                     reinterpret_cast<EngineType *>(0x1))));
 
       auto obj = std::make_shared<EngineType>(dispatcher_);
-      engines_[engineId] = std::reinterpret_pointer_cast<void>(obj);
+      engines_[engineId] = utils::reinterpret_pointer_cast<void>(obj);
       return obj;
     }
 
@@ -151,7 +151,7 @@ namespace iroha::subscription {
       {
         std::shared_lock lock(engines_cs_);
         if (auto it = engines_.find(engineId); it != engines_.end())
-          engine = std::reinterpret_pointer_cast<EngineType>(it->second);
+          engine = utils::reinterpret_pointer_cast<EngineType>(it->second);
         else
           return;
       }
