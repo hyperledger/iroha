@@ -25,7 +25,7 @@ jobs:
           lscpu
           free -h
       - name: Install cargo-lints
-        run: cargo install --debug --git https://github.com/i1i1/cargo-lints
+        run: cargo install --debug cargo-lints
       - name: Install nightly for rustfmt
         run: rustup install --profile default nightly-2021-03-24
       - name: Format check
