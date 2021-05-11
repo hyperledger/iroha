@@ -112,8 +112,8 @@ namespace {
       HeightType ending_height) {
     for (auto height = starting_height; height <= ending_height; ++height) {
       auto result = block_query.getBlock(height);
-      if (auto e = iroha::expected::resultToOptionalError(result)) {
-        return iroha::expected::makeError(std::move(e).value().message);
+      if (hasError(result)) {
+        return std::move(result.assumeError().message);
       }
 
       auto block = std::move(result).assumeValue();
@@ -215,13 +215,13 @@ namespace iroha::ametsuchi {
                             -> expected::Result<void, std::string> {
                           return std::move(error).error.message;
                         });
-            if (auto e = expected::resultToOptionalError(check_top_block)) {
+            if (hasError(check_top_block)) {
               return fmt::format(
                   "WSV top block (height {}) check failed: {} "
                   "Please check that WSV matches block storage "
                   "or avoid reusing WSV.",
                   wsv_ledger_height,
-                  e.value());
+                  check_top_block.assumeError());
             }
           } else {
             wsv_ledger_height = 0;

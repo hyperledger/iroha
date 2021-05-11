@@ -18,6 +18,11 @@ namespace iroha::utils {
     return std::shared_ptr<To>(ptr, reinterpret_cast<To *>(ptr.get()));
   }
 
+  template <typename T>
+  inline std::weak_ptr<T> make_weak(std::shared_ptr<T> const &ptr) noexcept {
+    return ptr;
+  }
+
   struct NoCopy {
     NoCopy(NoCopy const &) = delete;
     NoCopy &operator=(NoCopy const &) = delete;
@@ -37,17 +42,17 @@ namespace iroha::utils {
    * Example:
    * @code
    *  ReadWriteObject<std::string> obj("1");
-   *  bool const is_one_att1 = 
-   *      obj.sharedAccess([](auto const &str) { 
-   *          return str == "1"; 
-   *      }); 
-   *  obj.exclusiveAccess([](auto &str) { 
-   *      str = "2"; 
-   *  }); 
-   *  bool const is_one_att2 = 
-   *      obj.sharedAccess([](auto const &str) { 
-   *          return str == "1"; 
-   *      }); 
+   *  bool const is_one_att1 =
+   *      obj.sharedAccess([](auto const &str) {
+   *          return str == "1";
+   *      });
+   *  obj.exclusiveAccess([](auto &str) {
+   *      str = "2";
+   *  });
+   *  bool const is_one_att2 =
+   *      obj.sharedAccess([](auto const &str) {
+   *          return str == "1";
+   *      });
    *
    * std::cout <<
    *   "Attempt 1: " << is_one_att1 << std::endl <<

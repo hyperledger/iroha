@@ -187,14 +187,14 @@ class TestBlockReader : public BlockReader {
       std::vector<std::shared_ptr<const shared_model::interface::Block>> blocks)
       : blocks_(blocks), it_(blocks_.begin()) {}
 
-  std::variant<std::monostate,
+  std::variant<iteration_complete,
                std::shared_ptr<const shared_model::interface::Block>,
                std::string>
   read() override {
     if (it_ != blocks_.end()) {
       return *it_++;
     }
-    return std::monostate{};
+    return iteration_complete{};
   }
 
  private:
