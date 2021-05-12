@@ -1,7 +1,10 @@
 //! This module provides `WorldStateView` - in-memory representations of the current blockchain
 //! state.
 
-use async_std::sync::{Arc, RwLock, RwLockReadGuard};
+use async_std::{
+    sync::{Arc, RwLock, RwLockReadGuard},
+    task,
+};
 use config::Configuration;
 use dashmap::{
     mapref::one::{Ref as DashmapRef, RefMut as DashmapRefMut},
@@ -87,6 +90,9 @@ impl WorldStateView {
                 iroha_logger::warn!("Failed to proceed transaction on WSV: {}", e);
             }
             let _ = self.transactions.insert(transaction.hash());
+            // Yeild control cooperatively to the task scheduler.
+            // The transaction processing is a long CPU intensive task, so this should be included here.
+            task::yield_now().await;
         }
         for rejected_transaction in &block.as_inner_v1().rejected_transactions {
             let _ = self.transactions.insert(rejected_transaction.hash());

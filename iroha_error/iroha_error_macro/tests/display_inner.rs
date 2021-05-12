@@ -22,5 +22,5 @@ fn display_inner() {
     assert_eq!(
         Error::A(ErrorInner).to_string(),
         "This is A. Caused by: This is inner.".to_owned()
-    )
+    );
 }
