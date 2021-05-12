@@ -65,7 +65,7 @@ pub struct Sumeragi {
     /// Number of view changes after the previous block was committed
     number_of_view_changes: u32,
     invalidated_blocks_hashes: Vec<Hash>,
-    permissions_validator: PermissionsValidatorBox,
+    permissions_validator: Arc<PermissionsValidatorBox>,
     n_topology_shifts_before_reshuffle: u32,
     max_instruction_number: usize,
 }
@@ -108,7 +108,7 @@ impl Sumeragi {
             block_height: 0,
             number_of_view_changes: 0,
             invalidated_blocks_hashes: Vec::new(),
-            permissions_validator,
+            permissions_validator: Arc::new(permissions_validator),
             n_topology_shifts_before_reshuffle: configuration.n_topology_shifts_before_reshuffle,
             max_instruction_number: configuration.max_instruction_number,
         })
@@ -968,16 +968,21 @@ pub mod message {
                         sumeragi.block_height,
                         sumeragi.max_instruction_number,
                     ) {
-                        let wsv = &sumeragi.world_state_view;
-                        if let Err(e) = VersionedMessage::from(Message::BlockSigned(
-                            self.block
-                                .clone()
-                                .revalidate(&*wsv, &sumeragi.permissions_validator)
-                                .sign(&sumeragi.key_pair)?
-                                .into(),
-                        ))
-                        .send_to(network_topology.proxy_tail())
-                        .await
+                        let block_clone = self.block.clone();
+                        let wsv_clone = Arc::clone(&sumeragi.world_state_view);
+                        let permission_validator_clone =
+                            Arc::clone(&sumeragi.permissions_validator);
+                        let key_pair_clone = sumeragi.key_pair.clone();
+                        let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
+                            block_clone
+                                .revalidate(&*wsv_clone, &*permission_validator_clone)
+                                .sign(&key_pair_clone)
+                                .map(Into::into)
+                        })
+                        .await?;
+                        if let Err(e) = VersionedMessage::from(Message::BlockSigned(signed_block))
+                            .send_to(network_topology.proxy_tail())
+                            .await
                         {
                             iroha_logger::error!(
                                 "Failed to send BlockSigned message to the proxy tail: {:?}",

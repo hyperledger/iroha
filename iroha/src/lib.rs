@@ -319,7 +319,7 @@ impl Iroha {
     }
 }
 
-/// Allow to check if item included in blockchain
+/// Allow to check if an item is included in a blockchain.
 pub trait IsInBlockchain {
     /// Checks if this item has already been committed or rejected.
     fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool;
