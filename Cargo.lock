@@ -1174,6 +1174,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1683,6 +1694,17 @@ dependencies = [
  "quote",
  "syn",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_futures"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "futures_derive",
+ "iroha_logger",
+ "rand 0.8.3",
+ "serde_json",
 ]
 
 [[package]]
