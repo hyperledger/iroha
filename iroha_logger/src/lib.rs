@@ -55,62 +55,70 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
 
 /// Macro for sending telemetry info
 #[macro_export]
+macro_rules! telemetry_target {
+    () => {
+        concat!("telemetry::", module_path!())
+    };
+}
+
+/// Macro for sending telemetry info
+#[macro_export]
 macro_rules! telemetry {
     // All arguments match arms are from info macro
     () => {
-        $crate::info!(target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),)
+        $crate::info!(target: iroha_logger::telemetry_target!(),)
     };
     ($($k:ident).+ = $($field:tt)*) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             $($k).+ = $($field)*
         )
     );
     (?$($k:ident).+ = $($field:tt)*) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             ?$($k).+ = $($field)*
         )
     );
     (%$($k:ident).+ = $($field:tt)*) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             %$($k).+ = $($field)*
         )
     );
     ($($k:ident).+, $($field:tt)*) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             $($k).+, $($field)*
         )
     );
     (?$($k:ident).+, $($field:tt)*) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             ?$($k).+, $($field)*
         )
     );
     (%$($k:ident).+, $($field:tt)*) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             %$($k).+, $($field)*
         )
     );
     (?$($k:ident).+) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             ?$($k).+
         )
     );
     (%$($k:ident).+) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             %$($k).+
         )
     );
     ($($k:ident).+) => (
         $crate::info!(
-            target: concat!(iroha_logger::telemetry::TELEMETRY_TARGET_PREFIX, module_path!()),
+			target: iroha_logger::telemetry_target!(),
             $($k).+
         )
     );
