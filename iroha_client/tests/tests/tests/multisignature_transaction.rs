@@ -12,7 +12,7 @@ mod tests {
     use iroha_data_model::prelude::*;
     use test_network::*;
 
-    const N_PEERS: usize = 4;
+    const N_PEERS: u32 = 4;
 
     #[allow(clippy::too_many_lines)]
     #[test]

@@ -63,38 +63,44 @@ const GENESIS_PATH: &str = "tests/genesis.json";
 impl Network {
     /// Starts network with peers with default configuration and specified options.
     /// Returns its info and client for connecting to it.
-    #[allow(clippy::clippy::cast_possible_truncation)]
-    pub fn start_test(n_peers: usize, maximum_transactions_in_block: u32) -> (Self, Client) {
+    pub fn start_test(n_peers: u32, maximum_transactions_in_block: u32) -> (Self, Client) {
+        Self::start_test_with_offline(n_peers, maximum_transactions_in_block, 0)
+    }
+
+    /// Starts network with peers with default configuration and specified options.
+    /// Returns its info and client for connecting to it.
+    pub fn start_test_with_offline_and_set_max_faults(
+        n_peers: u32,
+        maximum_transactions_in_block: u32,
+        offline_peers: u32,
+        max_faulty_peers: u32,
+    ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        // Calculates max faulty peers based on consensus requirements
-        configuration.sumeragi_configuration.max_faulty_peers = ((n_peers - 1) / 3) as u32;
         configuration
             .queue_configuration
             .maximum_transactions_in_block = maximum_transactions_in_block;
-        let network =
-            Network::new(Some(configuration), n_peers).expect("Failed to initialize peers.");
+        configuration.sumeragi_configuration.max_faulty_peers = max_faulty_peers;
+        let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
+            .expect("Failed to init peers");
         let client = Client::test(&network.genesis.api_address);
         (network, client)
     }
 
     /// Starts network with peers with default configuration and specified options.
     /// Returns its info and client for connecting to it.
-    #[allow(clippy::clippy::cast_possible_truncation)]
     pub fn start_test_with_offline(
-        n_peers: usize,
+        n_peers: u32,
         maximum_transactions_in_block: u32,
-        offline_peers: usize,
+        offline_peers: u32,
     ) -> (Self, Client) {
-        let mut configuration = Configuration::test();
-        // Reverse consensus
-        configuration.sumeragi_configuration.max_faulty_peers = ((n_peers - 1) / 3) as u32;
-        configuration
-            .queue_configuration
-            .maximum_transactions_in_block = maximum_transactions_in_block;
-        let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
-            .expect("Failed to init peers");
-        let client = Client::test(&network.genesis.api_address);
-        (network, client)
+        // Calculates max faulty peers based on consensus requirements
+        let max_faulty_peers: u32 = (n_peers - 1) / 3;
+        Self::start_test_with_offline_and_set_max_faults(
+            n_peers,
+            maximum_transactions_in_block,
+            offline_peers,
+            max_faulty_peers,
+        )
     }
 
     /// Adds peer to network
@@ -119,8 +125,8 @@ impl Network {
     /// Panics if fails to find or decode default configuration
     pub fn new_with_offline_peers(
         default_configuration: Option<Configuration>,
-        n_peers: usize,
-        offline_peers: usize,
+        n_peers: u32,
+        offline_peers: u32,
     ) -> Result<Self> {
         let n_peers = n_peers - 1;
         let genesis = Peer::new()?;
@@ -149,7 +155,7 @@ impl Network {
         let online_peers = n_peers - offline_peers;
 
         peers
-            .choose_multiple(rng, online_peers)
+            .choose_multiple(rng, online_peers as usize)
             .zip(std::iter::repeat_with(|| configuration.clone()))
             .for_each(|(peer, configuration)| {
                 drop(peer.start_with_config(configuration));
@@ -165,7 +171,7 @@ impl Network {
     }
 
     /// Creates new network from configuration and with that number of peers
-    pub fn new(default_configuration: Option<Configuration>, n_peers: usize) -> Result<Self> {
+    pub fn new(default_configuration: Option<Configuration>, n_peers: u32) -> Result<Self> {
         Self::new_with_offline_peers(default_configuration, n_peers, 0)
     }
 }
@@ -326,8 +332,10 @@ impl Peer {
 pub trait TestConfiguration {
     /// Creates test configuration
     fn test() -> Self;
-    /// Returns default pipeline time
+    /// Returns default pipeline time.
     fn pipeline_time() -> Duration;
+    /// Returns default time between bocksync gossips for new blocks.
+    fn block_sync_gossip_time() -> Duration;
 }
 
 pub trait TestClientConfiguration {
@@ -364,18 +372,19 @@ pub trait TestClient: Sized {
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult;
 
-    /// Polls request till predicate `f` is satisfied
+    /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     fn poll_request(
         &mut self,
         request: &QueryRequest,
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult;
 
-    /// Polls request till predicate `f` is satisfied but also multiplies pipeline time with multiplier
-    fn poll_request_with_multiplier(
+    /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
+    fn poll_request_with_period(
         &mut self,
         request: &QueryRequest,
-        multiplier: u32,
+        period: Duration,
+        max_attempts: u32,
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult;
 }
@@ -395,6 +404,10 @@ impl TestConfiguration for Configuration {
 
     fn pipeline_time() -> Duration {
         Duration::from_millis(Self::test().sumeragi_configuration.pipeline_time_ms())
+    }
+
+    fn block_sync_gossip_time() -> Duration {
+        Duration::from_millis(Self::test().block_sync_configuration.gossip_period_ms)
     }
 }
 
@@ -458,17 +471,16 @@ impl TestClient for Client {
         self.poll_request(request, f)
     }
 
-    fn poll_request_with_multiplier(
+    fn poll_request_with_period(
         &mut self,
         request: &QueryRequest,
-        multiplier: u32,
+        period: Duration,
+        max_attempts: u32,
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult {
-        let tries = 10;
-        let pipeline_time = Configuration::pipeline_time() * multiplier / tries;
         let mut query_result = None;
-        for _ in 0..tries {
-            thread::sleep(pipeline_time);
+        for _ in 0..max_attempts {
+            thread::sleep(period);
             query_result = Some(self.request(request));
             if let Some(Ok(result)) = &query_result {
                 if f(result) {
@@ -484,7 +496,7 @@ impl TestClient for Client {
         request: &QueryRequest,
         f: impl Fn(&QueryResult) -> bool,
     ) -> QueryResult {
-        self.poll_request_with_multiplier(request, 2, f)
+        self.poll_request_with_period(request, Configuration::pipeline_time(), 10, f)
     }
 }
 
