@@ -91,12 +91,13 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
                 Ok(stream) => stream,
                 Err(_) => continue,
             };
-
-            let _drop = task::spawn(Self::start_handle(
-                self.state.clone(),
-                stream,
-                Arc::clone(&self.router),
-            ));
+            let state = self.state.clone();
+            let router = Arc::clone(&self.router);
+            let _drop = task::spawn(async move {
+                if let Err(err) = Self::start_handle(state, stream, router).await {
+                    iroha_logger::error!("Failed to handle HTTP request: {}", err);
+                }
+            });
         }
     }
 }

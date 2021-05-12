@@ -45,14 +45,18 @@ mod tests {
         thread::sleep(pipeline_time * 2);
 
         let (_, mut iroha_client) = network.add_peer();
-        thread::sleep(pipeline_time * 8);
 
         //Then
-        iroha_client.poll_request(&client::asset::by_account_id(account_id), |result| {
-            result
-                .find_asset_by_id(&asset_definition_id)
-                .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
-        });
+        iroha_client.poll_request_with_period(
+            &client::asset::by_account_id(account_id),
+            Configuration::block_sync_gossip_time(),
+            15,
+            |result| {
+                result
+                    .find_asset_by_id(&asset_definition_id)
+                    .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
+            },
+        );
         Ok(())
     }
 }

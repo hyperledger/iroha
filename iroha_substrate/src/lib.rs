@@ -5,6 +5,6 @@ mod tests {
     #[test]
     #[allow(clippy::eq_op)]
     fn it_works() {
-        assert_eq!(2 + 2, 4);
+        assert_eq!(2_u32 + 2_u32, 4_u32);
     }
 }
