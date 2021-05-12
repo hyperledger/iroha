@@ -116,6 +116,8 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
     return false;
   }
 
+  file->close();
+
   boost::system::error_code error_code;
   boost::filesystem::rename(tmp_file_name, file_name, error_code);
   if (error_code != boost::system::errc::success) {
