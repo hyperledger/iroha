@@ -8,6 +8,7 @@
 
 #include <gmock/gmock.h>
 #include "simulator/block_creator.hpp"
+#include "simulator/verified_proposal_creator_common.hpp"
 
 namespace iroha {
   namespace simulator {
