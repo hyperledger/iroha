@@ -142,6 +142,7 @@ impl Sumeragi {
     /// * transactions are empty
     /// * peer is not leader
     /// * there are already some blocks in blockchain
+    #[iroha_futures::telemetry_future]
     pub async fn start_genesis_round(
         &mut self,
         transactions: Vec<VersionedAcceptedTransaction>,
@@ -172,6 +173,7 @@ impl Sumeragi {
     ///
     /// # Errors
     /// Can fail during signing of block
+    #[iroha_futures::telemetry_future]
     pub async fn round(&mut self, transactions: Vec<VersionedAcceptedTransaction>) -> Result<()> {
         if transactions.is_empty() {
             return Ok(());
@@ -192,6 +194,7 @@ impl Sumeragi {
     }
 
     /// Forwards transactions to the leader and waits for receipts.
+    #[iroha_futures::telemetry_future]
     pub async fn forward_transactions_to_leader(
         &mut self,
         transactions: &[VersionedAcceptedTransaction],
@@ -273,6 +276,7 @@ impl Sumeragi {
     }
 
     /// Gossip transactions to other peers.
+    #[iroha_futures::telemetry_future]
     pub async fn gossip_transactions(&mut self, transactions: &[VersionedAcceptedTransaction]) {
         iroha_logger::debug!(
             "{:?} - Gossiping transactions. Number of transactions to forward: {}",
@@ -307,6 +311,7 @@ impl Sumeragi {
     ///
     /// # Errors
     /// Can fail signing block
+    #[iroha_futures::telemetry_future]
     pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
         let block = block.validate(&self.world_state_view, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
@@ -357,6 +362,7 @@ impl Sumeragi {
     }
 
     /// Starts countdown for a period in which the `voting_block` should be committed.
+    #[iroha_futures::telemetry_future]
     #[iroha_logger::log(skip(self, voting_block))]
     pub async fn start_commit_countdown(
         &self,
@@ -407,6 +413,7 @@ impl Sumeragi {
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
     #[iroha_logger::log(skip(self, block))]
+    #[iroha_futures::telemetry_future]
     pub async fn commit_block(&mut self, block: VersionedValidBlock) {
         let block_hash = block.hash();
         self.latest_block_hash = block_hash;
@@ -436,6 +443,7 @@ impl Sumeragi {
         self.votes_for_blocks.clear();
     }
 
+    #[iroha_futures::telemetry_future]
     async fn change_view(&mut self) {
         self.transactions_awaiting_created_block.clear();
         self.transactions_awaiting_receipts.clear();
@@ -846,6 +854,7 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         /// # Errors
         /// Fails if network sending fails
+        #[iroha_futures::telemetry_future]
         #[iroha_logger::log(skip(self))]
         pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             match Network::send_request_to(
@@ -866,6 +875,7 @@ pub mod message {
         /// Handles this message as part of `Sumeragi` consensus.
         /// # Errors
         /// Fails if message handling fails
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             self.as_inner_v1().handle(sumeragi).await
         }
@@ -898,6 +908,7 @@ pub mod message {
         /// # Errors
         /// Fails if message handling fails
         #[iroha_logger::log(skip(self, sumeragi))]
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             match self {
                 Message::BlockCreated(block_created) => block_created.handle(sumeragi).await,
@@ -939,6 +950,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail due to signing of block
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             // There should be only one block in discussion during a round.
             if sumeragi.voting_block.write().await.is_some() {
@@ -1047,6 +1059,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail due to signing of block
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             if let Role::ProxyTail = network_topology.role(&sumeragi.peer_id) {
@@ -1128,6 +1141,7 @@ pub mod message {
         ///
         /// # Errors
         /// Actually infallible
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             let network_topology = sumeragi.network_topology_current_or_genesis(&self.block);
             let verified_signatures = self.block.verified_signatures();
@@ -1217,6 +1231,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail due to signing of created block
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());
@@ -1330,6 +1345,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail while signing message
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());
@@ -1419,6 +1435,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail due to signing transaction
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if sumeragi.is_leader() {
                 if let Err(err) = VersionedMessage::from(Message::TransactionReceived(
@@ -1499,6 +1516,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail due to signing of block
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             // Implausible time in the future, means that the leader lies
             #[allow(clippy::expect_used)]
@@ -1609,6 +1627,7 @@ pub mod message {
         ///
         /// # Errors
         /// Can fail creating new signature
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, sumeragi: &mut Sumeragi) -> Result<()> {
             if !self.has_same_state(sumeragi) {
                 return Ok(());

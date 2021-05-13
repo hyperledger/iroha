@@ -89,6 +89,7 @@ impl BlockSynchronizer {
     }
 
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.
+    #[iroha_futures::telemetry_future]
     pub async fn continue_sync(&mut self) {
         if let State::InProgress(blocks, peer_id) = self.state.clone() {
             iroha_logger::info!(
@@ -197,6 +198,7 @@ pub mod message {
 
     impl Message {
         /// Handles the incoming message.
+        #[iroha_futures::telemetry_future]
         pub async fn handle(&self, block_sync: &mut BlockSynchronizer) {
             match self {
                 Message::LatestBlock(hash, peer) => {
@@ -250,6 +252,7 @@ pub mod message {
         }
 
         /// Send this message over the network to the specified `peer`.
+        #[iroha_futures::telemetry_future]
         #[log("TRACE")]
         pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             let message: VersionedMessage = self.into();

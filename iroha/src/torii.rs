@@ -164,6 +164,7 @@ impl Torii {
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
+    #[iroha_futures::telemetry_future]
     pub async fn start(&mut self) -> iroha_error::Result<()> {
         let state = self.create_state();
         let connections = Arc::clone(&state.consumers);
@@ -185,9 +186,6 @@ impl Torii {
         server
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
-        if let Some(telemetry) = &self.telemetry {
-            let _drop = task::spawn(Self::handle_telemetry(telemetry.clone()));
-        }
 
         let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
             Network::listen(
@@ -203,11 +201,6 @@ impl Torii {
         Ok(())
     }
 
-    async fn handle_telemetry(telemetry: Receiver<Telemetry>) {
-        while let Ok(telemetry) = telemetry.recv().await {
-            iroha_logger::info!(recieved_telemetry = ?telemetry);
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -224,6 +217,7 @@ struct ToriiState {
     sumeragi: Arc<RwLock<Sumeragi>>,
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_instructions(
     state: State<ToriiState>,
     _path_params: PathParams,
@@ -250,6 +244,7 @@ async fn handle_instructions(
     Ok(())
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_queries(
     state: State<ToriiState>,
     _path_params: PathParams,
@@ -268,6 +263,7 @@ async fn handle_queries(
     Ok(result)
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_health(
     _state: State<ToriiState>,
     _path_params: PathParams,
@@ -277,6 +273,7 @@ async fn handle_health(
     Json(Health::Healthy)
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_pending_transactions_on_leader(
     state: State<ToriiState>,
     _path_params: PathParams,
@@ -351,6 +348,7 @@ struct GetConfiguration {
     field: Vec<String>,
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_get_configuration(
     _state: State<ToriiState>,
     _path_params: PathParams,
@@ -372,6 +370,7 @@ async fn handle_get_configuration(
     .map_err(Error::Config)
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_metrics(
     state: State<ToriiState>,
     _path_params: PathParams,
@@ -387,6 +386,7 @@ async fn handle_metrics(
     }
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_subscription(
     state: State<ToriiState>,
     _path_params: PathParams,
@@ -398,6 +398,7 @@ async fn handle_subscription(
     Ok(())
 }
 
+#[iroha_futures::telemetry_future]
 async fn handle_requests(
     state: State<ToriiState>,
     stream: Box<dyn AsyncStream>,
@@ -413,6 +414,7 @@ async fn handle_requests(
     Ok(())
 }
 
+#[iroha_futures::telemetry_future]
 async fn consume_events(
     mut events_receiver: EventsReceiver,
     consumers: Arc<RwLock<Vec<Consumer>>>,
@@ -432,6 +434,7 @@ async fn consume_events(
     }
 }
 
+#[iroha_futures::telemetry_future]
 #[iroha_logger::log("TRACE")]
 async fn handle_request(
     state: State<ToriiState>,

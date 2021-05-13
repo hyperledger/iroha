@@ -44,6 +44,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     }
 
     /// Handles http/websocket connection
+    #[iroha_futures::telemetry_future]
     async fn start_handle(
         state: State,
         mut stream: TcpStream,
@@ -84,6 +85,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     ///
     /// # Errors
     /// Fails if accepting one of client fails
+    #[iroha_futures::telemetry_future]
     pub async fn start(&self, address: &str) -> iroha_error::Result<()> {
         let listener = TcpListener::bind(address).await?;
         loop {
@@ -346,6 +348,7 @@ pub mod http {
 
     impl HttpRequest {
         /// Process request
+        #[iroha_futures::telemetry_future]
         pub async fn process<State>(
             self,
             state: State,
