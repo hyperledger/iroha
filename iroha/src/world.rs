@@ -60,7 +60,7 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let role = self.object;
-            let _ = world_state_view.world.roles.insert(role.id.clone(), role);
+            drop(world_state_view.world.roles.insert(role.id.clone(), role));
             Ok(())
         }
     }
@@ -72,7 +72,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            let _ = world_state_view.world.roles.remove(&self.object_id);
+            drop(world_state_view.world.roles.remove(&self.object_id));
             for mut domain in world_state_view.domains().iter_mut() {
                 for account in domain.accounts.values_mut() {
                     let _ = account.roles.remove(&self.object_id);

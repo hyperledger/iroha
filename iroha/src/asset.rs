@@ -46,7 +46,7 @@ pub mod isi {
                 world_state_view,
                 AssetValueType::Quantity,
             )?;
-            let _ = world_state_view.asset_or_insert(&self.destination_id, 0_u32)?;
+            drop(world_state_view.asset_or_insert(&self.destination_id, 0_u32)?);
             world_state_view.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity
@@ -69,7 +69,7 @@ pub mod isi {
                 world_state_view,
                 AssetValueType::BigQuantity,
             )?;
-            let _ = world_state_view.asset_or_insert(&self.destination_id, 0_u128)?;
+            drop(world_state_view.asset_or_insert(&self.destination_id, 0_u128)?);
             world_state_view.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u128 = asset.try_as_mut()?;
                 *quantity = quantity
@@ -93,14 +93,14 @@ pub mod isi {
                 AssetValueType::Store,
             )?;
             let asset_metadata_limits = world_state_view.config.asset_metadata_limits;
-            let _ = world_state_view.asset_or_insert(&self.object_id, Metadata::new())?;
+            drop(world_state_view.asset_or_insert(&self.object_id, Metadata::new())?);
             world_state_view.modify_asset(&self.object_id, |asset| {
                 let store: &mut Metadata = asset.try_as_mut()?;
-                let _ = store.insert_with_limits(
+                drop(store.insert_with_limits(
                     self.key.clone(),
                     self.value.clone(),
                     asset_metadata_limits,
-                );
+                ));
                 Ok(())
             })?;
             Ok(())
@@ -164,9 +164,11 @@ pub mod isi {
             )?;
             world_state_view.modify_asset(&self.object_id, |asset| {
                 let store: &mut Metadata = asset.try_as_mut()?;
-                let _ = store
-                    .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                drop(
+                    store
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?,
+                );
                 Ok(())
             })?;
             Ok(())
@@ -200,7 +202,7 @@ pub mod isi {
                     .ok_or_else(|| error!("Source account does not have enough asset quantity."))?;
                 Ok(())
             })?;
-            let _ = world_state_view.asset_or_insert(&self.destination_id, 0_u32);
+            drop(world_state_view.asset_or_insert(&self.destination_id, 0_u32));
             world_state_view.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity

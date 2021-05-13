@@ -55,7 +55,7 @@ pub mod isi {
                     .iter()
                     .position(|key| key == &public_key)
                 {
-                    let _ = account.signatories.remove(index);
+                    drop(account.signatories.remove(index));
                 }
                 Ok(())
             })?;
@@ -72,11 +72,11 @@ pub mod isi {
             let account_metadata_limits = world_state_view.config.account_metadata_limits;
             let id = self.object_id.clone();
             world_state_view.modify_account(&id, |account| {
-                let _ = account.metadata.insert_with_limits(
+                drop(account.metadata.insert_with_limits(
                     self.key.clone(),
                     self.value,
                     account_metadata_limits,
-                );
+                ));
                 Ok(())
             })?;
             Ok(())
@@ -90,10 +90,12 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             world_state_view.modify_account(&self.object_id, |account| {
-                let _ = account
-                    .metadata
-                    .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                drop(
+                    account
+                        .metadata
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?,
+                );
                 Ok(())
             })?;
             Ok(())
@@ -122,11 +124,13 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
-            let _ = world_state_view
-                .world()
-                .roles
-                .get(&self.object)
-                .ok_or_else(|| FindError::Role(self.object.clone()))?;
+            drop(
+                world_state_view
+                    .world()
+                    .roles
+                    .get(&self.object)
+                    .ok_or_else(|| FindError::Role(self.object.clone()))?,
+            );
 
             let id = self.destination_id.clone();
             world_state_view.modify_account(&id, |account| {

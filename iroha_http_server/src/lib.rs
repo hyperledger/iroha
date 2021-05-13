@@ -1084,7 +1084,7 @@ mod tests {
     fn stateful_server() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
         let _drop = task::spawn(async move {
-            let state = Arc::new(RwLock::new(0));
+            let state = Arc::new(RwLock::new(0_i32));
             let mut server = Server::new(state);
             server.at("/add/:num").get(
                 |state: Arc<RwLock<i32>>,

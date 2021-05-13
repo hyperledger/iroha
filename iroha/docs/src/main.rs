@@ -44,7 +44,7 @@ where
         field: &mut Vec<String>,
         depth: usize,
     ) -> Result<()> {
-        let cur_field = {
+        let current_field = {
             let mut docs = docs;
             for f in &*field {
                 docs = match &docs[f] {
@@ -55,7 +55,7 @@ where
             docs
         };
 
-        for (f, value) in cur_field {
+        for (f, value) in current_field {
             field.push(f.clone());
             let get_field = field.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
             let (doc, inner) = match value {
@@ -84,7 +84,7 @@ where
                 Self::get_md_with_depth(writer, docs, field, depth + 1)?;
             }
 
-            let _ = field.pop();
+            drop(field.pop());
         }
         Ok(())
     }
