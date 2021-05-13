@@ -289,7 +289,7 @@ impl WorldStateView {
     pub fn add_asset(&self, asset: Asset) -> Result<()> {
         let id = asset.id.account_id.clone();
         self.modify_account(&id, move |account| {
-            let _ = account.assets.insert(asset.id.clone(), asset);
+            drop(account.assets.insert(asset.id.clone(), asset));
             Ok(())
         })
     }

@@ -199,12 +199,13 @@ impl Client {
         let (sender, receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions, metadata)?;
         let hash = transaction.hash();
-        let _ = thread::spawn(move || -> iroha_error::Result<()> {
+        let _handle = thread::spawn(move || -> iroha_error::Result<()> {
             for event in client
                 .listen_for_events(PipelineEventFilter::by_hash(hash).into())
                 .wrap_err("Failed to initialize iterator.")?
+                .flatten()
             {
-                if let Ok(Event::Pipeline(event)) = event {
+                if let Event::Pipeline(event) = event {
                     match event.status {
                         PipelineStatus::Validating => {}
                         PipelineStatus::Rejected(reason) => sender

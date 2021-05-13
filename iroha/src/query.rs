@@ -204,11 +204,11 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id);
         let mut store = Metadata::new();
-        let _ = store.insert_with_limits(
+        drop(store.insert_with_limits(
             "Bytes".to_owned(),
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
             MetadataLimits::new(10, 100),
-        );
+        ));
         wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
         let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_owned()).execute(&wsv)?;
         assert_eq!(
@@ -223,11 +223,11 @@ mod tests {
         let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
         wsv.modify_account(&account_id, |account| {
-            let _ = account.metadata.insert_with_limits(
+            drop(account.metadata.insert_with_limits(
                 "Bytes".to_string(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
-            )?;
+            )?);
             Ok(())
         })?;
         let bytes =

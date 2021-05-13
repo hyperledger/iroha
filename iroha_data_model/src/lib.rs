@@ -1224,7 +1224,7 @@ pub mod asset {
             limits: MetadataLimits,
         ) -> Result<Self> {
             let mut store = Metadata::new();
-            let _ = store.insert_with_limits(key, value, limits)?;
+            drop(store.insert_with_limits(key, value, limits)?);
             Ok(Asset {
                 id,
                 value: store.into(),
@@ -2112,10 +2112,10 @@ pub mod pagination {
         fn from(pagination: Pagination) -> Self {
             let mut query_params = Self::new();
             if let Some(start) = pagination.start {
-                let _ = query_params.insert(PAGINATION_START.to_owned(), start.to_string());
+                drop(query_params.insert(PAGINATION_START.to_owned(), start.to_string()));
             }
             if let Some(limit) = pagination.limit {
-                let _ = query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string());
+                drop(query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string()));
             }
             query_params
         }
@@ -2146,72 +2146,72 @@ pub mod pagination {
         #[test]
         fn empty() {
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(None, None))
                     .collect::<Vec<_>>(),
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
             )
         }
 
         #[test]
         fn start() {
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(Some(0), None))
                     .collect::<Vec<_>>(),
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
             );
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(Some(1), None))
                     .collect::<Vec<_>>(),
-                vec![2, 3]
+                vec![2_i32, 3_i32]
             );
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(Some(3), None))
                     .collect::<Vec<_>>(),
-                Vec::<usize>::new()
+                Vec::<i32>::new()
             );
         }
 
         #[test]
         fn limit() {
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(None, Some(0)))
                     .collect::<Vec<_>>(),
-                Vec::<usize>::new()
+                Vec::<i32>::new()
             );
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(None, Some(2)))
                     .collect::<Vec<_>>(),
-                vec![1, 2]
+                vec![1_i32, 2_i32]
             );
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(None, Some(4)))
                     .collect::<Vec<_>>(),
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
             );
         }
 
         #[test]
         fn start_and_limit() {
             assert_eq!(
-                vec![1, 2, 3]
+                vec![1_i32, 2_i32, 3_i32]
                     .into_iter()
                     .paginate(Pagination::new(Some(1), Some(1)))
                     .collect::<Vec<_>>(),
-                vec![2]
+                vec![2_i32]
             )
         }
     }

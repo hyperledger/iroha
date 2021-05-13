@@ -457,7 +457,7 @@ impl Signatures {
     /// Adds multiple signatures and replaces the duplicates.
     pub fn append(&mut self, signatures: &[Signature]) {
         for signature in signatures.iter().cloned() {
-            self.add(signature.clone())
+            self.add(signature.clone());
         }
     }
 
@@ -475,7 +475,7 @@ impl Signatures {
 
     /// Removes all signatures
     pub fn clear(&mut self) {
-        self.signatures.clear()
+        self.signatures.clear();
     }
 
     /// Returns signatures that have passed verification.
