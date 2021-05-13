@@ -1,7 +1,6 @@
 //! `Maintenance` module provides structures and implementation blocks related to `Iroha`
 //! maintenance functions like Healthcheck, Monitoring, etc.
 
-use async_std::task;
 use iroha_derive::Io;
 use iroha_error::Result;
 use parity_scale_codec::{Decode, Encode};
@@ -28,9 +27,9 @@ impl System {
     ///
     /// # Errors
     ///
-    pub fn scrape_metrics(&self) -> Result<Metrics> {
+    pub async fn scrape_metrics(&self) -> Result<Metrics> {
         let mut metrics = Metrics::new(&self.configuration);
-        metrics.calculate()?;
+        metrics.calculate().await?;
         Ok(metrics)
     }
 }
@@ -67,22 +66,20 @@ impl Metrics {
     ///
     /// # Errors
     /// Can fail during cpu and memory usage calculations
-    pub fn calculate(&mut self) -> Result<()> {
-        self.disk.calculate()?;
-        task::block_on(async {
-            self.cpu.calculate().await?;
-            self.memory.calculate().await
-        })?;
+    pub async fn calculate(&mut self) -> Result<()> {
+        self.disk.calculate().await?;
+        self.cpu.calculate().await?;
+        self.memory.calculate().await?;
         Ok(())
     }
 }
 
 mod disk {
-    use std::fs::read_dir;
-
     use iroha_derive::Io;
     use iroha_error::{Result, WrapErr};
     use parity_scale_codec::{Decode, Encode};
+    use tokio::fs::read_dir;
+    use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
     use crate::kura::config::KuraConfiguration;
 
@@ -100,11 +97,14 @@ mod disk {
             }
         }
 
-        pub fn calculate(&mut self) -> Result<()> {
+        pub async fn calculate(&mut self) -> Result<()> {
             let mut total_size: u64 = 0;
-            for entry in read_dir(&self.block_storage_path)
-                .wrap_err("Failed to read block storage directoru")?
-            {
+            let mut stream = ReadDirStream::new(
+                read_dir(&self.block_storage_path)
+                    .await
+                    .wrap_err("Failed to read block storage directoru")?,
+            );
+            while let Some(entry) = stream.next().await {
                 let path = entry.wrap_err("Failed to retrieve entry path")?.path();
                 if path.is_file() {
                     total_size += path
@@ -202,7 +202,7 @@ mod memory {
 
         use super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn test_calculate_memory() {
             let mut memory = Memory::default();
             memory

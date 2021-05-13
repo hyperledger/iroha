@@ -8,7 +8,7 @@ use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_error::{derive::Error, Error, Result};
 use iroha_http_server::http::{
-    HttpRequest, HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST,
+    HttpResponseError, RawHttpRequest, StatusCode, HTTP_CODE_BAD_REQUEST,
     HTTP_CODE_INTERNAL_SERVER_ERROR,
 };
 use iroha_version::{scale::DecodeVersioned, Version};
@@ -108,10 +108,10 @@ impl HttpResponseError for AcceptQueryError {
     }
 }
 
-impl TryFrom<&HttpRequest> for VerifiedQueryRequest {
+impl TryFrom<&RawHttpRequest> for VerifiedQueryRequest {
     type Error = AcceptQueryError;
 
-    fn try_from(request: &HttpRequest) -> Result<Self, Self::Error> {
+    fn try_from(request: &RawHttpRequest) -> Result<Self, Self::Error> {
         let query = VersionedSignedQueryRequest::decode_versioned(&request.body)
             .map_err(AcceptQueryError::DecodeVersionedSignedQuery)?;
         let version = query.version();
@@ -124,10 +124,10 @@ impl TryFrom<&HttpRequest> for VerifiedQueryRequest {
         VerifiedQueryRequest::try_from(query).map_err(AcceptQueryError::VerifyQuery)
     }
 }
-impl TryFrom<HttpRequest> for VerifiedQueryRequest {
+impl TryFrom<RawHttpRequest> for VerifiedQueryRequest {
     type Error = AcceptQueryError;
 
-    fn try_from(request: HttpRequest) -> Result<Self, Self::Error> {
+    fn try_from(request: RawHttpRequest) -> Result<Self, Self::Error> {
         Self::try_from(&request)
     }
 }

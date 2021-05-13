@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+
 use std::ops::Not;
 use std::thread;
 
@@ -42,7 +44,6 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     Ok(())
 }
 
-// BUG: 33 blocks created!!!
 #[test]
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
     let (_, mut test_client) = TestPeer::start_test();

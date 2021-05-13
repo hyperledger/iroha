@@ -3,24 +3,20 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use async_std::{
-    prelude::*,
-    sync::{Receiver, RwLock},
-    task,
-};
 use config::ToriiConfiguration;
 use iroha_config::derive::Error as ConfigError;
 use iroha_config::Configurable;
 use iroha_data_model::prelude::*;
 use iroha_error::{derive::Error, error};
 use iroha_http_server::{http::Json, prelude::*, web_socket::WebSocketStream, Server};
-use iroha_logger::{telemetry::Telemetry, InstrumentFutures};
+use iroha_logger::InstrumentFutures;
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
 use iroha_network::prelude::*;
 use iroha_version::prelude::*;
 use serde::{Deserialize, Serialize};
+use tokio::{sync::RwLock, task};
 
 use crate::{
     block_sync::message::VersionedMessage as BlockSyncVersionedMessage,
@@ -47,7 +43,6 @@ pub struct Torii {
     events_receiver: EventsReceiver,
     transactions_queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
-    telemetry: Option<Receiver<Telemetry>>,
 }
 
 /// Errors of torii
@@ -118,7 +113,6 @@ impl Torii {
         transactions_queue: Arc<RwLock<Queue>>,
         sumeragi: Arc<RwLock<Sumeragi>>,
         (events_sender, events_receiver): (EventsSender, EventsReceiver),
-        telemetry: Option<Receiver<Telemetry>>,
     ) -> Self {
         Torii {
             config,
@@ -131,7 +125,6 @@ impl Torii {
             events_receiver,
             transactions_queue,
             sumeragi,
-            telemetry,
         }
     }
 
@@ -165,7 +158,7 @@ impl Torii {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(&mut self) -> iroha_error::Result<()> {
+    pub async fn start(self) -> iroha_error::Result<()> {
         let state = self.create_state();
         let connections = Arc::clone(&state.consumers);
         let state = Arc::new(RwLock::new(state));
@@ -187,14 +180,14 @@ impl Torii {
             .at(uri::SUBSCRIPTION_URI)
             .web_socket(handle_subscription);
 
-        let (handle_requests_result, http_server_result, _event_consumer_result) = futures::join!(
+        let (handle_requests_result, http_server_result, _event_consumer_result) = tokio::join!(
             Network::listen(
                 Arc::clone(&state),
                 &self.config.torii_p2p_url,
                 handle_requests
             ),
             server.start(&self.config.torii_api_url),
-            consume_events(self.events_receiver.clone(), connections),
+            consume_events(self.events_receiver, connections),
         );
         handle_requests_result?;
         http_server_result?;
@@ -221,7 +214,7 @@ async fn handle_instructions(
     state: State<ToriiState>,
     _path_params: PathParams,
     _query_params: QueryParams,
-    request: HttpRequest,
+    request: RawHttpRequest,
 ) -> Result<()> {
     if request.body.len() > state.read().await.config.torii_max_transaction_size {
         return Err(Error::TxTooBig);
@@ -234,12 +227,18 @@ async fn handle_instructions(
         state.read().await.config.torii_max_instruction_number,
     )
     .map_err(Error::AcceptTransaction)?;
-    state
+    if let Err(err) = state
         .write()
         .await
         .transaction_sender
         .send(transaction)
-        .await;
+        .await
+    {
+        iroha_logger::error!(
+            "Failed to send transaction over channel from torii. {}",
+            err
+        )
+    }
     Ok(())
 }
 
@@ -267,7 +266,7 @@ async fn handle_health(
     _state: State<ToriiState>,
     _path_params: PathParams,
     _query_params: QueryParams,
-    _request: HttpRequest,
+    _request: RawHttpRequest,
 ) -> Json<Health> {
     Json(Health::Healthy)
 }
@@ -277,7 +276,7 @@ async fn handle_pending_transactions_on_leader(
     state: State<ToriiState>,
     _path_params: PathParams,
     pagination: Pagination,
-    _request: HttpRequest,
+    _request: RawHttpRequest,
 ) -> Result<VersionedPendingTransactions> {
     let PendingTransactions(pending_transactions) =
         if state.read().await.sumeragi.read().await.is_leader() {
@@ -374,9 +373,17 @@ async fn handle_metrics(
     state: State<ToriiState>,
     _path_params: PathParams,
     _query_params: QueryParams,
-    _request: HttpRequest,
+    _request: RawHttpRequest,
 ) -> Result<HttpResponse> {
-    match state.read().await.system.read().await.scrape_metrics() {
+    match state
+        .read()
+        .await
+        .system
+        .read()
+        .await
+        .scrape_metrics()
+        .await
+    {
         Ok(metrics) => Ok(HttpResponse::ok(Headers::new(), metrics.into())),
         Err(e) => {
             iroha_logger::error!("Failed to scrape metrics: {}", e);
@@ -409,7 +416,7 @@ async fn handle_requests(
         }
     })
     .in_current_span()
-    .await;
+    .await?;
     Ok(())
 }
 
@@ -418,7 +425,7 @@ async fn consume_events(
     mut events_receiver: EventsReceiver,
     consumers: Arc<RwLock<Vec<Consumer>>>,
 ) {
-    while let Some(change) = events_receiver.next().await {
+    while let Some(change) = events_receiver.recv().await {
         iroha_logger::trace!("Event occurred: {:?}", change);
         let mut open_connections = Vec::new();
         for connection in consumers.write().await.drain(..) {
@@ -456,12 +463,15 @@ async fn handle_request(
                     return Ok(Response::InternalError);
                 }
             };
-            state
+            if let Err(err) = state
                 .read()
                 .await
                 .sumeragi_message_sender
                 .send(message)
-                .await;
+                .await
+            {
+                iroha_logger::error!("Failed to send message over channel to sumeragi. {}", err)
+            }
             Ok(Response::empty_ok())
         }
         uri::BLOCK_SYNC_URI => {
@@ -473,12 +483,15 @@ async fn handle_request(
                 }
             };
 
-            state
+            if let Err(err) = state
                 .read()
                 .await
                 .block_sync_message_sender
                 .send(message)
-                .await;
+                .await
+            {
+                iroha_logger::error!("Failed to send message over channel to block sync. {}", err)
+            }
             Ok(Response::empty_ok())
         }
         uri::HEALTH_URI => Ok(Response::empty_ok()),
@@ -576,9 +589,9 @@ mod tests {
 
     use std::{convert::TryInto, time::Duration};
 
-    use async_std::{future, sync};
     use futures::future::FutureExt;
     use iroha_data_model::account::Id;
+    use tokio::{sync::mpsc, time};
 
     use super::*;
     use crate::config::Configuration;
@@ -595,11 +608,11 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        let (tx_tx, _) = sync::channel(100);
-        let (sumeragi_message_sender, _) = sync::channel(100);
-        let (block_sync_message_sender, _) = sync::channel(100);
-        let (block_sender, _) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
+        let (tx_tx, _) = mpsc::channel(100);
+        let (sumeragi_message_sender, _) = mpsc::channel(100);
+        let (block_sync_message_sender, _) = mpsc::channel(100);
+        let (block_sender, _) = mpsc::channel(100);
+        let (events_sender, events_receiver) = mpsc::channel(100);
         let queue = Queue::from_configuration(&config.queue_configuration);
         let wsv = Arc::new(WorldStateView::new(World::with(
             ('a'..'z')
@@ -627,15 +640,14 @@ mod tests {
             Arc::new(RwLock::new(queue)),
             Arc::new(RwLock::new(sumeragi)),
             (events_sender, events_receiver),
-            None,
         )
     }
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn create_and_start_torii() {
-        let mut torii = create_torii().await;
+        let torii = create_torii().await;
 
-        let result = future::timeout(
+        let result = time::timeout(
             Duration::from_millis(50),
             async move { torii.start().await },
         )
@@ -644,7 +656,7 @@ mod tests {
         assert!(result.is_err() || result.unwrap().is_ok());
     }
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn torii_big_transaction() {
         let torii = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));
@@ -667,7 +679,7 @@ mod tests {
                 10_000,
             );
             let body: Vec<u8> = transaction.into();
-            let request = HttpRequest {
+            let request = RawHttpRequest {
                 method: "POST".to_owned(),
                 path: uri::INSTRUCTIONS_URI.to_owned(),
                 version: HttpVersion::Http1_1,
@@ -690,7 +702,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn torii_pagination() {
         let torii = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));

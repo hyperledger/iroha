@@ -17,7 +17,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [features]
-mock = []
+mock = ["dashmap", "once_cell"]
 test-no-timeout = []
 
 [dependencies]
@@ -26,6 +26,11 @@ iroha_macro = { path = "../iroha_macro" }
 iroha_error = { path = "../iroha_error" }
 iroha_logger = { path = "../iroha_logger" }
 tracing = "0.1"
-async-std = { version = "=1.6.2", features = ["attributes", "unstable"] }
+tokio = { version = "1.6.0", features = ["net",  "sync", "time", "rt", "io-util"]}
 parity-scale-codec = { version = "2", features = ["derive"] }
 iroha_futures = { path = "../iroha_futures", features = ["telemetry"] }
+dashmap = { version = "4.0", optional = true}
+once_cell = { version = "1", optional = true}
+
+[dev-dependencies]
+tokio = { version = "1.5.0", features = ["rt-multi-thread", "macros"]}

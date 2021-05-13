@@ -113,7 +113,6 @@ pub fn configurable_derive(input: TokenStream) -> TokenStream {
 }
 
 fn impl_load_env(
-    ty: &Ident,
     field_idents: &[&Ident],
     inner: &[bool],
     lvalue: &[proc_macro2::TokenStream],
@@ -152,7 +151,7 @@ fn impl_load_env(
         .map(|(((set_field, lvalue), field_environment), &inner)| {
             let inner = if inner {
                 quote! {
-                    #lvalue.load_environment().await?;
+                    #lvalue.load_environment()?;
                 }
             } else {
                 quote! {}
@@ -168,12 +167,9 @@ fn impl_load_env(
     quote! {
         fn load_environment(
             &'_ mut self
-        ) -> iroha_config::BoxedFuture<'_, std::result::Result<(), iroha_config::derive::Error>> {
-            async fn load_environment(_self: &mut #ty) -> std::result::Result<(), iroha_config::derive::Error> {
-                #(#set_field)*
-                Ok(())
-            }
-            Box::pin(load_environment(self))
+        ) -> std::result::Result<(), iroha_config::derive::Error> {
+            #(#set_field)*
+            Ok(())
         }
     }
 }
@@ -266,30 +262,22 @@ fn impl_get_docs(
 }
 
 fn impl_get_recursive(
-    ty: &Ident,
     field_idents: &[&Ident],
     inner: Vec<bool>,
     lvalue: &[proc_macro2::TokenStream],
 ) -> proc_macro2::TokenStream {
     if field_idents.is_empty() {
         return quote! {
-            fn get_recursive<'a, 'b, T>(
-                &'a self,
+            fn get_recursive<'a, T>(
+                &self,
                 inner_field: T,
             ) -> iroha_config::BoxedFuture<'a, Result<serde_json::Value, Self::Error>>
             where
-                'b: 'a,
-                T: AsRef<[&'b str]> + Send + 'b,
+                T: AsRef<[&'a str]> + Send + 'a,
             {
-                async fn get_recursive<'a>(
-                    _self: &#ty,
-                    inner_field: impl AsRef<[&'a str]> + Send,
-                ) -> std::result::Result<serde_json::Value, iroha_config::derive::Error> {
-                    Err(iroha_config::derive::Error::UnknownField(
-                        inner_field.as_ref().iter().map(ToString::to_string).collect()
-                    ))
-                }
-                Box::pin(get_recursive(self, inner_field))
+                Err(iroha_config::derive::Error::UnknownField(
+                    inner_field.as_ref().iter().map(ToString::to_string).collect()
+                ))
             }
         };
     }
@@ -301,7 +289,7 @@ fn impl_get_recursive(
             let inner = if inner {
                 quote! {
                     [stringify!(#ident), rest @ ..] => {
-                        #lvalue.get_recursive(rest).await?
+                        #lvalue.get_recursive(rest)?
                     },
                 }
             } else {
@@ -320,28 +308,21 @@ fn impl_get_recursive(
         .fold(quote! {}, |acc, new| quote! { #acc #new });
 
     quote! {
-        fn get_recursive<'a, 'b, T>(
-            &'a self,
+        fn get_recursive<'a, T>(
+            &self,
             inner_field: T,
-        ) -> iroha_config::BoxedFuture<'a, Result<serde_json::Value, Self::Error>>
+        ) -> Result<serde_json::Value, Self::Error>
         where
-            'b: 'a,
-            T: AsRef<[&'b str]> + Send + 'b,
+            T: AsRef<[&'a str]> + Send + 'a,
         {
-            async fn get_recursive<'a>(
-                _self: &#ty,
-                inner_field: impl AsRef<[&'a str]> + Send,
-            ) -> std::result::Result<serde_json::Value, iroha_config::derive::Error> {
-                let inner_field = inner_field.as_ref();
-                let value = match inner_field {
-                    #variants
-                    field => return Err(iroha_config::derive::Error::UnknownField(
-                        field.iter().map(ToString::to_string).collect()
-                    )),
-                };
-                Ok(value)
-            }
-            Box::pin(get_recursive(self, inner_field))
+            let inner_field = inner_field.as_ref();
+            let value = match inner_field {
+                #variants
+                field => return Err(iroha_config::derive::Error::UnknownField(
+                    field.iter().map(ToString::to_string).collect()
+                )),
+            };
+            Ok(value)
         }
     }
 }
@@ -433,9 +414,9 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
         .clone()
         .map(|(is_arc_rwlock, ident)| {
             if is_arc_rwlock {
-                quote! { _self.#ident.read().await }
+                quote! { self.#ident.read().await }
             } else {
-                quote! { _self.#ident }
+                quote! { self.#ident }
             }
         })
         .collect::<Vec<_>>();
@@ -443,15 +424,14 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
         .clone()
         .map(|(is_arc_rwlock, ident)| {
             if is_arc_rwlock {
-                quote! { _self.#ident.write().await }
+                quote! { self.#ident.write().await }
             } else {
-                quote! { _self.#ident }
+                quote! { self.#ident }
             }
         })
         .collect::<Vec<_>>();
 
     let load_environment = impl_load_env(
-        name,
         &field_idents,
         &inner,
         &lvalue_write,
@@ -459,7 +439,7 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
         &field_ty,
         &field_environment,
     );
-    let get_recursive = impl_get_recursive(name, &field_idents, inner.clone(), &lvalue_read);
+    let get_recursive = impl_get_recursive(&field_idents, inner.clone(), &lvalue_read);
     let get_doc_recursive =
         impl_get_doc_recursive(&field_ty, &field_idents, inner.clone(), docs.clone());
     let get_docs = impl_get_docs(&field_ty, &field_idents, inner, docs);

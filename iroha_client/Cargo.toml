@@ -24,7 +24,6 @@ iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_config = { path = "../iroha_config" }
 iroha_version = { version = "=0.1.0", path = "../iroha_version" }
 iroha_error = { version = "=0.1.0", path = "../iroha_error" }
-async-std = { version = "=1.6.2", features = ["attributes"] }
 ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -46,6 +45,7 @@ once_cell = "1.5.2"
 iroha_permissions_validators = { version = "=0.1.0", path = "../iroha_permissions_validators" }
 rand = "0.7.3"
 unique_port = "0.1.0"
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 
 [[bench]]
 name = "torii"

@@ -4,22 +4,23 @@ mod tests {
 
     use std::{sync::Arc, thread, time::Duration};
 
-    use async_std::{prelude::*, sync::RwLock, task};
     use iroha_error::{Result, WrapErr};
     use iroha_network::prelude::*;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        sync::RwLock,
+    };
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_connect_handling() {
-        let _drop = thread::spawn(|| {
-            task::block_on(async {
-                Network::listen(
-                    Arc::new(RwLock::new(())),
-                    "127.0.0.1:8888",
-                    handle_connection,
-                )
-                .await
-                .expect("Failed to listen.");
-            });
+        let _drop = tokio::spawn(async {
+            Network::listen(
+                Arc::new(RwLock::new(())),
+                "127.0.0.1:8888",
+                handle_connection,
+            )
+            .await
+            .expect("Failed to listen.");
         });
         thread::sleep(Duration::from_millis(50));
         let network = Network::new("127.0.0.1:8888");

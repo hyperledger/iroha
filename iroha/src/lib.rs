@@ -28,16 +28,17 @@ pub mod wsv;
 
 use std::{sync::Arc, time::Duration};
 
-use async_std::{
-    prelude::*,
-    sync::RwLock,
-    sync::{self, Receiver, Sender},
-    task,
-};
 use iroha_data_model::prelude::*;
 use iroha_error::{Result, WrapErr};
-use iroha_logger::InstrumentFutures;
+use iroha_logger::{telemetry::Telemetry, InstrumentFutures};
 use permissions::PermissionsValidatorBox;
+use tokio::{
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        RwLock,
+    },
+    task, time,
+};
 
 use crate::{
     block::VersionedValidBlock,
@@ -81,7 +82,7 @@ pub type BlockSyncMessageReceiver = Receiver<BlockSyncMessage>;
 /// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
 #[derive(Debug)]
 pub struct Iroha {
-    torii: Arc<RwLock<Torii>>,
+    torii: Torii,
     queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
     kura: Arc<RwLock<Kura>>,
@@ -93,6 +94,8 @@ pub struct Iroha {
     world_state_view: Arc<WorldStateView>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
     genesis_network: Option<GenesisNetwork>,
+    telemetry: Option<Receiver<Telemetry>>,
+    config: Configuration,
 }
 
 impl Iroha {
@@ -105,22 +108,15 @@ impl Iroha {
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
         let telemetry = iroha_logger::init(config.logger_configuration);
-        #[cfg(feature = "telemetry")]
-        if let Some(telemetry) = &telemetry {
-            drop(
-                telemetry::start(&config.telemetry, telemetry.clone())
-                    .wrap_err("Failed to setup telemetry")?,
-            );
-        }
 
         iroha_logger::info!(?config, "Loaded configuration");
 
-        let (transactions_sender, transactions_receiver) = sync::channel(100);
-        let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
-        let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
-        let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
-        let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
+        let (transactions_sender, transactions_receiver) = mpsc::channel(100);
+        let (wsv_blocks_sender, wsv_blocks_receiver) = mpsc::channel(100);
+        let (kura_blocks_sender, kura_blocks_receiver) = mpsc::channel(100);
+        let (sumeragi_message_sender, sumeragi_message_receiver) = mpsc::channel(100);
+        let (block_sync_message_sender, block_sync_message_receiver) = mpsc::channel(100);
+        let (events_sender, events_receiver) = mpsc::channel(100);
         let world_state_view = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             World::with(
@@ -152,7 +148,6 @@ impl Iroha {
             Arc::clone(&queue),
             Arc::clone(&sumeragi),
             (events_sender, events_receiver),
-            telemetry,
         );
         let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender)?;
         let kura = Arc::new(RwLock::new(kura));
@@ -175,7 +170,7 @@ impl Iroha {
         .wrap_err("Failed to initialize genesis.")?;
         Ok(Iroha {
             queue,
-            torii: Arc::new(RwLock::new(torii)),
+            torii,
             sumeragi,
             kura,
             world_state_view,
@@ -186,6 +181,8 @@ impl Iroha {
             block_sync_message_receiver,
             block_sync,
             genesis_network,
+            config: config.clone(),
+            telemetry,
         })
     }
 
@@ -196,34 +193,42 @@ impl Iroha {
     /// Can fail if initing kura fails
     #[allow(clippy::eval_order_dependence, clippy::too_many_lines)]
     #[iroha_futures::telemetry_future]
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(self) -> Result<()> {
         iroha_logger::info!("Starting Iroha.");
+        #[cfg(feature = "telemetry")]
+        if let Some(telemetry) = self.telemetry {
+            drop(
+                telemetry::start(&self.config.telemetry, telemetry)
+                    .await
+                    .wrap_err("Failed to setup telemetry")?,
+            );
+        }
         //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
         let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
         let blocks = kura.write().await.init().await?;
-        sumeragi.write().await.init(
-            self.world_state_view.latest_block_hash().await,
-            self.world_state_view.height().await,
-        );
         let world_state_view = Arc::clone(&self.world_state_view);
         world_state_view.init(blocks).await;
+        sumeragi.write().await.init(
+            self.world_state_view.latest_block_hash(),
+            self.world_state_view.height(),
+        );
         sumeragi.write().await.update_network_topology().await;
-        let torii = Arc::clone(&self.torii);
+        let torii = self.torii;
         let torii_handle = task::spawn(
             async move {
-                if let Err(e) = torii.write().await.start().await {
+                if let Err(e) = torii.start().await {
                     iroha_logger::error!("Failed to start Torii: {}", e);
                 }
             }
             .in_current_span(),
         );
         self.block_sync.read().await.start();
-        let mut transactions_receiver = self.transactions_receiver.clone();
+        let mut transactions_receiver = self.transactions_receiver;
         let queue = Arc::clone(&self.queue);
         let tx_handle = task::spawn(
             async move {
-                while let Some(transaction) = transactions_receiver.next().await {
+                while let Some(transaction) = transactions_receiver.recv().await {
                     if let Err(e) = queue.write().await.push_pending_transaction(transaction) {
                         iroha_logger::error!(
                             "Failed to put transaction into queue of pending tx: {}",
@@ -249,18 +254,18 @@ impl Iroha {
                             iroha_logger::error!("Round failed: {}", e);
                         }
                     }
-                    task::sleep(TX_RETRIEVAL_INTERVAL).await;
+                    time::sleep(TX_RETRIEVAL_INTERVAL).await;
                 }
             }
             .in_current_span(),
         );
-        let mut wsv_blocks_receiver = self.wsv_blocks_receiver.clone();
+        let mut wsv_blocks_receiver = self.wsv_blocks_receiver;
         let world_state_view = Arc::clone(&self.world_state_view);
         let sumeragi = Arc::clone(&self.sumeragi);
         let block_sync = Arc::clone(&self.block_sync);
         let wsv_handle = task::spawn(
             async move {
-                while let Some(block) = wsv_blocks_receiver.next().await {
+                while let Some(block) = wsv_blocks_receiver.recv().await {
                     world_state_view.apply(block).await;
                     sumeragi.write().await.update_network_topology().await;
                     block_sync.write().await.continue_sync().await;
@@ -268,11 +273,11 @@ impl Iroha {
             }
             .in_current_span(),
         );
-        let mut sumeragi_message_receiver = self.sumeragi_message_receiver.clone();
+        let mut sumeragi_message_receiver = self.sumeragi_message_receiver;
         let sumeragi = Arc::clone(&self.sumeragi);
         let sumeragi_message_handle = task::spawn(
             async move {
-                while let Some(message) = sumeragi_message_receiver.next().await {
+                while let Some(message) = sumeragi_message_receiver.recv().await {
                     if let Err(e) = message.handle(&mut *sumeragi.write().await).await {
                         iroha_logger::error!("Handle message failed: {}", e);
                     }
@@ -280,21 +285,21 @@ impl Iroha {
             }
             .in_current_span(),
         );
-        let mut block_sync_message_receiver = self.block_sync_message_receiver.clone();
+        let mut block_sync_message_receiver = self.block_sync_message_receiver;
         let block_sync = Arc::clone(&self.block_sync);
         let block_sync_message_handle = task::spawn(
             async move {
-                while let Some(message) = block_sync_message_receiver.next().await {
+                while let Some(message) = block_sync_message_receiver.recv().await {
                     message.handle(&mut *block_sync.write().await).await;
                 }
             }
             .in_current_span(),
         );
-        let mut kura_blocks_receiver = self.kura_blocks_receiver.clone();
+        let mut kura_blocks_receiver = self.kura_blocks_receiver;
         let kura = Arc::clone(&self.kura);
         let kura_handle = task::spawn(
             async move {
-                while let Some(block) = kura_blocks_receiver.next().await {
+                while let Some(block) = kura_blocks_receiver.recv().await {
                     if let Err(e) = kura.write().await.store(block).await {
                         iroha_logger::error!("Failed to write block: {}", e)
                     }
@@ -315,16 +320,15 @@ impl Iroha {
             }
             .in_current_span(),
         );
-
-        futures::join!(
+        let _result = tokio::join!(
             torii_handle,
-            kura_handle,
+            tx_handle,
             voting_handle,
             wsv_handle,
             sumeragi_message_handle,
-            tx_handle,
             block_sync_message_handle,
-            genesis_network_handle,
+            kura_handle,
+            genesis_network_handle
         );
         Ok(())
     }

@@ -1,18 +1,15 @@
 //! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
 #![allow(clippy::module_name_repetitions)]
 
-use std::{fmt::Debug, fs::File, io::BufReader, path::Path, time::Duration};
+use std::{fmt::Debug, fs::File, io::BufReader, path::Path, sync::Arc, time::Duration};
 
-use async_std::{
-    sync::{Arc, RwLock},
-    task,
-};
 use futures::future;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_error::{error, Result, WrapErr};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
+use tokio::{sync::RwLock, time};
 
 use self::config::GenesisConfiguration;
 use crate::{
@@ -231,7 +228,7 @@ impl GenesisNetwork {
 
             let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;
             iroha_logger::info!("Retrying to connect in {} ms.", reconnect_in_ms);
-            task::sleep(Duration::from_millis(reconnect_in_ms)).await;
+            time::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
         Err(error!("Waiting for peers failed."))
     }

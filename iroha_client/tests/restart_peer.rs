@@ -1,11 +1,13 @@
+#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+
 use std::{thread, time::Duration};
 
-use async_std::task;
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
-use test_network::{Peer as TestPeer, TestClient, TestConfiguration};
+use test_network::*;
+use test_network::{Peer as TestPeer, ShutdownRuntime, GENESIS_PATH};
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() {
@@ -15,6 +17,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let peer = TestPeer::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
+    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_owned());
 
     let pipeline_time =
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
@@ -71,7 +74,11 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         panic!("Wrong Query Result Type.");
     }
 
-    let _ = task::block_on(peer_handle.cancel());
+    peer_handle
+        .send(ShutdownRuntime)
+        .expect("Failed to shutdown peer.");
+
+    thread::sleep(Duration::from_millis(2000));
 
     drop(peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir));
     thread::sleep(pipeline_time);

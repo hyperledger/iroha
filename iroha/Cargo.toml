@@ -17,7 +17,7 @@ dex = []
 roles = ["iroha_data_model/roles"]
 network-mock = ["iroha_network/mock"]
 telemetry = []
-dev-telemetry = ["iroha_telemetry", "lz4"]
+dev-telemetry = ["iroha_telemetry"]
 default = ["bridge"]
 
 [badges]
@@ -35,11 +35,10 @@ iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_http_server = { version = "=0.1.0", path = "../iroha_http_server" }
 iroha_version = { version = "=0.1.0", path = "../iroha_version", features = ["http_error"] }
-async-std = { version = "=1.6.2", features = ["attributes", "unstable"] }
 iroha_config = { version = "=0.1.0", path = "../iroha_config" }
 chrono = "0.4"
 clap = "2.33.0"
-futures = { version = "0.3.4", features = ["thread-pool"] }
+futures = { version = "0.3.4" }
 parity-scale-codec = { version = "2", features = ["derive"] }
 rand = "0.7.3"
 ursa = "0.3.2"
@@ -48,9 +47,10 @@ serde_json = "1.0"
 heim = { version = "0.1.0-rc.1", features = ["cpu", "memory"] }
 tracing = "0.1"
 dashmap = { version = "4.0" }
+tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"]}
+tokio-stream = { version = "0.1.6", features = ["fs"]}
 iroha_futures = { path = "../iroha_futures" }
 iroha_telemetry = { path = "../iroha_telemetry", optional = true }
-lz4 = { version = "1.23", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.2.1"
