@@ -127,7 +127,7 @@ impl Network {
         stream.write_all(&payload).await?;
         find_sender(server_url).send(stream).await;
         //TODO: return actual response
-        Ok(Response::try_from(rx.recv().await.unwrap())?)
+        Response::try_from(rx.recv().await.unwrap())
     }
 
     /// Listens on the specified `server_url`.

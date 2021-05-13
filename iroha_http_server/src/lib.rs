@@ -449,21 +449,23 @@ pub mod http {
         fn try_from(bytes: &[u8]) -> Result<Self, Error> {
             let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
             let mut request = httparse::Request::new(&mut headers);
-            if let Status::Complete(header_size) = request.parse(bytes)? {
-                let mut request: HttpRequest = request.try_into()?;
-                //TODO: Deal with chunked messages which do not have Content-Length header
-                //They instead have Transfer-Encoding: `Chunked` https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
-                if let Some(content_length) =
-                    request.headers.get(&CONTENT_LENGTH_HEADER.to_lowercase())
-                {
-                    let content_length =
-                        String::from_utf8(content_length.clone())?.parse::<usize>()?;
-                    request.body = bytes[header_size..(header_size + content_length)].to_vec();
-                }
-                Ok(request)
+            let header_size = if let Status::Complete(header_size) = request.parse(bytes)? {
+                header_size
             } else {
-                Err(Error::ReadHeaderFailed)
+                return Err(Error::ReadHeaderFailed);
+            };
+            let mut request: HttpRequest = request.try_into()?;
+            //TODO: Deal with chunked messages which do not have Content-Length header
+            //They instead have Transfer-Encoding: `Chunked` https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
+            if let Some(content_length) = request.headers.get(&CONTENT_LENGTH_HEADER.to_lowercase())
+            {
+                let content_length = String::from_utf8(content_length.clone())?.parse::<usize>()?;
+                if header_size + content_length > bytes.len() {
+                    return Err(Error::ReadHeaderFailed);
+                }
+                request.body = bytes[header_size..(header_size + content_length)].to_vec();
             }
+            Ok(request)
         }
     }
 

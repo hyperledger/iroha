@@ -67,6 +67,9 @@ Configuration of iroha is done via options in the following document. Here is de
       "min": 1,
       "max": 128
     }
+  },
+  "TELEMETRY": {
+    "telemetry_file": null
   }
 }
 ```
@@ -433,6 +436,26 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_
 
 ```json
 200
+```
+
+## `telemetry`
+
+Configuration for telemetry
+
+Has type `telemetry::Configuration`. Can be configured via environment variable `IROHA_TELEMETRY`
+
+```json
+{
+  "telemetry_file": null
+}
+```
+
+### `telemetry.telemetry_file`
+
+Has type `Option<PathBuf>`. Can be configured via environment variable `TELEMETRY_FILE`
+
+```json
+null
 ```
 
 ## `torii_configuration`

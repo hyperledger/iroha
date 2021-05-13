@@ -1501,7 +1501,9 @@ dependencies = [
  "iroha_logger",
  "iroha_macro",
  "iroha_network",
+ "iroha_telemetry",
  "iroha_version",
+ "lz4",
  "maplit",
  "parity-scale-codec",
  "rand 0.7.3",
@@ -1546,6 +1548,7 @@ dependencies = [
  "iroha_error",
  "iroha_logger",
  "iroha_permissions_validators",
+ "iroha_telemetry",
  "iroha_version",
  "once_cell",
  "rand 0.7.3",
@@ -1705,6 +1708,7 @@ dependencies = [
  "futures_derive",
  "iroha_logger",
  "rand 0.8.3",
+ "serde",
  "serde_json",
 ]
 
@@ -1784,6 +1788,19 @@ dependencies = [
 [[package]]
 name = "iroha_substrate"
 version = "0.1.0"
+
+[[package]]
+name = "iroha_telemetry"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "futures",
+ "iroha_futures",
+ "iroha_logger",
+ "serde",
+ "serde_json",
+ "streaming-stats",
+]
 
 [[package]]
 name = "iroha_version"
@@ -1955,6 +1972,26 @@ checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
 dependencies = [
  "cfg-if 1.0.0",
  "value-bag",
+]
+
+[[package]]
+name = "lz4"
+version = "1.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aac20ed6991e01bf6a2e68cc73df2b389707403662a8ba89f68511fb340f724c"
+dependencies = [
+ "libc",
+ "lz4-sys",
+]
+
+[[package]]
+name = "lz4-sys"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dca79aa95d8b3226213ad454d328369853be3a1382d89532a854f4d69640acae"
+dependencies = [
+ "cc",
+ "libc",
 ]
 
 [[package]]
@@ -2983,6 +3020,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09f8ed9974042b8c3672ff3030a69fcc03b74c47c3d1ecb7755e8a3626011e88"
 dependencies = [
  "generic-array 0.14.4",
+]
+
+[[package]]
+name = "streaming-stats"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0d670ce4e348a2081843569e0f79b21c99c91bb9028b3b3ecb0f050306de547"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]

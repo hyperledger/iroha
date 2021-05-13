@@ -8,6 +8,8 @@ use iroha_error::{Result, WrapErr};
 use iroha_logger::config::LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "telemetry")]
+use crate::telemetry;
 use crate::{
     block_sync::config::BlockSyncConfiguration,
     genesis::config::GenesisConfiguration,
@@ -53,6 +55,11 @@ pub struct Configuration {
     #[serde(default)]
     #[config(inner)]
     pub wsv_configuration: WorldStateViewConfiguration,
+    #[cfg(feature = "telemetry")]
+    /// Configuration for telemetry
+    #[serde(default)]
+    #[config(inner)]
+    pub telemetry: telemetry::Configuration,
 }
 
 impl Configuration {
