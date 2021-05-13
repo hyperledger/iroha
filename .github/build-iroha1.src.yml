@@ -154,33 +154,33 @@ jobs:
         ## ToDo may be optimize, i.e. cache package
       - *step_ctest
 
-  build-iroha-windows:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # cpp: [ cl, clang++, mingw++ ]
-        # USE_BURROW: [ -DUSE_BURROW=OFF ]
-        # USE_URSA: [ -DUSE_URSA=OFF ]
-        ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-        build_type: [ Debug ] #,Release, RelWithDebInfo
-    steps: 
-      - name: uname in bash
-        run: uname
-        shell: bash
-      - name: uname in default shell
-        run: uname
-      # - &step_choco_install
-      #   name: Chocolatey install
-      #   run: choco install cmake ninja
-      - *step_checkout
-      #- *step_vcpkg_cache
-      - <<: *step_vcpkg_build
-        shell: bash
-      - *step_cmake_configure
-      - <<: *step_cmake_build
-        shell: bash
-      -
-        name: Install Postgres on Windows
-        run: choco install postgresql
-      # - *step_ctest
+  # build-iroha-windows:
+  #   runs-on: windows-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       # cpp: [ cl, clang++, mingw++ ]
+  #       # USE_BURROW: [ -DUSE_BURROW=OFF ]
+  #       # USE_URSA: [ -DUSE_URSA=OFF ]
+  #       ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
+  #       build_type: [ Debug ] #,Release, RelWithDebInfo
+  #   steps: 
+  #     - name: uname in bash
+  #       run: uname
+  #       shell: bash
+  #     - name: uname in default shell
+  #       run: uname
+  #     # - &step_choco_install
+  #     #   name: Chocolatey install
+  #     #   run: choco install cmake ninja
+  #     - *step_checkout
+  #     #- *step_vcpkg_cache
+  #     - <<: *step_vcpkg_build
+  #       shell: bash
+  #     - *step_cmake_configure
+  #     - <<: *step_cmake_build
+  #       shell: bash
+  #     -
+  #       name: Install Postgres on Windows
+  #       run: choco install postgresql
+  #     # - *step_ctest
