@@ -110,10 +110,12 @@ impl Network {
         }
     }
 
+    #[iroha_futures::telemetry_future]
     pub async fn send_request(&self, request: Request) -> Result<Response> {
         Network::send_request_to(&self.server_url, request).await
     }
 
+    #[iroha_futures::telemetry_future]
     #[log]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
         let (tx, rx) = sync::channel(100);
@@ -135,6 +137,7 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
+    #[iroha_futures::telemetry_future]
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,

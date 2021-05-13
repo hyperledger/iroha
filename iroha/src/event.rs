@@ -37,6 +37,7 @@ impl Consumer {
     ///
     /// # Errors
     /// Can fail due to timeout or without message at websocket or during decoding request
+    #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocketStream) -> Result<Self> {
         if let WebSocketMessage::Text(message) = future::timeout(TIMEOUT, stream.next())
             .await
@@ -60,6 +61,7 @@ impl Consumer {
     ///
     /// # Errors
     /// Can fail due to timeout or sending event. Also receiving might fail
+    #[iroha_futures::telemetry_future]
     pub async fn consume(mut self, event: &Event) -> Result<Self> {
         if self.filter.apply(event) {
             let event = VersionedEvent::from(event.clone())

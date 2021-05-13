@@ -26,6 +26,7 @@ impl<T> ReadonlyLockView<T> {
     }
 
     /// Calls `.read()` on inner [`RwLock`].
+    #[iroha_futures::telemetry_future]
     #[allow(clippy::future_not_send)]
     pub async fn read(&self) -> RwLockReadGuard<'_, T> {
         let ReadonlyLockView(lock) = self;
@@ -75,6 +76,7 @@ impl WorldStateView {
     }
 
     /// Initializes WSV with the blocks from block storage.
+    #[iroha_futures::telemetry_future]
     pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
         *self.blocks.write().await = Vec::with_capacity(blocks.len());
         for block in blocks {
@@ -83,6 +85,7 @@ impl WorldStateView {
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
+    #[iroha_futures::telemetry_future]
     #[iroha_logger::log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) {
         for transaction in &block.as_inner_v1().transactions {
@@ -101,6 +104,7 @@ impl WorldStateView {
     }
 
     /// Hash of latest block
+    #[iroha_futures::telemetry_future]
     pub async fn latest_block_hash(&self) -> Hash {
         // Should we return Result here?
         self.blocks
@@ -111,6 +115,7 @@ impl WorldStateView {
     }
 
     /// Height of blockchain
+    #[iroha_futures::telemetry_future]
     pub async fn height(&self) -> u64 {
         // Should we return Result here?
         self.blocks
@@ -121,6 +126,7 @@ impl WorldStateView {
     }
 
     /// Returns blocks after hash
+    #[iroha_futures::telemetry_future]
     pub async fn blocks_after(&self, hash: Hash) -> Option<Vec<VersionedCommittedBlock>> {
         let blocks = self.blocks.read().await;
         let from_pos = blocks
@@ -315,6 +321,7 @@ impl WorldStateView {
     }
 
     /// Get committed and rejected transaction of the account.
+    #[iroha_futures::telemetry_future]
     pub async fn transactions_as_values(&self, account_id: &AccountId) -> Vec<TransactionValue> {
         let mut vec = self
             .blocks

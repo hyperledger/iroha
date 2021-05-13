@@ -68,6 +68,7 @@ impl Network {
     ///
     /// # Errors
     /// Fails if initing connection or sending tcp packets or receiving fails
+    #[iroha_futures::telemetry_future]
     pub async fn send_request(&self, request: Request) -> Result<Response> {
         Network::send_request_to(&self.server_url, request).await
     }
@@ -76,6 +77,7 @@ impl Network {
     ///
     /// # Errors
     /// Fails if initing connection or sending tcp packets or receiving fails
+    #[iroha_futures::telemetry_future]
     #[log("TRACE")]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
         async_std::io::timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
@@ -100,6 +102,7 @@ impl Network {
     ///
     /// # Errors
     /// Can fail during accepting connection or handling incoming message
+    #[iroha_futures::telemetry_future]
     pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
     where
         H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
@@ -155,6 +158,7 @@ impl Network {
     ///
     /// # Errors
     /// Fails if initing connection or sending tcp packets or receiving fails
+    #[iroha_futures::telemetry_future]
     pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection> {
         Connection::connect(&self.server_url, REQUEST_TIMEOUT_MILLIS, initial_message)
     }

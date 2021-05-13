@@ -110,6 +110,7 @@ impl GenesisNetwork {
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
+    #[iroha_futures::telemetry_future]
     pub async fn submit_transactions(&self, sumeragi: Arc<RwLock<Sumeragi>>) -> Result<()> {
         let genesis_topology = {
             let sumeragi = sumeragi.read().await;
@@ -126,6 +127,7 @@ impl GenesisNetwork {
 
     /// Checks which peers are online and which are offline
     /// Returns (online, offline) peers respectively
+    #[iroha_futures::telemetry_future]
     async fn check_peers(
         this_peer_id: &PeerId,
         network_topology: &InitializedNetworkTopology,
@@ -169,6 +171,7 @@ impl GenesisNetwork {
         (online, offline)
     }
 
+    #[iroha_futures::telemetry_future]
     #[allow(clippy::expect_used)]
     async fn try_wait_for_peers(
         this_peer_id: &PeerId,
@@ -214,6 +217,7 @@ impl GenesisNetwork {
 
     /// Waits for a minimum number of `peers` needed for consensus to be online.
     /// Returns [`InitializedNetworkTopology`] with the set A consisting of online peers.
+    #[iroha_futures::telemetry_future]
     async fn wait_for_peers(
         &self,
         this_peer_id: PeerId,

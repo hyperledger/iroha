@@ -5,7 +5,7 @@ authors = ["i1i1"]
 edition = "2018"
 
 [features]
-default = []
+default = ["telemetry"]
 telemetry = []
 
 [lib]
