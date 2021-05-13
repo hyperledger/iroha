@@ -2,9 +2,9 @@
 
 use std::{sync::Arc, time::Duration};
 
-use async_std::{sync::RwLock, task};
 use iroha_data_model::prelude::*;
 use iroha_logger::{log, InstrumentFutures};
+use tokio::{sync::RwLock, task, time};
 
 use self::{config::BlockSyncConfiguration, message::*};
 use crate::{
@@ -31,7 +31,7 @@ pub struct BlockSynchronizer {
     peer_id: PeerId,
     state: State,
     gossip_period: Duration,
-    batch_size: u64,
+    batch_size: u32,
     n_topology_shifts_before_reshuffle: u32,
 }
 
@@ -67,9 +67,8 @@ impl BlockSynchronizer {
         drop(task::spawn(
             async move {
                 loop {
-                    task::sleep(gossip_period).await;
-                    let message =
-                        Message::LatestBlock(wsv.latest_block_hash().await, peer_id.clone());
+                    time::sleep(gossip_period).await;
+                    let message = Message::LatestBlock(wsv.latest_block_hash(), peer_id.clone());
                     drop(
                         futures::future::join_all(
                             sumeragi
@@ -102,7 +101,8 @@ impl BlockSynchronizer {
                     .read()
                     .await
                     .network_topology_current_or_genesis(&block.clone().into());
-                if block.header().number_of_view_changes < self.n_topology_shifts_before_reshuffle {
+                if block.header().number_of_view_changes <= self.n_topology_shifts_before_reshuffle
+                {
                     network_topology.shift_peers_by_n(block.header().number_of_view_changes);
                 } else {
                     network_topology.sort_peers_by_hash_and_counter(
@@ -110,7 +110,7 @@ impl BlockSynchronizer {
                         block.header().number_of_view_changes,
                     )
                 }
-                if self.wsv.latest_block_hash().await == block.header().previous_block_hash
+                if self.wsv.latest_block_hash() == block.header().previous_block_hash
                     && network_topology
                         .filter_signatures_by_roles(
                             &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
@@ -126,16 +126,15 @@ impl BlockSynchronizer {
                         .commit_block(block.clone().into())
                         .await;
                 } else {
+                    iroha_logger::warn!("Failed to commit a block received via synchronization request - validation failed. Block hash: {}.", block.hash());
                     self.state = State::Idle;
                 }
             } else {
                 self.state = State::Idle;
-                if let Err(e) = Message::GetBlocksAfter(
-                    self.wsv.latest_block_hash().await,
-                    self.peer_id.clone(),
-                )
-                .send_to(&peer_id)
-                .await
+                if let Err(e) =
+                    Message::GetBlocksAfter(self.wsv.latest_block_hash(), self.peer_id.clone())
+                        .send_to(&peer_id)
+                        .await
                 {
                     iroha_logger::error!("Failed to request next batch of blocks. {}", e)
                 }
@@ -202,7 +201,7 @@ pub mod message {
         pub async fn handle(&self, block_sync: &mut BlockSynchronizer) {
             match self {
                 Message::LatestBlock(hash, peer) => {
-                    let latest_block_hash = block_sync.wsv.latest_block_hash().await;
+                    let latest_block_hash = block_sync.wsv.latest_block_hash();
                     if *hash != latest_block_hash {
                         if let Err(err) =
                             Message::GetBlocksAfter(latest_block_hash, block_sync.peer_id.clone())
@@ -221,25 +220,19 @@ pub mod message {
                         return;
                     }
 
-                    if let Some(blocks) = block_sync.wsv.blocks_after(*hash).await {
-                        #[allow(clippy::cast_possible_truncation)]
-                        if let Some(blocks_batch) =
-                            blocks.chunks(block_sync.batch_size as usize).next()
-                        {
-                            if let Err(err) = Message::ShareBlocks(
-                                blocks_batch.to_vec(),
-                                block_sync.peer_id.clone(),
-                            )
-                            .send_to(peer)
-                            .await
-                            {
-                                iroha_logger::error!("Failed to send blocks: {:?}", err)
+                    match block_sync.wsv.blocks_after(*hash, block_sync.batch_size) {
+                        Ok(blocks) => {
+                            if !blocks.is_empty() {
+                                if let Err(err) =
+                                    Message::ShareBlocks(blocks.clone(), block_sync.peer_id.clone())
+                                        .send_to(peer)
+                                        .await
+                                {
+                                    iroha_logger::error!("Failed to send blocks: {:?}", err)
+                                }
                             }
                         }
-                    } else {
-                        iroha_logger::error!(
-                            "Error: there are no blocks after the requested block hash."
-                        )
+                        Err(err) => iroha_logger::error!("{}", err),
                     }
                 }
                 Message::ShareBlocks(blocks, peer_id) => {
@@ -277,7 +270,7 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_BATCH_SIZE: u64 = 4;
+    const DEFAULT_BATCH_SIZE: u32 = 4;
     const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
 
     /// Configuration for `BlockSynchronizer`.
@@ -290,7 +283,7 @@ pub mod config {
         pub gossip_period_ms: u64,
         /// The number of blocks, which can be send in one message.
         /// Underlying network (`iroha_network`) should support transferring messages this large.
-        pub batch_size: u64,
+        pub batch_size: u32,
     }
 
     impl Default for BlockSyncConfiguration {

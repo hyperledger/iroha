@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+
 #[cfg(test)]
 mod tests {
     use std::thread;

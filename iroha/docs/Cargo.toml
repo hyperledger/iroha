@@ -10,5 +10,4 @@ edition = "2018"
 iroha = { path = "../../iroha" }
 iroha_error = { path = "../../iroha_error" }
 iroha_config = { path = "../../iroha_config" }
-async-std = "1.6.2"
 serde_json = "1"

@@ -5,11 +5,11 @@ use std::convert::TryFrom;
 use std::marker::Unpin;
 use std::time::Duration;
 
-use async_std::future;
-use async_std::stream::{Stream, StreamExt};
 use iroha_futures::FuturePollTelemetry;
 use iroha_logger::telemetry::Telemetry;
 use serde::{Deserialize, Serialize};
+use tokio::time;
+use tokio_stream::{Stream, StreamExt};
 
 pub mod post_process {
     //! Module with telemetry post processing
@@ -70,7 +70,7 @@ pub mod post_process {
         let mut out = HashMap::<String, HashMap<u64, Vec<_>>>::new();
         let timeout = Duration::from_millis(100);
         while let Ok(Some(FuturePollTelemetry { id, name, duration })) =
-            future::timeout(timeout, receiver.next()).await
+            time::timeout(timeout, receiver.next()).await
         {
             out.entry(name)
                 .or_default()

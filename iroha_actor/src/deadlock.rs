@@ -2,29 +2,35 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::fmt::{self, Debug, Display};
-use std::ops::{Deref, DerefMut};
 use std::{
     cmp::{Eq, PartialEq},
+    fmt::{self, Debug, Display},
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
-use async_std::task::{self, current, Task, TaskId};
 use once_cell::sync::Lazy;
 use petgraph::graph::Graph;
 use petgraph::{algo, graph::NodeIndex};
+use tokio::{task, time};
 
 use super::*;
+
+static ACTOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy)]
 pub struct ActorId {
     pub name: Option<&'static str>,
-    pub id: TaskId,
+    pub id: usize,
 }
 
 impl ActorId {
-    pub const fn new(id: TaskId) -> Self {
-        Self { name: None, id }
+    pub fn new(name: Option<&'static str>) -> Self {
+        Self {
+            name,
+            id: ACTOR_ID_COUNTER.fetch_add(1, Ordering::SeqCst),
+        }
     }
 }
 
@@ -50,12 +56,6 @@ impl PartialEq for ActorId {
     }
 }
 impl Eq for ActorId {}
-
-impl From<&Task> for ActorId {
-    fn from(task: &Task) -> Self {
-        Self::new(task.id())
-    }
-}
 
 #[derive(Default)]
 struct DeadlockActor(Graph<ActorId, ()>);
@@ -124,7 +124,7 @@ impl Actor for DeadlockActor {
         drop(task::spawn(async move {
             loop {
                 recipient.send(Reminder).await;
-                task::sleep(Duration::from_millis(100)).await
+                time::sleep(Duration::from_millis(100)).await
             }
         }));
     }
@@ -162,15 +162,17 @@ impl Handler<RemoveEdge> for DeadlockActor {
 
 /// TODO: After switching to tokio move to using once cell and
 /// force initing of actor beforehand in async api.
-static DEADLOCK_ACTOR: Lazy<Addr<DeadlockActor>> =
-    Lazy::new(|| task::block_on(DeadlockActor::start_default()));
+static DEADLOCK_ACTOR: Lazy<Addr<DeadlockActor>> = Lazy::new(|| {
+    let actor = DeadlockActor::init_default();
+    let address = actor.address().clone();
+    let _result = task::spawn(async move { actor.start().await });
+    address
+});
 
-pub async fn r#in(to: ActorId) {
-    let from = ActorId::from(&current());
+pub async fn r#in(to: ActorId, from: ActorId) {
     DEADLOCK_ACTOR.do_send(AddEdge { from, to }).await;
 }
 
-pub async fn out(to: ActorId) {
-    let from = ActorId::from(&current());
+pub async fn out(to: ActorId, from: ActorId) {
     DEADLOCK_ACTOR.do_send(RemoveEdge { from, to }).await;
 }

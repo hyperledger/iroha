@@ -87,9 +87,9 @@ pub async fn issue_send<M: BrokerMessage + Send + Sync>(m: M) {
 ///         broker::issue_send(Message1(msg.0.clone() + " world")).await;
 ///     }
 /// }
-/// async_std::task::block_on(async {
-///     Actor2.start();
-///     Actor1.start();
+/// tokio::runtime::Runtime::new().unwrap().block_on(async {
+///     Actor2.init().start().await;
+///     Actor1.init().start().await;
 /// })
 /// ```
 #[async_trait::async_trait]

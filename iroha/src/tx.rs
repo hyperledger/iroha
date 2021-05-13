@@ -490,14 +490,13 @@ pub mod query {
     impl Query for FindTransactionsByAccountId {
         #[iroha_logger::log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            use async_std::task::block_on;
-
             let id = self
                 .account_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get id")?;
             Ok(Value::Vec(
-                block_on(world_state_view.transactions_as_values(&id))
+                world_state_view
+                    .transactions_values_by_account_id(&id)
                     .into_iter()
                     .map(Value::TransactionValue)
                     .collect::<Vec<_>>(),

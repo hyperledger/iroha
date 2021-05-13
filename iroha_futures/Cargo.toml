@@ -14,7 +14,7 @@ telemetry = ["futures_derive/telemetry"]
 rand = "0.8"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
-async-std = { version = "1.6.2", features = ["unstable", "attributes"] }
-
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
+tokio-stream = { version = "0.1.6", features = ["fs"]}
 iroha_logger = { path = "../iroha_logger" }
 futures_derive = { path = "futures_derive" }

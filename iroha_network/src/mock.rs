@@ -15,27 +15,30 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use std::{io, sync::Arc};
 
-use async_std::{
-    io::{Read, Write},
-    prelude::*,
-    sync::{self, Sender},
-    sync::{Arc, RwLock},
+use dashmap::DashMap;
+use iroha_derive::Io;
+use iroha_error::{error, Error, Result};
+use iroha_logger::log;
+use once_cell::sync::Lazy;
+use parity_scale_codec::{Decode, Encode};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
+    runtime::Handle,
+    sync::{
+        mpsc::{self, Sender},
+        RwLock,
+    },
     task,
 };
-use iroha_derive::Io;
-use iroha_error::{Error, Result};
-use iroha_logger::log;
-use parity_scale_codec::{Decode, Encode};
 
 const BUFFER_SIZE: usize = 2_usize.pow(11);
-static mut ENDPOINTS: Vec<(String, Sender<RequestStream>)> = Vec::new();
+static ENDPOINTS: Lazy<DashMap<String, Sender<RequestStream>>> = Lazy::new(DashMap::new);
 
 fn find_sender(server_url: &str) -> Sender<RequestStream> {
-    for tuple in unsafe { &ENDPOINTS } {
-        if tuple.0 == server_url {
-            return tuple.1.clone();
-        }
+    if let Some(entry) = ENDPOINTS.get(server_url) {
+        return entry.value().clone();
     }
     panic!("Can't find ENDPOINT: {}", server_url);
 }
@@ -44,9 +47,9 @@ fn find_sender(server_url: &str) -> Sender<RequestStream> {
 pub type State<T> = Arc<RwLock<T>>;
 
 /// Alias for read write
-pub trait AsyncStream: Read + Write + Send + Unpin {}
+pub trait AsyncStream: AsyncRead + AsyncWrite + Send + Unpin {}
 
-impl<T> AsyncStream for T where T: Read + Write + Send + Unpin {}
+impl<T> AsyncStream for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
 
 struct RequestStream {
     bytes: Vec<u8>,
@@ -55,31 +58,30 @@ struct RequestStream {
 
 impl Unpin for RequestStream {}
 
-impl Read for RequestStream {
+impl AsyncRead for RequestStream {
     fn poll_read(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<async_std::io::Result<usize>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         let bytes = &mut self.get_mut().bytes;
-        let length = if buf.len() > bytes.len() {
+        let length = if buf.remaining() > bytes.len() {
             bytes.len()
         } else {
-            buf.len()
+            buf.remaining()
         };
-        for (i, byte) in bytes.drain(..length).enumerate() {
-            buf[i] = byte;
-        }
-        Poll::Ready(Ok(length))
+        let bytes: Vec<_> = bytes.drain(..length).collect();
+        buf.put_slice(&bytes);
+        Poll::Ready(Ok(()))
     }
 }
 
-impl Write for RequestStream {
+impl AsyncWrite for RequestStream {
     fn poll_write(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> Poll<async_std::io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         let bytes = &mut self.get_mut().bytes;
         for byte in buf.to_vec() {
             bytes.push(byte);
@@ -87,12 +89,13 @@ impl Write for RequestStream {
         Poll::Ready(Ok(buf.len()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<async_std::io::Result<()>> {
-        task::block_on(self.tx.send(self.bytes.clone()));
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        task::block_in_place(|| Handle::current().block_on(self.tx.send(self.bytes.clone())))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<async_std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 }
@@ -118,14 +121,17 @@ impl Network {
     #[iroha_futures::telemetry_future]
     #[log]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
-        let (tx, rx) = sync::channel(100);
+        let (tx, mut rx) = mpsc::channel(100);
         let mut stream = RequestStream {
             bytes: Vec::new(),
             tx,
         };
         let payload: Vec<u8> = request.into();
         stream.write_all(&payload).await?;
-        find_sender(server_url).send(stream).await;
+        find_sender(server_url)
+            .send(stream)
+            .await
+            .map_err(|_err| error!("Receiver dropped."))?;
         //TODO: return actual response
         Response::try_from(rx.recv().await.unwrap())
     }
@@ -144,11 +150,9 @@ impl Network {
         F: Send + Future<Output = Result<()>>,
         State<S>: Send + Sync,
     {
-        let (tx, rx) = sync::channel(100);
-        unsafe {
-            ENDPOINTS.push((server_url.to_owned(), tx));
-        }
-        while let Ok(stream) = rx.recv().await {
+        let (tx, mut rx) = mpsc::channel(100);
+        let _result = ENDPOINTS.insert(server_url.to_owned(), tx);
+        while let Some(stream) = rx.recv().await {
             handler(Arc::clone(&state), Box::new(stream)).await?;
         }
         Ok(())

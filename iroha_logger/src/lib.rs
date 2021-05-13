@@ -2,9 +2,9 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use async_std::sync::Receiver;
 use layer::LevelFilter;
 use telemetry::{Telemetry, TelemetryLayer};
+use tokio::sync::mpsc::Receiver;
 pub use tracing::instrument as log;
 use tracing::subscriber::set_global_default;
 pub use tracing::Instrument;

@@ -1,6 +1,5 @@
 //! Iroha peer command line
 
-use async_std::task;
 use clap::{App, Arg};
 use iroha::{config::Configuration, permissions::AllowAll, Iroha};
 use iroha_error::Reporter;
@@ -9,7 +8,7 @@ const CONFIGURATION_PATH: &str = "config.json";
 const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
 const GENESIS: &str = "genesis";
 
-#[async_std::main]
+#[tokio::main]
 #[allow(clippy::non_ascii_literal)]
 async fn main() -> Result<(), Reporter> {
     iroha_error::install_panic_reporter();
@@ -29,7 +28,7 @@ async fn main() -> Result<(), Reporter> {
 
     let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
     configuration.load_trusted_peers_from_path(TRUSTED_PEERS_PATH)?;
-    configuration.load_environment().await?;
+    configuration.load_environment()?;
 
     let genesis_path_option = matches.value_of(GENESIS);
     if let Some(genesis_path) = genesis_path_option {
@@ -38,7 +37,5 @@ async fn main() -> Result<(), Reporter> {
     }
 
     Iroha::new(&configuration, AllowAll.into())?.start().await?;
-    loop {
-        task::yield_now().await
-    }
+    Ok(())
 }

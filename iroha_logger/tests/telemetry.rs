@@ -2,16 +2,16 @@
 
 use std::time::Duration;
 
-use async_std::future;
 use iroha_logger::{
     config::LoggerConfiguration,
     info, init,
     telemetry::{Telemetry, TelemetryFields},
 };
+use tokio::time;
 
-#[async_std::test]
+#[tokio::test]
 async fn test() {
-    let reciever = init(LoggerConfiguration::default()).unwrap();
+    let mut reciever = init(LoggerConfiguration::default()).unwrap();
     info!(target: "telemetry::test", a = 2, c = true, d = "this won't be logged");
     info!("This will be logged");
     let telemetry = Telemetry {
@@ -22,7 +22,7 @@ async fn test() {
             ("d", serde_json::json!("this won't be logged")),
         ]),
     };
-    let recieved = future::timeout(Duration::from_millis(10), reciever.recv())
+    let recieved = time::timeout(Duration::from_millis(10), reciever.recv())
         .await
         .unwrap()
         .unwrap();

@@ -15,15 +15,16 @@ use std::{
     time::Duration,
 };
 
-use async_std::{
-    net::{TcpListener, TcpStream},
-    prelude::*,
-    sync::RwLock,
-};
 use iroha_derive::Io;
 use iroha_error::{error, Result, WrapErr};
 use iroha_logger::log;
 use parity_scale_codec::{Decode, Encode};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    sync::RwLock,
+    time::timeout,
+};
 
 const BUFFER_SIZE: usize = 2_usize.pow(12);
 #[cfg(feature = "test-no-timeout")]
@@ -35,9 +36,9 @@ const REQUEST_TIMEOUT_MILLIS: u64 = 500;
 pub type State<T> = Arc<RwLock<T>>;
 
 /// async stream trait alias
-pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
+pub trait AsyncStream: AsyncRead + AsyncWrite + Send + Unpin {}
 
-impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
+impl<T> AsyncStream for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
 
 /// Network type
 #[derive(Debug, Clone)]
@@ -80,14 +81,14 @@ impl Network {
     #[iroha_futures::telemetry_future]
     #[log("TRACE")]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
-        async_std::io::timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
+        timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
             let mut stream = TcpStream::connect(server_url).await?;
             let payload: Vec<u8> = request.into();
             stream.write_all(&payload).await?;
             stream.flush().await?;
             let mut buffer = vec![0_u8; BUFFER_SIZE];
             let read_size = stream.read(&mut buffer).await?;
-            Ok(Response::try_from(buffer[..read_size].to_vec()))
+            Response::try_from(buffer[..read_size].to_vec())
         })
         .await?
     }
@@ -122,7 +123,7 @@ impl Network {
                     continue;
                 }
             };
-            let _drop = async_std::task::spawn(handler(Arc::clone(&state), stream));
+            let _drop = tokio::spawn(handler(Arc::clone(&state), stream));
         }
     }
 
@@ -349,8 +350,8 @@ mod tests {
 
     use std::{convert::TryFrom, sync::Arc};
 
-    use async_std::{sync::RwLock, task};
     use iroha_error::Result;
+    use tokio::sync::RwLock;
 
     #[cfg(feature = "mock")]
     use super::mock::*;
@@ -383,7 +384,7 @@ mod tests {
         )
     }
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn single_threaded_async() {
         async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response>
         where
@@ -401,10 +402,10 @@ mod tests {
             Network::handle_message_async(state, stream, handle_request).await
         }
 
-        let _drop = task::spawn(async move {
+        let _drop = tokio::spawn(async move {
             Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         match Network::send_request_to("127.0.0.1:7878", Request::empty("/ping"))
             .await
             .expect("Failed to send request to.")
@@ -414,7 +415,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn single_threaded_async_stateful() {
         #[allow(clippy::clippy::integer_arithmetic)]
         async fn handle_request(state: State<usize>, _request: Request) -> Result<Response> {
@@ -430,10 +431,10 @@ mod tests {
 
         let counter: State<usize> = Arc::new(RwLock::new(0));
         let counter_move = Arc::clone(&counter);
-        let _drop = task::spawn(async move {
+        let _drop = tokio::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         match Network::send_request_to("127.0.0.1:7870", Request::empty("/ping"))
             .await
             .expect("Failed to send request to.")
@@ -441,11 +442,11 @@ mod tests {
             Response::Ok(payload) => assert_eq!(payload, b"pong"),
             Response::InternalError => panic!("Response should be ok."),
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        let _drop = task::spawn(async move {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let _drop = tokio::spawn(async move {
             let data = counter.write().await;
             assert_eq!(*data, 1)
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }

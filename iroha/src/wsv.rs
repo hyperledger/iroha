@@ -1,10 +1,8 @@
 //! This module provides `WorldStateView` - in-memory representations of the current blockchain
 //! state.
 
-use async_std::{
-    sync::{Arc, RwLock, RwLockReadGuard},
-    task,
-};
+use std::sync::Arc;
+
 use config::Configuration;
 use dashmap::{
     mapref::one::{Ref as DashmapRef, RefMut as DashmapRefMut},
@@ -12,27 +10,9 @@ use dashmap::{
 };
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_error::Result;
+use tokio::task;
 
-use crate::{isi::FindError, prelude::*};
-
-/// Wraps [`RwLock`] so that only read operation is possible. Can be used to restrict access in certain fields or functions.
-#[derive(Debug, Clone)]
-pub struct ReadonlyLockView<T>(Arc<RwLock<T>>);
-
-impl<T> ReadonlyLockView<T> {
-    /// Constructor.
-    pub fn new(rw_lock: Arc<RwLock<T>>) -> Self {
-        ReadonlyLockView(rw_lock)
-    }
-
-    /// Calls `.read()` on inner [`RwLock`].
-    #[iroha_futures::telemetry_future]
-    #[allow(clippy::future_not_send)]
-    pub async fn read(&self) -> RwLockReadGuard<'_, T> {
-        let ReadonlyLockView(lock) = self;
-        lock.read().await
-    }
-}
+use crate::{block::Chain, isi::FindError, prelude::*};
 
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
@@ -43,7 +23,7 @@ pub struct WorldStateView {
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
-    blocks: Arc<RwLock<Vec<VersionedCommittedBlock>>>,
+    blocks: Arc<Chain>,
     /// Hashes of transactions
     pub transactions: DashSet<Hash>,
 }
@@ -56,20 +36,15 @@ impl WorldStateView {
             world,
             config: Configuration::default(),
             transactions: DashSet::new(),
-            blocks: Arc::default(),
+            blocks: Arc::new(Chain::new()),
         }
-    }
-
-    /// Blocks in WSV.
-    pub fn blocks(&self) -> ReadonlyLockView<Vec<VersionedCommittedBlock>> {
-        ReadonlyLockView::new(Arc::clone(&self.blocks))
     }
 
     /// [`WorldStateView`] constructor with configuration.
     pub fn from_config(config: Configuration, world: World) -> Self {
         WorldStateView {
             world,
-            blocks: Arc::default(),
+            blocks: Arc::new(Chain::new()),
             transactions: DashSet::new(),
             config,
         }
@@ -78,7 +53,6 @@ impl WorldStateView {
     /// Initializes WSV with the blocks from block storage.
     #[iroha_futures::telemetry_future]
     pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
-        *self.blocks.write().await = Vec::with_capacity(blocks.len());
         for block in blocks {
             self.apply(block).await
         }
@@ -100,44 +74,44 @@ impl WorldStateView {
         for rejected_transaction in &block.as_inner_v1().rejected_transactions {
             let _ = self.transactions.insert(rejected_transaction.hash());
         }
-        self.blocks.write().await.push(block);
+        self.blocks.push(block);
     }
 
     /// Hash of latest block
-    #[iroha_futures::telemetry_future]
-    pub async fn latest_block_hash(&self) -> Hash {
-        // Should we return Result here?
+    pub fn latest_block_hash(&self) -> Hash {
         self.blocks
-            .read()
-            .await
-            .last()
-            .map_or(Hash([0_u8; 32]), VersionedCommittedBlock::hash)
+            .latest_block()
+            .map_or(Hash([0_u8; 32]), |block_entry| block_entry.value().hash())
     }
 
     /// Height of blockchain
-    #[iroha_futures::telemetry_future]
-    pub async fn height(&self) -> u64 {
-        // Should we return Result here?
+    pub fn height(&self) -> u64 {
         self.blocks
-            .read()
-            .await
-            .last()
-            .map_or(0, |block| block.header().height)
+            .latest_block()
+            .map_or(0, |block_entry| block_entry.value().header().height)
     }
 
     /// Returns blocks after hash
-    #[iroha_futures::telemetry_future]
-    pub async fn blocks_after(&self, hash: Hash) -> Option<Vec<VersionedCommittedBlock>> {
-        let blocks = self.blocks.read().await;
-        let from_pos = blocks
+    ///
+    /// # Errors
+    /// Block with `hash` was not found.
+    pub fn blocks_after(
+        &self,
+        hash: Hash,
+        max_blocks: u32,
+    ) -> Result<Vec<VersionedCommittedBlock>> {
+        let from_pos = self
+            .blocks
             .iter()
-            .position(|block| block.header().previous_block_hash == hash)?;
-
-        if blocks.len() > from_pos {
-            Some(blocks[from_pos..].to_vec())
-        } else {
-            None
-        }
+            .position(|block_entry| block_entry.value().header().previous_block_hash == hash)
+            .ok_or(FindError::Block(hash))?;
+        Ok(self
+            .blocks
+            .iter()
+            .skip(from_pos)
+            .take(max_blocks as usize)
+            .map(|block_entry| block_entry.value().clone())
+            .collect())
     }
 
     /// Get `World` without an ability to modify it.
@@ -321,19 +295,35 @@ impl WorldStateView {
     }
 
     /// Get committed and rejected transaction of the account.
-    #[iroha_futures::telemetry_future]
-    pub async fn transactions_as_values(&self, account_id: &AccountId) -> Vec<TransactionValue> {
-        let mut vec = self
+    pub fn transactions_values_by_account_id(
+        &self,
+        account_id: &AccountId,
+    ) -> Vec<TransactionValue> {
+        let mut transactions = self
             .blocks
-            .read()
-            .await
             .iter()
-            .flat_map(|block| {
-                block.filter_tx_values_by_payload(|payload| &payload.account_id == account_id)
+            .flat_map(|block_entry| {
+                let block = block_entry.value().as_inner_v1();
+                block
+                    .rejected_transactions
+                    .iter()
+                    .filter(|transaction| &transaction.payload().account_id == account_id)
+                    .cloned()
+                    .map(TransactionValue::RejectedTransaction)
+                    .chain(
+                        block
+                            .transactions
+                            .iter()
+                            .filter(|transaction| &transaction.payload().account_id == account_id)
+                            .cloned()
+                            .map(VersionedTransaction::from)
+                            .map(TransactionValue::Transaction),
+                    )
+                    .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        vec.sort();
-        vec
+        transactions.sort();
+        transactions
     }
 }
 

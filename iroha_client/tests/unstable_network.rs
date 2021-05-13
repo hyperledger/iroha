@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+
 use std::thread;
 
 use iroha::config::Configuration;
@@ -37,6 +39,7 @@ fn unstable_network(
         n_offline_peers,
         n_offline_peers,
     );
+
     let pipeline_time = Configuration::pipeline_time();
 
     let account_id = AccountId::new("alice", "wonderland");

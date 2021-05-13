@@ -6,14 +6,13 @@ use std::fmt::Debug;
 use std::io::Result;
 use std::io::{stdout, BufWriter, Write};
 
-use async_std::task;
 use iroha::config::Configuration;
 use iroha_config::Configurable;
 use iroha_error::WrapErr;
 use serde_json::{Map, Value};
 
 fn main() -> iroha_error::Result<()> {
-    Configuration::get_md(&mut BufWriter::new(stdout()))
+    Configuration::get_markdown(&mut BufWriter::new(stdout()))
         .wrap_err("Failed to generate documentation")
 }
 
@@ -23,7 +22,7 @@ trait PrintDocs: Configurable + Send + Sync + Default
 where
     Self::Error: Debug,
 {
-    fn get_md<W: Write>(writer: &mut W) -> Result<()> {
+    fn get_markdown<W: Write>(writer: &mut W) -> Result<()> {
         let docs = match Self::get_docs() {
             Value::Object(obj) => obj,
             _ => unreachable!("As top level structure is always object"),
@@ -34,11 +33,11 @@ where
         write!(writer, "# Iroha config description\n\n")?;
         writeln!(writer, "Configuration of iroha is done via options in the following document. Here is defaults for whole config:\n")?;
         write!(writer, "```json\n{}\n```\n\n", defaults)?;
-        Self::get_md_with_depth(writer, &docs, &mut vec, 2)?;
+        Self::get_markdown_with_depth(writer, &docs, &mut vec, 2)?;
         Ok(())
     }
 
-    fn get_md_with_depth<W: Write>(
+    fn get_markdown_with_depth<W: Write>(
         writer: &mut W,
         docs: &Map<String, Value>,
         field: &mut Vec<String>,
@@ -68,7 +67,9 @@ where
                 _ => unreachable!("Only strings and objects in docs"),
             };
             let doc = doc.strip_prefix(" ").unwrap_or(&doc);
-            let defaults = task::block_on(Self::default().get_recursive(get_field)).unwrap();
+            let defaults = Self::default()
+                .get_recursive(get_field)
+                .expect("Failed to get defaults.");
             let defaults = serde_json::to_string_pretty(&defaults)?;
             let field_str = field
                 .join(".")
@@ -81,7 +82,7 @@ where
             write!(writer, "```json\n{}\n```\n\n", defaults)?;
 
             if inner {
-                Self::get_md_with_depth(writer, docs, field, depth + 1)?;
+                Self::get_markdown_with_depth(writer, docs, field, depth + 1)?;
             }
 
             drop(field.pop());
