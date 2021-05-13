@@ -200,7 +200,6 @@ impl Torii {
         http_server_result?;
         Ok(())
     }
-
 }
 
 #[derive(Debug)]

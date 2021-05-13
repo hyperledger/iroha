@@ -19,6 +19,8 @@ pub mod permissions;
 pub mod query;
 mod queue;
 pub mod sumeragi;
+#[cfg(feature = "telemetry")]
+mod telemetry;
 pub mod torii;
 pub mod tx;
 pub mod world;
@@ -103,6 +105,14 @@ impl Iroha {
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
         let telemetry = iroha_logger::init(config.logger_configuration);
+        #[cfg(feature = "telemetry")]
+        if let Some(telemetry) = &telemetry {
+            drop(
+                telemetry::start(&config.telemetry, telemetry.clone())
+                    .wrap_err("Failed to setup telemetry")?,
+            );
+        }
+
         iroha_logger::info!(?config, "Loaded configuration");
 
         let (transactions_sender, transactions_receiver) = sync::channel(100);

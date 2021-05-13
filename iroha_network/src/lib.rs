@@ -108,6 +108,7 @@ impl Network {
         H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<()>> + Send + 'static,
         State<S>: Send,
+        S: Send + Sync,
     {
         let listener = TcpListener::bind(server_url).await?;
         loop {

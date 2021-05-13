@@ -32,9 +32,10 @@ attohttpc = "0.16.3"
 http = "0.2.1"
 tungstenite = "0.13.0"
 tracing = "0.1"
+iroha_telemetry = { path = "../iroha_telemetry" }
 
 [dev-dependencies]
-iroha = { path = "../iroha" }
+iroha = { path = "../iroha", features = ["telemetry"] }
 iroha_data_model = { path = "../iroha_data_model" }
 async-trait = "0.1.31"
 criterion = "0.3"
