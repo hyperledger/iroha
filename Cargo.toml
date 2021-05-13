@@ -23,6 +23,7 @@ members = [
   "iroha_actor",
   "iroha_actor/actor_derive",
   "iroha/docs",
+  "iroha_telemetry",
   "iroha_futures",
   "iroha_futures/futures_derive",
 ]

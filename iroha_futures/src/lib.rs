@@ -10,6 +10,7 @@ use std::{
 
 pub use futures_derive::*;
 use iroha_logger::telemetry::{Telemetry, TelemetryFields};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Future which sends info with telemetry about number and length of polls
@@ -29,7 +30,7 @@ impl<F> TelemetryFuture<F> {
 }
 
 /// Telemetry info for future polling
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FuturePollTelemetry {
     /// Future id
     pub id: u64,
@@ -42,6 +43,39 @@ pub struct FuturePollTelemetry {
 /// Error which happends during conversion from telemetry
 #[derive(Debug, Clone, Copy)]
 pub struct FromTelemetryError;
+
+impl TryFrom<&Telemetry> for FuturePollTelemetry {
+    type Error = FromTelemetryError;
+
+    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
+    fn try_from(Telemetry { target, fields }: &Telemetry) -> Result<Self, FromTelemetryError> {
+        if target != &"iroha_futures" && fields.len() != 3 {
+            return Err(FromTelemetryError);
+        }
+
+        let TelemetryFields(fields) = fields;
+        let (mut id, mut name, mut duration) = (None, None, None);
+
+        for field in fields {
+            match field {
+                ("id", Value::Number(id_value)) if id.is_none() => {
+                    id = Some(id_value.as_u64().unwrap())
+                }
+                ("name", Value::String(name_value)) if name.is_none() => name = Some(name_value),
+                ("duration", Value::Number(duration_value)) if duration.is_none() => {
+                    duration = Some(Duration::from_nanos(duration_value.as_u64().unwrap()))
+                }
+                _ => return Err(FromTelemetryError),
+            }
+        }
+
+        Ok(Self {
+            id: id.unwrap(),
+            name: name.unwrap().clone(),
+            duration: duration.unwrap(),
+        })
+    }
+}
 
 impl TryFrom<Telemetry> for FuturePollTelemetry {
     type Error = FromTelemetryError;

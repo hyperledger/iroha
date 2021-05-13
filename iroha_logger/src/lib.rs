@@ -70,55 +70,55 @@ macro_rules! telemetry {
     };
     ($($k:ident).+ = $($field:tt)*) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             $($k).+ = $($field)*
         )
     );
     (?$($k:ident).+ = $($field:tt)*) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             ?$($k).+ = $($field)*
         )
     );
     (%$($k:ident).+ = $($field:tt)*) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             %$($k).+ = $($field)*
         )
     );
     ($($k:ident).+, $($field:tt)*) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             $($k).+, $($field)*
         )
     );
     (?$($k:ident).+, $($field:tt)*) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             ?$($k).+, $($field)*
         )
     );
     (%$($k:ident).+, $($field:tt)*) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             %$($k).+, $($field)*
         )
     );
     (?$($k:ident).+) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             ?$($k).+
         )
     );
     (%$($k:ident).+) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             %$($k).+
         )
     );
     ($($k:ident).+) => (
         $crate::info!(
-			target: iroha_logger::telemetry_target!(),
+            target: iroha_logger::telemetry_target!(),
             $($k).+
         )
     );

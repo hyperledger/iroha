@@ -28,4 +28,4 @@ iroha_logger = { path = "../iroha_logger" }
 tracing = "0.1"
 async-std = { version = "=1.6.2", features = ["attributes", "unstable"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
-iroha_futures = { path = "../iroha_futures" }
+iroha_futures = { path = "../iroha_futures", features = ["telemetry"] }

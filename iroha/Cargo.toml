@@ -16,6 +16,7 @@ bridge = []
 dex = []
 roles = ["iroha_data_model/roles"]
 network-mock = ["iroha_network/mock"]
+telemetry = ["iroha_telemetry", "lz4"]
 default = ["bridge"]
 
 [badges]
@@ -47,6 +48,8 @@ heim = { version = "0.1.0-rc.1", features = ["cpu", "memory"] }
 tracing = "0.1"
 dashmap = { version = "4.0" }
 iroha_futures = { path = "../iroha_futures" }
+iroha_telemetry = { path = "../iroha_telemetry", optional = true }
+lz4 = { version = "1.23", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.2.1"

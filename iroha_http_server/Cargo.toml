@@ -21,7 +21,7 @@ serde = "1"
 serde_json = "1"
 tracing = "0.1"
 iroha_logger = { path = "../iroha_logger" }
-iroha_futures = { path = "../iroha_futures" }
+iroha_futures = { path = "../iroha_futures", features = ["telemetry"] }
 
 [dev-dependencies]
 attohttpc = "0.16.3"
