@@ -24,7 +24,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() -> Result<()> {
     let committed_event_received = Arc::new(RwLock::new(false));
     let committed_event_received_clone = committed_event_received.clone();
     let client_clone = iroha_client.clone();
-    let _ = thread::spawn(move || {
+    let _handle = thread::spawn(move || {
         client_clone.loop_on_events(
             EventFilter::Pipeline(PipelineEventFilter::by_entity(
                 PipelineEntityType::Transaction,

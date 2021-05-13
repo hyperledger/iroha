@@ -31,9 +31,9 @@ jobs:
       - name: Format check
         run: cargo +nightly-2021-03-24 fmt --all --verbose -- --check
       - name: Static analysis without features
-        run: cargo lints clippy --all --benches --tests
+        run: cargo lints clippy --workspace --benches --tests
       - name: Static analysis with all features enabled
-        run: cargo lints clippy --all --benches --tests --all-features
+        run: cargo lints clippy --workspace --benches --tests --all-features
       - name: Documentation check
         run: |
           cargo doc --no-deps --verbose
@@ -55,7 +55,7 @@ jobs:
       - name: Remove limit for opened files
         run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
       - name: Run tests
-        run: cargo test --workspace --verbose
+        run: cargo test --workspace --verbose -- --test-threads=1
 
   test-iroha_network-mock:
     runs-on: ubuntu-latest

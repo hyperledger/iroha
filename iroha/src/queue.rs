@@ -91,10 +91,11 @@ impl Queue {
             if transaction.is_expired(self.transaction_time_to_live)
                 || transaction.is_in_blockchain(world_state_view)
             {
-                let _ = self
-                    .pending_tx_by_hash
-                    .remove(&transaction_hash)
-                    .expect("Should always be present, as contained in queue");
+                drop(
+                    self.pending_tx_by_hash
+                        .remove(&transaction_hash)
+                        .expect("Should always be present, as contained in queue"),
+                );
                 continue;
             }
 
@@ -103,10 +104,11 @@ impl Queue {
             {
                 signature_condition_passed
             } else {
-                let _ = self
-                    .pending_tx_by_hash
-                    .remove(&transaction_hash)
-                    .expect("Should always be present, as contained in queue");
+                drop(
+                    self.pending_tx_by_hash
+                        .remove(&transaction_hash)
+                        .expect("Should always be present, as contained in queue"),
+                );
                 continue;
             };
 

@@ -372,7 +372,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into());
+                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into()));
                 Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN, params))
             }
         }
@@ -479,10 +479,10 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetDefinitionId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(
+                drop(params.insert(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     object_id.into(),
-                );
+                ));
                 Ok(PermissionToken::new(
                     CAN_UNREGISTER_ASSET_WITH_DEFINITION,
                     params,
@@ -591,10 +591,10 @@ pub mod public_blockchain {
                     return Err("Destination is not an Asset.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(
+                drop(params.insert(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
-                );
+                ));
                 Ok(PermissionToken::new(
                     CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
                     params,
@@ -705,10 +705,10 @@ pub mod public_blockchain {
                     return Err("Destination is not an Asset.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(
+                drop(params.insert(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
-                );
+                ));
                 Ok(PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION, params))
             }
         }
@@ -799,7 +799,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into());
+                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into()));
                 Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN, params))
             }
         }
@@ -910,7 +910,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
+                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
                 Ok(PermissionToken::new(
                     CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN,
                     params,
@@ -1006,7 +1006,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AccountId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
+                drop(params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
                 Ok(PermissionToken::new(
                     CAN_SET_KEY_VALUE_IN_USER_METADATA,
                     params,
@@ -1101,7 +1101,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
+                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
                 Ok(PermissionToken::new(
                     CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS,
                     params,
@@ -1197,7 +1197,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AccountId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                let _ = params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
+                drop(params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
                 Ok(PermissionToken::new(
                     CAN_REMOVE_KEY_VALUE_IN_USER_METADATA,
                     params,
