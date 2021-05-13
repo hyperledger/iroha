@@ -44,5 +44,8 @@ allow = [
     'clippy::wildcard-enum-match-arm',
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
+    'clippy::inconsistent_struct_constructor',
+    'clippy::semicolon_if_nothing_returned',
+    'clippy::default-numeric-fallback',
 ]
 warn = []

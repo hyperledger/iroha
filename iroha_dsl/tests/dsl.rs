@@ -14,7 +14,7 @@ const GENESIS_PATH: &str = "tests/genesis.json";
 
 #[test]
 fn find_rate_and_make_exchange_isi_should_be_valid() {
-    let _ = Pair::new(
+    let _instruction = Pair::new(
         TransferBox::new(
             IdBox::AssetId(AssetId::from_names("btc", "crypto", "seller", "company")),
             Expression::Query(
@@ -46,7 +46,7 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
 
 #[test]
 fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
-    let _ = IfInstruction::new(
+    let _instruction = IfInstruction::new(
         Not::new(Greater::new(
             QueryBox::from(FindAssetQuantityById::new(AssetId::from_names(
                 "btc2eth_rate",
@@ -93,7 +93,7 @@ impl FindRateAndCheckItGreaterThanValue {
 
 #[test]
 fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
-    let _ = FindRateAndCheckItGreaterThanValue::new("btc", "eth", 10).into_isi();
+    let _instruction = FindRateAndCheckItGreaterThanValue::new("btc", "eth", 10).into_isi();
 }
 
 #[test]

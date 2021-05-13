@@ -48,10 +48,12 @@ pub mod isi {
             world_state_view: &WorldStateView,
         ) -> Result<(), Error> {
             let account_id = self.object_id;
-            let _ = world_state_view
-                .domain_mut(&account_id.domain_name)?
-                .accounts
-                .remove(&account_id);
+            drop(
+                world_state_view
+                    .domain_mut(&account_id.domain_name)?
+                    .accounts
+                    .remove(&account_id),
+            );
             Ok(())
         }
     }

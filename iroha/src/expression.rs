@@ -468,15 +468,15 @@ mod tests {
 
     #[test]
     fn if_condition_builder_builds_only_with_both_branches() {
-        let _ = IfBuilder::condition(true)
+        let _condition = IfBuilder::condition(true)
             .then_expression(1_u32)
             .build()
             .expect_err("Builder should fail if a branch is missing");
-        let _ = IfBuilder::condition(true)
+        let _condition = IfBuilder::condition(true)
             .else_expression(2_u32)
             .build()
             .expect_err("Builder should fail if a branch is missing");
-        let _ = IfBuilder::condition(true)
+        let _condition = IfBuilder::condition(true)
             .then_expression(1_u32)
             .else_expression(2_u32)
             .build()
