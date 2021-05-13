@@ -135,6 +135,7 @@ mod cpu {
             Cpu::default()
         }
 
+        #[iroha_futures::telemetry_future]
         pub async fn calculate(&mut self) -> Result<()> {
             self.load.calculate().await
         }
@@ -156,6 +157,7 @@ mod cpu {
         ///
         /// # Errors
         /// Can fail during computing metrics
+        #[iroha_futures::telemetry_future]
         pub async fn calculate(&mut self) -> Result<()> {
             self.frequency = format!("{:?}", cpu::frequency().await);
             self.stats = format!("{:?}", cpu::stats().await);
@@ -186,6 +188,7 @@ mod memory {
         ///
         /// # Errors
         /// Can fail during computing memory metrics
+        #[iroha_futures::telemetry_future]
         pub async fn calculate(&mut self) -> Result<()> {
             self.memory = format!("{:?}", memory::memory().await);
             self.swap = format!("{:?}", memory::swap().await);

@@ -55,6 +55,7 @@ impl Kura {
     }
 
     /// After constructing `Kura` it should be initialized to be ready to work with it.
+    #[iroha_futures::telemetry_future]
     pub async fn init(&mut self) -> Result<Vec<VersionedCommittedBlock>> {
         let blocks = self.block_store.read_all().await;
         self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedCommittedBlock::hash));
@@ -62,6 +63,7 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
+    #[iroha_futures::telemetry_future]
     #[iroha_logger::log]
     pub async fn store(&mut self, block: VersionedCommittedBlock) -> Result<Hash> {
         match self.block_store.write(&block).await {
@@ -120,6 +122,7 @@ impl BlockStore {
         self.path.join(BlockStore::get_block_filename(block_height))
     }
 
+    #[iroha_futures::telemetry_future]
     async fn write(&self, block: &VersionedCommittedBlock) -> Result<Hash> {
         //filename is its height
         let path = self.get_block_path(block.header().height);
@@ -134,6 +137,7 @@ impl BlockStore {
         Ok(hash)
     }
 
+    #[iroha_futures::telemetry_future]
     async fn read(&self, height: u64) -> Result<VersionedCommittedBlock> {
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.wrap_err("No file found.")?;
@@ -146,6 +150,7 @@ impl BlockStore {
     }
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
+    #[iroha_futures::telemetry_future]
     async fn read_all(&self) -> Vec<VersionedCommittedBlock> {
         let mut height = 1;
         let mut blocks = Vec::new();

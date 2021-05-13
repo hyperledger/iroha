@@ -185,6 +185,7 @@ impl Iroha {
     /// # Errors
     /// Can fail if initing kura fails
     #[allow(clippy::eval_order_dependence, clippy::too_many_lines)]
+    #[iroha_futures::telemetry_future]
     pub async fn start(&self) -> Result<()> {
         iroha_logger::info!("Starting Iroha.");
         //TODO: ensure the initialization order of `Kura`,`WSV` and `Sumeragi`.
