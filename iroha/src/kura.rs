@@ -6,13 +6,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use async_std::{
-    fs::{metadata, File},
-    prelude::*,
-};
 use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::{Deserialize, Serialize};
+use tokio::{
+    fs::{metadata, File},
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 use crate::{block::VersionedCommittedBlock, merkle::MerkleTree, prelude::*};
 
@@ -69,7 +69,7 @@ impl Kura {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 //TODO: shouldn't we add block hash to merkle tree here?
-                self.block_sender.send(block).await;
+                self.block_sender.send(block).await?;
                 Ok(hash)
             }
             Err(error) => {
@@ -158,6 +158,7 @@ impl BlockStore {
             blocks.push(block);
             height += 1;
         }
+        iroha_logger::info!("Read {} blocks from block store.", blocks.len());
         blocks
     }
 }
@@ -217,17 +218,17 @@ pub mod config {
 mod tests {
     #![allow(clippy::cast_possible_truncation, clippy::restriction)]
 
-    use async_std::sync;
     use iroha_crypto::KeyPair;
     use iroha_data_model::prelude::*;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
 
     use super::*;
 
-    #[async_std::test]
+    #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let (tx, _rx) = sync::channel(100);
+        let (tx, _rx) = mpsc::channel(100);
         assert!(Kura::new(Mode::Strict, temp_dir.path(), tx)
             .unwrap()
             .init()
@@ -235,7 +236,7 @@ mod tests {
             .is_ok());
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
@@ -252,7 +253,7 @@ mod tests {
             .is_ok());
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn read_block_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
@@ -270,7 +271,7 @@ mod tests {
         assert!(block_store.read(1).await.is_ok())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn read_all_blocks_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let block_store = BlockStore::new(dir.path()).unwrap();
@@ -304,7 +305,7 @@ mod tests {
     ///the block_store and updates atomically the in-memory hashmaps that make up the key-value store that
     ///is the world-state-view. To optimize networking syncing, which works on 100 block chunks,
     ///chunks of 100 blocks each are stored in files in the block store.
-    #[async_std::test]
+    #[tokio::test]
     async fn store_block() {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
@@ -314,7 +315,7 @@ mod tests {
             .expect("Failed to sign blocks.")
             .commit();
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = sync::channel(100);
+        let (tx, _rx) = mpsc::channel(100);
         let mut kura = Kura::new(Mode::Strict, dir.path(), tx).unwrap();
         drop(kura.init().await.expect("Failed to init Kura."));
         let _ = kura

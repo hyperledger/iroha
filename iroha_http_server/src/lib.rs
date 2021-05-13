@@ -3,19 +3,25 @@
 #![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
 
 //TODO: do we need TLS/SSL?
-use std::convert::{TryFrom, TryInto};
-use std::sync::Arc;
-
-use async_std::{
-    net::{TcpListener, TcpStream},
-    prelude::*,
-    task,
+use std::{
+    convert::{TryFrom, TryInto},
+    future::Future,
+    sync::Arc,
 };
+
 use futures::FutureExt;
-use http::{HttpEndpoint, HttpRequest, HttpResponse, HttpResponseError, PathParams, QueryParams};
+use http::{
+    HttpEndpoint, HttpResponse, HttpResponseError, PathParams, PreprocessedHttpRequest,
+    QueryParams, RawHttpRequest,
+};
 use iroha_error::{Result, WrapErr};
 use route_recognizer::Router;
-use web_socket::WebSocketHandler;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    task,
+};
+use web_socket::{WebSocketEndpoint, WebSocketHandler};
 
 const BUFFER_SIZE: usize = 2_usize.pow(18);
 
@@ -43,9 +49,19 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
         }
     }
 
+    #[allow(clippy::future_not_send)]
+    async fn write_all<B>(bytes: B, stream: &mut TcpStream)
+    where
+        Vec<u8>: From<B>,
+    {
+        if let Err(err) = stream.write_all(&Vec::from(bytes)).await {
+            iroha_logger::error!("Failed to write back HTTP response: {}", err);
+        }
+    }
+
     /// Handles http/websocket connection
     #[iroha_futures::telemetry_future]
-    async fn start_handle(
+    async fn handle(
         state: State,
         mut stream: TcpStream,
         router: Arc<Router<Endpoint<State>>>,
@@ -55,27 +71,25 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
             .peek(&mut buffer)
             .await
             .wrap_err("Request read failed.")?;
-
-        let response = match HttpRequest::try_from(&buffer[..read_size]) {
-            Ok(request) => {
-                let response = request
-                    .process(state, router.as_ref(), stream.clone())
-                    .await;
-                if response.is_some() {
-                    // Consume peeked data.
-                    consume_bytes(&mut stream, read_size).await?;
-                }
-                response
+        let request = RawHttpRequest::try_from(&buffer[..read_size])
+            .map(|request| request.preprocess(state, &*router));
+        match request {
+            Err(parse_err) => {
+                consume_bytes(&mut stream, read_size).await?;
+                iroha_logger::error!("Failed to parse incoming HTTP request: {:?}", parse_err);
+                Self::write_all(&HttpResponse::bad_request(), &mut stream).await;
             }
-            Err(err) => {
-                iroha_logger::error!("Failed to parse incoming HTTP request: {:?}", err);
-                //TODO: return `not supported` for the features that are not supported instead of bad request.
-                Some(HttpResponse::bad_request())
+            Ok(Err(preprocess_err_response)) => {
+                consume_bytes(&mut stream, read_size).await?;
+                Self::write_all(&preprocess_err_response, &mut stream).await;
             }
-        };
-        if let Some(response) = response {
-            if let Err(err) = stream.write_all(&Vec::from(&response)).await {
-                iroha_logger::error!("Failed to write back HTTP response: {}", err);
+            Ok(Ok(PreprocessedHttpRequest::Request(request))) => {
+                consume_bytes(&mut stream, read_size).await?;
+                let response = request.process().await;
+                Self::write_all(&response, &mut stream).await;
+            }
+            Ok(Ok(PreprocessedHttpRequest::WebSocketUpgrade(web_socket))) => {
+                web_socket.process_with_stream(stream).await
             }
         }
         Ok(())
@@ -96,7 +110,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
             let state = self.state.clone();
             let router = Arc::clone(&self.router);
             let _drop = task::spawn(async move {
-                if let Err(err) = Self::start_handle(state, stream, router).await {
+                if let Err(err) = Self::handle(state, stream, router).await {
                     iroha_logger::error!("Failed to handle HTTP request: {}", err);
                 }
             });
@@ -108,7 +122,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
 #[allow(missing_debug_implementations)]
 pub enum Endpoint<State> {
     /// websocket
-    WebSocket(Box<dyn WebSocketHandler<State>>),
+    WebSocket(WebSocketEndpoint<State>),
     /// http
     Http(HttpEndpoint<State>),
 }
@@ -123,9 +137,9 @@ pub mod http {
         convert::{From, TryFrom, TryInto},
         error::Error as StdError,
         fmt::{self, Display},
+        future::Future,
     };
 
-    use async_std::{net::TcpStream, prelude::*};
     use async_trait::async_trait;
     use httparse::{Request as HttpParseRequest, Status};
     use iroha_derive::FromVariant;
@@ -133,7 +147,10 @@ pub mod http {
     use route_recognizer::Router;
     use url::form_urlencoded;
 
-    use super::{web_socket::WEB_SOCKET_UPGRADE, Endpoint};
+    use super::{
+        web_socket::{WebSocketUpgrade, WEB_SOCKET_UPGRADE},
+        Endpoint,
+    };
 
     /// get method name
     pub const GET_METHOD: &str = "GET";
@@ -206,7 +223,7 @@ pub mod http {
             state: State,
             path_params: PathParams,
             query_params: QueryParams,
-            request: HttpRequest,
+            request: RawHttpRequest,
         ) -> HttpResponse;
     }
 
@@ -214,7 +231,7 @@ pub mod http {
     impl<State, F, Fut> HttpHandler<State> for F
     where
         State: Clone + Send + Sync + 'static,
-        F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, HttpRequest) -> Fut,
+        F: Send + Sync + 'static + Fn(State, PathParams, QueryParams, RawHttpRequest) -> Fut,
         Fut: Future<Output = HttpResponse> + Send + 'static,
     {
         async fn call(
@@ -222,7 +239,7 @@ pub mod http {
             state: State,
             path_params: PathParams,
             query_params: QueryParams,
-            request: HttpRequest,
+            request: RawHttpRequest,
         ) -> HttpResponse {
             let future = (self)(state, path_params, query_params, request);
             future.await
@@ -307,7 +324,6 @@ pub mod http {
         /// Failed to read header
         #[error("Failed to read header.")]
         ReadHeaderFailed,
-
         /// Failed to parse content length value - invalid utf-8.
         #[error("Failed to parse content length value - invalid utf-8.")]
         ContentLengthUtf(#[source] std::string::FromUtf8Error),
@@ -333,7 +349,7 @@ pub mod http {
 
     /// The HTTP request.
     #[derive(Debug, Clone, PartialEq)]
-    pub struct HttpRequest {
+    pub struct RawHttpRequest {
         /// The request method, such as `GET`.
         pub method: String,
         /// The request path, such as `/about-us`.
@@ -346,15 +362,26 @@ pub mod http {
         pub body: Vec<u8>,
     }
 
-    impl HttpRequest {
-        /// Process request
-        #[iroha_futures::telemetry_future]
-        pub async fn process<State>(
+    /// Preprocessed request, which should be handled either as request or web socket upgrade.
+    #[allow(missing_debug_implementations)]
+    pub enum PreprocessedHttpRequest<'a, State> {
+        /// Handle this request as ordinary http.
+        Request(HttpRequest<'a, State>),
+        /// Handle this request as a web socket upgrade.
+        WebSocketUpgrade(WebSocketUpgrade<'a, State>),
+    }
+
+    impl RawHttpRequest {
+        /// Parses common request params and decides if this request should be handled as simple http request or protocol upgrade.
+        ///
+        /// # Errors
+        /// 1. Upgrade requeired for the URL
+        /// 2. Websocket endpoint not found under this URL
+        pub fn preprocess<State>(
             self,
             state: State,
             router: &Router<Endpoint<State>>,
-            stream: TcpStream,
-        ) -> Option<HttpResponse>
+        ) -> Result<PreprocessedHttpRequest<State>, HttpResponse>
         where
             State: Clone + Send + Sync + 'static,
         {
@@ -363,7 +390,7 @@ pub mod http {
             let route_match = if let Ok(route_match) = router.recognize(path) {
                 route_match
             } else {
-                return Some(HttpResponse::not_found());
+                return Err(HttpResponse::not_found());
             };
 
             let endpoint = route_match.handler;
@@ -372,64 +399,92 @@ pub mod http {
                 .iter()
                 .map(|(key, value)| (key.to_owned(), value.to_owned()))
                 .collect();
+
             #[allow(clippy::pattern_type_mismatch)]
             if let Some(WEB_SOCKET_UPGRADE) = self
                 .headers
                 .get(&UPGRADE_HEADER.to_lowercase())
                 .map(Vec::as_slice)
             {
-                let handler = if let Endpoint::WebSocket(handler) = endpoint {
-                    handler
+                if let Endpoint::WebSocket(handler) = endpoint {
+                    Ok(PreprocessedHttpRequest::WebSocketUpgrade(
+                        WebSocketUpgrade::new(handler, state, path_params, query_params),
+                    ))
                 } else {
-                    return Some(HttpResponse::upgrade_required(WEB_SOCKET_UPGRADE));
-                };
-
-                match async_tungstenite::accept_async(stream).await {
-                    Ok(stream) => {
-                        if let Err(err) =
-                            handler.call(state, path_params, query_params, stream).await
-                        {
-                            iroha_logger::error!("Failed to handle web socket stream: {}", err)
-                        }
-                        None
-                    }
-                    Err(err) => {
-                        iroha_logger::error!(
-                            "Failed to handle web socket request {:?} with error: {}",
-                            self,
-                            err
-                        );
-                        Some(HttpResponse::internal_server_error())
-                    }
+                    Err(HttpResponse::not_found())
                 }
             } else {
-                #[allow(clippy::pattern_type_mismatch)]
-                let handler = match (self.method.as_ref(), endpoint) {
-                    (GET_METHOD, Endpoint::Http(HttpEndpoint::Get(handler)))
-                    | (POST_METHOD, Endpoint::Http(HttpEndpoint::Post(handler)))
-                    | (PUT_METHOD, Endpoint::Http(HttpEndpoint::Put(handler))) => handler,
-                    _ => {
-                        return Some(HttpResponse::method_not_allowed(&[
-                            GET_METHOD,
-                            POST_METHOD,
-                            PUT_METHOD,
-                        ]))
-                    }
-                };
-
-                let response = handler
-                    .call(state, path_params, query_params, self.clone())
-                    .await;
-                Some(response)
+                #[allow(clippy::collapsible_else_if)]
+                if let Endpoint::Http(handler) = endpoint {
+                    Ok(PreprocessedHttpRequest::Request(HttpRequest::new(
+                        self,
+                        handler,
+                        state,
+                        path_params,
+                        query_params,
+                    )))
+                } else {
+                    Err(HttpResponse::upgrade_required(WEB_SOCKET_UPGRADE))
+                }
             }
         }
     }
 
-    impl<'h, 'b> TryFrom<HttpParseRequest<'h, 'b>> for HttpRequest {
+    /// Preprocessed http request.
+    #[allow(missing_debug_implementations)]
+    pub struct HttpRequest<'a, State> {
+        raw: RawHttpRequest,
+        endpoint: &'a HttpEndpoint<State>,
+        state: State,
+        path_params: PathParams,
+        query_params: QueryParams,
+    }
+
+    impl<'a, State: Clone + Send + Sync + 'static> HttpRequest<'a, State> {
+        /// Constructor.
+        pub fn new(
+            raw: RawHttpRequest,
+            endpoint: &'a HttpEndpoint<State>,
+            state: State,
+            path_params: PathParams,
+            query_params: QueryParams,
+        ) -> Self {
+            HttpRequest {
+                raw,
+                endpoint,
+                state,
+                path_params,
+                query_params,
+            }
+        }
+
+        /// Process request
+        pub async fn process(self) -> HttpResponse
+        where
+            State: Clone + Send + Sync + 'static,
+        {
+            #[allow(clippy::pattern_type_mismatch)]
+            let handler = match (self.raw.method.as_ref(), self.endpoint) {
+                (GET_METHOD, HttpEndpoint::Get(handler))
+                | (POST_METHOD, HttpEndpoint::Post(handler))
+                | (PUT_METHOD, HttpEndpoint::Put(handler)) => handler,
+                _ => {
+                    return HttpResponse::method_not_allowed(&[GET_METHOD, POST_METHOD, PUT_METHOD])
+                }
+            };
+
+            let response = handler
+                .call(self.state, self.path_params, self.query_params, self.raw)
+                .await;
+            response
+        }
+    }
+
+    impl<'h, 'b> TryFrom<HttpParseRequest<'h, 'b>> for RawHttpRequest {
         type Error = Error;
 
         fn try_from(request: HttpParseRequest<'h, 'b>) -> Result<Self, Self::Error> {
-            Ok(HttpRequest {
+            Ok(RawHttpRequest {
                 method: request.method.ok_or(Error::MethodNotFound)?.to_owned(),
                 path: request.path.ok_or(Error::PathNotFound)?.to_owned(),
                 version: request.version.ok_or(Error::VersionNotFound)?.try_into()?,
@@ -443,7 +498,7 @@ pub mod http {
         }
     }
 
-    impl TryFrom<&[u8]> for HttpRequest {
+    impl TryFrom<&[u8]> for RawHttpRequest {
         type Error = Error;
 
         fn try_from(bytes: &[u8]) -> Result<Self, Error> {
@@ -454,7 +509,7 @@ pub mod http {
             } else {
                 return Err(Error::ReadHeaderFailed);
             };
-            let mut request: HttpRequest = request.try_into()?;
+            let mut request: RawHttpRequest = request.try_into()?;
             //TODO: Deal with chunked messages which do not have Content-Length header
             //They instead have Transfer-Encoding: `Chunked` https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
             if let Some(content_length) = request.headers.get(&CONTENT_LENGTH_HEADER.to_lowercase())
@@ -672,9 +727,9 @@ pub mod http {
         }
     }
 
-    impl<T: serde::de::DeserializeOwned> TryFrom<HttpRequest> for Json<T> {
+    impl<T: serde::de::DeserializeOwned> TryFrom<RawHttpRequest> for Json<T> {
         type Error = JsonError;
-        fn try_from(req: HttpRequest) -> Result<Self, Self::Error> {
+        fn try_from(req: RawHttpRequest) -> Result<Self, Self::Error> {
             Ok(Self(serde_json::from_slice(&req.body).map_err(JsonError)?))
         }
     }
@@ -692,11 +747,13 @@ pub mod web_socket {
 
     //! websocket implementation module
 
-    use async_std::{net::TcpStream, prelude::*};
+    use std::future::Future;
+
     use async_trait::async_trait;
-    pub use async_tungstenite::tungstenite::Message as WebSocketMessage;
-    use async_tungstenite::WebSocketStream as TungsteniteWebSocketStream;
     use iroha_error::Result;
+    use tokio::net::TcpStream;
+    pub use tokio_tungstenite::tungstenite::Message as WebSocketMessage;
+    use tokio_tungstenite::WebSocketStream as TungsteniteWebSocketStream;
 
     use super::http::{PathParams, QueryParams};
 
@@ -739,6 +796,56 @@ pub mod web_socket {
             future.await
         }
     }
+
+    /// Web Socket Endpoint is an alias to a boxed handler.
+    pub type WebSocketEndpoint<State> = Box<dyn WebSocketHandler<State>>;
+
+    /// Web Socket Upgrade preprocessed request.
+    #[allow(missing_debug_implementations)]
+    pub struct WebSocketUpgrade<'a, State> {
+        endpoint: &'a WebSocketEndpoint<State>,
+        state: State,
+        path_params: PathParams,
+        query_params: QueryParams,
+    }
+
+    impl<'a, State: Clone + Send + Sync + 'static> WebSocketUpgrade<'a, State> {
+        /// Constructor.
+        pub fn new(
+            endpoint: &'a WebSocketEndpoint<State>,
+            state: State,
+            path_params: PathParams,
+            query_params: QueryParams,
+        ) -> Self {
+            WebSocketUpgrade {
+                endpoint,
+                state,
+                path_params,
+                query_params,
+            }
+        }
+
+        /// Process this upgrade, consuming the stream.
+        pub async fn process_with_stream(self, stream: TcpStream) {
+            match tokio_tungstenite::accept_async(stream).await {
+                Ok(stream) => {
+                    if let Err(err) = self
+                        .endpoint
+                        .call(self.state, self.path_params, self.query_params, stream)
+                        .await
+                    {
+                        iroha_logger::error!("Failed to handle web socket stream: {}", err)
+                    }
+                }
+                Err(err) => {
+                    iroha_logger::error!(
+                        "Failed to handle web socket handshake with error: {}",
+                        err
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Builder for server route handlers.
@@ -763,7 +870,7 @@ where
     Path::Error: http::HttpResponseError,
     Query: TryFrom<http::QueryParams> + Send + Sync + 'static,
     Query::Error: http::HttpResponseError,
-    Req: TryFrom<http::HttpRequest> + Send + Sync + 'static,
+    Req: TryFrom<http::RawHttpRequest> + Send + Sync + 'static,
     Req::Error: http::HttpResponseError,
 {
     let path = match path {
@@ -792,7 +899,7 @@ where
         Path::Error: HttpResponseError,
         Query: TryFrom<QueryParams> + Send + Sync + 'static,
         Query::Error: HttpResponseError,
-        Req: TryFrom<HttpRequest> + Send + Sync + 'static,
+        Req: TryFrom<RawHttpRequest> + Send + Sync + 'static,
         Req::Error: HttpResponseError,
         F: Send + Sync + Copy + 'static + Fn(State, Path, Query, Req) -> Fut,
         Fut: Future + Send + 'static,
@@ -809,7 +916,7 @@ where
                 move |state,
                       path: http::PathParams,
                       query: http::QueryParams,
-                      req: http::HttpRequest| {
+                      req: http::RawHttpRequest| {
                     let fut = move |state, path, query, req| {
                         handler(state, path, query, req).map(|resp| match resp.try_into() {
                             Ok(resp) => resp,
@@ -833,7 +940,7 @@ where
         Path::Error: HttpResponseError,
         Query: TryFrom<QueryParams> + Send + Sync + 'static,
         Query::Error: HttpResponseError,
-        Req: TryFrom<HttpRequest> + Send + Sync + 'static,
+        Req: TryFrom<RawHttpRequest> + Send + Sync + 'static,
         Req::Error: HttpResponseError,
         F: Send + Sync + Copy + 'static + Fn(State, Path, Query, Req) -> Fut,
         Fut: Future + Send + 'static,
@@ -847,7 +954,7 @@ where
         router.add(
             &self.path,
             Endpoint::Http(HttpEndpoint::Post(Box::new(
-                move |state, path: PathParams, query: QueryParams, req: HttpRequest| {
+                move |state, path: PathParams, query: QueryParams, req: RawHttpRequest| {
                     let fut = move |state, path, query, req| {
                         handler(state, path, query, req).map(|resp| match resp.try_into() {
                             Ok(resp) => resp,
@@ -871,7 +978,7 @@ where
         Path::Error: HttpResponseError,
         Query: TryFrom<QueryParams> + Send + Sync + 'static,
         Query::Error: HttpResponseError,
-        Req: TryFrom<HttpRequest> + Send + Sync + 'static,
+        Req: TryFrom<RawHttpRequest> + Send + Sync + 'static,
         Req::Error: HttpResponseError,
         F: Send + Sync + Copy + 'static + Fn(State, Path, Query, Req) -> Fut,
         Fut: Future + Send + 'static,
@@ -888,7 +995,7 @@ where
                 move |state,
                       path: http::PathParams,
                       query: http::QueryParams,
-                      req: http::HttpRequest| {
+                      req: http::RawHttpRequest| {
                     let fut = move |state, path, query, req| {
                         handler(state, path, query, req).map(|resp| match resp.try_into() {
                             Ok(resp) => resp,
@@ -929,7 +1036,7 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{
-        http::{Headers, HttpRequest, HttpResponse, HttpVersion, PathParams, QueryParams},
+        http::{Headers, HttpResponse, HttpVersion, PathParams, QueryParams, RawHttpRequest},
         web_socket::{WebSocketMessage, WebSocketStream},
     };
 }
@@ -941,9 +1048,9 @@ mod tests {
     use std::sync::Arc;
     use std::{thread, time::Duration};
 
-    use async_std::{sync::RwLock, task};
     use futures::{SinkExt, StreamExt};
     use isahc::AsyncReadResponseExt;
+    use tokio::{runtime::Runtime, sync::RwLock, task};
     use tungstenite::client as web_socket_client;
 
     use super::{prelude::*, Server};
@@ -951,13 +1058,15 @@ mod tests {
     #[test]
     fn get_request() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
                 |_state: (),
                  _path_params: PathParams,
                  _query_params: QueryParams,
-                 request: HttpRequest| async move {
+                 request: RawHttpRequest| async move {
                     assert_eq!(&request.body, b"Hello, world!");
                     HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
                 },
@@ -973,7 +1082,7 @@ mod tests {
         assert_eq!(response.text().expect("Failed to get text"), "Hi!")
     }
 
-    #[async_std::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn get_request_isahc() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
         let _drop = task::spawn(async move {
@@ -982,7 +1091,7 @@ mod tests {
                 |_state: (),
                  _path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move {
+                 _request: RawHttpRequest| async move {
                     HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
                 },
             );
@@ -999,19 +1108,21 @@ mod tests {
     #[test]
     fn multiple_routes() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/a").get(
                 |_state: (),
                  _path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move { panic!("Wrong path.") },
+                 _request: RawHttpRequest| async move { panic!("Wrong path.") },
             );
             server.at("/*/b").post(
                 |_state: (),
                  _path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move {
+                 _request: RawHttpRequest| async move {
                     HttpResponse::ok(Headers::new(), b"Right path".to_vec())
                 },
             );
@@ -1019,7 +1130,7 @@ mod tests {
                 |_state: (),
                  _path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move { panic!("Wrong path.") },
+                 _request: RawHttpRequest| async move { panic!("Wrong path.") },
             );
             let _result = server.start(format!("localhost:{}", port).as_ref()).await;
         });
@@ -1035,13 +1146,15 @@ mod tests {
     #[test]
     fn path_params() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/:a/path/:c").get(
                 |_state: (),
                  path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move {
+                 _request: RawHttpRequest| async move {
                     assert_eq!(path_params["a"], "hello");
                     assert_eq!(path_params["c"], "params");
                     HttpResponse::ok(Headers::new(), b"Hi!".to_vec())
@@ -1061,13 +1174,15 @@ mod tests {
     #[test]
     fn query_params() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").get(
                 |_state: (),
                  _path_params: PathParams,
                  query_params: QueryParams,
-                 _request: HttpRequest| async move {
+                 _request: RawHttpRequest| async move {
                     assert_eq!(query_params.len(), 2);
                     assert_eq!(query_params["a"], "hello");
                     assert_eq!(query_params["c"], "params");
@@ -1088,6 +1203,8 @@ mod tests {
     #[test]
     fn stateful_server() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         let _drop = task::spawn(async move {
             let state = Arc::new(RwLock::new(0_i32));
             let mut server = Server::new(state);
@@ -1095,7 +1212,7 @@ mod tests {
                 |state: Arc<RwLock<i32>>,
                  path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move {
+                 _request: RawHttpRequest| async move {
                     let number: i32 = path_params["num"].parse().expect("Failed to parse i32");
                     *state.write().await += number;
                 },
@@ -1104,7 +1221,7 @@ mod tests {
                 |state: Arc<RwLock<i32>>,
                  _path_params: PathParams,
                  _query_params: QueryParams,
-                 _request: HttpRequest| async move {
+                 _request: RawHttpRequest| async move {
                     HttpResponse::ok(
                         Headers::new(),
                         format!("{}", state.read().await).as_bytes().to_vec(),
@@ -1132,6 +1249,8 @@ mod tests {
     #[test]
     fn web_socket() {
         let port = port_check::free_local_port().expect("Failed to get free local port.");
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         let _drop = task::spawn(async move {
             let mut server = Server::new(());
             server.at("/").web_socket(

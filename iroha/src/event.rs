@@ -4,15 +4,15 @@
 
 use std::{fmt::Debug, time::Duration};
 
-use async_std::{
-    future,
-    sync::{Receiver, Sender},
-};
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};
 use iroha_error::{error, Result, WrapErr};
 use iroha_http_server::web_socket::{WebSocketMessage, WebSocketStream};
 use iroha_version::prelude::*;
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    time,
+};
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = Sender<Event>;
@@ -39,7 +39,7 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocketStream) -> Result<Self> {
-        if let WebSocketMessage::Text(message) = future::timeout(TIMEOUT, stream.next())
+        if let WebSocketMessage::Text(message) = time::timeout(TIMEOUT, stream.next())
             .await
             .wrap_err("Read message timeout")?
             .ok_or_else(|| error!("Failed to read message: no message"))?
@@ -67,11 +67,11 @@ impl Consumer {
             let event = VersionedEvent::from(event.clone())
                 .to_versioned_json_str()
                 .wrap_err("Failed to serialize event")?;
-            future::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Text(event)))
+            time::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Text(event)))
                 .await
                 .wrap_err("Read message timeout")?
                 .wrap_err("Failed to write message")?;
-            if let WebSocketMessage::Text(receipt) = future::timeout(TIMEOUT, self.stream.next())
+            if let WebSocketMessage::Text(receipt) = time::timeout(TIMEOUT, self.stream.next())
                 .await
                 .wrap_err("Failed to read receipt")?
                 .ok_or_else(|| error!("Failed to read receipt: no receipt"))?

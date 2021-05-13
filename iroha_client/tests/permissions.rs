@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+
 use std::thread;
 
 use iroha::config::Configuration;
@@ -127,7 +129,9 @@ fn permissions_disallow_asset_burn() {
     let err = iroha_client
         .submit_blocking(burn_asset.into())
         .expect_err("Transaction was not rejected.");
-    let rejection_reason = err.downcast_ref::<PipelineRejectionReason>().unwrap();
+    let rejection_reason = err
+        .downcast_ref::<PipelineRejectionReason>()
+        .unwrap_or_else(|| panic!("Error {} is not PipelineRejectionReasons.", err));
     //Then
     assert_eq!(
         rejection_reason,

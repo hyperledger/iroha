@@ -1,8 +1,5 @@
 //! Package for managing iroha configuration
 
-use std::future::Future;
-use std::pin::Pin;
-
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
@@ -19,7 +16,6 @@ pub mod derive {
     /// ## `env_prefix`
     /// Sets prefix for env variable
     /// ``` rust
-    /// # async fn test_itself() {
     /// use iroha_config::{Configurable, derive::Configurable};
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
@@ -28,16 +24,13 @@ pub mod derive {
     ///
     /// std::env::set_var("PREFIXED_A", "B");
     /// let mut prefixed = Prefixed { a: "a".to_owned() };
-    /// prefixed.load_environment().await;
+    /// prefixed.load_environment();
     /// assert_eq!(prefixed.a, "B");
-    /// # }
-    /// # async_std::task::block_on(test_itself())
     /// ```
     ///
     /// ## `inner`
     /// Tells macro that structure stores another config inside
     /// ```rust
-    /// # async fn test_itself() {
     /// use iroha_config::{Configurable, derive::Configurable};
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
@@ -47,15 +40,12 @@ pub mod derive {
     /// struct Inner { b: String }
     ///
     /// let outer = Outer { inner: Inner { b: "a".to_owned() }};
-    /// assert_eq!(outer.get_recursive(["inner", "b"]).await.unwrap(), "a");
-    /// # }
-    /// # async_std::task::block_on(test_itself())
+    /// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
     /// ```
     ///
     /// ## `serde_as_str`
     /// Tells macro to deserialize from env variable as bare string:
     /// ```
-    /// # async fn test_itself() {
     /// use iroha_config::{Configurable, derive::Configurable};
     /// use std::net::Ipv4Addr;
     ///
@@ -64,10 +54,8 @@ pub mod derive {
     ///
     /// std::env::set_var("IP", "127.0.0.1");
     /// let mut ip = IpAddr { ip: Ipv4Addr::new(10, 0, 0, 1) };
-    /// ip.load_environment().await.expect("String loading never fails");
+    /// ip.load_environment().expect("String loading never fails");
     /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
-    /// # }
-    /// # async_std::task::block_on(test_itself())
     /// ```
     pub use iroha_config_derive::Configurable;
 
@@ -138,9 +126,6 @@ pub mod derive {
     }
 }
 
-/// Pinned Boxed future with output as T and lifetime 'a
-pub type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
 /// Trait for dynamic and asynchronous configuration via maintanence endpoint for rust structures
 pub trait Configurable: Serialize + DeserializeOwned {
     /// Error type returned by methods of trait
@@ -149,28 +134,21 @@ pub trait Configurable: Serialize + DeserializeOwned {
     /// Gets field of structure and returns as json-value
     /// # Errors
     /// Fails if field was unknown
-    fn get<'a, 'b>(&'a self, field: &'b str) -> BoxedFuture<'a, Result<Value, Self::Error>>
-    where
-        'b: 'a,
-    {
-        Box::pin(self.get_recursive([field]))
+    fn get(&self, field: &'_ str) -> Result<Value, Self::Error> {
+        self.get_recursive([field])
     }
 
     /// Gets inner field of arbitrary inner depth and returns as json-value
     /// # Errors
     /// Fails if field was unknown
-    fn get_recursive<'a, 'b, T>(
-        &'a self,
-        inner_field: T,
-    ) -> BoxedFuture<'a, Result<Value, Self::Error>>
+    fn get_recursive<'a, T>(&self, inner_field: T) -> Result<Value, Self::Error>
     where
-        'b: 'a,
-        T: AsRef<[&'b str]> + Send + 'b;
+        T: AsRef<[&'a str]> + Send + 'a;
 
     /// Fails if fails to deserialize from environment
     /// # Errors
     /// Fails if fails to deserialize from environment
-    fn load_environment(&'_ mut self) -> BoxedFuture<'_, Result<(), Self::Error>>;
+    fn load_environment(&mut self) -> Result<(), Self::Error>;
 
     /// Gets docs of inner field of arbitrary depth
     /// # Errors

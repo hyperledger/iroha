@@ -91,7 +91,7 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 
 The number of blocks, which can be send in one message.
 
-Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZE`
+Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZE`
 
 ```json
 4

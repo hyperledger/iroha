@@ -49,6 +49,9 @@ pub enum FindError {
     #[cfg(feature = "roles")]
     #[error("Failed to find role by id")]
     Role(RoleId),
+    /// Block with supplied hash not found.
+    #[error("Failed to find block with this hash")]
+    Block(Hash),
 }
 
 /// Type assertion error

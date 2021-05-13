@@ -12,11 +12,11 @@ deadlock_detection = ["petgraph"]
 
 [dependencies]
 async-trait = "0.1"
-async-std = { version = "1.6.2", features = ["unstable", "attributes"] }
 once_cell = "1"
 dashmap = "4"
 futures = "0.3"
 actor_derive = { path = "./actor_derive" }
+tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread"]}
 
 petgraph = { version = "0.5", optional = true }
 

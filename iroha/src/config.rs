@@ -87,8 +87,8 @@ impl Configuration {
     /// Loads configuration from environment
     /// # Errors
     /// Fails if fails to deserialize configuration from env variables
-    pub async fn load_environment(&mut self) -> Result<()> {
-        iroha_config::Configurable::load_environment(self).await?;
+    pub fn load_environment(&mut self) -> Result<()> {
+        iroha_config::Configurable::load_environment(self)?;
         self.sumeragi_configuration.key_pair = KeyPair {
             public_key: self.public_key.clone(),
             private_key: self.private_key.clone(),

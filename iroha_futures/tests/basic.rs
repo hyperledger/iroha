@@ -4,9 +4,10 @@ use std::convert::TryFrom;
 use std::thread;
 use std::time::Duration;
 
-use async_std::{stream::StreamExt, task};
 use iroha_futures::FuturePollTelemetry;
 use iroha_logger::config::LoggerConfiguration;
+use tokio::task;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[iroha_futures::telemetry_future]
 async fn sleep(times: Vec<Duration>) -> i32 {
@@ -22,7 +23,7 @@ fn almost_equal(a: Duration, b: Duration) -> bool {
     (a - b) < (a / 10)
 }
 
-#[async_std::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_sleep() {
     if cfg!(not(feature = "telemetry")) {
         return;
@@ -36,7 +37,7 @@ async fn test_sleep() {
 
     let telemetry = iroha_logger::init(LoggerConfiguration::default()).unwrap();
     assert_eq!(sleep(sleep_times.clone()).await, 10);
-    let telemetry = telemetry
+    let telemetry = ReceiverStream::new(telemetry)
         .map(FuturePollTelemetry::try_from)
         .filter_map(Result::ok)
         .take(3)

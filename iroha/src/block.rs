@@ -9,6 +9,7 @@
 use std::iter;
 use std::time::SystemTime;
 
+use dashmap::{iter::Iter as MapIter, mapref::one::Ref as MapRef, DashMap};
 use iroha_crypto::{KeyPair, Signatures};
 use iroha_data_model::events::prelude::*;
 use iroha_data_model::transaction::prelude::*;
@@ -24,6 +25,47 @@ use crate::{
     sumeragi::InitializedNetworkTopology,
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
 };
+
+/// Blockchain.
+#[derive(Debug, Default)]
+pub struct Chain {
+    blocks: DashMap<u64, VersionedCommittedBlock>,
+}
+
+impl Chain {
+    /// Constructor.
+    pub fn new() -> Self {
+        Chain {
+            blocks: DashMap::new(),
+        }
+    }
+
+    /// Put latest block.
+    pub fn push(&self, block: VersionedCommittedBlock) {
+        let height = block.as_inner_v1().header.height;
+        drop(self.blocks.insert(height, block));
+    }
+
+    /// Iterator over height and block.
+    pub fn iter(&self) -> MapIter<u64, VersionedCommittedBlock> {
+        self.blocks.iter()
+    }
+
+    /// Latest block reference and its height.
+    pub fn latest_block(&self) -> Option<MapRef<u64, VersionedCommittedBlock>> {
+        self.blocks.get(&(self.blocks.len() as u64))
+    }
+
+    /// Length of the blockchain.
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Whether blockchain is empty.
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+}
 
 declare_versioned_with_scale!(VersionedPendingBlock 1..2);
 
@@ -492,49 +534,6 @@ impl VersionedCommittedBlock {
     /// Signatures that are verified with the `hash` of this block as `payload`.
     pub fn verified_signatures(&self) -> Vec<Signature> {
         self.as_inner_v1().verified_signatures()
-    }
-
-    /// Filters transactions by predicate
-    pub fn filter_tx_values_by_payload<'a>(
-        &'a self,
-        predicate: impl FnOnce(&'a Payload) -> bool + Copy + 'a,
-    ) -> impl Iterator<Item = TransactionValue> + 'a {
-        let block = self.as_inner_v1();
-        block
-            .rejected_transactions
-            .iter()
-            .filter(move |tx| predicate(tx.payload()))
-            .cloned()
-            .map(TransactionValue::RejectedTransaction)
-            .chain(
-                block
-                    .transactions
-                    .iter()
-                    .filter(move |tx| predicate(tx.payload()))
-                    .cloned()
-                    .map(VersionedAcceptedTransaction::from)
-                    .map(Into::into)
-                    .map(TransactionValue::Transaction),
-            )
-    }
-
-    /// Consumes block and returns iterator over transaction values
-    pub fn iter_tx_values(&'_ self) -> impl Iterator<Item = TransactionValue> + '_ {
-        let block = self.as_inner_v1();
-        block
-            .rejected_transactions
-            .iter()
-            .cloned()
-            .map(TransactionValue::RejectedTransaction)
-            .chain(
-                block
-                    .transactions
-                    .iter()
-                    .cloned()
-                    .map(VersionedAcceptedTransaction::from)
-                    .map(Into::into)
-                    .map(TransactionValue::Transaction),
-            )
     }
 }
 

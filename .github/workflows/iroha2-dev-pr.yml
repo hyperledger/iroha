@@ -13,11 +13,11 @@ env:
 
 jobs:
   check:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2 
+      - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
@@ -53,11 +53,11 @@ jobs:
           ./scripts/check_docs.sh
 
   test:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2 
+      - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
@@ -74,11 +74,11 @@ jobs:
         run: cargo test --workspace --verbose
 
   test-iroha_network-mock:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2 
+      - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
@@ -110,7 +110,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: stable
+          toolchain: stable
       - name: Install dependencies
         run: |
           apt-get update
@@ -133,11 +133,11 @@ jobs:
         run: ./scripts/cleanup_docker_test_env.sh
 
   print-telemetry:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2 
+      - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
@@ -185,7 +185,7 @@ jobs:
           path: target/telemetry
 
   test-api:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     if: ${{ false }}
     steps:
       - uses: actions/checkout@v2

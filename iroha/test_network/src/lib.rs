@@ -10,9 +10,13 @@
     clippy::restriction
 )]
 
-use std::{fmt::Debug, thread, time::Duration};
+use std::{
+    fmt::Debug,
+    sync::mpsc::{self, Sender},
+    thread,
+    time::Duration,
+};
 
-use async_std::task;
 use iroha::{
     config::Configuration, permissions::PermissionsValidatorBox, prelude::*,
     sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
@@ -25,6 +29,10 @@ use iroha_logger::config::{LevelEnv, LoggerConfiguration};
 use iroha_logger::InstrumentFutures;
 use rand::seq::SliceRandom;
 use tempfile::TempDir;
+use tokio::runtime::Runtime;
+
+#[derive(Debug, Clone, Copy)]
+pub struct ShutdownRuntime;
 
 /// Network of peers
 #[derive(Clone, Debug)]
@@ -56,9 +64,9 @@ impl std::cmp::PartialEq for Peer {
 
 impl std::cmp::Eq for Peer {}
 
-const CONFIGURATION_PATH: &str = "tests/test_config.json";
-const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-const GENESIS_PATH: &str = "tests/genesis.json";
+pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
+pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
+pub const GENESIS_PATH: &str = "tests/genesis.json";
 
 impl Network {
     /// Starts network with peers with default configuration and specified options.
@@ -158,6 +166,8 @@ impl Network {
                 drop(peer.start_with_config(configuration));
             });
 
+        thread::sleep(Duration::from_millis(3000) * (n_peers + 1));
+
         Ok(Self { genesis, peers })
     }
 
@@ -207,27 +217,38 @@ impl Peer {
         configuration: Configuration,
         permissions: impl Into<PermissionsValidatorBox> + Send + 'static,
         temp_dir: &TempDir,
-    ) -> task::JoinHandle<()> {
+    ) -> Sender<ShutdownRuntime> {
         let mut configuration = self.get_config(configuration);
         configuration
             .kura_configuration
             .kura_block_store_path(temp_dir.path())
             .unwrap();
-        let info_span = iroha_logger::info_span!("test-peer", "{}", &self.api_address);
-        let join_handle = task::spawn(
-            async move {
-                let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
-                iroha.start().await.expect("Failed to start Iroha.");
-                //Prevents temp_dir from clean up untill the end of the tests.
+        let info_span = iroha_logger::info_span!(
+            "test-peer",
+            "p2p - {}, api - {}",
+            &self.p2p_address,
+            &self.api_address
+        );
+        let (shutdown_runtime_sender, shutdown_runtime_receiver) = mpsc::channel();
+        let _join_handle = thread::spawn(move || {
+            let rt = Runtime::new().unwrap();
+            rt.spawn(
+                async move {
+                    let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
+                    iroha.start().await.expect("Failed to start Iroha.");
+                }
+                .instrument(info_span),
+            );
+            if shutdown_runtime_receiver.recv().is_err() {
+                // If shutdown sender was dropped - continue running until tests shutdown.
                 loop {
-                    task::yield_now().await;
+                    thread::yield_now();
                 }
             }
-            .instrument(info_span),
-        );
+        });
 
-        thread::sleep(std::time::Duration::from_millis(100));
-        join_handle
+        thread::sleep(Duration::from_millis(1000));
+        shutdown_runtime_sender
     }
 
     /// Starts peer with config and permissions
@@ -235,39 +256,49 @@ impl Peer {
         &self,
         configuration: Configuration,
         permissions: impl Into<PermissionsValidatorBox> + Send + 'static,
-    ) -> task::JoinHandle<()> {
+    ) -> Sender<ShutdownRuntime> {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let mut configuration = self.get_config(configuration);
-        let info_span = iroha_logger::info_span!("test-peer", "{}", &self.api_address);
-        let join_handle = task::spawn(
-            async move {
-                let temp_dir = temp_dir;
-                configuration
-                    .kura_configuration
-                    .kura_block_store_path(temp_dir.path())
-                    .unwrap();
-
-                let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
-                iroha.start().await.expect("Failed to start Iroha.");
-                //Prevents temp_dir from clean up untill the end of the tests.
+        configuration
+            .kura_configuration
+            .kura_block_store_path(temp_dir.path())
+            .unwrap();
+        let info_span = iroha_logger::info_span!(
+            "test-peer",
+            "p2p - {}, api - {}",
+            &self.p2p_address,
+            &self.api_address
+        );
+        let (shutdown_runtime_sender, shutdown_runtime_receiver) = mpsc::channel();
+        let _join_handle = thread::spawn(move || {
+            let rt = Runtime::new().unwrap();
+            rt.spawn(
+                async move {
+                    let _temp_dir = temp_dir;
+                    let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
+                    iroha.start().await.expect("Failed to start Iroha.");
+                }
+                .instrument(info_span),
+            );
+            if shutdown_runtime_receiver.recv().is_err() {
+                // If shutdown sender was dropped - continue running until tests shutdown.
                 loop {
-                    task::yield_now().await;
+                    thread::yield_now();
                 }
             }
-            .instrument(info_span),
-        );
+        });
 
-        thread::sleep(std::time::Duration::from_millis(100));
-        join_handle
+        thread::sleep(Duration::from_millis(1000));
+        shutdown_runtime_sender
     }
 
     /// Starts peer with config
-    pub fn start_with_config(&self, configuration: Configuration) -> task::JoinHandle<()> {
+    pub fn start_with_config(&self, configuration: Configuration) -> Sender<ShutdownRuntime> {
         self.start_with_config_permissions(configuration, AllowAll)
     }
 
     /// Starts peer
-    pub fn start(&self) -> task::JoinHandle<()> {
+    pub fn start(&self) -> Sender<ShutdownRuntime> {
         self.start_with_config(Configuration::test())
     }
 
@@ -297,16 +328,7 @@ impl Peer {
     /// Starts peer with default configuration.
     /// Returns its info and client for connecting to it.
     pub fn start_test() -> (Self, Client) {
-        let mut configuration = Configuration::test();
-        let peer = Self::new().expect("Failed to create peer.");
-        configuration.sumeragi_configuration.trusted_peers.peers =
-            std::iter::once(peer.id.clone()).collect();
-        peer.start_with_config(configuration.clone());
-        let client = Client::test(&peer.api_address);
-        thread::sleep(Duration::from_millis(
-            configuration.sumeragi_configuration.pipeline_time_ms(),
-        ));
-        (peer, client)
+        Self::start_test_with_permissions(AllowAll.into())
     }
 
     /// Starts peer with default configuration and specified permissions.
@@ -316,6 +338,7 @@ impl Peer {
         let peer = Self::new().expect("Failed to create peer.");
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
+        configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_owned());
         peer.start_with_config_permissions(configuration.clone(), permissions);
         let client = Client::test(&peer.api_address);
         thread::sleep(Duration::from_millis(
@@ -394,9 +417,9 @@ impl TestConfiguration for Configuration {
     fn test() -> Self {
         let mut configuration =
             Self::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        task::block_on(configuration.load_environment())
+        configuration
+            .load_environment()
             .expect("Failed to load configuration from environment");
-        configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
         configuration
     }
 

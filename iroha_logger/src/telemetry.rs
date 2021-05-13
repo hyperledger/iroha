@@ -6,8 +6,8 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
-use async_std::sync::{self, Receiver, Sender};
 use serde_json::Value;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{
     field::{Field, Visit},
     Event, Subscriber,
@@ -114,7 +114,7 @@ impl<S: Subscriber> TelemetryLayer<S> {
     /// Create new telemetry layer with specific channel size (via const generic)
     #[allow(clippy::new_ret_no_self)]
     pub fn new<const CHANNEL_SIZE: usize>(subscriber: S) -> (impl Subscriber, Receiver<Telemetry>) {
-        let (sender, reciever) = sync::channel(CHANNEL_SIZE);
+        let (sender, reciever) = mpsc::channel(CHANNEL_SIZE);
         let telemetry = Self::from_sender(subscriber, sender);
         (telemetry, reciever)
     }
@@ -125,7 +125,7 @@ impl<S: Subscriber> TelemetryLayer<S> {
         subscriber: S,
         channel_size: usize,
     ) -> (impl Subscriber, Receiver<Telemetry>) {
-        let (sender, reciever) = sync::channel(channel_size);
+        let (sender, reciever) = mpsc::channel(channel_size);
         let telemetry = Self::from_sender(subscriber, sender);
         (telemetry, reciever)
     }

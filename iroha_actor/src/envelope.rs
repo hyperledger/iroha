@@ -1,6 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-use async_std::sync as oneshot;
+use tokio::sync::oneshot;
 
 use super::*;
 
