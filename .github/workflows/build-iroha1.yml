@@ -9,7 +9,7 @@ on:
     branches: [main, support/1.2.x]
 jobs:
   Docker-iroha-builder:
-    runs-on: ubuntu-latest ##todo [ self-hosted, linux, ARM64 ]
+    runs-on: ubuntu-latest ##todo [ self-hosted, Linux, ARM64 ]
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -45,7 +45,7 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
   build-iroha-ubuntu:
     needs: Docker-iroha-builder
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: ikyb/iroha:builder
     strategy:
       fail-fast: false
@@ -103,7 +103,7 @@ jobs:
         run: "initdb --locale=C -E UTF-8 $PWD/postgres_database &&\npg_ctl -D $PWD/postgres_database start & \ncd build && ctest --output-on-failure --progress\n"
         ## Takes over 4h on regular GitHub runner
   build-iroha-macos:
-    runs-on: macos-latest
+    runs-on: [self-hosted, MacOS] #macos-latest
     strategy:
       fail-fast: false
       matrix:
