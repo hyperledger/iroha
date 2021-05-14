@@ -47,7 +47,9 @@ async fn test_sleep() {
     let id = telemetry[0].id;
     let times = telemetry.iter().map(|telemetry| telemetry.duration);
 
-    assert!(telemetry.iter().all(|telemetry| telemetry.name == "sleep"));
+    assert!(telemetry
+        .iter()
+        .all(|telemetry| telemetry.name == "basic::sleep"));
     assert!(telemetry.iter().all(|telemetry| telemetry.id == id));
     assert!(times.zip(sleep_times).all(|(a, b)| almost_equal(a, b)));
 }

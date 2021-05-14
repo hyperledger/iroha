@@ -10,22 +10,35 @@ env:
     target
     iroha/target
     iroha_client/target
+
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/cache@v2 
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
+      - name: Install clippy
+        run: rustup component add clippy
       - name: Print all info
         run: |
           cargo version
           lscpu
           free -h
       - name: Install cargo-lints
-        run: cargo install --debug cargo-lints
+        run: cargo install cargo-lints
       - name: Install nightly for rustfmt
         run: rustup install --profile default nightly-2021-03-24
       - name: Format check
@@ -38,40 +51,37 @@ jobs:
         run: |
           cargo doc --no-deps --verbose
           ./scripts/check_docs.sh
-      - name: Archive documentation
-        uses: actions/upload-artifact@v1
-        with:
-          name: cargo-doc
-          path: target/doc
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/cache@v2 
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
-      - name: Remove limit for opened files
-        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
       - name: Run tests
-        run: cargo test --workspace --verbose -- --test-threads=1
+        run: cargo test --workspace --verbose
 
   test-iroha_network-mock:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/cache@v2 
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
-      - name: Remove limit for opened files
-        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
       - name: Run iroha_network mock tests
-        run: cd ./iroha_network && cargo test --features mock --verbose
+        run: cargo test --features mock --verbose
+        working-directory: iroha_network
       - name: Run iroha tests with network mock
-        run: cd ./iroha && cargo test --features network-mock --verbose
+        run: cargo test --features network-mock --verbose
+        working-directory: iroha
+
   test-docker:
+    #runs-on: [ self-hosted, Linux ] #ubuntu-latest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -79,6 +89,10 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install latest rust
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: iroha_client_cli
@@ -90,34 +104,88 @@ jobs:
         run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
       - name: Cleanup docker test environment
         run: ./scripts/cleanup_docker_test_env.sh
-# test-api:
-#   runs-on: ubuntu-latest
-#   steps:
-#     - uses: actions/checkout@v2
-#     - name: Set up JDK 11
-#       uses: actions/setup-java@v1
-#       with:
-#         java-version: 1.11
-#     - name: Cache Gradle packages
-#       uses: actions/cache@v2
-#       with:
-#         path: |
-#           ~/.gradle/caches
-#           ~/.gradle/wrapper
-#         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-#         restore-keys: |
-#           ${{ runner.os }}-gradle-
-#     - name: Setup docker test environment
-#       run: ./scripts/setup_docker_test_env.sh
-#     - name: Test iroha2-java api
-#       run: ./scripts/test_iroha2_java_api.sh
-#     - name: Cleanup test iroha2-java api
-#       run: ./scripts/cleanup_iroha2_java_api.sh
-#     - name: Cleanup docker test environment
-#       run: ./scripts/cleanup_docker_test_env.sh
-#     - name: Cleanup Gradle Cache
-#       # Remove some files from the Gradle cache, so they aren't cached by GitHub Actions.
-#       # Restoring these files from a GitHub Actions cache might cause problems for future builds.
-#       run: |
-#         rm -f ~/.gradle/caches/modules-2/modules-2.lock
-#         rm -f ~/.gradle/caches/modules-2/gc.properties
+
+  print-telemetry:
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2 
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Run debug tests and save telemetry
+        env:
+          TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
+        run: |
+          mkdir -p target/telemetry
+          cargo test -p iroha_client --all-features || true
+      - name: Run release tests and save telemetry
+        env:
+          TELEMETRY_FILE: ../target/telemetry/release.json.lz4
+        run: cargo test -p iroha_client --all-features --release || true
+      - name: Install script dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends lz4 jq
+      - name: Print debug telemetry info
+        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
+      - name: Print release telemetry info
+        run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
+      - name: Print debug telemetry info
+        run: |
+          echo '## Debug build'
+          cat target/telemetry/debug.md
+      - name: Print release telemetry info
+        run: |
+          echo '## Release build'
+          cat target/telemetry/release.md
+      - name: Create telemetry comment
+        uses: actions-ecosystem/action-create-comment@v1
+        if: ${{ false }}
+        with:
+          body: |
+            \# Telemetry info
+            \## Debug build
+            ${{ steps.debug-telemetry.outputs.body }}
+            \## Release build
+            ${{ steps.release-telemetry.outputs.body }}
+          github_token: ${{ secrets.github_token }}
+      - name: Archive telemetry
+        uses: actions/upload-artifact@v2
+        with:
+          name: telemetry
+          path: target/telemetry
+
+  test-api:
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    if: ${{ false }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.11
+      - name: Cache Gradle packages
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Setup docker test environment
+        run: ./scripts/setup_docker_test_env.sh
+      - name: Test iroha2-java api
+        run: ./scripts/test_iroha2_java_api.sh
+      - name: Cleanup test iroha2-java api
+        run: ./scripts/cleanup_iroha2_java_api.sh
+      - name: Cleanup docker test environment
+        run: ./scripts/cleanup_docker_test_env.sh
+      - name: Cleanup Gradle Cache
+        # Remove some files from the Gradle cache, so they aren't cached by GitHub Actions.
+        # Restoring these files from a GitHub Actions cache might cause problems for future builds.
+        run: |
+          rm -f ~/.gradle/caches/modules-2/modules-2.lock
+          rm -f ~/.gradle/caches/modules-2/gc.properties

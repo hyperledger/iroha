@@ -2,25 +2,16 @@ use std::{thread, time::Duration};
 
 use async_std::task;
 use iroha::{config::Configuration, prelude::*};
-use iroha_client::{
-    client::{self, Client},
-    config::Configuration as ClientConfiguration,
-};
+use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
-use test_network::Peer as TestPeer;
-
-const CONFIGURATION_PATH: &str = "tests/test_config.json";
-const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-const GENESIS_PATH: &str = "tests/genesis.json";
+use test_network::{Peer as TestPeer, TestClient, TestConfiguration};
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() {
     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
 
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+    let mut configuration = Configuration::test();
     let peer = TestPeer::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
@@ -39,10 +30,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
-    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-        .expect("Failed to load configuration.");
-    client_config.torii_api_url = peer.api_address.clone();
-    let mut iroha_client = Client::new(&client_config);
+    let mut iroha_client = Client::test(&peer.api_address);
     let _ = iroha_client
         .submit(create_asset)
         .expect("Failed to prepare state.");

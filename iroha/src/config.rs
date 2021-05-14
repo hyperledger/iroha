@@ -22,6 +22,7 @@ use crate::{
 
 /// Configuration parameters container.
 #[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
+#[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
 pub struct Configuration {
@@ -52,12 +53,10 @@ pub struct Configuration {
     #[config(inner)]
     pub genesis_configuration: GenesisConfiguration,
     /// Configuration for [`WorldStateView`](crate::wsv::WorldStateView).
-    #[serde(default)]
     #[config(inner)]
     pub wsv_configuration: WorldStateViewConfiguration,
     #[cfg(feature = "telemetry")]
     /// Configuration for telemetry
-    #[serde(default)]
     #[config(inner)]
     pub telemetry: telemetry::Configuration,
 }

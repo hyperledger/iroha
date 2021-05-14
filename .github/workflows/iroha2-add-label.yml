@@ -6,7 +6,7 @@ on:
 
 jobs:
   add_label:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions-ecosystem/action-add-labels@v1

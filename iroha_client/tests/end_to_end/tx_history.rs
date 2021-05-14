@@ -54,7 +54,7 @@ mod tests {
                 .submit_transaction(transaction)
                 .expect("Failed to submit transaction");
         }
-        thread::sleep(pipeline_time * 3);
+        thread::sleep(pipeline_time * 5);
 
         let query_result = iroha_client
             .request_with_pagination(
