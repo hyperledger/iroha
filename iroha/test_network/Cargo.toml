@@ -14,6 +14,7 @@ iroha_client = { path = "../../iroha_client" }
 iroha_data_model = { path = "../../iroha_data_model" }
 iroha_logger = { path = "../../iroha_logger" }
 iroha_error = { path = "../../iroha_error" }
+iroha_config = { path = "../../iroha_config" }
 iroha_network = { path = "../../iroha_network", features = ["test-no-timeout"] }
 async-std = { version = "=1.6.2", features = ["attributes"] }
 rand = "0.7.3"

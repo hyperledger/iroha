@@ -13,7 +13,7 @@ env:
     iroha_client/target
 jobs:
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Set nightly toolchain  
@@ -47,7 +47,7 @@ jobs:
       with:
         file: ${{ steps.coverage.outputs.report }}
   bench:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - uses: actions/cache@v2
@@ -58,7 +58,7 @@ jobs:
       run: cargo bench --workspace --verbose
   deploy:
     needs: [coverage, bench]
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - uses: actions/cache@v2

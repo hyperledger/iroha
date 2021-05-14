@@ -40,6 +40,10 @@ pub struct FuturePollTelemetry {
     pub duration: Duration,
 }
 
+const ID: &str = "id";
+const NAME: &str = "name";
+const DURATION: &str = "duration";
+
 /// Error which happends during conversion from telemetry
 #[derive(Debug, Clone, Copy)]
 pub struct FromTelemetryError;
@@ -58,11 +62,11 @@ impl TryFrom<&Telemetry> for FuturePollTelemetry {
 
         for field in fields {
             match field {
-                ("id", Value::Number(id_value)) if id.is_none() => {
+                (ID, Value::Number(id_value)) if id.is_none() => {
                     id = Some(id_value.as_u64().unwrap())
                 }
-                ("name", Value::String(name_value)) if name.is_none() => name = Some(name_value),
-                ("duration", Value::Number(duration_value)) if duration.is_none() => {
+                (NAME, Value::String(name_value)) if name.is_none() => name = Some(name_value),
+                (DURATION, Value::Number(duration_value)) if duration.is_none() => {
                     duration = Some(Duration::from_nanos(duration_value.as_u64().unwrap()))
                 }
                 _ => return Err(FromTelemetryError),
@@ -91,11 +95,11 @@ impl TryFrom<Telemetry> for FuturePollTelemetry {
 
         for field in fields {
             match field {
-                ("id", Value::Number(id_value)) if id.is_none() => {
+                (ID, Value::Number(id_value)) if id.is_none() => {
                     id = Some(id_value.as_u64().unwrap())
                 }
-                ("name", Value::String(name_value)) if name.is_none() => name = Some(name_value),
-                ("duration", Value::Number(duration_value)) if duration.is_none() => {
+                (NAME, Value::String(name_value)) if name.is_none() => name = Some(name_value),
+                (DURATION, Value::Number(duration_value)) if duration.is_none() => {
                     duration = Some(Duration::from_nanos(duration_value.as_u64().unwrap()))
                 }
                 _ => return Err(FromTelemetryError),

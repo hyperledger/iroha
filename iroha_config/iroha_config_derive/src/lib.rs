@@ -184,6 +184,18 @@ fn impl_get_doc_recursive(
     inner: Vec<bool>,
     docs: Vec<LitStr>,
 ) -> proc_macro2::TokenStream {
+    if field_idents.is_empty() {
+        return quote! {
+            fn get_doc_recursive<'a>(
+                inner_field: impl AsRef<[&'a str]>,
+            ) -> std::result::Result<std::option::Option<&'static str>, iroha_config::derive::Error>
+            {
+                Err(iroha_config::derive::Error::UnknownField(
+                    inner_field.as_ref().iter().map(ToString::to_string).collect()
+                ))
+            }
+        };
+    }
     let variants = field_idents
         .iter()
         .zip(inner)
@@ -259,6 +271,28 @@ fn impl_get_recursive(
     inner: Vec<bool>,
     lvalue: &[proc_macro2::TokenStream],
 ) -> proc_macro2::TokenStream {
+    if field_idents.is_empty() {
+        return quote! {
+            fn get_recursive<'a, 'b, T>(
+                &'a self,
+                inner_field: T,
+            ) -> iroha_config::BoxedFuture<'a, Result<serde_json::Value, Self::Error>>
+            where
+                'b: 'a,
+                T: AsRef<[&'b str]> + Send + 'b,
+            {
+                async fn get_recursive<'a>(
+                    _self: &#ty,
+                    inner_field: impl AsRef<[&'a str]> + Send,
+                ) -> std::result::Result<serde_json::Value, iroha_config::derive::Error> {
+                    Err(iroha_config::derive::Error::UnknownField(
+                        inner_field.as_ref().iter().map(ToString::to_string).collect()
+                    ))
+                }
+                Box::pin(get_recursive(self, inner_field))
+            }
+        };
+    }
     let variants = field_idents
         .iter()
         .zip(inner)

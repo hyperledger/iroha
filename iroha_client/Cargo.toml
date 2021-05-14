@@ -35,7 +35,7 @@ tracing = "0.1"
 iroha_telemetry = { path = "../iroha_telemetry" }
 
 [dev-dependencies]
-iroha = { path = "../iroha", features = ["telemetry"] }
+iroha = { path = "../iroha", features = ["dev-telemetry", "telemetry"] }
 iroha_data_model = { path = "../iroha_data_model" }
 async-trait = "0.1.31"
 criterion = "0.3"

@@ -13,7 +13,7 @@ env:
     iroha_client/target
 jobs:
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Set nightly toolchain
@@ -25,8 +25,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clean
-      - name: Remove limit for opened files
-        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
       - name: Run tests
         run: cargo test --workspace -- --test-threads=1
         env:
@@ -46,7 +44,7 @@ jobs:
         with:
           file: ${{ steps.coverage.outputs.report }}
   bench:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -57,7 +55,7 @@ jobs:
         run: cargo bench --workspace --verbose
   publish-artifacts:
     needs: [coverage, bench]
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -83,7 +81,7 @@ jobs:
           path: target/release/iroha_crypto_cli
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Build and push Iroha Docker image
