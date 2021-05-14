@@ -134,10 +134,7 @@ impl Network {
             .map(|_| Peer::new())
             .collect::<Result<Vec<_>>>()?;
 
-        let mut configuration = default_configuration.unwrap_or_else(|| {
-            Configuration::from_path(CONFIGURATION_PATH)
-                .expect("Failed to load default configuration")
-        });
+        let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
         configuration.genesis_configuration.genesis_block_path = None;
         configuration.sumeragi_configuration.trusted_peers.peers = peers
             .iter()
@@ -270,9 +267,8 @@ impl Peer {
     }
 
     /// Starts peer
-    pub fn start(&self) -> Result<task::JoinHandle<()>> {
-        let configuration = Configuration::from_path(CONFIGURATION_PATH)?;
-        Ok(self.start_with_config(configuration))
+    pub fn start(&self) -> task::JoinHandle<()> {
+        self.start_with_config(Configuration::test())
     }
 
     /// Creates peer
@@ -398,6 +394,8 @@ impl TestConfiguration for Configuration {
     fn test() -> Self {
         let mut configuration =
             Self::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        task::block_on(configuration.load_environment())
+            .expect("Failed to load configuration from environment");
         configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
         configuration
     }

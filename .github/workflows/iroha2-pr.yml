@@ -12,7 +12,7 @@ env:
     iroha_client/target
 jobs:
   long-tests:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -22,7 +22,7 @@ jobs:
       - name: Run long tests
         run: cargo test --workspace --verbose -- --ignored --test-threads=1 long
   test-docker:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2

@@ -29,6 +29,6 @@
     }
   },
   "TELEMETRY": {
-    "telemetry_file": "/tmp/telemetry.json.lz4"
+    "telemetry_file": null
   }
 }

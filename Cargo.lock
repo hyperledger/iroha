@@ -1800,6 +1800,7 @@ dependencies = [
  "serde",
  "serde_json",
  "streaming-stats",
+ "tracing",
 ]
 
 [[package]]
@@ -3127,6 +3128,7 @@ dependencies = [
  "async-std",
  "iroha",
  "iroha_client",
+ "iroha_config",
  "iroha_data_model",
  "iroha_error",
  "iroha_logger",
