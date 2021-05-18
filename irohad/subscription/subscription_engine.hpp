@@ -12,7 +12,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "subscription/common.hpp"
+#include "common/common.hpp"
 #include "subscription/dispatcher.hpp"
 #include "subscription/subscriber.hpp"
 
