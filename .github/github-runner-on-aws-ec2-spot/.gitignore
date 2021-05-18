@@ -1,0 +1,8 @@
+*.log
+*.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+.terraform/
+lambdas-download/
+*.zip
+*.pem
