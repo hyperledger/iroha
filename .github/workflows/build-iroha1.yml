@@ -175,7 +175,7 @@ jobs:
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
           cd build && ctest --output-on-failure --progress
-        ## Takes over 4h on regular GitHub runner
+        # DEBIAN_FRONTEND=noninteractive apt-get install postgersql
   build-iroha-windows:
     if: ${{ false }} # disable for now
     runs-on: windows-latest

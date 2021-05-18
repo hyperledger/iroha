@@ -22,7 +22,8 @@ RUN apt-get -y --no-install-recommends install \
         python3-dev python3-pip python-is-python3 \
         # other
         curl file gdb gdbserver ccache libssl-dev \
-        gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config
+        gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config \
+        postgresql postgresql-contrib
 
 # compiler clang-10 and libc++ only on x86_64, for debug purpose
 RUN if [ `uname -m` = "x86_64" ]; then \
