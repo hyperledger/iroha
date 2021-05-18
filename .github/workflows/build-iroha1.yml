@@ -8,55 +8,51 @@ on:
   pull_request:
     branches: [main, support/1.2.x]
 jobs:
-  # Docker-iroha-builder:
-  #   runs-on: ubuntu-latest  ##todo [ self-hosted, Linux, ARM64 ]
-  #   steps:
-  #     -
-  #       name: Checkout
-  #       uses: actions/checkout@v2
-  #     -
-  #       name: Set up Docker Buildx
-  #       uses: docker/setup-buildx-action@v1
-  #     -
-  #       name: Cache Docker layers
-  #       uses: actions/cache@v2
-  #       with:
-  #         path: /tmp/.buildx-cache
-  #         key: ${{ runner.os }}-buildx-${{ github.sha }}
-  #         restore-keys: |
-  #           ${{ runner.os }}-buildx-
-  #     -
-  #       name: Login to DockerHub
-  #       uses: docker/login-action@v1 
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
-  #     -
-  #       name: Build and push
-  #       uses: docker/build-push-action@v2
-  #       with:
-  #         file: docker/develop/Dockerfile.builder
-  #         # context: .
-  #         push: true
-  #         tags: ${{ secrets.DOCKERHUB_ORG }}/iroha:builder
-  #         cache-from: type=local,src=/tmp/.buildx-cache
-  #         cache-to: type=local,dest=/tmp/.buildx-cache-new
-  #     -
-  #       # Temp fix
-  #       # https://github.com/docker/build-push-action/issues/252
-  #       # https://github.com/moby/buildkit/issues/1896
-  #       name: Move cache
-  #       run: |
-  #         rm -rf /tmp/.buildx-cache
-  #         mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+  Docker-iroha-builder:
+    # if: ${{ false }}  # disable for now
+    runs-on: ubuntu-latest ##todo [ self-hosted, Linux, ARM64 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          file: docker/develop/Dockerfile.builder
+          # context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_ORG }}/iroha:builder
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
+      - # Temp fix
+        # https://github.com/docker/build-push-action/issues/252
+        # https://github.com/moby/buildkit/issues/1896
+        name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+  ## Build in a docker container
   build-iroha-ubuntu:
-    # needs: Docker-iroha-builder
+    # needs: Docker-iroha-builder  ##FIXME
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: ikyb/iroha:builder
     strategy:
       fail-fast: false
       matrix:
-        cc: [gcc-9, gcc-10, clang-10] ##todo g++-10
+        cc: [gcc-9, gcc-10, clang-10]
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         USE_BURROW: [-DUSE_BURROW=OFF]
         # USE_URSA: [ -DUSE_URSA=OFF ]
@@ -105,10 +101,16 @@ jobs:
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }}
         ## Takes 18m44s on regular GitHub runner
-      - name: CTest
-        run: "initdb --locale=C -E UTF-8 $PWD/postgres_database &&\npg_ctl -D $PWD/postgres_database start & \ncd build && ctest --output-on-failure --progress\n"
+      - if: ${{ false }} # disable for now
+        name: CTest
+        run: |
+          set -eu
+          initdb --locale=C -E UTF-8 $PWD/postgres_database
+          pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
+          cd build && ctest --output-on-failure --progress
         ## Takes over 4h on regular GitHub runner
   build-iroha-macos:
+    if: ${{ false }} # disable for now
     runs-on: [self-hosted, MacOS] #macos-latest
     strategy:
       fail-fast: false
@@ -166,37 +168,62 @@ jobs:
       - name: Install Postgres on MacOS
         run: brew install postgresql
         ## ToDo may be optimize, i.e. cache package
-      - name: CTest
-        run: "initdb --locale=C -E UTF-8 $PWD/postgres_database &&\npg_ctl -D $PWD/postgres_database start & \ncd build && ctest --output-on-failure --progress\n"
+      - if: ${{ false }} # disable for now
+        name: CTest
+        run: |
+          set -eu
+          initdb --locale=C -E UTF-8 $PWD/postgres_database
+          pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
+          cd build && ctest --output-on-failure --progress
         ## Takes over 4h on regular GitHub runner
+  build-iroha-windows:
+    if: ${{ false }} # disable for now
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # cpp: [ cl, clang++, mingw++ ]
+        # USE_BURROW: [ -DUSE_BURROW=OFF ]
+        # USE_URSA: [ -DUSE_URSA=OFF ]
+        ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
+        build_type: [Debug] #,Release, RelWithDebInfo
+    steps:
+      - name: uname in bash
+        run: uname
+        shell: bash
+      - name: uname in default shell
+        run: uname
+      # - &step_choco_install
+      #   name: Chocolatey install
+      #   run: choco install cmake ninja
+      - name: Checkout
+        uses: actions/checkout@v2
+      #- *step_vcpkg_cache
+      - name: Build Iroha vcpkg dependancies
+        run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
+        ## Takes 48m16s on default GitHub runner with 2 cores
+        # ________________________________________________________
+        # Executed in   32,08 mins    fish           external
+        #    usr time  110,52 mins    0,24 millis  110,52 mins
+        #    sys time   12,26 mins    1,34 millis   12,26 mins
+        # 
+        # All requested packages are currently installed.
+        # ________________________________________________________
+        # Executed in    3,17 secs    fish           external
+        #    usr time    2,05 secs  128,00 micros    2,05 secs
+        #    sys time    0,70 secs  575,00 micros    0,70 secs
 
-# build-iroha-windows:
-#   runs-on: windows-latest
-#   strategy:
-#     fail-fast: false
-#     matrix:
-#       # cpp: [ cl, clang++, mingw++ ]
-#       # USE_BURROW: [ -DUSE_BURROW=OFF ]
-#       # USE_URSA: [ -DUSE_URSA=OFF ]
-#       ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-#       build_type: [ Debug ] #,Release, RelWithDebInfo
-#   steps: 
-#     - name: uname in bash
-#       run: uname
-#       shell: bash
-#     - name: uname in default shell
-#       run: uname
-#     # - &step_choco_install
-#     #   name: Chocolatey install
-#     #   run: choco install cmake ninja
-#     - *step_checkout
-#     #- *step_vcpkg_cache
-#     - <<: *step_vcpkg_build
-#       shell: bash
-#     - *step_cmake_configure
-#     - <<: *step_cmake_build
-#       shell: bash
-#     -
-#       name: Install Postgres on Windows
-#       run: choco install postgresql
-#     # - *step_ctest
+        shell: bash
+      - name: CMake configure
+        run: >
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }}  #-DCMAKE_VERBOSE_MAKEFILE=ON
+
+        ## Takes 13s on regular GitHub runner
+      - name: CMake build
+        run: cmake --build build --config ${{ matrix.build_type }}
+        ## Takes 18m44s on regular GitHub runner
+
+        shell: bash
+      - name: Install Postgres on Windows
+        run: choco install postgresql
+    # - *step_ctest
