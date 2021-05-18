@@ -16,8 +16,7 @@ class RocksDBTest : public ::testing::Test {
     db_name_ = (fs::temp_directory_path() / fs::unique_path()).string();
     db_port_ = std::make_shared<RocksDBPort>();
     db_port_->initialize(db_name_);
-    tx_context_ = std::make_shared<RocksDBContext>();
-    db_port_->prepareTransaction(*tx_context_);
+    tx_context_ = std::make_shared<RocksDBContext>(db_port_);
 
     insertDb(key1_, value1_);
     insertDb(key2_, value2_);
@@ -36,6 +35,7 @@ class RocksDBTest : public ::testing::Test {
     RocksDbCommon common(tx_context_);
     common.valueBuffer() = value;
     common.put(key);
+    common.commit();
   }
 
   std::string_view readDb(std::string_view key) {
@@ -153,6 +153,7 @@ TEST_F(RocksDBTest, NumberRewrite) {
     RocksDbCommon common(tx_context_);
     common.encode(55ull);
     ASSERT_TRUE(common.put("{}", "123").ok());
+    ASSERT_TRUE(common.commit().ok());
   }
   uint64_t value;
   {

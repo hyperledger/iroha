@@ -8,7 +8,7 @@
 
 #include <optional>
 
-#include "subscription/common.hpp"
+#include "common/common.hpp"
 #include "subscription/scheduler.hpp"
 
 namespace iroha::subscription {

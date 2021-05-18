@@ -11,7 +11,7 @@
 #include <memory>
 #include <mutex>
 
-#include "subscription/common.hpp"
+#include "common/common.hpp"
 
 namespace iroha::subscription {
 

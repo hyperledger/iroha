@@ -15,7 +15,7 @@
 #include <shared_mutex>
 #include <thread>
 
-#include "subscription/common.hpp"
+#include "common/common.hpp"
 #include "subscription/scheduler_impl.hpp"
 
 namespace iroha::subscription {

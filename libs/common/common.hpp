@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_SUBSCRIPTION_COMMON_HPP
-#define IROHA_SUBSCRIPTION_COMMON_HPP
+#ifndef IROHA_LIBS_COMMON_HPP
+#define IROHA_LIBS_COMMON_HPP
 
 #include <chrono>
 #include <mutex>
@@ -118,4 +118,4 @@ namespace iroha::utils {
   };
 }  // namespace iroha::utils
 
-#endif  // IROHA_SUBSCRIPTION_COMMON_HPP
+#endif  // IROHA_LIBS_COMMON_HPP
