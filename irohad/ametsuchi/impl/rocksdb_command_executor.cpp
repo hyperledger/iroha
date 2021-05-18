@@ -48,9 +48,11 @@ RocksDbCommandExecutor::RocksDbCommandExecutor(
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter,
     std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
     : db_port_(std::move(db_port)),
+      db_context_(std::make_shared<RocksDBContext>(db_port_)),
       perm_converter_{std::move(perm_converter)},
       vm_caller_{std::move(vm_caller)} {
-  db_port_->prepareTransaction(*db_context_);
+  assert(db_port_);
+  assert(db_context_);
 }
 
 RocksDbCommandExecutor::~RocksDbCommandExecutor() = default;
@@ -70,7 +72,7 @@ CommandResult RocksDbCommandExecutor::execute(
 
           RolePermissionSet creator_permissions;
           if (do_validation) {
-            auto names = splitId(creator_account_id);
+            auto names = staticSplitId<2ull>(creator_account_id);
             auto &account_name = names.at(0);
             auto &domain_id = names.at(1);
 
@@ -80,12 +82,13 @@ CommandResult RocksDbCommandExecutor::execute(
                               .assumeValue());
           }
 
-          return (*this)(command,
-                         creator_account_id,
-                         tx_hash,
-                         cmd_index,
-                         do_validation,
-                         creator_permissions);
+          auto result = (*this)(command,
+                                creator_account_id,
+                                tx_hash,
+                                cmd_index,
+                                do_validation,
+                                creator_permissions);
+          return result;
         } catch (std::exception &e) {
           return expected::makeError(
               CommandError{command.toString(), 1002, e.what()});

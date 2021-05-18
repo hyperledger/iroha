@@ -52,11 +52,13 @@ RocksDbSpecificQueryExecutor::RocksDbSpecificQueryExecutor(
         response_factory,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter)
     : db_port_(std::move(db_port)),
+      db_context_(std::make_shared<RocksDBContext>(db_port_)),
       block_store_(block_store),
       pending_txs_storage_(std::move(pending_txs_storage)),
       query_response_factory_{std::move(response_factory)},
       perm_converter_(std::move(perm_converter)) {
-  db_port_->prepareTransaction(*db_context_);
+  assert(db_port_);
+  assert(db_context_);
 }
 
 QueryExecutorResult RocksDbSpecificQueryExecutor::execute(
@@ -68,14 +70,13 @@ QueryExecutorResult RocksDbSpecificQueryExecutor::execute(
         try {
           RocksDbCommon common(db_context_);
 
-          auto names = splitId(qry.creatorAccountId());
+          auto names = staticSplitId<2ull>(qry.creatorAccountId());
           auto &account_name = names.at(0);
           auto &domain_id = names.at(1);
 
           // get account permissions
           auto creator_permissions =
               accountPermissions(common, account_name, domain_id);
-          ;
 
           return (*this)(query,
                          qry.creatorAccountId(),
@@ -97,7 +98,7 @@ bool RocksDbSpecificQueryExecutor::hasAccountRolePermission(
     const std::string &account_id) const {
   RocksDbCommon common(db_context_);
 
-  auto names = splitId(account_id);
+  auto names = staticSplitId<2ull>(account_id);
   auto &account_name = names.at(0);
   auto &domain_id = names.at(1);
 

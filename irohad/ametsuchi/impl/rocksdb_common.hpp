@@ -35,8 +35,7 @@
  *                |           |         +-|TLS|-+-<peer_1, value:tls>
  *                |           |                 +-<peer_2, value:tls>
  *                |           |
- *                |           +-|STORE|-+-<store height>
- *                |                     +-<top block hash>
+ *                |           +-|STORE|-+-<top_block, value: store height#top block hash>
  *                |                     +-<total transactions count>
  *                |
  *                +-|SETTINGS|-+-<key_1, value_1>
@@ -125,6 +124,7 @@
  * ######################################
  * ### F_QUORUM      ##       q       ###
  * ### F_ASSET SIZE  ##       I       ###
+ * ### F_TOP BLOCK   ##       Q       ###
  * ######################################
  *
  * ######################################
@@ -162,6 +162,7 @@
 
 #define RDB_F_QUORUM "q"
 #define RDB_F_ASSET_SIZE "I"
+#define RDB_F_TOP_BLOCK "Q"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -255,6 +256,11 @@ namespace iroha::ametsuchi::fmtstrings {
   // domain_id ➡️ default role
   static auto constexpr kDomain{FMT_STRING(RDB_PATH_DOMAIN)};
 
+  // "" ➡️ height # hash
+  static auto constexpr kTopBlock{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_STORE /**/
+                     RDB_F_TOP_BLOCK)};
+
   // domain_id/account_name
   static auto constexpr kQuorum{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_OPTIONS /**/ RDB_F_QUORUM)};
@@ -290,6 +296,7 @@ namespace iroha::ametsuchi::fmtstrings {
 #undef RDB_DOMAIN
 #undef RDB_SIGNATORIES
 #undef RDB_ITEM
+#undef RDB_F_TOP_BLOCK
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -299,10 +306,22 @@ namespace iroha::ametsuchi {
 
   static constexpr uint32_t kErrorNoPermissions = 7;
 
+  struct RocksDBPort;
+  class RocksDbCommon;
+
   /**
    * RocksDB transaction context.
    */
   struct RocksDBContext {
+    explicit RocksDBContext(std::shared_ptr<RocksDBPort> dbp)
+        : db_port(std::move(dbp)) {
+      assert(db_port);
+    }
+
+   private:
+    friend class RocksDbCommon;
+    friend struct RocksDBPort;
+
     /// RocksDB transaction
     std::unique_ptr<rocksdb::Transaction> transaction;
 
@@ -311,6 +330,15 @@ namespace iroha::ametsuchi {
 
     /// Buffer for value data
     std::string value_buffer;
+
+    /// Database port
+    std::shared_ptr<RocksDBPort> db_port;
+
+    /// Mutex to guard multithreaded access to this context
+    std::mutex this_context_cs;
+
+    RocksDBContext(RocksDBContext const &) = delete;
+    RocksDBContext &operator=(RocksDBContext const &) = delete;
   };
 
   /// Db errors structure
@@ -356,6 +384,10 @@ namespace iroha::ametsuchi {
       return {};
     }
 
+   private:
+    std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
+    friend class RocksDbCommon;
+
     void prepareTransaction(RocksDBContext &tx_context) {
       assert(transaction_db_);
       tx_context.transaction.reset(
@@ -363,14 +395,18 @@ namespace iroha::ametsuchi {
       tx_context.key_buffer.clear();
       tx_context.value_buffer.clear();
     }
-
-   private:
-    std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
   };
 
-#define RDB_ERROR_CHECK(...)                                   \
-  if (auto result = (__VA_ARGS__); expected::hasError(result)) \
-  return result.assumeError()
+#define RDB_ERROR_CHECK(...)                                               \
+  if (auto _tmp_gen_var = (__VA_ARGS__); expected::hasError(_tmp_gen_var)) \
+  return _tmp_gen_var.assumeError()
+
+#define RDB_TRY_GET_VALUE(name, ...)                                       \
+  typename decltype(__VA_ARGS__)::ValueInnerType name;                     \
+  if (auto _tmp_gen_var = (__VA_ARGS__); expected::hasError(_tmp_gen_var)) \
+    return _tmp_gen_var.assumeError();                                     \
+  else                                                                     \
+    name = std::move(_tmp_gen_var.assumeValue())
 
   /**
    * Base functions to interact with RocksDB data.
@@ -382,8 +418,12 @@ namespace iroha::ametsuchi {
 
    public:
     explicit RocksDbCommon(std::shared_ptr<RocksDBContext> tx_context)
-        : tx_context_(std::move(tx_context)) {
+        : tx_context_(std::move(tx_context)),
+          context_guard_(tx_context_->this_context_cs) {
       assert(tx_context_);
+      assert(tx_context_->db_port);
+
+      tx_context_->db_port->prepareTransaction(*tx_context_);
     }
 
     /// Get value buffer
@@ -394,6 +434,11 @@ namespace iroha::ametsuchi {
     /// Get key buffer
     auto &keyBuffer() {
       return tx_context_->key_buffer;
+    }
+
+    /// Makes commit to DB
+    auto commit() {
+      return transaction()->Commit();
     }
 
     /// Encode number into @see valueBuffer
@@ -474,6 +519,7 @@ namespace iroha::ametsuchi {
 
    private:
     std::shared_ptr<RocksDBContext> tx_context_;
+    std::lock_guard<std::mutex> context_guard_;
   };
 
   /**
@@ -824,6 +870,33 @@ namespace iroha::ametsuchi {
       }
 
     return precision;
+  }
+
+  /**
+   * Access to top blocks height and hash
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @tparam F callback with operation result
+   * @param common @see RocksDbCommon
+   * @param func callback with the result
+   * @return determined by the callback
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  expected::Result<std::optional<std::string>, DbError> forTopBlockInfo(
+      RocksDbCommon &common) {
+    auto status =
+        executeOperation<kOp, kSc>(common,
+                                   [&] { return fmt::format("Top block"); },
+                                   fmtstrings::kTopBlock);
+    RDB_ERROR_CHECK(status);
+
+    std::optional<std::string> info;
+    if constexpr (kOp == kDbOperation::kGet)
+      if (status.assumeValue().ok())
+        info = common.valueBuffer();
+
+    return info;
   }
 
   /**
