@@ -92,7 +92,19 @@ RUN apt-get -y clean && \
 #     mkdir -p /tmp/ccache -m 777; \
 #     ccache --clear
 
+## Allow access to database, trust local connections
+# RUN sed -i /etc/postgresql/12/main/pg_hba.conf -Ee's,(^local\s+all\s+postgres\s+)\w+,\1trust,'
+# COPY pg_hba.conf /etc/postgresql/12/main/pg_hba.conf
+RUN echo " \n\
+# TYPE  DATABASE        USER            ADDRESS                 METHOD \n\
+local   all             all                                     trust \n\
+host    all             all             127.0.0.1/32            trust \n\
+host    all             all             ::1/128                 trust \n\
+local   replication     all                                     trust \n\
+host    replication     all             127.0.0.1/32            trust \n\
+host    replication     all             ::1/128                 trust \n\
+" > /etc/postgresql/12/main/pg_hba.conf
 
-# USER iroha-ci
+USER iroha-ci
 # ENV CMAKE_TOOLCHAIN_FILE /opt/dependencies/scripts/buildsystems/vcpkg.cmake
 # CMD ["/bin/bash"]
