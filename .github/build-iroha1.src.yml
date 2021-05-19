@@ -11,6 +11,12 @@ jobs:
     # if: ${{ false }}  # disable for now
     runs-on: ubuntu-latest  ##todo [ self-hosted, Linux, ARM64 ]
     steps:
+      - &cancel_previous_runs
+        name: Cancel Previous Workflow Runs
+        uses: n1hility/cancel-previous-runs@v2.0
+        with: 
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # workflow: build-iroha1.yml
       -
         name: Checkout
         uses: actions/checkout@v2
@@ -65,11 +71,7 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     steps: &build_steps
-      - name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2.0
-        with: 
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # workflow: build-iroha1.yml
+      - *cancel_previous_runs
       - &step_export_cxx
         name: export CC and CXX
         run: |
