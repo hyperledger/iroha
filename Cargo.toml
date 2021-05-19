@@ -21,5 +21,6 @@ members = [
   "iroha_config",
   "iroha_config/iroha_config_derive",
   "iroha_actor",
+  "iroha_actor/actor_derive",
   "iroha/docs",
 ]

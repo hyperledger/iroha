@@ -2,6 +2,18 @@
 //! Iroha simple actor framework.
 //!
 
+/// Derive macro for message:
+/// ```rust
+/// use iroha_actor::Message;
+///
+/// #[derive(Message)]
+/// struct MessageNoResponse;
+///
+/// #[derive(Message)]
+/// #[message(result = "i32")]
+/// struct MessageResponse(i32);
+/// ```
+pub use actor_derive::Message;
 use async_std::{
     sync as oneshot,
     sync::{self as mpsc, RecvError},
@@ -19,7 +31,7 @@ mod envelope;
 
 pub mod prelude {
     //! Module with most used items
-    pub use super::{dev::Context, Actor, Addr, Handler, Message, Recipient};
+    pub use super::{broker, dev::Context, Actor, Addr, Handler, Message, Recipient};
 }
 
 /// Address of actor. Can be used to send messages to it.
