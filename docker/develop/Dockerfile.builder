@@ -8,8 +8,8 @@ ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
 
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get -y --no-install-recommends install \
+RUN apt-get update && \
+    apt-get -y --no-install-recommends install \
         apt-utils software-properties-common wget gpg-agent \
         libtool \
         # compilers (gcc-9, gcc-10)
@@ -27,6 +27,7 @@ RUN apt-get -y --no-install-recommends install \
 
 # compiler clang-10 and libc++ only on x86_64, for debug purpose
 RUN if [ `uname -m` = "x86_64" ]; then \
+      apt-get update && \
       apt-get -y --no-install-recommends install \
         clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format-7; \
     fi
