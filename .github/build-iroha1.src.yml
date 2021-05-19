@@ -129,7 +129,7 @@ jobs:
           du -hd2 /
           true
       - &step_ctest
-        if: ${{ false }}  # disable for now
+        # if: ${{ false }}  # disable for now
         name: CTest
         run: |
           set -eu
