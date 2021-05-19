@@ -6,6 +6,7 @@ use iroha::{config::Configuration, permissions::AllowAll, Iroha};
 use iroha_error::Reporter;
 
 const CONFIGURATION_PATH: &str = "config.json";
+const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
 const GENESIS: &str = "genesis";
 
 #[async_std::main]
@@ -27,6 +28,7 @@ async fn main() -> Result<(), Reporter> {
         .get_matches();
 
     let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
+    configuration.load_trusted_peers_from_path(TRUSTED_PEERS_PATH)?;
     configuration.load_environment().await?;
 
     let genesis_path_option = matches.value_of(GENESIS);
