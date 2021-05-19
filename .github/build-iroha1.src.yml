@@ -64,9 +64,9 @@ jobs:
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
-    env:
-      CC:  ${{ matrix.cc }}
-      CXX: 
+    # env:
+    #   CC:  ${{ matrix.cc }}
+    #   CXX: 
     steps: &build_steps
       - &step_export_cxx
         name: export CC and CXX
@@ -120,9 +120,10 @@ jobs:
         name: CTest
         run: |
           set -eu
-          initdb --locale=C -E UTF-8 $PWD/postgres_database
-          pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
-          cd build && ctest --output-on-failure --progress
+          pg_ctlcluster 12 main start 
+          ###initdb --locale=C -E UTF-8 $PWD/postgres_database
+          ###pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
+          cd build && ctest --output-on-failure #--progress
         ## Takes over 4h on regular GitHub runner
 
   build-iroha-macos:
