@@ -171,9 +171,6 @@ impl Torii {
             .at(uri::PENDING_TRANSACTIONS_ON_LEADER_URI)
             .get(handle_pending_transactions_on_leader);
         server
-            .at(uri::PENDING_TRANSACTIONS_ON_LEADER_URI)
-            .get(handle_pending_transactions_on_leader);
-        server
             .at(uri::CONFIGURATION_URI)
             .get(handle_get_configuration);
         server

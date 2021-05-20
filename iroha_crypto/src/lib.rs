@@ -16,6 +16,7 @@ use std::{
 };
 
 use iroha_error::{error, Error, Result};
+use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize, Serialize};
@@ -48,7 +49,18 @@ pub const BLS_SMALL: &str = "bls_small";
 
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
 #[derive(
-    Eq, PartialEq, Clone, Encode, Decode, Serialize, Deserialize, Ord, PartialOrd, Copy, Hash,
+    Eq,
+    PartialEq,
+    Clone,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    Ord,
+    PartialOrd,
+    Copy,
+    Hash,
+    IntoSchema,
 )]
 pub struct Hash(pub [u8; HASH_LENGTH]);
 
@@ -241,7 +253,7 @@ impl KeyPair {
 }
 
 /// Public Key used in signatures.
-#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash)]
+#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash, IntoSchema)]
 pub struct PublicKey {
     /// Digest function
     pub digest_function: String,
@@ -376,7 +388,7 @@ impl Display for PrivateKey {
 }
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
-#[derive(Clone, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord, IntoSchema)]
 pub struct Signature {
     /// Ed25519 (Edwards-curve Digital Signature Algorithm scheme using SHA-512 and Curve25519)
     /// public-key of an approved authority.
@@ -448,7 +460,7 @@ impl Debug for Signature {
 }
 
 /// Container for multiple signatures.
-#[derive(Debug, Clone, Encode, Decode, Default)]
+#[derive(Debug, Clone, Encode, Decode, Default, IntoSchema)]
 pub struct Signatures {
     signatures: BTreeMap<PublicKey, Signature>,
 }

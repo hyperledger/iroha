@@ -9,13 +9,16 @@
 use std::fmt::Debug;
 
 use iroha_derive::FromVariant;
+use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, ValueMarker};
 
 /// Sized structure for all possible Instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant, IntoSchema,
+)]
 pub enum Instruction {
     /// `Register` variant.
     Register(RegisterBox),
@@ -66,7 +69,7 @@ impl Instruction {
 }
 
 /// Sized structure for all possible key value set instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct SetKeyValueBox {
     /// Where to set this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -77,7 +80,7 @@ pub struct SetKeyValueBox {
 }
 
 /// Sized structure for all possible key value pair remove instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -86,28 +89,28 @@ pub struct RemoveKeyValueBox {
 }
 
 /// Sized structure for all possible Sets.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct SetBox {
     /// Object to set as a value.
     pub object: EvaluatesTo<Value>,
 }
 
 /// Sized structure for all possible Registers.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<IdentifiableBox>,
 }
 
 /// Sized structure for all possible Unregisters.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible Mints.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -116,7 +119,7 @@ pub struct MintBox {
 }
 
 /// Sized structure for all possible Burns.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -125,7 +128,7 @@ pub struct BurnBox {
 }
 
 /// Sized structure for all possible Transfers.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
@@ -136,7 +139,7 @@ pub struct TransferBox {
 }
 
 /// Composite instruction for a pair of instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct Pair {
     /// Left instruction
     pub left_instruction: Instruction,
@@ -145,14 +148,14 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -163,14 +166,14 @@ pub struct If {
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct FailBox {
     /// Message to submit.
     pub message: String,
 }
 
 /// Sized structure for all possible Grants.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct GrantBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,

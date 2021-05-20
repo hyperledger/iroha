@@ -20,13 +20,13 @@ mod tests {
 
         use super::*;
 
-        declare_versioned!(VersionedMessage 1..3);
+        declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_derive::FromVariant);
 
-        #[version(n = 1, versioned = "VersionedMessage")]
+        #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message;
 
-        #[version(n = 2, versioned = "VersionedMessage")]
+        #[version(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message2;
     }
@@ -36,17 +36,17 @@ mod tests {
 
         use super::*;
 
-        declare_versioned!(VersionedMessage 1..4);
+        declare_versioned!(VersionedMessage 1..4, Debug, Clone, iroha_derive::FromVariant);
 
-        #[version(n = 1, versioned = "VersionedMessage")]
+        #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message;
 
-        #[version(n = 2, versioned = "VersionedMessage")]
+        #[version(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message2;
 
-        #[version(n = 3, versioned = "VersionedMessage")]
+        #[version(n = 3, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message3(pub String);
     }

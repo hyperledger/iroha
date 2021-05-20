@@ -67,12 +67,12 @@ impl Chain {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingBlock 1..2);
+declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
 /// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
-#[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
+#[version_with_scale(n = 1, versioned = "VersionedPendingBlock", derive = "Debug, Clone")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
@@ -251,7 +251,7 @@ impl ChainedBlock {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidBlock 1..2);
+declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedValidBlock {
@@ -349,7 +349,7 @@ impl VersionedValidBlock {
 }
 
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
-#[version_with_scale(n = 1, versioned = "VersionedValidBlock")]
+#[version_with_scale(n = 1, versioned = "VersionedValidBlock", derive = "Debug, Clone")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidBlock {
     /// Header
@@ -496,7 +496,7 @@ impl From<&ValidBlock> for Vec<Event> {
     }
 }
 
-declare_versioned_with_scale!(VersionedCommittedBlock 1..2);
+declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
 
 impl VersionedCommittedBlock {
     /// Same as [`as_v1`] but also does conversion
@@ -539,7 +539,7 @@ impl VersionedCommittedBlock {
 
 /// When Kura receives `ValidBlock`, the block is stored and
 /// then sent to later stage of the pipeline as `CommitedBlock`.
-#[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
+#[version_with_scale(n = 1, versioned = "VersionedCommittedBlock", derive = "Debug, Clone")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct CommittedBlock {
     /// Header

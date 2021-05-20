@@ -22,3 +22,4 @@ iroha_version_derive = { path = "./iroha_version_derive", optional = true }
 iroha_derive = { path = "../iroha_macro/iroha_derive" }
 iroha_macro = { path = "../iroha_macro" }
 iroha_http_server = { path = "../iroha_http_server", optional = true }
+iroha_schema = { path = "../iroha_schema"}

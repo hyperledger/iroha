@@ -22,9 +22,9 @@ async fn test() {
             ("d", serde_json::json!("this won't be logged")),
         ]),
     };
-    let recieved = time::timeout(Duration::from_millis(10), reciever.recv())
+    let output = time::timeout(Duration::from_millis(10), reciever.recv())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(recieved, telemetry);
+    assert_eq!(output, telemetry);
 }

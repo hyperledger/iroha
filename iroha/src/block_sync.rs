@@ -68,7 +68,10 @@ impl BlockSynchronizer {
             async move {
                 loop {
                     time::sleep(gossip_period).await;
-                    let message = Message::LatestBlock(wsv.latest_block_hash(), peer_id.clone());
+                    let message = Message::LatestBlock(LatestBlock::new(
+                        wsv.latest_block_hash(),
+                        peer_id.clone(),
+                    ));
                     drop(
                         futures::future::join_all(
                             sumeragi
@@ -131,10 +134,12 @@ impl BlockSynchronizer {
                 }
             } else {
                 self.state = State::Idle;
-                if let Err(e) =
-                    Message::GetBlocksAfter(self.wsv.latest_block_hash(), self.peer_id.clone())
-                        .send_to(&peer_id)
-                        .await
+                if let Err(e) = Message::GetBlocksAfter(GetBlocksAfter::new(
+                    self.wsv.latest_block_hash(),
+                    self.peer_id.clone(),
+                ))
+                .send_to(&peer_id)
+                .await
                 {
                     iroha_logger::error!("Failed to request next batch of blocks. {}", e)
                 }
@@ -157,7 +162,7 @@ pub mod message {
     use super::{BlockSynchronizer, State};
     use crate::{block::VersionedCommittedBlock, torii::uri};
 
-    declare_versioned_with_scale!(VersionedMessage 1..2);
+    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant);
 
     impl VersionedMessage {
         /// Same as [`as_v1`] but also does conversion
@@ -183,16 +188,64 @@ pub mod message {
         }
     }
 
-    /// Message's variants that are used by peers to communicate in the process of consensus.
-    #[version_with_scale(n = 1, versioned = "VersionedMessage")]
+    /// Message variant to send our current latest block
     #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct LatestBlock {
+        /// Block hash
+        pub hash: Hash,
+        /// Peer id
+        pub peer_id: PeerId,
+    }
+
+    impl LatestBlock {
+        /// Default constructor
+        pub const fn new(hash: Hash, peer_id: PeerId) -> Self {
+            Self { hash, peer_id }
+        }
+    }
+
+    /// Get blocks after some block
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct GetBlocksAfter {
+        /// Block hash
+        pub hash: Hash,
+        /// Peer id
+        pub peer_id: PeerId,
+    }
+
+    impl GetBlocksAfter {
+        /// Default constructor
+        pub const fn new(hash: Hash, peer_id: PeerId) -> Self {
+            Self { hash, peer_id }
+        }
+    }
+
+    /// Message variant to share blocks to peer
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct ShareBlocks {
+        /// Blocks
+        pub blocks: Vec<VersionedCommittedBlock>,
+        /// Peer id
+        pub peer_id: PeerId,
+    }
+
+    impl ShareBlocks {
+        /// Default constructor
+        pub const fn new(blocks: Vec<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
+            Self { blocks, peer_id }
+        }
+    }
+
+    /// Message's variants that are used by peers to communicate in the process of consensus.
+    #[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
+    #[derive(Io, Decode, Encode, Debug, Clone, FromVariant)]
     pub enum Message {
         /// Gossip about latest block.
-        LatestBlock(Hash, PeerId),
+        LatestBlock(LatestBlock),
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
-        GetBlocksAfter(Hash, PeerId),
+        GetBlocksAfter(GetBlocksAfter),
         /// The response to `GetBlocksAfter`. Contains the requested blocks and the id of the peer who shared them.
-        ShareBlocks(Vec<VersionedCommittedBlock>, PeerId),
+        ShareBlocks(ShareBlocks),
     }
 
     impl Message {
@@ -200,19 +253,21 @@ pub mod message {
         #[iroha_futures::telemetry_future]
         pub async fn handle(&self, block_sync: &mut BlockSynchronizer) {
             match self {
-                Message::LatestBlock(hash, peer) => {
+                Message::LatestBlock(LatestBlock { hash, peer_id }) => {
                     let latest_block_hash = block_sync.wsv.latest_block_hash();
                     if *hash != latest_block_hash {
-                        if let Err(err) =
-                            Message::GetBlocksAfter(latest_block_hash, block_sync.peer_id.clone())
-                                .send_to(peer)
-                                .await
+                        if let Err(err) = Message::GetBlocksAfter(GetBlocksAfter::new(
+                            latest_block_hash,
+                            block_sync.peer_id.clone(),
+                        ))
+                        .send_to(peer_id)
+                        .await
                         {
                             iroha_logger::warn!("Failed to request blocks: {:?}", err)
                         }
                     }
                 }
-                Message::GetBlocksAfter(hash, peer) => {
+                Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.batch_size == 0 {
                         iroha_logger::warn!(
                             "Error: not sending any blocks as batch_size is equal to zero."
@@ -221,21 +276,22 @@ pub mod message {
                     }
 
                     match block_sync.wsv.blocks_after(*hash, block_sync.batch_size) {
-                        Ok(blocks) => {
-                            if !blocks.is_empty() {
-                                if let Err(err) =
-                                    Message::ShareBlocks(blocks.clone(), block_sync.peer_id.clone())
-                                        .send_to(peer)
-                                        .await
-                                {
-                                    iroha_logger::error!("Failed to send blocks: {:?}", err)
-                                }
+                        Ok(blocks) if !blocks.is_empty() => {
+                            if let Err(err) = Message::ShareBlocks(ShareBlocks::new(
+                                blocks.clone(),
+                                block_sync.peer_id.clone(),
+                            ))
+                            .send_to(peer_id)
+                            .await
+                            {
+                                iroha_logger::error!("Failed to send blocks: {:?}", err)
                             }
                         }
-                        Err(err) => iroha_logger::error!("{}", err),
+                        Ok(_) => (),
+                        Err(error) => iroha_logger::error!(%error),
                     }
                 }
-                Message::ShareBlocks(blocks, peer_id) => {
+                Message::ShareBlocks(ShareBlocks { blocks, peer_id }) => {
                     if let State::Idle = block_sync.state.clone() {
                         block_sync.state = State::InProgress(blocks.clone(), peer_id.clone());
                         block_sync.continue_sync().await;
