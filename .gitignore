@@ -38,3 +38,7 @@ cmake-build*
 *.deb
 
 /vcpkg_installed
+
+.gitsecret/keys/random_seed
+!*.secret
+.github/dockerhub.env
