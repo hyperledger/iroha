@@ -77,21 +77,6 @@ RUN apt-get -y clean && \
 #     pip3 install grpcio_tools pysha3 iroha==0.0.5.4; \
 #     unset GRPC_PYTHON_BUILD_SYSTEM_OPENSSL
 
-# non-interactive adduser
-#   -m = create home dir
-#   -s = set default shell
-#   iroha-ci = username
-#   -u = userid, default for Ubuntu is 1000
-#   -U = create a group same as username
-#   no password
-# RUN useradd -ms /bin/bash iroha-ci -u 1000 -U
-
-# WORKDIR /opt/iroha
-# RUN set -e; \
-#     chmod -R 777 /opt/iroha; \
-#     mkdir -p /tmp/ccache -m 777; \
-#     ccache --clear
-
 ## Allow access to database, trust local connections
 # RUN sed -i /etc/postgresql/12/main/pg_hba.conf -Ee's,(^local\s+all\s+postgres\s+)\w+,\1trust,'
 # COPY pg_hba.conf /etc/postgresql/12/main/pg_hba.conf
@@ -105,6 +90,20 @@ host    replication     all             127.0.0.1/32            trust \n\
 host    replication     all             ::1/128                 trust \n\
 " > /etc/postgresql/12/main/pg_hba.conf
 
-USER iroha-ci
-# ENV CMAKE_TOOLCHAIN_FILE /opt/dependencies/scripts/buildsystems/vcpkg.cmake
-# CMD ["/bin/bash"]
+# non-interactive adduser
+#   -m = create home dir
+#   -s = set default shell
+#   iroha-ci = username
+#   -u = userid, default for Ubuntu is 1000
+#   -U = create a group same as username
+#   no password
+# RUN useradd -ms /bin/bash iroha -u 1000 -U
+
+# WORKDIR /opt/iroha
+# RUN set -e; \
+#     chmod -R 777 /opt/iroha; \
+#     mkdir -p /tmp/ccache -m 777; \
+#     ccache --clear
+
+# USER iroha
+# CMD /bin/bash
