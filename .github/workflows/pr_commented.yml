@@ -1,0 +1,31 @@
+# name: pr_commented
+
+on: issue_comment
+
+jobs:
+  pr_commented:
+    # This job only runs for pull request comments
+    name: PR commented
+    if: ${{ github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Comment on PR #${{ github.event.issue.number }}"
+          gh workflow run Iroha1 --ref gh-actions
+      - name: Dump GitHub context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
+      - name: asd
+        if: contains(github.event.comment.body, '/buildme')
+        run: |
+          echo "Event triggered!"
+
+  # issue_commented:
+  #   # This job only runs for issue comments
+  #   name: Issue comment
+  #   if: ${{ !github.event.issue.pull_request }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - run: |
+  #         echo "Comment on issue #${{ github.event.issue.number }}"
