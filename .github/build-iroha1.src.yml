@@ -24,7 +24,7 @@ jobs:
       -
         name: Git-secret to ENV
         run: |
-          echo ${{secrets.GPG_KEY_TO_GIT_SECRET}} | gpg --import    ###tr , '\n' | gpg --import
+          echo "${{secrets.GPG_KEY_TO_GIT_SECRET}}" | gpg --import    ###tr , '\n' | gpg --import
           git secrets reveal
           cat .github/dockerhub.env
           cat .github/dockerhub.env >>$GITHUB_ENV
