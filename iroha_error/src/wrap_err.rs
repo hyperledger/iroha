@@ -25,7 +25,7 @@ impl<D: Display, E> Display for WrappedError<D, E> {
 impl<D: Display, E: Debug> Debug for WrappedError<D, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Error")
-            .field("msg", &format!("\"{}\"", &self.msg))
+            .field("msg", &self.msg.to_string())
             .field("source", &self.error)
             .finish()
     }
@@ -51,7 +51,7 @@ impl<D: Display> StdError for WrappedError<D, Error> {
     }
 
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        self.error.inner.source()
+        Some(&*self.error.inner)
     }
 }
 
