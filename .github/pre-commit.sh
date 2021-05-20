@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-gitroot=$(git rev-parse --show-toplevel)
-
-cd $gitroot
+cd $(git rev-parse --show-toplevel)
 ./.github/make-workflows.sh
 git add .github/workflows

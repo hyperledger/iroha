@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Git-secret to ENV
         run: |
-          echo ${{secrets.GPG_KEY_TO_GIT_SECRET}} | gpg --import    ###tr , '\n' | gpg --import
+          echo "${{secrets.GPG_KEY_TO_GIT_SECRET}}" | gpg --import    ###tr , '\n' | gpg --import
           git secrets reveal
           cat .github/dockerhub.env
           cat .github/dockerhub.env >>$GITHUB_ENV
@@ -61,7 +61,7 @@ jobs:
         run: sleep 10
   ## Build in a docker container
   build-iroha-ubuntu:
-    # needs: Docker-iroha-builder  ##FIXME
+    needs: Docker-iroha-builder
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: ikyb/iroha:builder
     strategy:
@@ -105,7 +105,7 @@ jobs:
         # Executed in   32,08 mins    fish           external
         #    usr time  110,52 mins    0,24 millis  110,52 mins
         #    sys time   12,26 mins    1,34 millis   12,26 mins
-        # 
+        #
         # All requested packages are currently installed.
         # ________________________________________________________
         # Executed in    3,17 secs    fish           external
@@ -113,7 +113,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }}  #-DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
 
         ## Takes 13s on regular GitHub runner
       - name: CMake build
@@ -129,7 +129,12 @@ jobs:
           true
       - # if: ${{ false }}  # disable for now
         name: CTest
-        run: "set -eu\npg_ctlcluster 12 main start \n###initdb --locale=C -E UTF-8 $PWD/postgres_database\n###pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }\ncd build && ctest --output-on-failure #--progress\n"
+        run: |
+          set -eu
+          pg_ctlcluster 12 main start
+          ###initdb --locale=C -E UTF-8 $PWD/postgres_database
+          ###pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
+          cd build && ctest --output-on-failure #--progress
         ## Takes over 4h on regular GitHub runner
   build-iroha-macos:
     if: ${{ false }} # disable for now
@@ -173,7 +178,7 @@ jobs:
         # Executed in   32,08 mins    fish           external
         #    usr time  110,52 mins    0,24 millis  110,52 mins
         #    sys time   12,26 mins    1,34 millis   12,26 mins
-        # 
+        #
         # All requested packages are currently installed.
         # ________________________________________________________
         # Executed in    3,17 secs    fish           external
@@ -181,7 +186,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }}  #-DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
 
         ## Takes 13s on regular GitHub runner
       - name: CMake build
@@ -192,7 +197,12 @@ jobs:
         ## ToDo may be optimize, i.e. cache package
       - # if: ${{ false }}  # disable for now
         name: CTest
-        run: "set -eu\npg_ctlcluster 12 main start \n###initdb --locale=C -E UTF-8 $PWD/postgres_database\n###pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }\ncd build && ctest --output-on-failure #--progress\n"
+        run: |
+          set -eu
+          pg_ctlcluster 12 main start
+          ###initdb --locale=C -E UTF-8 $PWD/postgres_database
+          ###pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
+          cd build && ctest --output-on-failure #--progress
         ## Takes over 4h on regular GitHub runner
   build-iroha-windows:
     if: ${{ false }} # disable for now
@@ -224,7 +234,7 @@ jobs:
         # Executed in   32,08 mins    fish           external
         #    usr time  110,52 mins    0,24 millis  110,52 mins
         #    sys time   12,26 mins    1,34 millis   12,26 mins
-        # 
+        #
         # All requested packages are currently installed.
         # ________________________________________________________
         # Executed in    3,17 secs    fish           external
@@ -234,7 +244,7 @@ jobs:
         shell: bash
       - name: CMake configure
         run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }}  #-DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
 
         ## Takes 13s on regular GitHub runner
       - name: CMake build
