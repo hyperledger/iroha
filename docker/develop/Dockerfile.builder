@@ -37,6 +37,11 @@ RUN apt-get -y clean && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /var/cache/apt/archives/*
 
+RUN cd /opt/ && \
+    git clone https://github.com/sobolevn/git-secret.git git-secret && \
+    cd git-secret && make build && \
+    PREFIX="/usr/local" make install
+
 # # install dependencies
 # COPY vcpkg /tmp/vcpkg-vars
 # RUN set -e; \
