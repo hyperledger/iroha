@@ -7,6 +7,12 @@ on:
     branches: [main, support/1.2.x]
   pull_request:
     branches: [main, support/1.2.x]
+  workflow_dispatch:
+    inputs:
+      whatever:
+        description: 'some-string.'
+        required: true
+        default: 'hello world'
 jobs:
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
