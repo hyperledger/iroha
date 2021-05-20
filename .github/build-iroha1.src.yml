@@ -70,7 +70,7 @@ jobs:
 
   ## Build in a docker container
   build-iroha-ubuntu:
-    # needs: Docker-iroha-builder  ##FIXME
+    needs: Docker-iroha-builder
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     container: ikyb/iroha:builder
     strategy:
