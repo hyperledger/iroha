@@ -29,7 +29,7 @@ RUN apt-get update && \
 RUN if [ `uname -m` = "x86_64" ]; then \
       apt-get update && \
       apt-get -y --no-install-recommends install \
-        clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format-7; \
+        clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format; \
     fi
 
 ## Finish APT installation, clean up
