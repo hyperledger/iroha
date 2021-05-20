@@ -18,6 +18,10 @@ jobs:
     # if: ${{ false }}  # disable for now
     runs-on: ubuntu-latest ##todo [ self-hosted, Linux, ARM64 ]
     steps:
+      - name: System info
+        run: |
+          whoami
+          df -h
       - if: ${{false}}
         name: Cancel Previous Workflow Runs
         uses: n1hility/cancel-previous-runs@v2.0
@@ -26,10 +30,17 @@ jobs:
           # workflow: build-iroha1.yml
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Git-secret to ENV
+      - run: |
+          git clone https://github.com/sobolevn/git-secret.git git-secret
+          cd git-secret
+          make build
+          echo PATH=$PWD:$PATH >>$GITHUB_ENV
+          # PREFIX=/usr/local make install
+      - if: ${{false}}
+        name: Git-secret to ENV
         run: |
           echo "${{secrets.GPG_KEY_TO_GIT_SECRET}}" | gpg --import    ###tr , '\n' | gpg --import
-          git secrets reveal
+          git secret reveal
           cat .github/dockerhub.env
           cat .github/dockerhub.env >>$GITHUB_ENV
         ## todo get secrets.DOCKERHUB_USERNAME from env.DOCKERHUB_USERNAME
@@ -143,12 +154,12 @@ jobs:
           cd build && ctest --output-on-failure #--progress
         ## Takes over 4h on regular GitHub runner
   build-iroha-macos:
-    if: ${{ false }} # disable for now
-    runs-on: [self-hosted, MacOS] #macos-latest
+    # if: ${{ false }}  # disable for now
+    runs-on: macos-latest #[ self-hosted, MacOS ] #
     strategy:
       fail-fast: false
       matrix:
-        cpp: [clang++, /usr/local/opt/llvm/bin/clang++, g++-10]
+        cpp: [clang++] #, /usr/local/opt/llvm/bin/clang++, g++-10 ]
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         USE_BURROW: [-DUSE_BURROW=OFF]
         # USE_URSA: [ -DUSE_URSA=OFF ]
@@ -165,6 +176,9 @@ jobs:
       - if: ${{matrix.cpp == 'g++-10'}}
         name: Homebrew GCC
         run: brew install gcc@10
+      - if: ${{matrix.cpp == '/usr/local/opt/llvm/bin/clang++'}}
+        name: Homebrew LLVM
+        run: brew install llvm
       - name: Checkout
         uses: actions/checkout@v2
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
