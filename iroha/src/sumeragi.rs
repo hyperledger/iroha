@@ -832,7 +832,7 @@ pub mod message {
         VersionedAcceptedTransaction, VersionedValidBlock,
     };
 
-    declare_versioned_with_scale!(VersionedMessage 1..2);
+    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant);
 
     impl VersionedMessage {
         /// Same as [`as_v1`] but also does conversion
@@ -888,7 +888,7 @@ pub mod message {
     }
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
-    #[version_with_scale(n = 1, versioned = "VersionedMessage")]
+    #[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
     #[derive(Io, Decode, Encode, Debug, Clone, FromVariant)]
     pub enum Message {
         /// Is sent by leader to all validating peers, when a new block is created.
@@ -1839,7 +1839,7 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
+    #![allow(clippy::restriction, clippy::too_many_lines)]
 
     use std::collections::HashSet;
 

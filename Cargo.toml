@@ -26,4 +26,7 @@ members = [
   "iroha_telemetry",
   "iroha_futures",
   "iroha_futures/futures_derive",
+  "iroha_schema",
+  "iroha_schema/iroha_schema_derive",
+  "iroha_schema/iroha_schema_bin",
 ]

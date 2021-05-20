@@ -9,7 +9,7 @@ const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
 const GENESIS: &str = "genesis";
 
 #[tokio::main]
-#[allow(clippy::non_ascii_literal)]
+#[allow(clippy::non_ascii_literal, clippy::unwrap_used)]
 async fn main() -> Result<(), Reporter> {
     iroha_error::install_panic_reporter();
     iroha_logger::info!("Hyperledgerいろは2にようこそ！");

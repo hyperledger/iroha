@@ -1,9 +1,9 @@
 use iroha_version_derive::{declare_versioned_with_json, version_with_json};
 use serde::{Deserialize, Serialize};
 
-declare_versioned_with_json!(VersionedMessage 1..3);
+declare_versioned_with_json!(VersionedMessage 1..3, Debug, Clone, iroha_derive::FromVariant);
 
-#[version_with_json(n = 1, versioned = "VersionedMessage")]
+#[version_with_json(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Message;
 
@@ -11,7 +11,7 @@ impl Message {
     pub fn handle(&self) {}
 }
 
-#[version_with_json(n = 2, versioned = "VersionedMessage")]
+#[version_with_json(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Message2;
 
