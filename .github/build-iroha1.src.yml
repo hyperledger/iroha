@@ -5,32 +5,66 @@ on:
     branches: [ main, support/1.2.x ]
   pull_request:
     branches: [ main, support/1.2.x ]
-  workflow_dispatch:
-    inputs:
-      whatever:
-        description: 'some-string.'
-        required: true
-        default: 'hello world'
+  # workflow_dispatch:
+  #   inputs:
+  #     whatever:
+  #       description: 'some-string.'
+  #       required: true
+  #       default: 'hello world!'
+  #     # gitref:
+  #     #   description: A git ref commit sha, branch or tag
+  #     #   required: false
+  #     #   default: support/1.2.x
+  # issue_comment:
+  #   types: [created, edited]
 
 jobs:
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
     runs-on: ubuntu-latest  ##todo [ self-hosted, Linux, ARM64 ]
     steps:
-      - &system_info
+      - &step_show_context
+        name: Show context
+        run: |
+          jq <<'END'
+            ${{ toJson(github) }}
+          END
+      # - &step_if_comment_on_pull_request
+      #   id: comment_on_pull_request
+      #   if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+      #   run: |
+      #     echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
+      #     curl ${{github.event.issue.pull_request.url}} | jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+      - &step_info
+        name: Build info
+        run: |
+          cat << 'END'
+          ref:${{github.ref}}
+          sha:${{github.sha}}
+          run_number:${{github.run_number}}
+          event_name:${{github.event_name}}
+          event.action:${{github.event.action}}
+          event.issue.number:${{ github.event.issue.number }}
+          env.REF:${{env.REF}}
+          env.SHA:${{env.SHA}}
+          END
+      - &step_system_info
         name: System info
         run: |
           whoami
           df -h
-      - &cancel_previous_runs
+      - &step_cancel_previous_runs
         if: ${{false}}
         name: Cancel Previous Workflow Runs
         uses: n1hility/cancel-previous-runs@v2.0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
           # workflow: build-iroha1.yml
-      - name: Checkout
+      - &step_checkout
+        name: Checkout
         uses: actions/checkout@v2
+        with:
+          ref: ${{env.REF}}
       - run: |
           git clone https://github.com/sobolevn/git-secret.git git-secret
           cd git-secret
@@ -87,6 +121,7 @@ jobs:
 
   ## Build in a docker container
   build-iroha-ubuntu:
+    # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     container: ikyb/iroha:builder
@@ -100,7 +135,10 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     steps: &build_steps
-      - *cancel_previous_runs
+      - *step_show_context
+      # - *step_if_comment_on_pull_request
+      - *step_info
+      - *step_cancel_previous_runs
       - &step_export_cxx
         name: export CC and CXX
         run: |
@@ -109,9 +147,7 @@ jobs:
       - &step_todo_remove
         name: Check exported CC and CXX, TODO remove this step
         run: echo CC=$CC CXX=$CXX
-      - &step_checkout
-        name: Checkout
-        uses: actions/checkout@v2
+      - *step_checkout
       - &step_vcpkg_cache
         ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
@@ -181,7 +217,10 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     steps:
-      # - *cancel_previous_runs
+      - *step_show_context
+      # - *step_if_comment_on_pull_request
+      - *step_info
+      - *step_cancel_previous_runs
       - *step_export_cxx
       -
         name: Homebrew

@@ -1,4 +1,4 @@
-# name: pr_commented
+name: pr_commented
 
 on: issue_comment
 
@@ -9,17 +9,20 @@ jobs:
     if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo "Comment on PR #${{ github.event.issue.number }}"
-          gh workflow run Iroha1 --ref gh-actions
       - name: Dump GitHub context
         env:
           GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
+        # run: echo "$GITHUB_CONTEXT"
+      - name: Checkout
+        uses: actions/checkout@v2
       - name: asd
         if: contains(github.event.comment.body, '/buildme')
         run: |
           echo "Event triggered!"
+      - run: |
+          echo "Comment on PR #${{ github.event.issue.number }}"
+          echo "${{secrets.GITHUB_TOKEN}}" | gh auth login --with-token
+          gh workflow run Iroha1 --ref gh-actions
 
   # issue_commented:
   #   # This job only runs for issue comments
