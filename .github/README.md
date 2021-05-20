@@ -11,6 +11,19 @@ So I suggest yet another one `make-workflows.sh` based on YAML tool `yq`.
 2. (optional) Copy or link `pre-commit.sh` to `.git/hooks/pre-commit`
    Like `ln -s ../../.github/pre-commit.sh .git/hooks/pre-commit`
 
+### Using pre-commit
+```yaml
+repos:
+- repo: local
+  hooks:
+  - id: make-workflows
+    name: Make GitHub workflows from *.src.yml
+    entry: bash -c '.github/make-workflows.sh && git add .github/workflows'
+    language: system
+    types: [yaml]
+    pass_filenames: false
+```
+
 ### Links
 1. https://stackoverflow.com/questions/67368724/share-same-steps-for-different-github-actions-jobs
 2. https://github.community/t/support-for-yaml-anchors/16128/60

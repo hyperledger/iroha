@@ -184,7 +184,7 @@ jobs:
         name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
-      - &step_on_failure_build
+      - &step_always_after_build
         name: Show free space and disk usage
         if: ${{ always() }}
         run: |
