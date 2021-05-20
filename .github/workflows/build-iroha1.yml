@@ -12,7 +12,8 @@ jobs:
     # if: ${{ false }}  # disable for now
     runs-on: ubuntu-latest ##todo [ self-hosted, Linux, ARM64 ]
     steps:
-      - name: Cancel Previous Workflow Runs
+      - if: ${{false}}
+        name: Cancel Previous Workflow Runs
         uses: n1hility/cancel-previous-runs@v2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -73,7 +74,8 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [Debug] #,Release, RelWithDebInfo
     steps:
-      - name: Cancel Previous Workflow Runs
+      - if: ${{false}}
+        name: Cancel Previous Workflow Runs
         uses: n1hility/cancel-previous-runs@v2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

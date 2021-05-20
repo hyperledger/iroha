@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest  ##todo [ self-hosted, Linux, ARM64 ]
     steps:
       - &cancel_previous_runs
+        if: ${{false}}
         name: Cancel Previous Workflow Runs
         uses: n1hility/cancel-previous-runs@v2.0
         with: 
