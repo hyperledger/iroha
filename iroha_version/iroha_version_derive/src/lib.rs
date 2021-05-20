@@ -1,23 +1,31 @@
-#![allow(clippy::module_name_repetitions, missing_docs, clippy::shadow_reuse)]
+#![allow(
+    clippy::module_name_repetitions,
+    missing_docs,
+    clippy::shadow_reuse,
+    clippy::str_to_string
+)]
 
 use std::{collections::HashMap, ops::Range};
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
+use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
-    parse::{Parse, ParseStream},
+    parse::{Parse, ParseStream, Parser},
     parse_macro_input,
+    punctuated::Punctuated,
     spanned::Spanned,
     AttributeArgs, Error as SynError, Ident, ItemEnum, ItemStruct, Lit, LitInt, Meta, NestedMeta,
-    Result as SynResult, Token,
+    Path, Result as SynResult, Token,
 };
 
 const VERSION_NUMBER_ARG_NAME: &str = "n";
 const VERSIONED_STRUCT_ARG_NAME: &str = "versioned";
 const VERSION_FIELD_NAME: &str = "version";
 const CONTENT_FIELD_NAME: &str = "content";
+const DERIVE_FIELD_NAME: &str = "derive";
 
 /// Used to declare that this struct represents a particular version as a part of the versioned container.
 ///
@@ -32,21 +40,24 @@ const CONTENT_FIELD_NAME: &str = "content";
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn version(attr: TokenStream, item: TokenStream) -> TokenStream {
-    impl_version(attr, item, true, true)
+    let args = parse_macro_input!(attr as AttributeArgs);
+    impl_version(args, item, true, true).into()
 }
 
 /// See [`version`] for more information.
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn version_with_scale(attr: TokenStream, item: TokenStream) -> TokenStream {
-    impl_version(attr, item, false, true)
+    let args = parse_macro_input!(attr as AttributeArgs);
+    impl_version(args, item, false, true).into()
 }
 
 /// See [`version`] for more information.
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
-    impl_version(attr, item, true, false)
+    let args = parse_macro_input!(attr as AttributeArgs);
+    impl_version(args, item, true, false).into()
 }
 
 /// Used to generate a versioned container with the given name and given range of supported versions.
@@ -64,9 +75,9 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// use iroha_version_derive::{declare_versioned, version};
 /// use iroha_version::json::*;
 ///
-/// declare_versioned!(VersionedMessage 1..2);
+/// declare_versioned!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant);
 ///
-/// #[version(n = 1, versioned = "VersionedMessage")]
+/// #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
 /// #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 /// pub struct Message1;
 ///
@@ -84,31 +95,29 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn declare_versioned(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, true, true)
+    impl_declare_versioned(&args, true, true).into()
 }
 
 /// See [`declare_versioned`] for more information.
 #[proc_macro]
 pub fn declare_versioned_with_scale(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, true, false)
+    impl_declare_versioned(&args, true, false).into()
 }
 
 /// See [`declare_versioned`] for more information.
 #[proc_macro]
 pub fn declare_versioned_with_json(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, false, true)
+    impl_declare_versioned(&args, false, true).into()
 }
 
 fn impl_version(
-    attr: TokenStream,
+    args: Vec<NestedMeta>,
     item: TokenStream,
     with_json: bool,
     with_scale: bool,
-) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    #[allow(clippy::str_to_string)]
+) -> TokenStream2 {
     let (item, struct_name) = if let Ok(item_struct) = syn::parse::<ItemStruct>(item.clone()) {
         (quote!(#item_struct), item_struct.ident)
     } else if let Ok(item_enum) = syn::parse::<ItemEnum>(item) {
@@ -133,6 +142,12 @@ fn impl_version(
             }
         })
         .collect();
+
+    let derives = args_map
+        .get(DERIVE_FIELD_NAME)
+        .map_or_else(|| Ok(Punctuated::new()), get_derives)
+        .expect_or_abort("Failed to parse passed derives");
+
     let version_number = args_map
         .get(VERSION_NUMBER_ARG_NAME)
         .expect_or_abort(&format!(
@@ -165,10 +180,7 @@ fn impl_version(
             "Versioned struct name argument should have a string value."
         )
     };
-    let wrapper_struct_name = Ident::new(
-        &format!("_{}V{}", versioned_struct_name, version_number),
-        Span::call_site(),
-    );
+    let wrapper_struct_name = format_ident!("_{}V{}", versioned_struct_name, version_number);
     let versioned_struct_name = Ident::new(&versioned_struct_name, Span::call_site());
     let json_derives = if with_json {
         quote!(serde::Serialize, serde::Deserialize,)
@@ -182,7 +194,7 @@ fn impl_version(
     };
     quote!(
         /// Autogenerated wrapper struct to link versioned item to its container.
-        #[derive(Debug, Clone, #scale_derives #json_derives)]
+        #[derive(#scale_derives #json_derives #derives)]
         pub struct #wrapper_struct_name (#struct_name);
 
         impl From<#wrapper_struct_name> for #struct_name {
@@ -207,13 +219,25 @@ fn impl_version(
 
         #item
     )
-    .into()
 }
 
-#[derive(Debug)]
+fn get_derives(derive: &Lit) -> syn::Result<Punctuated<Path, Token![,]>> {
+    let lit = if let Lit::Str(lit) = derive {
+        lit
+    } else {
+        return Ok(Punctuated::new());
+    };
+    let parser = |stream: ParseStream<'_>| -> syn::parse::Result<Punctuated<Path, Token![,]>> {
+        Punctuated::parse_terminated(stream)
+    };
+    parser.parse_str(&lit.value())
+}
+
 struct DeclareVersionedArgs {
     pub enum_name: Ident,
     pub range: Range<u8>,
+    pub _comma: Option<Token![,]>,
+    pub derive: Punctuated<Path, Token![,]>,
 }
 
 impl DeclareVersionedArgs {
@@ -271,6 +295,8 @@ impl Parse for DeclareVersionedArgs {
         Ok(Self {
             enum_name,
             range: start_version..end_version,
+            _comma: input.parse()?,
+            derive: Punctuated::parse_terminated(input)?,
         })
     }
 }
@@ -383,7 +409,7 @@ fn impl_declare_versioned(
     args: &DeclareVersionedArgs,
     with_scale: bool,
     with_json: bool,
-) -> TokenStream {
+) -> TokenStream2 {
     let version_idents = args.version_idents();
     let version_struct_idents = args.version_struct_idents();
     let version_numbers = args.version_numbers();
@@ -439,9 +465,11 @@ fn impl_declare_versioned(
         })
         .collect();
     let impl_as_from = impl_as_from(args);
+    let derives = &args.derive;
+
     quote!(
         /// Autogenerated versioned container.
-        #[derive(Debug, Clone, iroha_derive::FromVariant, #scale_derives #json_derives)]
+        #[derive(#scale_derives #json_derives #derives)]
         #json_enum_attribute
         pub enum #enum_name {
             #(
@@ -470,5 +498,4 @@ fn impl_declare_versioned(
 
         #json_impl
     )
-    .into()
 }

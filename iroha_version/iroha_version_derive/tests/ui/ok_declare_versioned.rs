@@ -2,9 +2,9 @@ use iroha_version_derive::{declare_versioned, version};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-declare_versioned!(VersionedMessage 1..3);
+declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_derive::FromVariant);
 
-#[version(n = 1, versioned = "VersionedMessage")]
+#[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
 #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 struct Message;
 
@@ -12,7 +12,7 @@ impl Message {
     pub fn handle(&self) {}
 }
 
-#[version(n = 2, versioned = "VersionedMessage")]
+#[version(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
 #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 struct Message2;
 

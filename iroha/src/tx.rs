@@ -19,7 +19,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::permissions;
 use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
 
-declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2);
+declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedAcceptedTransaction {
@@ -112,7 +112,11 @@ impl VersionedAcceptedTransaction {
 }
 
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
-#[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
+#[version_with_scale(
+    n = 1,
+    versioned = "VersionedAcceptedTransaction",
+    derive = "Debug, Clone"
+)]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 #[non_exhaustive]
 pub struct AcceptedTransaction {
@@ -352,7 +356,7 @@ impl IsInBlockchain for RejectedTransaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidTransaction 1..2);
+declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedValidTransaction {
@@ -407,7 +411,11 @@ impl VersionedValidTransaction {
 }
 
 /// `ValidTransaction` represents trustfull Transaction state.
-#[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
+#[version_with_scale(
+    n = 1,
+    versioned = "VersionedValidTransaction",
+    derive = "Debug, Clone"
+)]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidTransaction {
     payload: Payload,

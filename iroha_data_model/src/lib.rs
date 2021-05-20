@@ -11,6 +11,7 @@ use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
 use iroha_error::{error, Result, WrapErr};
 use iroha_macro::error::ErrorTryFromEnum;
+use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +53,19 @@ pub trait TryAsRef<T> {
 
 /// Represents Iroha Configuration parameters.
 #[derive(
-    Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, PartialOrd, Ord, Hash,
+    Copy,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    PartialOrd,
+    Ord,
+    Hash,
+    IntoSchema,
 )]
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
@@ -78,6 +91,7 @@ pub enum Parameter {
     FromVariant,
     PartialOrd,
     Ord,
+    IntoSchema,
 )]
 pub enum IdBox {
     /// `AccountId` variant.
@@ -110,6 +124,7 @@ pub enum IdBox {
     FromVariant,
     PartialOrd,
     Ord,
+    IntoSchema,
 )]
 pub enum IdentifiableBox {
     /// `Account` variant.
@@ -147,6 +162,7 @@ pub type ValueBox = Box<Value>;
     FromVariant,
     PartialOrd,
     Ord,
+    IntoSchema,
 )]
 #[allow(clippy::pub_enum_variant_names)]
 pub enum Value {
@@ -363,6 +379,7 @@ impl From<LengthLimits> for RangeInclusive<usize> {
 
 pub mod world {
     //! Structures, traits and impls related to `World`.
+    use iroha_schema::prelude::*;
 
     #[cfg(feature = "roles")]
     use crate::role::RolesMap;
@@ -412,7 +429,7 @@ pub mod world {
     }
 
     /// The ID of the `World`. The `World` has only a single instance, therefore the ID has no fields.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, IntoSchema)]
     pub struct WorldId;
 
     impl From<WorldId> for IdBox {
@@ -449,6 +466,7 @@ pub mod role {
 
     use dashmap::DashMap;
     use iroha_error::Result;
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -460,7 +478,18 @@ pub mod role {
 
     /// Identification of a role.
     #[derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode, Hash,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        Hash,
+        IntoSchema,
     )]
     pub struct Id {
         /// Role name, should be unique .
@@ -524,7 +553,17 @@ pub mod role {
 
     /// Role is a tag for a set of permission tokens.
     #[derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        IntoSchema,
     )]
     pub struct Role {
         /// Unique name of the role.
@@ -558,6 +597,7 @@ pub mod permissions {
 
     use std::collections::BTreeMap;
 
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -565,7 +605,17 @@ pub mod permissions {
 
     /// Stored proof of the account having a permission for a certain action.
     #[derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Encode, Decode,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        IntoSchema,
     )]
     pub struct PermissionToken {
         /// Name of the permission rule given to account.
@@ -605,6 +655,7 @@ pub mod account {
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use iroha_error::{error, Error, Result};
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -656,7 +707,18 @@ pub mod account {
 
     /// Condition which checks if the account has the right signatures.
     #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, PartialOrd, Ord,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        PartialOrd,
+        Ord,
+        IntoSchema,
     )]
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
@@ -689,7 +751,18 @@ pub mod account {
 
     /// Type which is used for registering `Account`
     #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, PartialOrd, Ord,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        PartialOrd,
+        Ord,
+        IntoSchema,
     )]
     pub struct NewAccount {
         /// An Identification of the `NewAccount`.
@@ -759,7 +832,9 @@ pub mod account {
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
+    )]
     pub struct Account {
         /// An Identification of the `Account`.
         pub id: Id,
@@ -813,6 +888,7 @@ pub mod account {
         Io,
         Encode,
         Decode,
+        IntoSchema,
     )]
     pub struct Id {
         /// `Account`'s name.
@@ -975,6 +1051,7 @@ pub mod asset {
 
     use iroha_derive::{FromVariant, Io};
     use iroha_error::{error, Error, Result};
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -992,7 +1069,9 @@ pub mod asset {
     pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinitionEntry>;
 
     /// An entry in `AssetDefinitionsMap`.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
+    )]
     pub struct AssetDefinitionEntry {
         /// Asset definition.
         pub definition: AssetDefinition,
@@ -1027,7 +1106,18 @@ pub mod asset {
 
     /// Asset definition defines type of that asset.
     #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        IntoSchema,
     )]
     pub struct AssetDefinition {
         /// Type of `AssetValue`
@@ -1038,7 +1128,9 @@ pub mod asset {
 
     /// Asset represents some sort of commodity or value.
     /// All possible variants of `Asset` entity's components.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
+    )]
     pub struct Asset {
         /// Component Identification.
         pub id: Id,
@@ -1060,6 +1152,7 @@ pub mod asset {
         Io,
         Encode,
         Decode,
+        IntoSchema,
     )]
     pub enum AssetValueType {
         /// Asset's Quantity.
@@ -1072,7 +1165,17 @@ pub mod asset {
 
     /// Asset's inner value.
     #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, FromVariant,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        FromVariant,
+        IntoSchema,
     )]
     pub enum AssetValue {
         /// Asset's Quantity.
@@ -1176,6 +1279,7 @@ pub mod asset {
         Encode,
         Decode,
         Hash,
+        IntoSchema,
     )]
     pub struct DefinitionId {
         /// Asset's name.
@@ -1198,6 +1302,7 @@ pub mod asset {
         Encode,
         Decode,
         Hash,
+        IntoSchema,
     )]
     pub struct Id {
         /// Entity Identification.
@@ -1431,6 +1536,7 @@ pub mod domain {
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
     use iroha_error::{error, Result};
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1477,7 +1583,9 @@ pub mod domain {
     }
 
     /// Named group of `Account` and `Asset` entities.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
+    )]
     pub struct Domain {
         /// Domain name, for example company name.
         pub name: Name,
@@ -1555,6 +1663,7 @@ pub mod peer {
 
     use dashmap::DashSet;
     use iroha_derive::Io;
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1565,7 +1674,18 @@ pub mod peer {
 
     /// Peer represents Iroha instance.
     #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize,
+        Io,
+        Encode,
+        Decode,
+        IntoSchema,
     )]
     pub struct Peer {
         /// Peer Identification.
@@ -1586,6 +1706,7 @@ pub mod peer {
         Encode,
         Decode,
         Hash,
+        IntoSchema,
     )]
     pub struct Id {
         /// Address of the Peer's entrypoint.
@@ -1642,6 +1763,7 @@ pub mod transaction {
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
     use iroha_error::{error, Result};
+    use iroha_schema::prelude::*;
     use iroha_version::{
         declare_versioned, declare_versioned_with_scale, version, version_with_scale,
     };
@@ -1660,15 +1782,27 @@ pub mod transaction {
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
 
-    declare_versioned!(VersionedTransaction 1..2);
+    declare_versioned!(
+        VersionedTransaction 1..2,
+        Debug,
+        Clone,
+        iroha_derive::FromVariant,
+        IntoSchema,
+    );
 
     /// This structure represents transaction in non-trusted form.
     ///
     /// `Iroha` and its' clients use `Transaction` to send transactions via network.
     /// Direct usage in business logic is strongly prohibited. Before any interactions
     /// `accept`.
-    #[version(n = 1, versioned = "VersionedTransaction")]
-    #[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq)]
+    #[version(
+        n = 1,
+        versioned = "VersionedTransaction",
+        derive = "Clone, Debug, Io, Eq, PartialEq, iroha_schema::IntoSchema"
+    )]
+    #[derive(
+        Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
+    )]
     pub struct Transaction {
         /// `Transaction` payload.
         pub payload: Payload,
@@ -1677,7 +1811,9 @@ pub mod transaction {
     }
 
     /// Iroha `Transaction` payload.
-    #[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq)]
+    #[derive(
+        Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
+    )]
     pub struct Payload {
         /// Account ID of transaction creator.
         pub account_id: <Account as Identifiable>::Id,
@@ -1844,7 +1980,7 @@ pub mod transaction {
         }
     }
 
-    declare_versioned_with_scale!(VersionedPendingTransactions 1..2);
+    declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_derive::FromVariant, Clone, Debug);
 
     #[cfg(feature = "http_error")]
     impl std::convert::TryInto<HttpResponse> for VersionedPendingTransactions {
@@ -1880,8 +2016,12 @@ pub mod transaction {
     }
 
     /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
-    #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
-    #[derive(Debug, Clone, Encode, Decode, Io)]
+    #[version_with_scale(
+        n = 1,
+        versioned = "VersionedPendingTransactions",
+        derive = "Debug, Clone"
+    )]
+    #[derive(Debug, Clone, Encode, Decode, Io, IntoSchema)]
     pub struct PendingTransactions(pub Vec<Transaction>);
 
     impl FromIterator<Transaction> for PendingTransactions {
@@ -1902,7 +2042,7 @@ pub mod transaction {
     }
 
     /// Transaction Value used in Instructions and Queries
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema)]
     pub enum TransactionValue {
         /// Committed transaction
         Transaction(VersionedTransaction),
@@ -1938,7 +2078,7 @@ pub mod transaction {
         }
     }
 
-    declare_versioned!(VersionedRejectedTransaction 1..2);
+    declare_versioned!(VersionedRejectedTransaction 1..2, iroha_derive::FromVariant, Clone, Debug, IntoSchema);
 
     #[allow(clippy::missing_errors_doc)]
     impl VersionedRejectedTransaction {
@@ -2012,8 +2152,14 @@ pub mod transaction {
     }
 
     /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
-    #[version(n = 1, versioned = "VersionedRejectedTransaction")]
-    #[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq)]
+    #[version(
+        n = 1,
+        versioned = "VersionedRejectedTransaction",
+        derive = "Debug, Clone, IntoSchema"
+    )]
+    #[derive(
+        Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
+    )]
     pub struct RejectedTransaction {
         /// `Transaction` payload.
         pub payload: Payload,
@@ -2282,6 +2428,7 @@ pub mod metadata {
     use std::{borrow::Borrow, collections::BTreeMap};
 
     use iroha_error::{error, Result};
+    use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -2322,6 +2469,7 @@ pub mod metadata {
         Default,
         PartialOrd,
         Ord,
+        IntoSchema,
     )]
     #[serde(transparent)]
     pub struct Metadata {

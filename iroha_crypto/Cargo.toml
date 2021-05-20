@@ -12,6 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
 hex = "0.4.0"
 iroha_error = { path = "../iroha_error" }
+iroha_schema = { path = "../iroha_schema"}
 
 [dev-dependencies]
 hex-literal = "0.2.1"
