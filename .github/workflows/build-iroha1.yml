@@ -106,7 +106,7 @@ jobs:
 
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: cmake --build build --config ${{ matrix.build_type }}
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
       - name: Show free space and disk usage
         if: ${{ always() }}
@@ -174,7 +174,7 @@ jobs:
 
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: cmake --build build --config ${{ matrix.build_type }}
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
       - name: Install Postgres on MacOS
         run: brew install postgresql
@@ -227,7 +227,7 @@ jobs:
 
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: cmake --build build --config ${{ matrix.build_type }}
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
 
         shell: bash
