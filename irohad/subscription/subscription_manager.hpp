@@ -11,8 +11,8 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "common/common.hpp"
 #include "common/compile-time_murmur2.hpp"
-#include "subscription/common.hpp"
 #include "subscription/dispatcher.hpp"
 #include "subscription/subscriber.hpp"
 #include "subscription/subscription_engine.hpp"

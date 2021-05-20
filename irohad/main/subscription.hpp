@@ -8,9 +8,8 @@
 
 #include <memory>
 
+#include "common/common.hpp"
 #include "main/subscription_fwd.hpp"
-
-#include "subscription/common.hpp"
 #include "subscription/subscriber_impl.hpp"
 #include "subscription/subscription_manager.hpp"
 

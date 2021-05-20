@@ -8,7 +8,7 @@
 
 #include "subscription/dispatcher.hpp"
 
-#include "subscription/common.hpp"
+#include "common/common.hpp"
 #include "subscription/thread_handler.hpp"
 
 namespace iroha::subscription {

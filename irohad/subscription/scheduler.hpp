@@ -8,7 +8,7 @@
 
 #include <functional>
 
-#include "subscription/common.hpp"
+#include "common/common.hpp"
 
 namespace iroha::subscription {
 

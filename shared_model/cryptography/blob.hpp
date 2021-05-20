@@ -52,7 +52,7 @@ namespace shared_model {
        * @return Blob from provided hex string if it was correct or
        * Blob from empty string if provided string was not a correct hex string
        */
-      static Blob fromHexString(const std::string &hex);
+      static Blob fromHexString(std::string_view hex);
 
       /**
        * @return provides raw representation of blob
