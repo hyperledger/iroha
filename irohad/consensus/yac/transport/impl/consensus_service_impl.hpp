@@ -25,9 +25,8 @@ namespace iroha {
        public:
         using Service = proto::Yac;
 
-        ServiceImpl(
-            logger::LoggerPtr log,
-            std::function<void(std::vector<VoteMessage>)> callback);
+        ServiceImpl(logger::LoggerPtr log,
+                    std::function<void(std::vector<VoteMessage>)> callback);
 
         /**
          * Receive votes from another peer;

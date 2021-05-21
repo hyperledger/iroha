@@ -177,7 +177,7 @@ namespace iroha {
       std::shared_ptr<OnDemandConnectionManager> connection_manager_;
       std::shared_ptr<OnDemandOrderingGate> ordering_gate_;
       std::shared_ptr<BaseSubscriber<bool, ProposalEvent>>
-            proposals_subscription_;
+          proposals_subscription_;
     };
   }  // namespace ordering
 }  // namespace iroha

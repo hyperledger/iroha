@@ -913,29 +913,28 @@ Irohad::RunResult Irohad::initWsvRestorer() {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
-  ordering_init->subscribe(
-      [simulator(utils::make_weak(simulator)),
-       consensus_gate(utils::make_weak(consensus_gate)),
-       tx_processor(utils::make_weak(tx_processor)),
-       subscription(utils::make_weak(getSubscription()))](
-          network::OrderingEvent const &event) {
-        auto maybe_simulator = simulator.lock();
-        auto maybe_consensus_gate = consensus_gate.lock();
-        auto maybe_tx_processor = tx_processor.lock();
-        auto maybe_subscription = subscription.lock();
-        if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
-            and maybe_subscription) {
-          maybe_subscription->notify(EventTypes::kOnProposal, event);
-          auto verified_proposal = maybe_simulator->processProposal(event);
-          maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
-                                     verified_proposal);
-          maybe_tx_processor->processVerifiedProposalCreatorEvent(
-              verified_proposal);
-          auto block = maybe_simulator->processVerifiedProposal(
-              std::move(verified_proposal));
-          maybe_consensus_gate->vote(std::move(block));
-        }
-      });
+  ordering_init->subscribe([simulator(utils::make_weak(simulator)),
+                            consensus_gate(utils::make_weak(consensus_gate)),
+                            tx_processor(utils::make_weak(tx_processor)),
+                            subscription(utils::make_weak(getSubscription()))](
+                               network::OrderingEvent const &event) {
+    auto maybe_simulator = simulator.lock();
+    auto maybe_consensus_gate = consensus_gate.lock();
+    auto maybe_tx_processor = tx_processor.lock();
+    auto maybe_subscription = subscription.lock();
+    if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
+        and maybe_subscription) {
+      maybe_subscription->notify(EventTypes::kOnProposal, event);
+      auto verified_proposal = maybe_simulator->processProposal(event);
+      maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
+                                 verified_proposal);
+      maybe_tx_processor->processVerifiedProposalCreatorEvent(
+          verified_proposal);
+      auto block = maybe_simulator->processVerifiedProposal(
+          std::move(verified_proposal));
+      maybe_consensus_gate->vote(std::move(block));
+    }
+  });
 
   using iroha::expected::operator|;
   using iroha::operator|;

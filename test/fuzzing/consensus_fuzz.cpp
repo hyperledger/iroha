@@ -12,7 +12,7 @@
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
-#include "consensus/yac/transport/impl/service_impl.hpp"
+#include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 #include "consensus/yac/yac.hpp"
 #include "framework/test_logger.hpp"
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
