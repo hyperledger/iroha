@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "consensus/yac/transport/impl/service_impl.hpp"
+#include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 

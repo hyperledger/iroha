@@ -18,11 +18,8 @@ namespace iroha {
         /**
          * Constructor
          * @param delay_milliseconds delay before the next method invoke
-         * @param coordination factory for coordinators to run the timer on
          */
         TimerImpl(std::chrono::milliseconds delay_milliseconds);
-        TimerImpl(const TimerImpl &) = delete;
-        TimerImpl &operator=(const TimerImpl &) = delete;
 
         void invokeAfterDelay(std::function<void()> handler) override;
 
