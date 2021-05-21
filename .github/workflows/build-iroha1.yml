@@ -71,15 +71,17 @@ jobs:
           cat .github/dockerhub.env
           cat .github/dockerhub.env >>$GITHUB_ENV
         ## todo get secrets.DOCKERHUB_USERNAME from env.DOCKERHUB_USERNAME
+      - name: Determine dockertag
+        id: dockertag
+        run: echo "::set-output name=dockertag::${{filesHash(docker/develop/Dockerfile.builder)}}"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
       - name: Cache Docker layers
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+          key: ${{ runner.os }}-buildx-${{steps.dockertag.outputs.dockertag}} #${{ github.sha }}
+          restore-keys: ${{ runner.os }}-buildx-
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
@@ -91,7 +93,7 @@ jobs:
           file: docker/develop/Dockerfile.builder
           # context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_ORG }}/iroha:builder
+          tags: ${{ secrets.DOCKERHUB_ORG }}/iroha:builder-${{steps.dockertag.outputs.dockertag}}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
       - # Temp fix
@@ -103,12 +105,14 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       - name: Delay before pulling built image by next job
         run: sleep 10
+    outputs:
+      dockertag: ${{steps.dockertag.outputs.dockertag}}
   ## Build in a docker container
   build-iroha-ubuntu:
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: ikyb/iroha:builder
+    container: ikyb/iroha:builder-${{needs.Docker-iroha-builder.outputs.dockertag}}
     strategy:
       fail-fast: false
       matrix:
