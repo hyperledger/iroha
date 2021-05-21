@@ -56,8 +56,12 @@ namespace integration_framework {
                                BatchesSetType &)> const &f) {}
 
     bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() const {
-      auto fake_peer = fake_peer_wptr_.lock();
       return true;
+    }
+
+    bool OnDemandOsNetworkNotifier::hasProposal(
+        iroha::consensus::Round round) const {
+      return false;
     }
 
     rxcpp::observable<iroha::consensus::Round>

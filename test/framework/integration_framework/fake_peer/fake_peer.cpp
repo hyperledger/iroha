@@ -9,6 +9,7 @@
 
 #include <boost/assert.hpp>
 #include "backend/protobuf/transaction.hpp"
+#include "common/common.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
@@ -128,7 +129,8 @@ namespace integration_framework {
           og_network_notifier_(std::make_shared<OgNetworkNotifier>()),
           yac_transport_server_(std::make_shared<YacTransportServer>(
               consensus_log_manager_->getChild("Server")->getLogger(),
-              [yac_network_notifier(std::weak_ptr(yac_network_notifier_))](
+              [yac_network_notifier(
+                  iroha::utils::make_weak(yac_network_notifier_))](
                   std::vector<iroha::consensus::yac::VoteMessage> state) {
                 auto maybe_yac_network_notifier = yac_network_notifier.lock();
                 if (not maybe_yac_network_notifier) {
