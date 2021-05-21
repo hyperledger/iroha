@@ -309,7 +309,7 @@ jobs:
         name: CTest
         run: |
           initdb --locale=C -E UTF-8 $PWD/postgres_database
-          pg_ctl -D $PWD/postgres_database start & { sleep .3; kill -0 $!; }
+          postgres -D $PWD/postgres_database & { sleep .3; kill -0 $!; }
           cd build
           ctest --output-on-failure #--progress
   build-iroha-windows:
