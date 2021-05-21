@@ -209,10 +209,8 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
 
-            -GNinja ${{ matrix.USE_BURROW }}
-            #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
@@ -328,10 +326,8 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
 
-            -GNinja ${{ matrix.USE_BURROW }}
-            #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
@@ -405,10 +401,8 @@ jobs:
         shell: bash
       - name: CMake configure
         run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
 
-            -GNinja ${{ matrix.USE_BURROW }}
-            #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
