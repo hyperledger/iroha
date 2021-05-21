@@ -112,7 +112,7 @@ TEST_F(YacTest, YacWhenColdStartAndAchieveCommitMessage) {
   auto commit_hash = *yac->onState(msg.votes);
   // verify that commit emitted
   ASSERT_EQ(propagated_hash,
-              boost::get<CommitMessage>(commit_hash).votes.at(0).hash);
+            boost::get<CommitMessage>(commit_hash).votes.at(0).hash);
 }
 
 /**

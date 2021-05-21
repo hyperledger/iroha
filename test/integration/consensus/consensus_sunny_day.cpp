@@ -6,16 +6,16 @@
 #include <gmock/gmock.h>
 #include <grpc++/grpc++.h>
 
+#include "common/common.hpp"
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/impl/timer_impl.hpp"
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "consensus/yac/storage/yac_vote_storage.hpp"
-#include "consensus/yac/transport/impl/service_impl.hpp"
+#include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
-#include "common/common.hpp"
 
 #include "framework/stateless_valid_field_helpers.hpp"
 #include "framework/test_client_factory.hpp"
