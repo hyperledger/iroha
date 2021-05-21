@@ -225,3 +225,8 @@ bool OnDemandOrderingServiceImpl::batchAlreadyProcessed(
         return false;
       });
 }
+
+bool OnDemandOrderingServiceImpl::hasProposal(consensus::Round round) const {
+  std::lock_guard<std::mutex> lock(proposals_mutex_);
+  return proposal_map_.find(round) != proposal_map_.end();
+}

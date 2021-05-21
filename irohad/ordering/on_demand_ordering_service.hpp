@@ -90,6 +90,8 @@ namespace iroha {
           std::function<void(const BatchesSetType &)> const &f) = 0;
 
       virtual bool isEmptyBatchesCache() const = 0;
+
+      virtual bool hasProposal(consensus::Round round) const = 0;
     };
 
   }  // namespace ordering
