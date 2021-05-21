@@ -1,10 +1,11 @@
 name: Iroha1
 
 on:
-  # push:
-  #   branches: [ main, support/1.2.x ]
+  push:
+    branches: [ main, support/1.2.x ]
+    tags: [ 'v*' ]
   pull_request:
-    # branches: [ main, support/1.2.x ]  ## target branches
+    branches: [ main, support/1.2.x ]  ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
@@ -68,25 +69,24 @@ jobs:
         uses: actions/checkout@v2
         with:
           ref: ${{env.REF}}
-      - run: |
-          git clone https://github.com/sobolevn/git-secret.git git-secret
-          cd git-secret
-          make build
-          echo PATH=$PWD:$PATH >>$GITHUB_ENV
-          #PREFIX=/usr/local make install  ## no access
-      -
-        if: ${{false}}
-        name: Git-secret to ENV
-        run: |
-          echo "${{secrets.GPG_KEY_TO_GIT_SECRET}}" | gpg --import    ###tr , '\n' | gpg --import
-          git secret reveal
-          cat .github/dockerhub.env
-          cat .github/dockerhub.env >>$GITHUB_ENV
-        ## todo get secrets.DOCKERHUB_USERNAME from env.DOCKERHUB_USERNAME
       -
         name: Determine dockertag
         id: dockertag
         run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
+      -
+        name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v3
+        with:
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder
+          tags: |
+            type=raw,value=${{steps.dockertag.outputs.dockertag}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=schedule
+          #  type=sha
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
@@ -101,18 +101,19 @@ jobs:
         name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}       ## humb1t  for hyperledger
+          password: ${{ secrets.DOCKERHUB_TOKEN }}          ## ${{ secrets.DOCKERHUB }}
       -
         name: Build and push
         uses: docker/build-push-action@v2
         with:
           file: docker/develop/Dockerfile.builder
           # context: .
-          push: true
-          tags: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder:${{steps.dockertag.outputs.dockertag}}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
+          push: true  #${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
       -
         # Temp fix
         # https://github.com/docker/build-push-action/issues/252
@@ -238,7 +239,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cpp: [ clang++ ] #, /usr/local/opt/llvm/bin/clang++, g++-10 ]
+        cc: [ clang, /usr/local/opt/llvm/bin/clang ] #gcc-10
+        # cpp: [ clang++ ] #, /usr/local/opt/llvm/bin/clang++, g++-10 ]
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         USE_BURROW: [ -DUSE_BURROW=OFF ]
         # USE_URSA: [ -DUSE_URSA=OFF ]
@@ -255,11 +257,11 @@ jobs:
         run: brew install cmake ninja coreutils
         ## Takes 22 seconds with default github runner
       -
-        if: ${{matrix.cpp == 'g++-10'}}
+        if: ${{ contains(matrix.cc, 'gcc-10') }}
         name: Homebrew GCC
         run: brew install gcc@10
       -
-        if: ${{matrix.cpp == '/usr/local/opt/llvm/bin/clang++'}}
+        if: ${{ contains(matrix.cc, 'llvm') }}
         name: Homebrew LLVM
         run: brew install llvm
       - *step_checkout
@@ -286,7 +288,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # cpp: [ cl, clang++, mingw++ ]
+        # cc: [ cl, clang, mingw ]
         # USE_BURROW: [ -DUSE_BURROW=OFF ]
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
