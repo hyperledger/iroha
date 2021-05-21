@@ -1,10 +1,10 @@
 name: Iroha1
 
 on:
-  push:
-    # branches: [ main, support/1.2.x ]
+  # push:
+  #   branches: [ main, support/1.2.x ]
   pull_request:
-    # branches: [ main, support/1.2.x ]
+    # branches: [ main, support/1.2.x ]  ## target branches
   # workflow_dispatch:
   #   inputs:
   #     whatever:
