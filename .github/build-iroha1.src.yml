@@ -23,9 +23,14 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
-          jq <<'END'
-            ${{ toJson(github) }}
+          set +e  ## allow jq to fail
+          cat <<'END'
+            ${{ github }}
           END
+        #  apt-get -y --no-install-recommends install jq  ## for self-hosted
+        #  jq <<'END'
+        #    ${{ toJson(github) }}
+        #  END
       - &step_if_comment_on_pull_request
         id: comment_on_pull_request
         if: ${{ github.event.issue.pull_request &&
@@ -81,7 +86,7 @@ jobs:
       -
         name: Determine dockertag
         id: dockertag
-        run: echo "::set-output name=dockertag::${{filesHash(docker/develop/Dockerfile.builder)}}"
+        run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
@@ -90,7 +95,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key:           ${{ runner.os }}-buildx-${{steps.dockertag.outputs.dockertag}}   #${{ github.sha }}
+          key:           ${{ runner.os }}-buildx-${{steps.dockertag.outputs.dockertag}}
           restore-keys:  ${{ runner.os }}-buildx-
       -
         name: Login to DockerHub
@@ -105,7 +110,7 @@ jobs:
           file: docker/develop/Dockerfile.builder
           # context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_ORG }}/iroha:builder-${{steps.dockertag.outputs.dockertag}}
+          tags: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder:${{steps.dockertag.outputs.dockertag}}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
       -
@@ -127,7 +132,7 @@ jobs:
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    container: ikyb/iroha:builder-${{needs.Docker-iroha-builder.outputs.dockertag}}
+    container: ikyb/iroha-builder:${{needs.Docker-iroha-builder.outputs.dockertag}}
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +168,7 @@ jobs:
           key:          ${{ runner.os }}-vcpkg-${{ github.sha }}
           restore-keys: ${{ runner.os }}-vcpkg-
       - &step_vcpkg_build
-        name: Build Iroha vcpkg dependancies
+        name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
         ## Takes 48m16s on default GitHub runner with 2 cores
         # ________________________________________________________
