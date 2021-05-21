@@ -11,18 +11,29 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get -y --no-install-recommends install \
         apt-utils software-properties-common wget gpg-agent \
-        libtool \
+        libtool
+
+RUN apt-get update && \
+    apt-get -y --no-install-recommends install \
         # compilers (gcc-9, gcc-10)
         build-essential g++-9 g++-10 cmake ninja-build \
+        gdb gdbserver \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # code coverage
-        lcov \
+        lcov
+
+RUN apt-get update && \
+    apt-get -y --no-install-recommends install \
         # Python3
         python3-dev python3-pip python-is-python3 \
         # other
-        curl file gdb gdbserver ccache libssl-dev \
+        curl file ccache libssl-dev \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config \
+        jq
+
+RUN apt-get update && \
+    apt-get -y --no-install-recommends install \
         postgresql postgresql-contrib
 
 # compiler clang-10 and libc++ only on x86_64, for debug purpose

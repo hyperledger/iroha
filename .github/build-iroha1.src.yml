@@ -11,12 +11,8 @@ on:
   #       description: 'some-string.'
   #       required: true
   #       default: 'hello world!'
-  #     # gitref:
-  #     #   description: A git ref commit sha, branch or tag
-  #     #   required: false
-  #     #   default: support/1.2.x
-  # issue_comment:
-  #   types: [created, edited]
+  issue_comment:
+    types: [created, edited]
 
 jobs:
   Docker-iroha-builder:
@@ -59,7 +55,6 @@ jobs:
         uses: n1hility/cancel-previous-runs@v2.0
         with:
           token: ${{ github.token }}
-          # workflow: build-iroha1.yml
       - &step_checkout
         name: Checkout
         uses: actions/checkout@v2
