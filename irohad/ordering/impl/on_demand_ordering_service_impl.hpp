@@ -109,6 +109,8 @@ namespace iroha {
       std::vector<std::shared_ptr<shared_model::interface::Transaction>>
       getTransactionsFromBatchesCache(size_t requested_tx_amount);
 
+      bool hasProposal(consensus::Round round) const override;
+
       /**
        * Max number of transaction in one proposal
        */
@@ -127,7 +129,7 @@ namespace iroha {
       /**
        * Proposal collection mutexes for public methods
        */
-      std::mutex proposals_mutex_;
+      mutable std::mutex proposals_mutex_;
 
       mutable std::shared_timed_mutex batches_cache_cs_;
       BatchesSetType batches_cache_;

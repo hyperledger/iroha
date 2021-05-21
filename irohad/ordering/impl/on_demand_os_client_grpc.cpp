@@ -68,9 +68,9 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
       [round,
        context(std::move(context)),
        request(std::move(request)),
-       stub(std::weak_ptr(stub_)),
-       log(std::weak_ptr(log_)),
-       proposal_factory(std::weak_ptr(proposal_factory_)),
+       stub(utils::make_weak(stub_)),
+       log(utils::make_weak(log_)),
+       proposal_factory(utils::make_weak(proposal_factory_)),
        callback(callback_)] {
         auto maybe_stub = stub.lock();
         auto maybe_log = log.lock();

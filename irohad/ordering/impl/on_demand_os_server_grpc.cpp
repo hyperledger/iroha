@@ -64,7 +64,8 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
-  if (ordering_service_->isEmptyBatchesCache()) {
+  if (not ordering_service_->hasProposal(round)
+      and ordering_service_->isEmptyBatchesCache()) {
     auto scheduler = std::make_shared<subscription::SchedulerBase>();
     auto tid = getSubscription()->dispatcher()->bind(scheduler);
 

@@ -125,13 +125,13 @@ Irohad::Irohad(
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
       pg_opt_(std::move(pg_opt)),
+      subscription_engine_(getSubscription()),
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
           logger_manager->getLogger())),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
-      log_(log_manager_->getLogger()),
-      subscription_engine_(getSubscription()) {
+      log_(log_manager_->getLogger()) {
   log_->info("created");
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
@@ -1044,7 +1044,7 @@ Irohad::RunResult Irohad::run() {
     }
 
     storage->on_commit().subscribe(
-        [ordering_init(std::weak_ptr(ordering_init))](auto block) {
+        [ordering_init(utils::make_weak(ordering_init))](auto block) {
           if (auto maybe_ordering_init = ordering_init.lock()) {
             maybe_ordering_init->processCommittedBlock(block);
           }
@@ -1054,7 +1054,7 @@ Irohad::RunResult Irohad::run() {
 
     subscription_engine_->dispatcher()->add(
         iroha::SubscriptionEngineHandlers::kYac,
-        [ordering_init(std::weak_ptr(ordering_init)),
+        [ordering_init(utils::make_weak(ordering_init)),
          block_height,
          initial_ledger_state] {
           if (auto maybe_ordering_init = ordering_init.lock()) {

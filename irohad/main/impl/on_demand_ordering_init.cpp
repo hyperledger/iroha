@@ -252,7 +252,7 @@ void OnDemandOrderingInit::subscribe(
       SubscriberCreator<bool, ProposalEvent>::template create<
           EventTypes::kOnProposalResponse>(
           iroha::SubscriptionEngineHandlers::kYac,
-          [ordering_gate(std::weak_ptr(ordering_gate_)),
+          [ordering_gate(utils::make_weak(ordering_gate_)),
            callback(std::move(callback))](auto, auto event) {
             auto maybe_ordering_gate = ordering_gate.lock();
             if (not maybe_ordering_gate) {
