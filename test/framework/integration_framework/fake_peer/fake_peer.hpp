@@ -12,7 +12,7 @@
 #include <boost/core/noncopyable.hpp>
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "common/result_fwd.hpp"
-#include "consensus/yac/transport/impl/service_impl.hpp"
+#include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"

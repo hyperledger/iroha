@@ -50,13 +50,13 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         .WillByDefault(
             Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
                 iroha::ametsuchi::tx_cache_status_responses::Missing())));
-    ordering_gate = std::make_shared<OnDemandOrderingGate>(
-        ordering_service,
-        notification,
-        std::move(ufactory),
-        tx_cache,
-        1000,
-        getTestLogger("OrderingGate"));
+    ordering_gate =
+        std::make_shared<OnDemandOrderingGate>(ordering_service,
+                                               notification,
+                                               std::move(ufactory),
+                                               tx_cache,
+                                               1000,
+                                               getTestLogger("OrderingGate"));
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(

@@ -15,7 +15,7 @@
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/timer.hpp"
-#include "consensus/yac/transport/impl/service_impl.hpp"
+#include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 #include "consensus/yac/yac_gate.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "consensus/yac/yac_peer_orderer.hpp"
@@ -57,7 +57,7 @@ namespace iroha {
 
         std::shared_ptr<ServiceImpl> getConsensusNetwork() const;
 
-        void subscribe(std::function<void(GateObject const&)> callback);
+        void subscribe(std::function<void(GateObject const &)> callback);
 
        private:
         auto createTimer(std::chrono::milliseconds delay_milliseconds);
