@@ -24,7 +24,6 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
-          set +e  ## allow jq to fail
           cat <<'END'
             ${{ toJson(github) }}
           END
@@ -58,7 +57,9 @@ jobs:
       - &step_system_info
         name: System info
         run: |
+          set -x
           whoami
+          free
           df -h
       - &step_cancel_previous_runs
         if: ${{false}}
@@ -76,11 +77,23 @@ jobs:
         id: dockertag
         run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
       -
+        name: Dockerhub creds
+        run: |
+          DOCKERHUB_ORG="${{ secrets.DOCKERHUB_ORG }}"
+          DOCKERHUB_ORG="${DOCKERHUB_ORG:-hyperledger}"
+          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+          DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}"
+          DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN }}"
+          DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-${{ secrets.DOCKERHUB }}}"
+          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"           >>$GITHUB_ENV
+          echo DOCKERHUB_USERNAME="$DOCKERHUB_USERNAME" >>$GITHUB_ENV
+          echo DOCKERHUB_TOKEN="$DOCKERHUB_TOKEN"       >>$GITHUB_ENV
+      -
         name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder
+          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{steps.dockertag.outputs.dockertag}}
             type=ref,event=branch
@@ -103,8 +116,8 @@ jobs:
         name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}       ## humb1t  for hyperledger
-          password: ${{ secrets.DOCKERHUB_TOKEN }}          ## ${{ secrets.DOCKERHUB }}
+          username: ${{ env.DOCKERHUB_USERNAME }}       ## humb1t  for hyperledger
+          password: ${{ env.DOCKERHUB_TOKEN }}          ## ${{ secrets.DOCKERHUB }}
       -
         name: Build and push
         uses: docker/build-push-action@v2
@@ -188,8 +201,8 @@ jobs:
         name: CMake configure
         run: >
           cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
-          -GNinja ${{ matrix.USE_BURROW }}
-          #-DCMAKE_VERBOSE_MAKEFILE=ON
+            -GNinja ${{ matrix.USE_BURROW }}
+            #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - &step_cmake_build
         name: CMake build
