@@ -5,12 +5,13 @@ on:
   #   branches: [ main, support/1.2.x ]
   pull_request:
     # branches: [ main, support/1.2.x ]  ## target branches
-  # workflow_dispatch:
-  #   inputs:
-  #     whatever:
-  #       description: 'some-string.'
-  #       required: true
-  #       default: 'hello world!'
+  workflow_dispatch:
+    ## NOTE: Able to run via cmdline: gh workflow run Iroha1
+    inputs:
+      whatever:
+        description: 'some-string.'
+        required: true
+        default: 'hello world!'
   issue_comment:
     types: [created, edited]
 
@@ -25,12 +26,14 @@ jobs:
           jq <<'END'
             ${{ toJson(github) }}
           END
-      # - &step_if_comment_on_pull_request
-      #   id: comment_on_pull_request
-      #   if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
-      #   run: |
-      #     echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-      #     curl ${{github.event.issue.pull_request.url}} | jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+      - &step_if_comment_on_pull_request
+        id: comment_on_pull_request
+        if: ${{ github.event.issue.pull_request &&
+              startsWith(github.event.comment.body, '/buildme') }}
+        run: |
+          echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
+          curl ${{github.event.issue.pull_request.url}} |
+            jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
       - &step_info
         name: Build info
         run: |
@@ -65,7 +68,7 @@ jobs:
           cd git-secret
           make build
           echo PATH=$PWD:$PATH >>$GITHUB_ENV
-          # PREFIX=/usr/local make install
+          #PREFIX=/usr/local make install  ## no access
       -
         if: ${{false}}
         name: Git-secret to ENV
@@ -131,7 +134,7 @@ jobs:
         build_type: [ Debug ] #,Release, RelWithDebInfo
     steps: &build_steps
       - *step_show_context
-      # - *step_if_comment_on_pull_request
+      - *step_if_comment_on_pull_request
       - *step_info
       - *step_cancel_previous_runs
       - &step_export_cxx

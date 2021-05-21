@@ -7,12 +7,13 @@ on:
   #   branches: [ main, support/1.2.x ]
   pull_request:
   # branches: [ main, support/1.2.x ]  ## target branches
-  # workflow_dispatch:
-  #   inputs:
-  #     whatever:
-  #       description: 'some-string.'
-  #       required: true
-  #       default: 'hello world!'
+  workflow_dispatch:
+    ## NOTE: Able to run via cmdline: gh workflow run Iroha1
+    inputs:
+      whatever:
+        description: 'some-string.'
+        required: true
+        default: 'hello world!'
   issue_comment:
     types: [created, edited]
 jobs:
@@ -25,13 +26,13 @@ jobs:
           jq <<'END'
             ${{ toJson(github) }}
           END
-      - # - &step_if_comment_on_pull_request
-        #   id: comment_on_pull_request
-        #   if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
-        #   run: |
-        #     echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-        #     curl ${{github.event.issue.pull_request.url}} | jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
-        name: Build info
+      - id: comment_on_pull_request
+        if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+        run: |
+          echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
+          curl ${{github.event.issue.pull_request.url}} |
+            jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+      - name: Build info
         run: |
           cat << 'END'
           ref:${{github.ref}}
@@ -61,7 +62,7 @@ jobs:
           cd git-secret
           make build
           echo PATH=$PWD:$PATH >>$GITHUB_ENV
-          # PREFIX=/usr/local make install
+          #PREFIX=/usr/local make install  ## no access
       - if: ${{false}}
         name: Git-secret to ENV
         run: |
@@ -123,14 +124,13 @@ jobs:
           jq <<'END'
             ${{ toJson(github) }}
           END
-      # - *step_if_comment_on_pull_request
-      - # - &step_if_comment_on_pull_request
-        #   id: comment_on_pull_request
-        #   if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
-        #   run: |
-        #     echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-        #     curl ${{github.event.issue.pull_request.url}} | jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
-        name: Build info
+      - id: comment_on_pull_request
+        if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+        run: |
+          echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
+          curl ${{github.event.issue.pull_request.url}} |
+            jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+      - name: Build info
         run: |
           cat << 'END'
           ref:${{github.ref}}
@@ -224,13 +224,7 @@ jobs:
             ${{ toJson(github) }}
           END
       # - *step_if_comment_on_pull_request
-      - # - &step_if_comment_on_pull_request
-        #   id: comment_on_pull_request
-        #   if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
-        #   run: |
-        #     echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-        #     curl ${{github.event.issue.pull_request.url}} | jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
-        name: Build info
+      - name: Build info
         run: |
           cat << 'END'
           ref:${{github.ref}}
