@@ -203,6 +203,7 @@ jobs:
           du -hd2 /
           true
       - &step_artifact_irohad
+        if: ${{ false }}
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
@@ -225,13 +226,6 @@ jobs:
           ###initdb --locale=C -E UTF-8 $PWD/postgres_database
           ###pg_ctl -D $PWD/postgres_database start #& { sleep .3; kill -0 $!; }
           cd build && ctest --output-on-failure #--progress
-        ## Takes over 4h on regular GitHub runner
-      - &step_artifact_test_results
-        name: Archive artifact irohad
-        uses: actions/upload-artifact@v2
-        with:
-          name: iroha-test-results-todo
-          paths:
 
   build-iroha-macos:
     # if: ${{ false }}  # disable for now

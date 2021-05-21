@@ -211,7 +211,8 @@ jobs:
           echo; echo ----------------------; echo
           du -hd2 /
           true
-      - name: Archive artifact irohad
+      - if: ${{ false }}
+        name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad
@@ -231,12 +232,6 @@ jobs:
           ###initdb --locale=C -E UTF-8 $PWD/postgres_database
           ###pg_ctl -D $PWD/postgres_database start #& { sleep .3; kill -0 $!; }
           cd build && ctest --output-on-failure #--progress
-        ## Takes over 4h on regular GitHub runner
-      - name: Archive artifact irohad
-        uses: actions/upload-artifact@v2
-        with:
-          name: iroha-test-results-todo
-          paths:
   build-iroha-macos:
     # if: ${{ false }}  # disable for now
     runs-on: macos-latest #[ self-hosted, MacOS ] #
@@ -327,7 +322,8 @@ jobs:
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
-      - name: Archive artifact irohad
+      - if: ${{ false }}
+        name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad
