@@ -78,16 +78,15 @@ jobs:
         run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
       -
         name: Dockerhub creds
+        env:
+          DOCKERHUB_ORG:      ${{ secrets.DOCKERHUB_ORG }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB:          ${{ secrets.DOCKERHUB }}
         run: |
-          DOCKERHUB_ORG="${{ secrets.DOCKERHUB_ORG }}"
-          DOCKERHUB_ORG="${DOCKERHUB_ORG:-hyperledger}"
-          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
-          DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}"
-          DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN }}"
-          DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-${{ secrets.DOCKERHUB }}}"
-          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"           >>$GITHUB_ENV
-          echo DOCKERHUB_USERNAME="$DOCKERHUB_USERNAME" >>$GITHUB_ENV
-          echo DOCKERHUB_TOKEN="$DOCKERHUB_TOKEN"       >>$GITHUB_ENV
+          echo DOCKERHUB_ORG="${DOCKERHUB_ORG:-hyperledger}"      >>$GITHUB_ENV
+          echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
+          echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
       -
         name: Docker meta
         id: meta
