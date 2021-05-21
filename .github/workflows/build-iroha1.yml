@@ -28,16 +28,17 @@ jobs:
           cat <<'END'
             ${{ toJson(github) }}
           END
-        #  apt-get -y --no-install-recommends install jq  ## for self-hosted
-        #  jq <<'END'
-        #    ${{ toJson(github) }}
-        #  END
       - id: comment_on_pull_request
-        if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+        if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
         run: |
           echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
           curl ${{github.event.issue.pull_request.url}} |
             jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+          # send reaction to comment to show build was triggered
+          curl {{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json"
       - name: Build info
         run: |
           cat << 'END'
@@ -135,16 +136,17 @@ jobs:
           cat <<'END'
             ${{ toJson(github) }}
           END
-        #  apt-get -y --no-install-recommends install jq  ## for self-hosted
-        #  jq <<'END'
-        #    ${{ toJson(github) }}
-        #  END
       - id: comment_on_pull_request
-        if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+        if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
         run: |
           echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
           curl ${{github.event.issue.pull_request.url}} |
             jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+          # send reaction to comment to show build was triggered
+          curl {{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json"
       - name: Build info
         run: |
           cat << 'END'
@@ -217,7 +219,8 @@ jobs:
         with:
           name: irohad
           path: build/bin/irohad
-      - name: Archive artifact irohad
+      - if: ${{ false }}
+        name: Archive artifact tests
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests
@@ -252,10 +255,6 @@ jobs:
           cat <<'END'
             ${{ toJson(github) }}
           END
-        #  apt-get -y --no-install-recommends install jq  ## for self-hosted
-        #  jq <<'END'
-        #    ${{ toJson(github) }}
-        #  END
       # - *step_if_comment_on_pull_request
       - name: Build info
         run: |
@@ -328,7 +327,8 @@ jobs:
         with:
           name: irohad
           path: build/bin/irohad
-      - name: Archive artifact irohad
+      - if: ${{ false }}
+        name: Archive artifact tests
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests
