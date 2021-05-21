@@ -25,7 +25,7 @@ jobs:
         run: |
           set +e  ## allow jq to fail
           cat <<'END'
-            ${{ github }}
+            ${{ toJson(github) }}
           END
         #  apt-get -y --no-install-recommends install jq  ## for self-hosted
         #  jq <<'END'
@@ -206,13 +206,13 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: irohad
-          paths: build/bin/irohad
+          path: build/bin/irohad
       - &step_artifact_tests
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests
-          paths: |
+          path: |
             build/test_bin/**
             build/test_data/**
       - &step_ctest
