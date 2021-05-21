@@ -39,6 +39,7 @@ namespace iroha {
           void(std::function<
                void(const OnDemandOrderingService::BatchesSetType &)> const &));
       MOCK_METHOD(bool, isEmptyBatchesCache, (), (const override));
+      MOCK_METHOD(bool, hasProposal, (consensus::Round), (const override));
     };
 
   }  // namespace ordering
