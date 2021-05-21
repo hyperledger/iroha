@@ -28,18 +28,20 @@ jobs:
           cat <<'END'
             ${{ toJson(github) }}
           END
-        #  apt-get -y --no-install-recommends install jq  ## for self-hosted
-        #  jq <<'END'
-        #    ${{ toJson(github) }}
-        #  END
       - &step_if_comment_on_pull_request
         id: comment_on_pull_request
-        if: ${{ github.event.issue.pull_request &&
+        if: ${{ github.event.comment &&
+              github.event.issue.pull_request &&
               startsWith(github.event.comment.body, '/buildme') }}
         run: |
           echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
           curl ${{github.event.issue.pull_request.url}} |
             jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
+          # send reaction to comment to show build was triggered
+          curl {{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json"
       - &step_info
         name: Build info
         run: |
@@ -112,7 +114,7 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           push: true  #${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       -
         # Temp fix
@@ -210,7 +212,8 @@ jobs:
           name: irohad
           path: build/bin/irohad
       - &step_artifact_tests
-        name: Archive artifact irohad
+        if: ${{ false }}
+        name: Archive artifact tests
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests
