@@ -18,7 +18,7 @@ on:
 jobs:
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
-    runs-on: ubuntu-latest  ##todo [ self-hosted, Linux, ARM64 ]
+    runs-on: [ self-hosted, Linux ]
     steps:
       - &step_show_context
         name: Show context
