@@ -254,7 +254,11 @@ jobs:
         name: CTest
         run: |
           ## TODO use initdb,postgres,createuser sequence as on Mac
-          pg_ctlcluster 12 main start
+          #pg_ctlcluster 12 main start
+
+          initdb --locale=C -E UTF-8 $PWD/postgres_database
+          postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
+          createuser -s postgres -p5432
 
           cd build
           ##FIXME enable yac when it were fixed lag
@@ -377,7 +381,7 @@ jobs:
         name: CTest
         run: |
           initdb --locale=C -E UTF-8 $PWD/postgres_database
-          postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }
+          postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }     ##
           createuser -s postgres -p5432
 
           cd build
