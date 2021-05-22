@@ -195,7 +195,7 @@ jobs:
             build-vcpkg
             build/vcpkg_installed
             $HOME/.cache/vcpkg
-          key:          ${{ runner.os }}-vcpkg-${{ github.sha }}
+          key:          ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg') }}
           restore-keys: ${{ runner.os }}-vcpkg-
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies

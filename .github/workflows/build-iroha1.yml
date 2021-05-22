@@ -205,7 +205,7 @@ jobs:
             build-vcpkg
             build/vcpkg_installed
             $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg') }}
           restore-keys: ${{ runner.os }}-vcpkg-
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
@@ -333,7 +333,7 @@ jobs:
             build-vcpkg
             build/vcpkg_installed
             $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ github.sha }}
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg') }}
           restore-keys: ${{ runner.os }}-vcpkg-
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
