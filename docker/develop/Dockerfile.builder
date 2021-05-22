@@ -113,6 +113,8 @@ host    replication     all             127.0.0.1/32            trust \n\
 host    replication     all             ::1/128                 trust \n\
 " > /etc/postgresql/12/main/pg_hba.conf
 
+ENV PATH=${PATH}:/usr/lib/postgresql/12/bin/
+
 # non-interactive adduser
 #   -m = create home dir
 #   -s = set default shell
@@ -120,7 +122,8 @@ host    replication     all             ::1/128                 trust \n\
 #   -u = userid, default for Ubuntu is 1000
 #   -U = create a group same as username
 #   no password
-RUN useradd -ms /bin/bash iroha-ci -u 1000 -U
+RUN useradd -ms /bin/bash iroha-ci -u 1000 -U && \
+    usermod -aG postgres iroha-ci
 
 WORKDIR /opt/iroha
 RUN set -e; \
