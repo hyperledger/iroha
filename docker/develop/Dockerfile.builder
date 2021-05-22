@@ -53,6 +53,13 @@ RUN cd /opt/ && \
     cd git-secret && make build && \
     PREFIX="/usr/local" make install
 
+# golang stuff
+RUN curl -fL https://golang.org/dl/go1.14.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
+ENV GOPATH=/opt/gopath
+RUN mkdir ${GOPATH}
+ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
+RUN go get github.com/golang/protobuf/protoc-gen-go
+
 # # install dependencies
 # COPY vcpkg /tmp/vcpkg-vars
 # RUN set -e; \
@@ -113,13 +120,14 @@ host    replication     all             ::1/128                 trust \n\
 #   -u = userid, default for Ubuntu is 1000
 #   -U = create a group same as username
 #   no password
-# RUN useradd -ms /bin/bash iroha -u 1000 -U
+RUN useradd -ms /bin/bash iroha-ci -u 1000 -U
 
-# WORKDIR /opt/iroha
-# RUN set -e; \
-#     chmod -R 777 /opt/iroha; \
-#     mkdir -p /tmp/ccache -m 777; \
-#     ccache --clear
+WORKDIR /opt/iroha
+RUN set -e; \
+    chown -R iroha-ci:iroha-ci /opt/iroha; \
+    chmod -R 777 /opt/iroha; \
+    mkdir -p /tmp/ccache -m 777; \
+    ccache --clear
 
-# USER iroha
+USER iroha-ci
 # CMD /bin/bash
