@@ -2,6 +2,7 @@
 ## Generated from build-iroha1.src.yml with make-workflows.sh
 
 name: Iroha1
+#${{ github.event.pull_request.head.fork }}   ## check if PR from fork
 on:
   push:
     branches: [main, support/1.2.x]
@@ -18,26 +19,44 @@ on:
   issue_comment:
     types: [created, edited]
 jobs:
+  pr_comment_reaction_rocket:
+    ## Just to react to valid comment with rocket
+    runs-on: ubuntu-latest
+    if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+    steps:
+      - name: Show context
+        run: |
+          cat >/dev/null <<'END'
+            ${{ toJson(github) }}
+          END
+      - name: Reaction
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
     runs-on: [self-hosted, Linux]
     steps:
       - name: Show context
         run: |
-          cat <<'END'
+          cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
-      - id: comment_on_pull_request
-        if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+      - if: ${{false}}
+        name: Cancel Previous Workflow Runs
+        uses: n1hility/cancel-previous-runs@v2
+        with:
+          token: ${{ github.token }}
+      - name: System info
         run: |
-          echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-          curl ${{github.event.issue.pull_request.url}} |
-            jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
-          # send reaction to comment to show build was triggered
-          curl {{github.event.comment.url}}/reactions \
-            -X POST \
-            -d '{"content":"rocket"}' \
-            -H "Accept: application/vnd.github.squirrel-girl-preview+json"
+          set -x
+          whoami
+          free
+          df -h
       - name: Build info
         run: |
           cat << 'END'
@@ -47,24 +66,21 @@ jobs:
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
-          env.REF:${{env.REF}}
-          env.SHA:${{env.SHA}}
           END
-      - name: System info
-        run: |
-          set -x
-          whoami
-          free
-          df -h
-      - if: ${{false}}
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2.0
-        with:
-          token: ${{ github.token }}
+      - name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+
+            "PR_REF="+.head.ref,
+            "PR_SHA="+.head.sha,
+            "PR_NUM="+(.number|tostring),
+            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.REF}}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Determine dockertag
         id: dockertag
         run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
@@ -121,8 +137,6 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      - name: Delay before pulling built image by next job
-        run: sleep 10
     outputs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
   ## Build in a docker container
@@ -135,28 +149,26 @@ jobs:
       fail-fast: false
       matrix:
         cc: [gcc-9, gcc-10, clang-10]
-        # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        USE_BURROW: [-DUSE_BURROW=OFF]
-        # USE_URSA: [ -DUSE_URSA=OFF ]
+        CMAKE_USE: ['', -DUSE_BURROW=ON, -DUSE_URSA=ON]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [Debug] #,Release, RelWithDebInfo
     steps:
       - name: Show context
         run: |
-          cat <<'END'
+          cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
-      - id: comment_on_pull_request
-        if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/buildme') }}
+      - if: ${{false}}
+        name: Cancel Previous Workflow Runs
+        uses: n1hility/cancel-previous-runs@v2
+        with:
+          token: ${{ github.token }}
+      - name: System info
         run: |
-          echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-          curl ${{github.event.issue.pull_request.url}} |
-            jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
-          # send reaction to comment to show build was triggered
-          curl {{github.event.comment.url}}/reactions \
-            -X POST \
-            -d '{"content":"rocket"}' \
-            -H "Accept: application/vnd.github.squirrel-girl-preview+json"
+          set -x
+          whoami
+          free
+          df -h
       - name: Build info
         run: |
           cat << 'END'
@@ -166,24 +178,25 @@ jobs:
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
-          env.REF:${{env.REF}}
-          env.SHA:${{env.SHA}}
           END
-      - if: ${{false}}
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2.0
+      - name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+
+            "PR_REF="+.head.ref,
+            "PR_SHA="+.head.sha,
+            "PR_NUM="+(.number|tostring),
+            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v2
         with:
-          token: ${{ github.token }}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
         run: |
           echo CC=${{ matrix.cc }}                                                >>$GITHUB_ENV
           echo CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-      - name: Check exported CC and CXX, TODO remove this step
-        run: echo CC=$CC CXX=$CXX
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          ref: ${{env.REF}}
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
         uses: actions/cache@v2
@@ -208,9 +221,8 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
-
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
@@ -238,14 +250,15 @@ jobs:
             build/test_bin/**
             build/test_data/**
       - # if: ${{ false }}  # disable for now
+        timeout-minutes: 30
         name: CTest
         run: |
-          set -eu
+          ## TODO use initdb,postgres,createuser sequence as on Mac
           pg_ctlcluster 12 main start
-          ###initdb --locale=C -E UTF-8 $PWD/postgres_database
-          ###pg_ctl -D $PWD/postgres_database start #& { sleep .3; kill -0 $!; }
+
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac  ##FIXME enable yac when fixed lag
+          ##FIXME enable yac when it were fixed lag
+          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
           ctest --output-on-failure -R '^integration_'
   build-iroha-macos:
     # if: ${{ false }}  # disable for now
@@ -254,19 +267,27 @@ jobs:
       fail-fast: false
       matrix:
         cc: [clang, /usr/local/opt/llvm/bin/clang] #gcc-10
-        # cpp: [ clang++ ] #, /usr/local/opt/llvm/bin/clang++, g++-10 ]
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        USE_BURROW: [-DUSE_BURROW=OFF]
-        # USE_URSA: [ -DUSE_URSA=OFF ]
+        CMAKE_USE: ['', -DUSE_BURROW=ON, -DUSE_URSA=ON]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [Debug] #,Release, RelWithDebInfo
     steps:
       - name: Show context
         run: |
-          cat <<'END'
+          cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
-      # - *step_if_comment_on_pull_request
+      - if: ${{false}}
+        name: Cancel Previous Workflow Runs
+        uses: n1hility/cancel-previous-runs@v2
+        with:
+          token: ${{ github.token }}
+      - name: System info
+        run: |
+          set -x
+          whoami
+          free
+          df -h
       - name: Build info
         run: |
           cat << 'END'
@@ -276,18 +297,7 @@ jobs:
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
-          env.REF:${{env.REF}}
-          env.SHA:${{env.SHA}}
           END
-      - if: ${{false}}
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2.0
-        with:
-          token: ${{ github.token }}
-      - name: export CC and CXX
-        run: |
-          echo CC=${{ matrix.cc }}                                                >>$GITHUB_ENV
-          echo CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
       - name: Homebrew
         run: brew install cmake ninja coreutils
         ## Takes 22 seconds with default github runner
@@ -297,10 +307,24 @@ jobs:
       - if: ${{ contains(matrix.cc, 'llvm') }}
         name: Homebrew LLVM
         run: brew install llvm
+      - name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+
+            "PR_REF="+.head.ref,
+            "PR_SHA="+.head.sha,
+            "PR_NUM="+(.number|tostring),
+            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.REF}}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      - name: export CC and CXX
+        run: |
+          echo CC=${{ matrix.cc }}                                                >>$GITHUB_ENV
+          echo CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
         uses: actions/cache@v2
@@ -325,9 +349,8 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
-
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
@@ -350,13 +373,16 @@ jobs:
         run: brew install postgresql
         ## ToDo may be optimize, i.e. cache package
       - # if: ${{ false }}  # disable for now
+        timeout-minutes: 30
         name: CTest
         run: |
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }
           createuser -s postgres -p5432
+
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac  ##FIXME enable yac when fixed lag
+          ##FIXME enable yac when it were fixed lag
+          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
           ctest --output-on-failure -R '^integration_'
   build-iroha-windows:
     if: ${{ false }} # disable for now
@@ -369,6 +395,9 @@ jobs:
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [Debug] #,Release, RelWithDebInfo
+    # defaults:
+    #   run:
+    #     shell: bash  #pwsh
     steps:
       # - *cancel_previous_runs
       - name: uname in bash
@@ -382,7 +411,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.REF}}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       #- *step_vcpkg_cache
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
@@ -400,9 +430,8 @@ jobs:
 
         shell: bash
       - name: CMake configure
-        run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.USE_BURROW }} #-DCMAKE_VERBOSE_MAKEFILE=ON
-
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')

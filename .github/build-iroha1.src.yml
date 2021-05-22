@@ -1,5 +1,7 @@
 name: Iroha1
 
+#${{ github.event.pull_request.head.fork }}   ## check if PR from fork
+
 on:
   push:
     branches: [ main, support/1.2.x ]
@@ -17,6 +19,30 @@ on:
     types: [created, edited]
 
 jobs:
+  pr_comment_reaction_rocket:
+    ## Just to react to valid comment with rocket
+    runs-on: ubuntu-latest
+    if: ${{ github.event.comment &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/buildme') }}
+    steps:
+      -
+        name: Show context
+        run: |
+          cat >/dev/null <<'END'
+            ${{ toJson(github) }}
+          END
+      -
+        name: Reaction
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+
+
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
     runs-on: [ self-hosted, Linux ]
@@ -24,24 +50,23 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
-          cat <<'END'
+          cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
-      - &step_if_comment_on_pull_request
-        id: comment_on_pull_request
-        if: ${{ github.event.comment &&
-              github.event.issue.pull_request &&
-              startsWith(github.event.comment.body, '/buildme') }}
+      - &step_cancel_previous_runs
+        if: ${{false}}
+        name: Cancel Previous Workflow Runs
+        uses: n1hility/cancel-previous-runs@v2
+        with:
+          token: ${{ github.token }}
+      - &step_system_info
+        name: System info
         run: |
-          echo COMMENT_ON_PULL_REQUEST=true >>$GITHUB_ENV
-          curl ${{github.event.issue.pull_request.url}} |
-            jq -r '"REF="+.head.ref, "SHA="+ .head.sha' >>$GITHUB_ENV
-          # send reaction to comment to show build was triggered
-          curl {{github.event.comment.url}}/reactions \
-            -X POST \
-            -d '{"content":"rocket"}' \
-            -H "Accept: application/vnd.github.squirrel-girl-preview+json"
-      - &step_info
+          set -x
+          whoami
+          free
+          df -h
+      - &step_build_info
         name: Build info
         run: |
           cat << 'END'
@@ -51,27 +76,24 @@ jobs:
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
-          env.REF:${{env.REF}}
-          env.SHA:${{env.SHA}}
           END
-      - &step_system_info
-        name: System info
-        run: |
-          set -x
-          whoami
-          free
-          df -h
-      - &step_cancel_previous_runs
-        if: ${{false}}
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2.0
-        with:
-          token: ${{ github.token }}
+      - &step_detect_commented_pr
+        name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+            curl -fsSL ${{github.event.issue.pull_request.url}}
+            -H "Authorization: token ${{github.token}}" |
+            jq -r '
+              "PR_REF="+.head.ref,
+              "PR_SHA="+.head.sha,
+              "PR_NUM="+(.number|tostring),
+              "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - &step_checkout
         name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.REF}}
+          ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       -
         name: Determine dockertag
         id: dockertag
@@ -136,9 +158,6 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      -
-        name: Delay before pulling built image by next job
-        run: sleep 10
     outputs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
 
@@ -152,25 +171,21 @@ jobs:
       fail-fast: false
       matrix:
         cc: [ gcc-9, gcc-10, clang-10 ]
-        # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        USE_BURROW: [ -DUSE_BURROW=OFF ]
-        # USE_URSA: [ -DUSE_URSA=OFF ]
+        CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     steps: &build_steps
       - *step_show_context
-      - *step_if_comment_on_pull_request
-      - *step_info
       - *step_cancel_previous_runs
+      - *step_system_info
+      - *step_build_info
+      - *step_detect_commented_pr
+      - *step_checkout
       - &step_export_cxx
         name: export CC and CXX
         run: |
           echo CC=${{ matrix.cc }}                                                >>$GITHUB_ENV
           echo CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-      - &step_todo_remove
-        name: Check exported CC and CXX, TODO remove this step
-        run: echo CC=$CC CXX=$CXX
-      - *step_checkout
       - &step_vcpkg_cache
         ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
@@ -198,9 +213,8 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - &step_cmake_configure
         name: CMake configure
-        run: >
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
-          -GNinja ${{ matrix.USE_BURROW }}
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
+          -GNinja ${{ matrix.CMAKE_USE }}
           #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - &step_cmake_build
@@ -234,14 +248,15 @@ jobs:
             build/test_data/**
       - &step_ctest
         # if: ${{ false }}  # disable for now
+        timeout-minutes: 30
         name: CTest
         run: |
-          set -eu
+          ## TODO use initdb,postgres,createuser sequence as on Mac
           pg_ctlcluster 12 main start
-          ###initdb --locale=C -E UTF-8 $PWD/postgres_database
-          ###pg_ctl -D $PWD/postgres_database start #& { sleep .3; kill -0 $!; }
+
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac  ##FIXME enable yac when fixed lag
+          ##FIXME enable yac when it were fixed lag
+          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
           ctest --output-on-failure -R '^integration_'
 
   build-iroha-macos:
@@ -251,18 +266,15 @@ jobs:
       fail-fast: false
       matrix:
         cc: [ clang, /usr/local/opt/llvm/bin/clang ] #gcc-10
-        # cpp: [ clang++ ] #, /usr/local/opt/llvm/bin/clang++, g++-10 ]
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        USE_BURROW: [ -DUSE_BURROW=OFF ]
-        # USE_URSA: [ -DUSE_URSA=OFF ]
+        CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     steps:
       - *step_show_context
-      # - *step_if_comment_on_pull_request
-      - *step_info
       - *step_cancel_previous_runs
-      - *step_export_cxx
+      - *step_system_info
+      - *step_build_info
       -
         name: Homebrew
         run: brew install cmake ninja coreutils
@@ -275,7 +287,9 @@ jobs:
         if: ${{ contains(matrix.cc, 'llvm') }}
         name: Homebrew LLVM
         run: brew install llvm
+      - *step_detect_commented_pr
       - *step_checkout
+      - *step_export_cxx
       - *step_vcpkg_cache
       - *step_vcpkg_build
       - *step_cmake_configure
@@ -291,8 +305,10 @@ jobs:
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }
           createuser -s postgres -p5432
+
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac  ##FIXME enable yac when fixed lag
+          ##FIXME enable yac when it were fixed lag
+          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
           ctest --output-on-failure -R '^integration_'
 
   build-iroha-windows:
@@ -306,6 +322,9 @@ jobs:
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
+    # defaults:
+    #   run:
+    #     shell: bash  #pwsh
     steps:
       # - *cancel_previous_runs
       - name: uname in bash
