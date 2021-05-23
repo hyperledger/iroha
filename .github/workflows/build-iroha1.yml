@@ -3,10 +3,10 @@
 
 name: Iroha1
 ## TODO vcpkg build only Debug or only Release
-## FIXME ctest integration_fake_peer_example_test ubuntu clang-10 Debug
-## FIXME macos burrow protoc-gen-go: program not found or is not executable
+## FIXME ctest integration_fake_peer_example_test [ubuntu clang-10 Debug]
 
 #${{ github.event.pull_request.head.repo.fork }}   ## check if PR from fork
+## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 on:
   push:
     branches: [main, support/1.2.x]
@@ -155,7 +155,7 @@ jobs:
     needs: Docker-iroha-builder
     if: ${{ success() || needs.Docker-iroha-builder.result == 'skipped' }} ##FIXME temporal fix
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: ikyb/iroha-builder${{needs.Docker-iroha-builder.outputs.dockertag}} ##ToDo change to hyperledger/iroha-builder:
+    container: ikyb/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}} ##ToDo change to hyperledger/iroha-builder:
     strategy:
       fail-fast: false
       matrix:
