@@ -258,7 +258,7 @@ jobs:
           cd build
           ##FIXME enable yac when it were fixed lag
           ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
-          ctest --output-on-failure -R '^integration_'
+          ctest --output-on-failure -R '^integration_' --repeat until-pass:3
 
   build-iroha-macos:
     # if: ${{ false }}  # disable for now
