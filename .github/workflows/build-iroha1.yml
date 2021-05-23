@@ -6,7 +6,7 @@ name: Iroha1
 ## FIXME ctest integration_fake_peer_example_test ubuntu clang-10 Debug
 ## FIXME macos burrow protoc-gen-go: program not found or is not executable
 
-#${{ github.event.pull_request.head.fork }}   ## check if PR from fork
+#${{ github.event.pull_request.head.repo.fork }}   ## check if PR from fork
 on:
   push:
     branches: [main, support/1.2.x]
@@ -42,7 +42,7 @@ jobs:
             -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
             -H "Authorization: token ${{github.token}}"
   Docker-iroha-builder:
-    if: ${{ ! github.event.pull_request.head.repo.fork }} ## check if PR not from fork; public forks have no access to secrets
+    if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }} ## check if PR not from fork; PR actions from public forks have no access to secrets
     runs-on: [self-hosted, Linux]
     steps:
       - name: Show context
