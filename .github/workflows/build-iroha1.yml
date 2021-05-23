@@ -203,9 +203,9 @@ jobs:
         with:
           path: |
             build-vcpkg
-            build/vcpkg_installed
-            $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg') }}
+          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
+          #  $HOME/.cache/vcpkg
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
           restore-keys: ${{ runner.os }}-vcpkg-
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
@@ -335,9 +335,9 @@ jobs:
         with:
           path: |
             build-vcpkg
-            build/vcpkg_installed
-            $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg') }}
+          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
+          #  $HOME/.cache/vcpkg
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
           restore-keys: ${{ runner.os }}-vcpkg-
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
