@@ -144,14 +144,16 @@ jobs:
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: ikyb/iroha-builder:${{needs.Docker-iroha-builder.outputs.dockertag}}
+    container: ikyb/iroha-builder:${{needs.Docker-iroha-builder.outputs.dockertag}} ##ToDo change to hyperledger/iroha-builder:
     strategy:
       fail-fast: false
       matrix:
+        build_type: [Debug]
         cc: [gcc-9, gcc-10, clang-10]
         CMAKE_USE: ['', -DUSE_BURROW=ON, -DUSE_URSA=ON]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-        build_type: [Debug] #,Release, RelWithDebInfo
+        include:
+          - {build_type: Release, cc: gcc-9}
     steps:
       - name: Show context
         run: |
@@ -235,12 +237,14 @@ jobs:
           echo; echo ----------------------; echo
           du -hd2 /
           true
-      - if: ${{ false }}
+      - name: Generate artifact suffix depending on matrix
+        run: echo >>$GITHUB_ENV "-gcc9-burrow-ursa-d"
+      - if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Debug' }} #ToDo Release
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad
-          path: build/bin/irohad
+          path: build/bin/irohad build/bin/iroha-cli
       - if: ${{ false }}
         name: Archive artifact tests
         uses: actions/upload-artifact@v2
@@ -308,6 +312,13 @@ jobs:
       - if: ${{ contains(matrix.cc, 'llvm') }}
         name: Homebrew LLVM
         run: brew install llvm
+      - if: ${{ contains(matrix.CMAKE_USE, '-DUSE_BURROW=ON') }}
+        name: Install protoc-gen-go for -DUSE_BURROW=ON
+        run: |
+          go get github.com/golang/protobuf/protoc-gen-go
+          echo >>$GITHUB_ENV PATH=$PATH:$HOME/go/bin
+          #which -a protoc-gen-go
+        #run: brew install go protoc-gen-go
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -356,12 +367,12 @@ jobs:
       - name: CMake build
         run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
-      - if: ${{ false }}
+      - if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Debug' }} #ToDo Release
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad
-          path: build/bin/irohad
+          path: build/bin/irohad build/bin/iroha-cli
       - if: ${{ false }}
         name: Archive artifact tests
         uses: actions/upload-artifact@v2
@@ -442,3 +453,11 @@ jobs:
       - name: Install Postgres on Windows
         run: choco install postgresql
     # - *step_ctest
+  build-iroha-docker-image:
+    needs: build-iroha-ubuntu
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    steps:
+      - name: Download math result for job 2
+        uses: actions/download-artifact@v2
+        with:
+          name: irohad
