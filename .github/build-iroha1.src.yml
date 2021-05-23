@@ -44,9 +44,8 @@ jobs:
 
 
   Docker-iroha-builder:
-    # if: ${{ false }}  # disable for now
+    if: ${{ ! github.event.pull_request.head.fork }}  ## check if PR not from fork; public forks have no access to secrets
     runs-on: [ self-hosted, Linux ]
-    if: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - &step_show_context
         name: Show context
@@ -141,6 +140,11 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}       ## humb1t  for hyperledger
           password: ${{ env.DOCKERHUB_TOKEN }}          ## ${{ secrets.DOCKERHUB }}
       -
+        name: When Login to DockerHub imposible
+        id: login_failed
+        if: failure()
+        run: echo ::set-output name=result::"true"
+      -
         name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -161,6 +165,7 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
     outputs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
+      login_failed: ${{steps.login_failed.outputs.result}}
 
   ## Build in a docker container
   build-iroha-ubuntu:
