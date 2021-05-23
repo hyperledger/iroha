@@ -1,5 +1,9 @@
 name: Iroha1
 
+## TODO vcpkg build only Debug or only Release
+## FIXME ctest integration_fake_peer_example_test ubuntu clang-10 Debug
+## FIXME macos burrow protoc-gen-go: program not found or is not executable
+
 #${{ github.event.pull_request.head.fork }}   ## check if PR from fork
 
 on:
@@ -310,7 +314,7 @@ jobs:
         name: Install protoc-gen-go for -DUSE_BURROW=ON
         run: |
           go get github.com/golang/protobuf/protoc-gen-go
-          echo >>$GITHUB_ENV PATH=$PATH:$HOME/go/bin
+          echo >>$GITHUB_PATH $HOME/go/bin
           #which -a protoc-gen-go
         #run: brew install go protoc-gen-go
 
@@ -367,7 +371,7 @@ jobs:
         run: choco install postgresql
       # - *step_ctest
 
-  build-iroha-docker-image:
+  release-iroha-docker-image:
     needs: build-iroha-ubuntu
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
