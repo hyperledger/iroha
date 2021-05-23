@@ -40,6 +40,7 @@ jobs:
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
     runs-on: [self-hosted, Linux]
+    if: ${{ secrets.DOCKERHUB || secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Show context
         run: |
@@ -143,6 +144,7 @@ jobs:
   build-iroha-ubuntu:
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
+    if: ${{ success() || needs.Docker-iroha-builder.result == 'skipped' }} ##FIXME temporal fix
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: ikyb/iroha-builder:${{needs.Docker-iroha-builder.outputs.dockertag}} ##ToDo change to hyperledger/iroha-builder:
     strategy:
