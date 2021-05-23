@@ -44,7 +44,7 @@ jobs:
 
 
   Docker-iroha-builder:
-    if: ${{ ! github.event.pull_request.head.fork }}  ## check if PR not from fork; public forks have no access to secrets
+    if: ${{ ! github.event.pull_request.head.repo.fork }}  ## check if PR not from fork; public forks have no access to secrets
     runs-on: [ self-hosted, Linux ]
     steps:
       - &step_show_context
