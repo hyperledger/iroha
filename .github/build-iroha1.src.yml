@@ -251,9 +251,6 @@ jobs:
         timeout-minutes: 30
         name: CTest
         run: |
-          ## TODO use initdb,postgres,createuser sequence as on Mac
-          #pg_ctlcluster 12 main start
-
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           createuser -s postgres -p5432
@@ -304,16 +301,7 @@ jobs:
         name: Install Postgres on MacOS
         run: brew install postgresql
         ## ToDo may be optimize, i.e. cache package
-      - <<: *step_ctest
-        run: |
-          initdb --locale=C -E UTF-8 $PWD/postgres_database
-          postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }     ##
-          createuser -s postgres -p5432
-
-          cd build
-          ##FIXME enable yac when it were fixed lag
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
-          ctest --output-on-failure -R '^integration_'
+      - *step_ctest
 
   build-iroha-windows:
     if: ${{ false }}  # disable for now
