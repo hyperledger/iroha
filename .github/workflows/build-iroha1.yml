@@ -148,10 +148,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Debug]
         cc: [gcc-9, gcc-10, clang-10]
         CMAKE_USE: ['', -DUSE_BURROW=ON, -DUSE_URSA=ON]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
+        build_type: [Debug]
         include:
           - {build_type: Release, cc: gcc-9}
     steps:
@@ -238,18 +238,23 @@ jobs:
           du -hd2 /
           true
       - name: Generate artifact suffix depending on matrix
-        run: echo >>$GITHUB_ENV "-gcc9-burrow-ursa-d"
+        run: |
+          cc=$(echo ${{ matrix.cc }} | sed -Ee's,[-/],,g' )
+          build_type=$(echo ${{ matrix.build_type }} | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
+          uses=$(echo ${{ matrix.CMAKE_USE }} |
+            tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
+          echo >>$GITHUB_ENV ARTIFACT_SUFFIX=$cc-$build_type-$uses
       - if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Debug' }} #ToDo Release
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
-          name: irohad
+          name: irohad-ubuntu-${{env.ARTIFACT_SUFFIX}}
           path: build/bin/irohad build/bin/iroha-cli
       - if: ${{ false }}
         name: Archive artifact tests
         uses: actions/upload-artifact@v2
         with:
-          name: iroha-tests
+          name: iroha-tests-ubuntu-${{env.ARTIFACT_SUFFIX}}
           path: |
             build/test_bin/**
             build/test_data/**
@@ -371,13 +376,12 @@ jobs:
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
-          name: irohad
-          path: build/bin/irohad build/bin/iroha-cli
+          name: irohad-macos-${{env.ARTIFACT_SUFFIX}}
       - if: ${{ false }}
         name: Archive artifact tests
         uses: actions/upload-artifact@v2
         with:
-          name: iroha-tests
+          name: iroha-tests-ubuntu-${{env.ARTIFACT_SUFFIX}}
           path: |
             build/test_bin/**
             build/test_data/**
