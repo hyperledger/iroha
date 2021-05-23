@@ -169,6 +169,7 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
     outputs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
+      _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
 
   ## Build in a docker container
@@ -177,7 +178,7 @@ jobs:
     needs: Docker-iroha-builder
     if: ${{ success() || needs.Docker-iroha-builder.result == 'skipped' }}  ##FIXME temporal fix
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    container: ikyb/iroha-builder:${{needs.Docker-iroha-builder.outputs.dockertag}}  ##ToDo change to hyperledger/iroha-builder:
+    container: ikyb/iroha-builder${{needs.Docker-iroha-builder.outputs.dockertag}}  ##ToDo change to hyperledger/iroha-builder:
     strategy:
       fail-fast: false
       matrix:
