@@ -40,7 +40,7 @@ jobs:
   Docker-iroha-builder:
     # if: ${{ false }}  # disable for now
     runs-on: [self-hosted, Linux]
-    if: ${{ secrets.DOCKERHUB || secrets.DOCKERHUB_TOKEN }}
+    if: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Show context
         run: |
