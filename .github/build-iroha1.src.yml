@@ -3,11 +3,12 @@ name: Iroha1
 ## TODO vcpkg build only Debug or only Release
 ## TODO better caching utilizing diff-backup style tools like restic and rclone
 ##      to improve performance and reduce storage consumption
+## TODO More powerful Mac machine to reduce build time from 40min to 10min
 ## FIXME ctest integration_fake_peer_example_test [ubuntu clang-10 Debug]
 ## FIXME cannot push docker image iroha-builder without credentials when PR is from fork.
 ##       Solution: need GH secrets, so use PRs from the same repo
 
-#${{ github.event.pull_request.head.repo.fork }}   ## check if PR from fork
+#${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
 ## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
 
