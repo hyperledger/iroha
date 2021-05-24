@@ -158,7 +158,8 @@ jobs:
   build-iroha-ubuntu:
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
-    if: ${{ success() || needs.Docker-iroha-builder.result == 'skipped' }} ##FIXME temporal fix
+    ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
+    if: ${{ ( success() || needs.Docker-iroha-builder.result == 'skipped' ) && !( github.event_name == 'pull_request' && (matrix.cc == 'gcc-10' || matrix.cc == 'clang-10') ) }} }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: ikyb/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}} ##ToDo change to hyperledger/iroha-builder:
     strategy:
@@ -213,8 +214,9 @@ jobs:
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
         run: |
-          echo CC=${{ matrix.cc }}                                                >>$GITHUB_ENV
-          echo CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+          if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
+          echo CC=$CC                                                >>$GITHUB_ENV
+          echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
         uses: actions/cache@v2
@@ -296,11 +298,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cc: [clang, /usr/local/opt/llvm/bin/clang] #gcc-10
+        cc: [clang, llvm] #gcc-10
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         CMAKE_USE: ['', -DUSE_BURROW=ON, -DUSE_URSA=ON]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [Debug] #,Release, RelWithDebInfo
+    ## For pull_request run only Apple-clang, no llvm
+    if: ${{ ! (github.event_name == 'pull_request' && matrix.cc == 'llvm') }}
     steps:
       - name: Show context
         run: |
@@ -360,8 +364,9 @@ jobs:
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
         run: |
-          echo CC=${{ matrix.cc }}                                                >>$GITHUB_ENV
-          echo CXX=$(echo ${{ matrix.cc }} | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+          if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
+          echo CC=$CC                                                >>$GITHUB_ENV
+          echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
         uses: actions/cache@v2
