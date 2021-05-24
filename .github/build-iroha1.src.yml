@@ -4,9 +4,13 @@ name: Iroha1
 ## TODO better caching utilizing diff-backup style tools like restic and rclone
 ##      to improve performance and reduce storage consumption
 ## TODO More powerful Mac machine to reduce build time from 40min to 10min
+## TODO Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
+## TODO Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
 ## FIXME ctest integration_fake_peer_example_test [ubuntu clang-10 Debug]
 ## FIXME cannot push docker image iroha-builder without credentials when PR is from fork.
-##       Solution: need GH secrets, so use PRs from the same repo
+##       Because GitHub secrets inaccessable to PRs from forks.
+##       Solution: open PR from the same repo.
+## FIXME change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 
 #${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
 ## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
@@ -54,8 +58,10 @@ jobs:
 
 
   Docker-iroha-builder:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}  ## check if PR not from fork; PR actions from public forks have no access to secrets
+    # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
+    # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
     runs-on: [ self-hosted, Linux ]
+    continue-on-error: true  ##FIXME
     steps:
       - &step_show_context
         name: Show context
@@ -74,7 +80,8 @@ jobs:
         run: |
           set -x
           whoami
-          free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1; /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
+          free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
+            /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
       - &step_build_info
         name: Build info
@@ -109,6 +116,7 @@ jobs:
         id: dockertag
         run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
       -
+        ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
         name: Dockerhub creds
         env:
           DOCKERHUB_ORG:      ${{ secrets.DOCKERHUB_ORG }}
@@ -116,9 +124,12 @@ jobs:
           DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
           DOCKERHUB:          ${{ secrets.DOCKERHUB }}
         run: |
-          echo DOCKERHUB_ORG="${DOCKERHUB_ORG:-hyperledger}"      >>$GITHUB_ENV
+          DOCKERHUB_ORG=${DOCKERHUB_ORG:-hyperledger}
+          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"                     >>$GITHUB_ENV
           echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
           echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
+          echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
+        id: creds
       -
         name: Docker meta
         id: meta
@@ -129,10 +140,18 @@ jobs:
             type=raw,value=${{steps.dockertag.outputs.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
+            type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=schedule
-          #  type=sha
+            type=edge,branch=support/1.2.x
+        ## Docker image will be pushed with tags:
+        ##  - hash of file Dockerfile.builder
+        ##  - git ref: branch and pr-NUMBER, when branch is pushed
+        ##  - git tag when tag is pushed
+        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+        ##  - tag 'edge' when branch support/1.2.x is pushed
+        ##  - schedule, see the docs
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
@@ -177,15 +196,21 @@ jobs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
+      DOCKERHUB_ORG: ${{steps.creds.outputs.DOCKERHUB_ORG}}
+      # result: job.status
 
   ## Build in a docker container
   build-iroha-ubuntu:
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
     ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
-    if: ${{ success() || needs.Docker-iroha-builder.result == 'skipped' }}
+    if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    container: ikyb/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}  ##ToDo change to hyperledger/iroha-builder:
+    ## Container tag is taken from previous job or [default] 'edge'; default=ikyb/iroha-builder:edge
+    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
+                            )[0] }}/iroha-builder${{
+                   fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
+                            )[0] }}
     strategy:
       fail-fast: false
       matrix:
@@ -197,6 +222,33 @@ jobs:
           - { build_type: Release, cc: gcc-9 }
     steps: &build_steps
       - *step_show_context
+      - &step_show_needs
+        name: Show context
+        run: |
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+      -
+        if: ${{ needs.Docker-iroha-builder.result != 'success' }} #needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
+        name: Possible WARNING
+        run: |
+          cat <<END
+            Running on container ${{job.container.image}}, YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+
+            The most possible reason you see this message is that docker image '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
+            was not pushed to Dockerhub. Because credentials are wrong or empty. Empty they could be when
+            building PRs from public forks, because GitHub secrets are inaccessable to public forks.
+            Consider to open PR from the same organization.
+            What we know about this build:
+              - PR URL is ${{github.event.pull_request.html_url}}
+              - head repo is '${{github.event.pull_request.head.repo.full_name}}'
+              - base repo is '${{github.event.pull_request.base.repo.full_name}}'
+              - $(test ${{github.event.pull_request.head.repo.full_name}} = ${{github.event.pull_request.base.repo.full_name}} \
+                  && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
+              - See more information in previous step 'Show context'
+
+            Please ask @kuvaldini on GitHub or in Telegram if you need help.
+          END
       - *step_cancel_previous_runs
       - *step_system_info
       - *step_build_info
@@ -259,18 +311,18 @@ jobs:
           build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
-          echo >>$GITHUB_ENV ARTIFACT_SUFFIX=$cc-$build_type-$uses
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
         env:
-          cc: ${{ matrix.cc }}
+          cc:         ${{ matrix.cc }}
           build_type: ${{ matrix.build_type }}
-          CMAKE_USE: ${{ matrix.CMAKE_USE }}
+          CMAKE_USE:  ${{ matrix.CMAKE_USE }}
       - &step_artifact_irohad
         # if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Release' }}  #ToDo Release
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
-          name: irohad-ubuntu-${{env.ARTIFACT_SUFFIX}}
-          path: |
+          name: irohad-ubuntu${{env.ARTIFACT_SUFFIX}}
+          path: &step_artifact_irohad_path |
             build/bin/irohad
             build/bin/iroha-cli
           # required: ${{ matrix.build_type == 'Release' }}
@@ -280,14 +332,14 @@ jobs:
         name: Archive artifact tests
         uses: actions/upload-artifact@v2
         with:
-          name: iroha-tests-ubuntu-${{env.ARTIFACT_SUFFIX}}
+          name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
           path: |
             build/test_bin/**
             build/test_data/**
       # - &step_exclude_ctest  ## This was a temporal fix for clang-10 but that test often fails on other compilers
       #   if: ${{ matrix.cc == 'clang-10' && matrix.CMAKE_USE=='' && matrix.build_type=='Debug' }}
       #   name: FIXME(do not) Exclude integration_fake_peer_example_test
-      #   run: echo >>$GITHUB_ENV CTEST_EXCLUDE="-E'^integration_fake_peer_example_test$'"
+      #   run: echo >>$GITHUB_ENV CTEST_EXCLUDE="-E '^integration_fake_peer_example_test$'"
       - &step_ctest
         timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
@@ -299,10 +351,10 @@ jobs:
           cd build
           ##FIXME enable yac when it were fixed lag
           ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
-          ctest --output-on-failure -R '^integration_' --repeat until-pass:5 "$CTEST_EXCLUDE"
+          ctest --output-on-failure -R '^integration_' --repeat until-pass:3 $CTEST_EXCLUDE
         #FIXME do not CTEST_EXCLUDE
         env:
-          CTEST_EXCLUDE: "-E'^integration_fake_peer_example_test$'"
+          CTEST_EXCLUDE: -E '^integration_fake_peer_example_test$'
 
   build-iroha-macos:
     # if: ${{ false }}  # disable for now
@@ -352,7 +404,8 @@ jobs:
       - *step_cmake_build
       - <<: *step_artifact_irohad
         with:
-          name: irohad-macos-${{env.ARTIFACT_SUFFIX}}
+          name: irohad-macos${{env.ARTIFACT_SUFFIX}}
+          path: *step_artifact_irohad_path
       - *step_artifact_tests
       - &step_brew_postgres
         name: Install Postgres on MacOS
@@ -412,6 +465,6 @@ jobs:
         name: Download artifact
         uses: actions/download-artifact@v2
         with:
-          name: irohad-${{env.ARTIFACT_SUFFIX}}
+          name: irohad${{env.ARTIFACT_SUFFIX}}
       # - Checkout
       # - build/bin/irohad
