@@ -305,7 +305,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cc: [ clang, llvm ] #gcc-10
+        cc: [ clang ] #, llvm ] #gcc-10
         # os: [ macos-latest, macos-11.0, macos-10.15 ]
         CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
