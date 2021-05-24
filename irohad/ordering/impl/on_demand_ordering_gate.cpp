@@ -51,9 +51,14 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                std::move(proposal_creation_strategy)](auto event) {
             log_->debug("Current: {}", event.next_round);
 
-            std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
-            if (stop_requested_) {
+            if (gate_status_.load(std::memory_order_relaxed) == GateStatus::kStop) {
               log_->warn("Not doing anything because stop was requested.");
+              return;
+            }
+
+            auto nc = network_client_;
+            if (!nc) {
+              log_->warn("Skip execution, because internal objects were released.");
               return;
             }
 
@@ -66,7 +71,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
 
             // request proposal for the current round
             auto proposal = this->processProposalRequest(
-                network_client_->onRequestProposal(event.next_round));
+                nc->onRequestProposal(event.next_round));
             // vote for the object received from the network
             proposal_notifier_.get_subscriber().on_next(
                 network::OrderingEvent{std::move(proposal),
@@ -75,7 +80,9 @@ OnDemandOrderingGate::OnDemandOrderingGate(
           })),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
-      proposal_notifier_(proposal_notifier_lifetime_) {}
+      proposal_notifier_(proposal_notifier_lifetime_) {
+  gate_status_.store(GateStatus::kProcessWork);
+}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();
@@ -83,8 +90,8 @@ OnDemandOrderingGate::~OnDemandOrderingGate() {
 
 void OnDemandOrderingGate::propagateBatch(
     std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
-  std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
-  if (stop_requested_) {
+
+  if (gate_status_.load(std::memory_order_relaxed) == GateStatus::kStop) {
     log_->warn("Not propagating {} because stop was requested.", *batch);
     return;
   }
@@ -92,8 +99,10 @@ void OnDemandOrderingGate::propagateBatch(
   // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
   ordering_service_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
-  network_client_->onBatches(
-      transport::OdOsNotification::CollectionType{batch});
+
+  if (auto nc = network_client_)
+    nc->onBatches(
+        transport::OdOsNotification::CollectionType{batch});
 }
 
 rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
@@ -101,9 +110,8 @@ rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
 }
 
 void OnDemandOrderingGate::stop() {
-  std::lock_guard<std::shared_timed_mutex> stop_lock(stop_mutex_);
-  if (not stop_requested_) {
-    stop_requested_ = true;
+  GateStatus working = GateStatus::kProcessWork;
+  if (gate_status_.compare_exchange_strong(working, GateStatus::kStop)) {
     log_->info("Stopping.");
     proposal_notifier_lifetime_.unsubscribe();
     processed_tx_hashes_subscription_.unsubscribe();
@@ -130,7 +138,6 @@ OnDemandOrderingGate::processProposalRequest(
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {
-  assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO iceseer 14.01.21 IR-958 Check that OS is remote
   ordering_service_->forCachedBatches([this](auto const &batches) {
     auto end_iterator = batches.begin();
@@ -144,10 +151,10 @@ void OnDemandOrderingGate::sendCachedTransactions() {
       }
     }
 
-    if (not batches.empty()) {
-      network_client_->onBatches(transport::OdOsNotification::CollectionType{
+    if (auto nc = network_client_)
+    if (!batches.empty())
+      nc->onBatches(transport::OdOsNotification::CollectionType{
           batches.begin(), end_iterator});
-    }
   });
 }
 
