@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -xeuo pipefail
 
-## The script expands '*.src.yml' from $1(default: script's directory) 
+## The script expands '*.src.yml' from $1(default: script's directory)
 ## to $2 (default:subdirectory 'workflows') with corresponding name '*.yml'
 ## Main goal is to dereference YAML anchors.
 ## Deals only with Git cached/indexed files
@@ -21,14 +21,15 @@ for f in $(git diff --cached --name-only --relative -- '*.src.yml') ;do
     echo >>$tempout "## DO NOT EDIT"
     echo >>$tempout "## Generated from $f with $(basename $0)"
     echo >>$tempout ""
-    yq eval 'explode(.)' $f >>$tempout
+    ## Take cached content from index
+    git show :./$f | yq eval 'explode(.)' - >>$tempout
     if ! diff -q $wout $tempout &>/dev/null ;then
         mv $tempout $wout
         edited+="'$out' "
     fi
 done
 
-if [[ -n "$edited" ]] 
+if [[ -n "$edited" ]]
 then echo >&2 "make-workflows: these files were edited: $edited"
 else echo >&2 "make-workflows: everything is up to date"
 fi

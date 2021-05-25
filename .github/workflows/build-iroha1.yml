@@ -5,7 +5,7 @@ name: Iroha1
 ## TODO vcpkg build only Debug or only Release
 ## TODO better caching utilizing diff-backup style tools like restic and rclone
 ##      to improve performance and reduce storage consumption
-## TODO More powerful Mac machine to reduce build time from 40min to 10min
+## TODO More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
 ## TODO Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
 ## TODO Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
 ## FIXME ctest integration_fake_peer_example_test [ubuntu clang-10 Debug]
@@ -13,6 +13,8 @@ name: Iroha1
 ##       Because GitHub secrets inaccessable to PRs from forks.
 ##       Solution: open PR from the same repo.
 ## FIXME change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
+
+## TODO schedule: nightly
 
 #${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
 ## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
@@ -208,18 +210,22 @@ jobs:
         name: Possible WARNING
         run: |
           cat <<END
-            Running on container ${{job.container.image}}, YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+            Running on container '${{job.container}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
-            The most possible reason you see this message is that docker image '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
-            was not pushed to Dockerhub. Because credentials are wrong or empty. Empty they could be when
-            building PRs from public forks, because GitHub secrets are inaccessable to public forks.
-            Consider to open PR from the same organization.
+            The most possible reason you see this message is that docker image
+            '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
+            was not pushed to Dockerhub. Because credentials are wrong or empty or inaccessable.
+            GitHub secrets are inaccessable to PRs from public forks.
+
+            $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
+              && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
+
+            **Consider to open PR from the same organization.**
+
             What we know about this build:
               - PR URL is ${{github.event.pull_request.html_url}}
               - head repo is '${{github.event.pull_request.head.repo.full_name}}'
               - base repo is '${{github.event.pull_request.base.repo.full_name}}'
-              - $(test ${{github.event.pull_request.head.repo.full_name}} = ${{github.event.pull_request.base.repo.full_name}} \
-                  && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
               - See more information in previous step 'Show context'
 
             Please ask @kuvaldini on GitHub or in Telegram if you need help.
