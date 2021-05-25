@@ -109,7 +109,7 @@ namespace iroha {
 
         // ------|Propagation|------
         void propagateState(const std::vector<VoteMessage> &msg);
-        void propagateStateDirectly(const shared_model::interface::Peer &to,
+        void propagateStateDirectly(std::shared_ptr<shared_model::interface::Peer const> const &to,
                                     const std::vector<VoteMessage> &msg);
         void tryPropagateBack(const std::vector<VoteMessage> &state);
 

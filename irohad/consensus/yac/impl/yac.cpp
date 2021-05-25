@@ -85,15 +85,13 @@ namespace iroha {
                                  [](const auto &p) { return p->address(); }),
                        ", "));
 
-        std::unique_lock<std::mutex> lock(mutex_);
-        cluster_order_ = order;
-        alternative_order_ = std::move(alternative_order);
-        round_ = hash.vote_round;
-        lock.unlock();
-        auto vote = crypto_->getVote(hash);
-        // TODO 10.06.2018 andrei: IR-1407 move YAC propagation strategy to a
-        // separate entity
-        votingStep(vote);
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          cluster_order_ = order;
+          alternative_order_ = std::move(alternative_order);
+          round_ = hash.vote_round;
+        }
+        votingStep(crypto_->getVote(hash));
       }
 
       rxcpp::observable<Answer> Yac::onOutcome() {
@@ -103,8 +101,8 @@ namespace iroha {
       // ------|Network notifications|------
 
       template <typename T, typename P>
-      void removeMatching(std::vector<T> &target, const P &predicate) {
-        target.erase(std::remove_if(target.begin(), target.end(), predicate),
+      void removeMatching(std::vector<T> &target, P &&predicate) {
+        target.erase(std::remove_if(target.begin(), target.end(), std::forward<P>(predicate)),
                      target.end());
       }
 
@@ -122,9 +120,9 @@ namespace iroha {
                               [](const auto &peer) { return peer->pubkey(); });
         removeMatching(
             votes,
-            [known_keys = std::move(known_keys), this](VoteMessage &vote) {
+            [known_keys{std::move(known_keys)}, log{log_}](VoteMessage &vote) {
               if (not contains(known_keys, vote.signature->publicKey())) {
-                log_->warn("Got a vote from an unknown peer: {}", vote);
+                log->warn("Got a vote from an unknown peer: {}", vote);
                 return true;
               }
               return false;
@@ -141,7 +139,7 @@ namespace iroha {
         }
 
         if (crypto_->verify(state)) {
-          auto &proposal_round = getRound(state);
+          auto const &proposal_round = getRound(state);
 
           if (proposal_round.block_round > round_.block_round) {
             guard.unlock();
@@ -149,13 +147,10 @@ namespace iroha {
                        proposal_round);
             notifier_.get_subscriber().on_next(FutureMessage{std::move(state)});
             return;
-          }
-
-          if (proposal_round.block_round < round_.block_round) {
+          } else if (proposal_round.block_round < round_.block_round) {
             log_->info("Received state from past for {}, try to propagate back",
                        proposal_round);
             tryPropagateBack(state);
-            guard.unlock();
             return;
           }
 
@@ -185,40 +180,36 @@ namespace iroha {
 
       void Yac::votingStep(VoteMessage vote, uint32_t attempt) {
         log_->info("votingStep got vote: {}, attempt {}", vote, attempt);
-        std::unique_lock<std::mutex> lock(mutex_);
+        std::shared_ptr<shared_model::interface::Peer const> current_leader;
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          if (vote_storage_.isCommitted(vote.hash.vote_round))
+            return;
 
-        auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
-        if (committed) {
-          return;
-        }
+          enum { kRotatePeriod = 10 };
+          if (0 != attempt && 0 == (attempt % kRotatePeriod))
+            vote_storage_.remove(vote.hash.vote_round);
 
-        enum { kRotatePeriod = 10 };
-
-        if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
-          vote_storage_.remove(vote.hash.vote_round);
-        }
-
-        /**
+          /**
          * 3 attempts to build and commit block before we think that round is
          * freezed
-         */
-        if (attempt == kRotatePeriod) {
-          vote.hash.vote_hashes.proposal_hash.clear();
-          vote.hash.vote_hashes.block_hash.clear();
-          vote.hash.block_signature.reset();
-          vote = crypto_->getVote(vote.hash);
+           */
+          if (attempt == kRotatePeriod) {
+            vote.hash.vote_hashes.proposal_hash.clear();
+            vote.hash.vote_hashes.block_hash.clear();
+            vote.hash.block_signature.reset();
+            vote = crypto_->getVote(vote.hash);
+          }
+
+          auto &cluster_order = getCurrentOrder();
+          current_leader = cluster_order.currentLeader();
+          cluster_order.switchToNext();
+
+          log_->info("Vote {} to peer {}", vote, *current_leader);
         }
 
-        auto &cluster_order = getCurrentOrder();
-
-        const auto &current_leader = cluster_order.currentLeader();
-
-        log_->info("Vote {} to peer {}", vote, current_leader);
-
+        assert(current_leader);
         propagateStateDirectly(current_leader, {vote});
-        cluster_order.switchToNext();
-        lock.unlock();
-
         timer_->invokeAfterDelay(
             [this, vote, attempt] { this->votingStep(vote, attempt + 1); });
       }
@@ -333,7 +324,7 @@ namespace iroha {
                            last_round,
                            from->address());
                 auto votes = [](const auto &state) { return state.votes; };
-                this->propagateStateDirectly(*from,
+                this->propagateStateDirectly(from,
                                              visit_in_place(last_state, votes));
               };
             };
@@ -345,13 +336,14 @@ namespace iroha {
 
       void Yac::propagateState(const std::vector<VoteMessage> &msg) {
         for (const auto &peer : cluster_order_.getPeers()) {
-          propagateStateDirectly(*peer, msg);
+          propagateStateDirectly(peer, msg);
         }
       }
 
-      void Yac::propagateStateDirectly(const shared_model::interface::Peer &to,
+      void Yac::propagateStateDirectly(std::shared_ptr<shared_model::interface::Peer const> const &to,
                                        const std::vector<VoteMessage> &msg) {
-        network_->sendState(to, msg);
+        assert(to);
+        network_->sendState(*to, msg);
       }
 
     }  // namespace yac
