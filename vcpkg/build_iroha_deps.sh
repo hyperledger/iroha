@@ -3,14 +3,14 @@ set -xeuo pipefail
 
 vcpkg_path="${1:-$(pwd)/vcpkg-build}"
 script_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-VCPKG_COMMIT_SHA=${VCPKG_COMMIT_SHA:-$(cat "$script_dir/VCPKG_COMMIT_SHA")}
-VCPKG_COMMIT_SHA=${VCPKG_COMMIT_SHA:-da9defc3bddbba39edd9c7e04d4f2bc4bca3f6d4}
+VCPKG_REF=${VCPKG_REF:-$(cat "$script_dir/VCPKG_COMMIT_SHA")}
+VCPKG_REF=${VCPKG_REF:-2021.05.12}
 build_dir=${2:-${build_dir:-$(dirname $script_dir)/build}}
 
 git -C $vcpkg_path fetch origin ||
    git clone https://github.com/microsoft/vcpkg $vcpkg_path
 
-git -C $vcpkg_path checkout -f $VCPKG_COMMIT_SHA
+git -C $vcpkg_path checkout -f $VCPKG_REF
 git -C $vcpkg_path/ports clean -fdx
 
 ## Apply patches, bypass if already applied, stop on fail
