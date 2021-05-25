@@ -303,9 +303,7 @@ jobs:
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: |
-          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
-          ( cd build; cpack; )
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}') ( cd build; cpack -G DEB; )
         ## Takes 18m44s on regular GitHub runner
       - name: Show free space and disk usage
         if: ${{ always() }}
@@ -468,9 +466,7 @@ jobs:
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: |
-          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
-          ( cd build; cpack; )
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}') ( cd build; cpack -G DEB; )
         ## Takes 18m44s on regular GitHub runner
       - name: Show free space and disk usage
         if: ${{ always() }}
@@ -583,9 +579,7 @@ jobs:
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: |
-          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
-          ( cd build; cpack; )
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}') ( cd build; cpack -G DEB; )
         ## Takes 18m44s on regular GitHub runner
 
         shell: bash
