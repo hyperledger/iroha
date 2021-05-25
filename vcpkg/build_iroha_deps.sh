@@ -4,7 +4,7 @@ set -xeuo pipefail
 vcpkg_path="${1:-$(pwd)/vcpkg-build}"
 script_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 VCPKG_REF=${VCPKG_REF:-$(cat "$script_dir/VCPKG_COMMIT_SHA")}
-VCPKG_REF=${VCPKG_REF:-2021.05.12}
+VCPKG_REF=${VCPKG_REF:-f1bef4aa7ca7e2a6ea4f5dfe4850d95fce60b431}
 build_dir=${2:-${build_dir:-$(dirname $script_dir)/build}}
 
 git -C $vcpkg_path fetch origin ||
