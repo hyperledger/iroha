@@ -710,12 +710,13 @@ jobs:
           name: irohad${{env.ARTIFACT_SUFFIX}}
       - name: Rename artifact debs
         run: |
-          mv *iroha_shepherd.deb iroha_shepherd.deb
-          mv *iroha.deb iroha.deb
+          mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
+          mv *iroha.deb          docker/release/iroha.deb
       - name: Build and push
         uses: docker/build-push-action@v2
         with:
-          file: docker/release/Dockerfile
+          file: docker/develop/Dockerfile.builder
+          #file:    docker/release/Dockerfile
           context: docker/release/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new

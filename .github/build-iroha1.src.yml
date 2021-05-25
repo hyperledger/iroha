@@ -510,12 +510,12 @@ jobs:
       -
         name: Rename artifact debs
         run: |
-          mv *iroha_shepherd.deb iroha_shepherd.deb
-          mv *iroha.deb iroha.deb
+          mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
+          mv *iroha.deb          docker/release/iroha.deb
       - <<: *step_docker_build_and_push
         with:
           <<: *step_docker_build_and_push_with
-          file:    docker/release/Dockerfile
+          #file:    docker/release/Dockerfile
           context: docker/release/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to:   type=local,dest=/tmp/.buildx-cache-new
