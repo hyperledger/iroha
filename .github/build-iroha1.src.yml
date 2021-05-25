@@ -349,10 +349,6 @@ jobs:
           path: |
             build/test_bin/**
             build/test_data/**
-      # - &step_exclude_ctest  ## This was a temporal fix for clang-10 but that test often fails on other compilers
-      #   if: ${{ matrix.cc == 'clang-10' && matrix.CMAKE_USE=='' && matrix.build_type=='Debug' }}
-      #   name: FIXME(do not) Exclude integration_fake_peer_example_test
-      #   run: echo >>$GITHUB_ENV CTEST_EXCLUDE="-E ^integration_fake_peer_example_test$"
       - &step_ctest
         timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
@@ -364,11 +360,11 @@ jobs:
 
           cd build
           ##FIXME enable yac when it were fixed lag
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
-          ctest --output-on-failure -R '^integration_' --repeat until-pass:3 $CTEST_EXCLUDE
+          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac_
+          ctest --output-on-failure -R '^module_yac_'
+          ctest --output-on-failure -R '^integration_' --repeat until-pass:3 -E '^integration_fake_peer_example_test$'
+          ctest --output-on-failure -R '^integration_fake_peer_example_test$' || true
         #FIXME do not CTEST_EXCLUDE
-        env:
-          CTEST_EXCLUDE: -E ^integration_fake_peer_example_test$
 
   build-iroha-macos:
     # if: ${{ false }}  # disable for now
