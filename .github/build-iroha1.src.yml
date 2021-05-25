@@ -303,9 +303,9 @@ jobs:
         ## Takes 13s on regular GitHub runner
       - &step_cmake_build
         name: CMake build
-        run: |
+        run:
           cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
-          ( cd build; cpack; )
+          ( cd build; cpack -G DEB; )
         ## Takes 18m44s on regular GitHub runner
       - &step_always_after_build
         name: Show free space and disk usage
