@@ -57,7 +57,7 @@ jobs:
     # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
     # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
     runs-on: [self-hosted, Linux]
-    continue-on-error: true ##FIXME
+    continue-on-error: true ##FIXME  ##Sets needs.job_id.result always to success
     steps:
       - name: Show context
         run: |
@@ -211,11 +211,11 @@ jobs:
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
           END
-      - if: ${{ needs.Docker-iroha-builder.result != 'success' }} #needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
+      - if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
         name: Possible WARNING
         run: |
           cat <<END
-            Running on container '${{job.container}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+            ::warning::Running on container '${{job.container}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
             The most possible reason you see this message is that docker image
             '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
