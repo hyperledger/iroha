@@ -72,5 +72,5 @@ output "webhook" {
     secret   = random_password.random.result
     endpoint = module.runners.webhook.endpoint
   }
-  sensitive = true
+  sensitive = true  ## To show secrets `terraform output webhook`
 }

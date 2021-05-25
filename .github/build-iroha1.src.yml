@@ -240,7 +240,7 @@ jobs:
         name: Possible WARNING
         run: |
           cat <<END
-            ::warning::Running on container '${{job.container}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+            ::warning::Running on container '${{toJson(job.container)}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
             The most possible reason you see this message is that docker image
             '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
