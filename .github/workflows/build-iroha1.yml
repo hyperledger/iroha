@@ -2,17 +2,17 @@
 ## Generated from build-iroha1.src.yml with make-workflows.sh
 
 name: Iroha1
-## TODO vcpkg build only Debug or only Release
-## TODO better caching utilizing diff-backup style tools like restic and rclone
+## TODO 1. vcpkg build only Debug or only Release
+## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
 ##      to improve performance and reduce storage consumption
-## TODO More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
-## TODO Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## TODO Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
-## FIXME ctest integration_fake_peer_example_test [ubuntu clang-10 Debug]
-## FIXME cannot push docker image iroha-builder without credentials when PR is from fork.
+## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
+## TODO 4. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
+## TODO 6. Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
+## FIXME 7. ctest integration_fake_peer_example_test
+## FIXME 8. cannot push docker image iroha-builder without credentials when PR is from fork.
 ##       Because GitHub secrets inaccessable to PRs from forks.
 ##       Solution: open PR from the same repo.
-## FIXME change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
+## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 
 ## TODO schedule: nightly
 
@@ -101,7 +101,11 @@ jobs:
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Determine dockertag
         id: dockertag
-        run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
+        env:
+          dockertag: ${{ hashFiles('docker/develop/Dockerfile.builder') }}
+        run: |
+          echo "::set-output name=dockertag::$dockertag"
+          echo >>$GITHUB_ENV  dockertag=$dockertag
       - ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
         name: Dockerhub creds
         env:
@@ -122,7 +126,7 @@ jobs:
         with:
           images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
-            type=raw,value=${{steps.dockertag.outputs.dockertag}}
+            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -143,7 +147,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{steps.dockertag.outputs.dockertag}}
+          key: ${{ runner.os }}-buildx-${{env.dockertag}}
           restore-keys: ${{ runner.os }}-buildx-
       - name: Login to DockerHub
         uses: docker/login-action@v1
@@ -295,11 +299,13 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}  $(test ${{matrix.build_type}} = Release && echo -DPACKAGE_DEB=ON)
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          ( cd build; cpack; )
         ## Takes 18m44s on regular GitHub runner
       - name: Show free space and disk usage
         if: ${{ always() }}
@@ -315,8 +321,9 @@ jobs:
           build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
-          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
         env:
+          os: ubuntu ## maybe ${{ run.os }}
           cc: ${{ matrix.cc }}
           build_type: ${{ matrix.build_type }}
           CMAKE_USE: ${{ matrix.CMAKE_USE }}
@@ -324,10 +331,11 @@ jobs:
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
-          name: irohad-ubuntu${{env.ARTIFACT_SUFFIX}}
+          name: irohad${{env.ARTIFACT_SUFFIX}}
           path: |
             build/bin/irohad
             build/bin/iroha-cli
+            *.deb
           # required: ${{ matrix.build_type == 'Release' }}
       - if: ${{ false }}
         name: Archive artifact tests
@@ -344,6 +352,7 @@ jobs:
         timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
+          set -x
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           createuser -s postgres -p5432
@@ -455,12 +464,35 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}  $(test ${{matrix.build_type}} = Release && echo -DPACKAGE_DEB=ON)
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          ( cd build; cpack; )
         ## Takes 18m44s on regular GitHub runner
+      - name: Show free space and disk usage
+        if: ${{ always() }}
+        run: |
+          set +e
+          df -h
+          echo; echo ----------------------; echo
+          du -hd2 /
+          true
+      - run: |
+          cc=$(echo $cc | sed -Ee's,[-/],,g' )
+          build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
+          uses=$(echo $CMAKE_USE |
+            tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+        name: Generate artifact suffix gcc9 >> env.ARTIFACT_SUFFIX
+        #run: inherited
+        env:
+          cc: ${{ matrix.cc }}
+          build_type: ${{ matrix.build_type }}
+          CMAKE_USE: ${{ matrix.CMAKE_USE }}
+          os: macos ##${{run.os}}
       - # if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Release' }}  #ToDo Release
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
@@ -469,6 +501,7 @@ jobs:
           path: |
             build/bin/irohad
             build/bin/iroha-cli
+            *.deb
       - if: ${{ false }}
         name: Archive artifact tests
         uses: actions/upload-artifact@v2
@@ -487,6 +520,7 @@ jobs:
         timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
+          set -x
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           createuser -s postgres -p5432
@@ -545,11 +579,13 @@ jobs:
 
         shell: bash
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}  $(test ${{matrix.build_type}} = Release && echo -DPACKAGE_DEB=ON)
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
-        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          ( cd build; cpack; )
         ## Takes 18m44s on regular GitHub runner
 
         shell: bash
@@ -560,21 +596,140 @@ jobs:
     needs: build-iroha-ubuntu
     runs-on: [self-hosted, Linux] #ubuntu-latest
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc-9]
+        build_type: [Release]
+        # CMAKE_USE:  [ '' ]
     steps:
-      - run: |
+      - name: Show context
+        run: |
+          cat >/dev/null <<'END'
+            ${{ toJson(github) }}
+          END
+      - name: System info
+        run: |
+          set -x
+          whoami
+          free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
+            /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
+          df -h
+      - name: Build info
+        run: |
+          cat << 'END'
+          ref:${{github.ref}}
+          sha:${{github.sha}}
+          run_number:${{github.run_number}}
+          event_name:${{github.event_name}}
+          event.action:${{github.event.action}}
+          event.issue.number:${{ github.event.issue.number }}
+          END
+      - name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+
+            "PR_REF="+.head.ref,
+            "PR_SHA="+.head.sha,
+            "PR_NUM="+(.number|tostring),
+            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      - name: Determine dockertag
+        id: dockertag
+        run: |
+          echo "::set-output name=dockertag::$dockertag"
+          echo >>$GITHUB_ENV  dockertag=$dockertag
+        env:
+          dockertag: ${{ hashFiles('docker/release/**') }}
+      - ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
+        name: Dockerhub creds
+        env:
+          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB: ${{ secrets.DOCKERHUB }}
+        run: |
+          DOCKERHUB_ORG=${DOCKERHUB_ORG:-hyperledger}
+          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"                     >>$GITHUB_ENV
+          echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
+          echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
+          echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
+        id: creds
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v3
+        with:
+          tags: |
+            type=raw,value=${{env.dockertag}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=schedule
+            type=edge,branch=support/1.2.x
+          ## Docker image will be pushed with tags:
+          ##  - hash of file Dockerfile.builder
+          ##  - git ref: branch and pr-NUMBER, when branch is pushed
+          ##  - git tag when tag is pushed
+          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+          ##  - tag 'edge' when branch support/1.2.x is pushed
+          ##  - schedule, see the docs
+
+          images: ${{ env.DOCKERHUB_ORG }}/iroha
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-release-${{env.dockertag}}
+          restore-keys: ${{ runner.os }}-buildx-release
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger
+          password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
+      #- *step_docker_login_failure
+      - name: Generate artifact suffix depending on matrix
+        run: |
           cc=$(echo $cc | sed -Ee's,[-/],,g' )
           build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
-          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
-        name: Generate artifact suffix gcc9 >> env.ARTIFACT_SUFFIX
-        #run: inherited
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
         env:
-          cc: gcc-9
-          build_type: Release
+          os: ubuntu ## maybe ${{ run.os }}
+          cc: ${{ matrix.cc }}
+          build_type: ${{ matrix.build_type }}
+          CMAKE_USE: ${{ matrix.CMAKE_USE }}
       - name: Download artifact
         uses: actions/download-artifact@v2
         with:
           name: irohad${{env.ARTIFACT_SUFFIX}}
-    # - Checkout
-    # - build/bin/irohad
+      - name: Rename artifact debs
+        run: |
+          mv *iroha_shepherd.deb iroha_shepherd.deb
+          mv *iroha.deb iroha.deb
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          file: docker/release/Dockerfile
+          context: docker/release/
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
+          push: true #${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - # Temp fix
+        # https://github.com/docker/build-push-action/issues/252
+        # https://github.com/moby/buildkit/issues/1896
+        name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
