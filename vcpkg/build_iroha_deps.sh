@@ -5,7 +5,6 @@ vcpkg_path="${1:-$(pwd)/vcpkg-build}"
 script_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 VCPKG_REF=${VCPKG_REF:-$(cat "$script_dir/VCPKG_COMMIT_SHA")}
 VCPKG_REF=${VCPKG_REF:-f1bef4aa7ca7e2a6ea4f5dfe4850d95fce60b431}
-build_dir=${2:-${build_dir:-$(dirname $script_dir)/build}}
 
 git -C $vcpkg_path fetch origin ||
    git clone https://github.com/microsoft/vcpkg $vcpkg_path
@@ -46,7 +45,18 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
       ;;
 esac
 
-bootstrap
+## Do not use `bootstrap` because it is slow and old and has too much logic overhead
+vcpkg_tool_path=$vcpkg_path/vcpkg-tool
+VCPKG_TOOL_REF=2021-05-05-9f849c4c43e50d1b16186ae76681c27b0c1be9d9
+(
+git -C $vcpkg_tool_path fetch origin ||
+   git clone https://github.com/microsoft/vcpkg-tool.git $vcpkg_tool_path
+cd $vcpkg_tool_path
+git checkout $VCPKG_TOOL_REF
+cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_TESTING=OFF -DVCPKG_DEVELOPMENT_WARNINGS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build build
+cp build/vcpkg $vcpkg_path/vcpkg
+)
 
 #todo use --x-manifest-root=$(git -C $script_dir rev-parse --show-toplevel)
 $vcpkg_path/vcpkg install \
