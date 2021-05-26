@@ -37,8 +37,7 @@ namespace iroha {
                          logger::LoggerPtr log);
 
       bool validateAndApply(
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-              blocks,
+          std::shared_ptr<const shared_model::interface::Block> block,
           ametsuchi::MutableStorage &storage) const override;
 
      private:

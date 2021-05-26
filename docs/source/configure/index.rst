@@ -14,7 +14,9 @@ Some configuration parameters must be the same in all the nodes (they are marked
 Let's take a look
 at ``example/config.sample``
 
-.. note:: Starting with v1.2 ``irohad`` can also be configured via environment variables, not only via config file. We will start with looking at config file and then look at how Iroha can be configured with `environment parameters <#environment-variables>`_.
+.. note:: Starting with v1.2 ``irohad`` can also be configured via environment variables, not only via config file.
+We will start with looking at config file and then look at how Iroha can be configured with
+`environment parameters <#environment-variables>`_.
 
 .. code-block:: javascript
   :linenos:
@@ -46,7 +48,8 @@ at ``example/config.sample``
     "utility_service": {
       "ip": "127.0.0.1",
       "port": 11001
-    }
+    },
+    "metrics":"127.0.0.1:8080"
   }
 
 As you can see, configuration file is a valid ``json`` structure.
@@ -70,6 +73,10 @@ Deployment-specific parameters
 - ``utility_service`` (optional) endpoint for maintenance tasks.
   If present, must include ``ip`` address and ``port`` to bind to.
   See `shepherd docs <../maintenance/shepherd.html>` for an example usage of maintenance endpoint.
+- ``metrics`` (optional) endpoint to monitor iroha's metrics. Prometheus HTTP server listens on this endpoint.
+  If present, must correspond format "[addr]:<port>" and could be for example "127.0.0.1:8080", "9090", or ":1234".
+  Wrong values implicitly disables Prometheus metrics server. There are also cmdline options ```--metrics_port`` and
+  ``--metrics_addr`` to override this parameter.
 
 There is also an optional ``torii_tls_params`` parameter, which could be included
 in the config to enable TLS support for client communication.
@@ -107,22 +114,31 @@ Environment-specific parameters
   value you define the size of potential block. For a starter you can stick to
   ``10``. However, we recommend to increase this number if you have a lot of
   transactions per second.
+    **This parameter affects performance.** Increase this parameter, if your network has a big number of transactions going. If you increase ``max_proposal_size`` due to an inreased throughput, you can increase it independently. But if the speed stays approximately the same, you need to also increase ``proposal_delay`` to allow all these transactions to get into this one big proposal. By increasing this parameter you can improve the performance but note that at some point increasing this value can lead to degradation of the performance.
+
+
 - ``proposal_delay`` is a timeout in milliseconds that a peer waits a response
   from the orderding service with a proposal.
+    **This parameter affects performance.** If you want bigger proposal size, you will need to give the system time to collect this increased number of transactions into one proposal.
+
 - ``vote_delay`` \* is a waiting time in milliseconds before sending vote to the
   next peer. Optimal value depends heavily on the amount of Iroha peers in the
   network (higher amount of nodes requires longer ``vote_delay``). We recommend
   to start with 100-1000 milliseconds.
+    **This parameter only affects consensus mechanism.** If your network is fast - you are good and this parameter does not effect your network much. But if your network is on a slower side, increase it to give more time for the peers to respond.
+
 - ``mst_enable`` enables or disables multisignature transaction network
   transport in Iroha.
   Note that MST engine always works for any peer even when the flag is set to
   ``false``.
   The flag only allows sharing information about MST transactions among the
   peers.
+
 - ``mst_expiration_time`` is an optional parameter specifying the time period
   in which a not fully signed transaction (or a batch) is considered expired
   (in minutes).
   The default value is 1440.
+
 - ``max_rounds_delay`` \* is an optional parameter specifying the maximum delay
   between two consensus rounds (in milliseconds).
   The default value is 3000.
@@ -133,6 +149,8 @@ Environment-specific parameters
   This parameter allows users to find an optimal value in a tradeoff between
   resource consumption and the delay of getting back to work after an idle
   period.
+    **This parameter affects resource consumption.** When you can expect Iroha to stay idle for longer periods of time and would like to save some resources, increase this value - it will make Iroha check for new transactions more rarely. NB: the first transaction after idle period might be a little delayed due to that. Second and further blocks will be processed quicker.
+
 - ``stale_stream_max_rounds`` is an optional parameter specifying the maximum
   amount of rounds to keep an open status stream while no status update is
   reported.
@@ -141,6 +159,8 @@ Environment-specific parameters
   track a transaction if for some reason it is not updated with new rounds.
   However large values increase the average number of connected clients during
   each round.
+    It is recommended to limit this parameter to make sure the node is not overloaded with streams.
+
 - ``initial_peers`` is an optional parameter specifying list of peers a node
   will use after startup instead of peers from genesis block.
   It could be useful when you add a new node to the network where the most of
@@ -155,6 +175,26 @@ Environment-specific parameters
       "public_key": "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
     }
   ]
+
+Good Practice Example
+---------------------
+
+With even distribution we received quite good results - with 300k transactions sent in 5 minutes.
+Commit took from 2 seconds to 2 minutes.
+**Please note that results always depend on number of peers in your network, its speed and parameters of the hosts on which the peers run.**
+
+Here is the configuration we used:
+
+.. code-block:: javascript
+
+  "max_proposal_size" : 10000,
+  "proposal_delay" : 1000,
+  "vote_delay" : 1000,
+  "mst_enable" : true,
+  "mst_expiration_time": 1440,
+  "max_rounds_delay": 500,
+  "stale_stream_max_rounds": 100000
+
 
 Environment variables
 =====================

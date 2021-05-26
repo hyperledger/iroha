@@ -7,7 +7,6 @@
 
 #include <fmt/core.h>
 #include <boost/variant/apply_visitor.hpp>
-#include <rxcpp/operators/rx-all.hpp>
 #include <stdexcept>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
@@ -47,7 +46,7 @@ namespace iroha {
       sql_ << "BEGIN";
     }
 
-    bool MutableStorageImpl::apply(
+    bool MutableStorageImpl::applyBlockIf(
         std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
       auto execute_transaction = [this](auto &transaction) -> bool {
@@ -115,26 +114,16 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block) {
       return withSavepoint([&] {
-        return this->apply(block, [](const auto &, auto &) { return true; });
+        return this->applyBlockIf(block,
+                                  [](const auto &, auto &) { return true; });
       });
     }
 
-    bool MutableStorageImpl::apply(
-        rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-            blocks,
+    bool MutableStorageImpl::applyIf(
+        std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
-      try {
-        return blocks
-            .all([&](auto block) {
-              return withSavepoint(
-                  [&] { return this->apply(block, predicate); });
-            })
-            .as_blocking()
-            .first();
-      } catch (std::runtime_error const &e) {
-        log_->warn("Apply has been failed: {}", e.what());
-        return false;
-      }
+      return withSavepoint(
+          [&] { return this->applyBlockIf(block, predicate); });
     }
 
     boost::optional<std::shared_ptr<const iroha::LedgerState>>

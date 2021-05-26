@@ -45,14 +45,14 @@ class ChainValidationTest : public ::testing::Test {
             iroha::bytestringToHexstring(std::string(32, '0'))));
     signatures.push_back(signature);
 
-    EXPECT_CALL(*block, height()).WillRepeatedly(Return(height));
-    EXPECT_CALL(*block, prevHash())
+    EXPECT_CALL(*mock_block, height()).WillRepeatedly(Return(height));
+    EXPECT_CALL(*mock_block, prevHash())
         .WillRepeatedly(testing::ReturnRef(prev_hash));
-    EXPECT_CALL(*block, signatures())
+    EXPECT_CALL(*mock_block, signatures())
         .WillRepeatedly(Return(signatures | boost::adaptors::indirected));
-    EXPECT_CALL(*block, payload())
+    EXPECT_CALL(*mock_block, payload())
         .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::Blob{"blob"}));
-    EXPECT_CALL(*block, hash())
+    EXPECT_CALL(*mock_block, hash())
         .WillRepeatedly(
             testing::ReturnRefOfCopy(shared_model::crypto::Hash("hash")));
   }
@@ -69,10 +69,8 @@ class ChainValidationTest : public ::testing::Test {
       shared_model::crypto::Hash("previous top hash");
   shared_model::interface::types::HeightType prev_height = 1;
   shared_model::interface::types::HeightType height = prev_height + 1;
-  std::shared_ptr<MockBlock> block = std::make_shared<MockBlock>();
-  rxcpp::observable<std::shared_ptr<shared_model::interface::Block>> blocks =
-      rxcpp::observable<>::just(
-          std::shared_ptr<shared_model::interface::Block>(block));
+  std::shared_ptr<MockBlock> mock_block = std::make_shared<MockBlock>();
+  std::shared_ptr<const shared_model::interface::Block> block = mock_block;
 };
 
 /**
@@ -86,11 +84,11 @@ TEST_F(ChainValidationTest, ValidCase) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(true)));
 
-  EXPECT_CALL(*storage, apply(blocks, _))
+  EXPECT_CALL(*storage, applyIf(block, _))
       .WillOnce(
           InvokeArgument<1>(block, LedgerState{peers, prev_height, prev_hash}));
 
-  ASSERT_TRUE(validator->validateAndApply(blocks, *storage));
+  ASSERT_TRUE(validator->validateAndApply(block, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);
 }
 
@@ -107,11 +105,11 @@ TEST_F(ChainValidationTest, FailWhenDifferentPrevHash) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillRepeatedly(Return(true));
 
-  EXPECT_CALL(*storage, apply(blocks, _))
+  EXPECT_CALL(*storage, applyIf(block, _))
       .WillOnce(InvokeArgument<1>(
           block, LedgerState{peers, prev_height, another_hash}));
 
-  ASSERT_FALSE(validator->validateAndApply(blocks, *storage));
+  ASSERT_FALSE(validator->validateAndApply(block, *storage));
 }
 
 /**
@@ -125,10 +123,10 @@ TEST_F(ChainValidationTest, FailWhenNoSupermajority) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(false)));
 
-  EXPECT_CALL(*storage, apply(blocks, _))
+  EXPECT_CALL(*storage, applyIf(block, _))
       .WillOnce(
           InvokeArgument<1>(block, LedgerState{peers, prev_height, prev_hash}));
 
-  ASSERT_FALSE(validator->validateAndApply(blocks, *storage));
+  ASSERT_FALSE(validator->validateAndApply(block, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);
 }

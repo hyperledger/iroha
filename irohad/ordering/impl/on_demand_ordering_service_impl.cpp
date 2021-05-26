@@ -8,10 +8,7 @@
 #include <unordered_set>
 
 #include <boost/optional.hpp>
-#include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indirected.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/size.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
@@ -54,15 +51,11 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
 // ----------------------------| OdOsNotification |-----------------------------
 
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
-  auto unprocessed_batches =
-      boost::adaptors::filter(batches, [this](const auto &batch) {
-        log_->debug("check batch {} for already processed transactions",
-                    batch->reducedHash().hex());
-        return not this->batchAlreadyProcessed(*batch);
-      });
-  std::for_each(unprocessed_batches.begin(),
-                unprocessed_batches.end(),
-                [this](auto &obj) { insertBatchToCache(obj); });
+  for (auto &batch : batches) {
+    if (not batchAlreadyProcessed(*batch)) {
+      insertBatchToCache(batch);
+    }
+  }
   log_->info("onBatches => collection size = {}", batches.size());
 }
 

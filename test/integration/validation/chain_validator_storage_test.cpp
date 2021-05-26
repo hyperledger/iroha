@@ -102,12 +102,17 @@ namespace iroha {
       return block;
     }
 
-    /// Create an observable from chain and return its validation status
+    /// Apply a chain of blocks and return its validation status
     auto createAndValidateChain(
-        std::vector<std::shared_ptr<shared_model::interface::Block>> chain) {
+        std::vector<std::shared_ptr<const shared_model::interface::Block>>
+            chain) {
       auto ms = createMutableStorage();
-      return validator->validateAndApply(rxcpp::observable<>::iterate(chain),
-                                         *ms);
+      for (auto &block : chain) {
+        if (not validator->validateAndApply(block, *ms)) {
+          return false;
+        }
+      }
+      return true;
     }
 
     std::shared_ptr<validation::ChainValidatorImpl> validator;

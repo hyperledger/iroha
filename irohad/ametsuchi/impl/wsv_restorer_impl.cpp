@@ -6,7 +6,7 @@
 #include "wsv_restorer_impl.hpp"
 
 #include <chrono>
-#include <rxcpp/rx-lite.hpp>
+#include <thread>
 
 #include "ametsuchi/block_query.hpp"
 #include "ametsuchi/block_storage.hpp"
@@ -110,55 +110,38 @@ namespace {
       iroha::validation::ChainValidator &validator,
       HeightType starting_height,
       HeightType ending_height) {
-    auto blocks = rxcpp::observable<>::create<
-        std::shared_ptr<shared_model::interface::Block>>([&block_query,
-                                                          &interface_validator,
-                                                          &proto_validator,
-                                                          starting_height,
-                                                          ending_height](
-                                                             auto s) {
-      for (auto height = starting_height; height <= ending_height; ++height) {
-        auto result = block_query.getBlock(height);
-        if (auto e = iroha::expected::resultToOptionalError(result)) {
-          s.on_error(std::make_exception_ptr(
-              std::runtime_error(std::move(e).value().message)));
-          return;
-        }
-
-        auto block = std::move(result).assumeValue();
-        if (height != block->height()) {
-          s.on_error(std::make_exception_ptr(std::runtime_error(
-              "inconsistent block height in block storage")));
-          return;
-        }
-
-        // do not validate genesis block - transactions may not have creators,
-        // block is not signed
-        if (height != 1) {
-          if (auto error = proto_validator.validate(
-                  static_cast<shared_model::proto::Block *>(block.get())
-                      ->getTransport())) {
-            s.on_error(
-                std::make_exception_ptr(std::runtime_error(error->toString())));
-            return;
-          }
-
-          if (auto error = interface_validator.validate(*block)) {
-            s.on_error(
-                std::make_exception_ptr(std::runtime_error(error->toString())));
-            return;
-          }
-        }
-
-        s.on_next(std::move(block));
+    for (auto height = starting_height; height <= ending_height; ++height) {
+      auto result = block_query.getBlock(height);
+      if (hasError(result)) {
+        return std::move(result.assumeError().message);
       }
-      s.on_completed();
-    });
-    if (validator.validateAndApply(blocks, *mutable_storage)) {
-      return storage.commit(std::move(mutable_storage));
-    } else {
-      return iroha::expected::makeError("Cannot validate and apply blocks!");
+
+      auto block = std::move(result).assumeValue();
+      if (height != block->height()) {
+        return iroha::expected::makeError(
+            "inconsistent block height in block storage");
+      }
+
+      // do not validate genesis block - transactions may not have creators,
+      // block is not signed
+      if (height != 1) {
+        if (auto error = proto_validator.validate(
+                static_cast<shared_model::proto::Block *>(block.get())
+                    ->getTransport())) {
+          return iroha::expected::makeError(error->toString());
+        }
+
+        if (auto error = interface_validator.validate(*block)) {
+          return iroha::expected::makeError(error->toString());
+        }
+      }
+
+      if (not validator.validateAndApply(std::move(block), *mutable_storage)) {
+        return iroha::expected::makeError("Cannot validate and apply blocks!");
+      }
     }
+
+    return storage.commit(std::move(mutable_storage));
   }
 }  // namespace
 
@@ -189,11 +172,8 @@ namespace iroha::ametsuchi {
 
       do {
         res = storage.createMutableStorage(command_executor, storage_factory) |
-            [this,
-             &storage,
-             &block_query,
-             &last_block_in_storage,
-             wait_for_new_blocks](auto &&mutable_storage) -> CommitResult {
+            [this, &storage, &block_query, &last_block_in_storage](
+                  auto &&mutable_storage) -> CommitResult {
           if (not block_query) {
             return expected::makeError("Cannot create BlockQuery");
           }
@@ -235,13 +215,13 @@ namespace iroha::ametsuchi {
                             -> expected::Result<void, std::string> {
                           return std::move(error).error.message;
                         });
-            if (auto e = expected::resultToOptionalError(check_top_block)) {
+            if (hasError(check_top_block)) {
               return fmt::format(
                   "WSV top block (height {}) check failed: {} "
                   "Please check that WSV matches block storage "
                   "or avoid reusing WSV.",
                   wsv_ledger_height,
-                  e.value());
+                  check_top_block.assumeError());
             }
           } else {
             wsv_ledger_height = 0;
