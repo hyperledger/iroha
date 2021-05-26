@@ -30,7 +30,7 @@ Here is how the "expression" is specified:
       kPosition = 1;
     }
 
-There are 2 bases for ordering – on creation time and depending on the position in the block.
+There are 2 bases for ordering – on creation time and depending on the number of block.
 
 There is an ascending and descending directions for each Field:
 
