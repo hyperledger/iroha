@@ -60,18 +60,18 @@ bootstrap
 # cp build/vcpkg $vcpkg_path/vcpkg
 # )
 
-$vcpkg_path/vcpkg install \
-   --x-manifest-root=. \
-   --binarysource=files,$BINARYCACHE_PATH,readwrite \
-   --x-install-root=$INSTALL_ROOT \
-#--x-manifest-root=$MANIFEST_ROOT
+# $vcpkg_path/vcpkg install \
+#    --x-install-root=$INSTALL_ROOT \
+#    --feature-flags=manifests
+# #   --x-manifest-root=. \
+# #   --binarysource=files,$BINARYCACHE_PATH,readwrite \
 
 ## The old lamp way to install
-# ( cd /tmp
-# cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
-#    $vcpkg_path/vcpkg install $pkgspec
-# done
-# )
+( #cd /tmp
+cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
+   $vcpkg_path/vcpkg install --feature-flags=-manifests $pkgspec
+done
+)
 
 ## PROFILING
 ## system macos big sur on macbook pro 2016 i7 2.8GHz
