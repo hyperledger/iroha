@@ -11,24 +11,13 @@
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
-  namespace simulator {
-    class VerifiedProposalCreator;
-  }  // namespace simulator
-
-  namespace synchronizer {
-    class Synchronizer;
-  }  // namespace synchronizer
-
   namespace network {
     class OrderingGate;
 
     class PeerCommunicationServiceImpl : public PeerCommunicationService {
      public:
-      PeerCommunicationServiceImpl(
-          std::shared_ptr<OrderingGate> ordering_gate,
-          std::shared_ptr<synchronizer::Synchronizer> synchronizer,
-          std::shared_ptr<simulator::VerifiedProposalCreator> proposal_creator,
-          logger::LoggerPtr log);
+      PeerCommunicationServiceImpl(std::shared_ptr<OrderingGate> ordering_gate,
+                                   logger::LoggerPtr log);
 
       void propagate_batch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
@@ -36,16 +25,8 @@ namespace iroha {
 
       rxcpp::observable<OrderingEvent> onProposal() const override;
 
-      rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
-      onVerifiedProposal() const override;
-
-      rxcpp::observable<synchronizer::SynchronizationEvent> onSynchronization()
-          const override;
-
      private:
       std::shared_ptr<OrderingGate> ordering_gate_;
-      std::shared_ptr<synchronizer::Synchronizer> synchronizer_;
-      std::shared_ptr<simulator::VerifiedProposalCreator> proposal_creator_;
       logger::LoggerPtr log_;
     };
   }  // namespace network

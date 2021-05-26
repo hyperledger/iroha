@@ -58,8 +58,8 @@ PermissionSet<Perm>::PermissionSet(std::initializer_list<Perm> list) {
 }
 
 template <typename Perm>
-PermissionSet<Perm>::PermissionSet(const std::string &bitstring)
-    : perms_bitset_(bitstring) {}
+PermissionSet<Perm>::PermissionSet(std::string_view bitstring)
+    : perms_bitset_(bitstring.data(), bitstring.size()) {}
 
 template <typename Perm>
 std::string PermissionSet<Perm>::toBitstring() const {

@@ -1,10 +1,10 @@
 # This script runs vcpkg.ps1 multiple time with different iroha branches
 # It is very helpful then you need setup multiple vcpkg on windows build agent,
-# for example build master and develop from one ami
+# for example build main and develop from one ami
 
 param(
    [string] $iroha_repo = "https://github.com/hyperledger/iroha.git",
-   [array] $branches = "master"
+   [array] $branches = "main"
 )
 $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';
 

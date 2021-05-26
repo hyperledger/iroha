@@ -21,7 +21,6 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/network/network_mocks.hpp"
-#include "synchronizer/synchronizer_common.hpp"
 #include "torii/impl/command_service_impl.hpp"
 #include "torii/impl/status_bus_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
@@ -45,11 +44,6 @@ struct CommandFixture {
   std::shared_ptr<iroha::ametsuchi::MockTxPresenceCache> tx_presence_cache_;
 
   rxcpp::subjects::subject<iroha::network::OrderingEvent> prop_notifier_;
-  rxcpp::subjects::subject<iroha::simulator::VerifiedProposalCreatorEvent>
-      vprop_notifier_;
-  rxcpp::subjects::subject<
-      std::shared_ptr<const shared_model::interface::Block>>
-      commit_notifier_;
   rxcpp::subjects::subject<iroha::DataType> mst_notifier_;
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
@@ -59,8 +53,6 @@ struct CommandFixture {
     pcs_ = std::make_shared<iroha::network::MockPeerCommunicationService>();
     EXPECT_CALL(*pcs_, onProposal())
         .WillRepeatedly(Return(prop_notifier_.get_observable()));
-    EXPECT_CALL(*pcs_, onVerifiedProposal())
-        .WillRepeatedly(Return(vprop_notifier_.get_observable()));
 
     mst_processor_ =
         std::make_shared<iroha::MockMstProcessor>(logger::getDummyLoggerPtr());
@@ -79,7 +71,6 @@ struct CommandFixture {
         mst_processor_,
         status_bus,
         status_factory,
-        commit_notifier_.get_observable(),
         logger::getDummyLoggerPtr());
 
     std::unique_ptr<shared_model::validation::AbstractValidator<

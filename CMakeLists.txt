@@ -25,6 +25,7 @@ else()
 endif()
 SET(CMAKE_CXX_OUTPUT_EXTENSION_REPLACE 1)
 SET(CMAKE_INSTALL_RPATH "../lib")
+SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)  ## use for code static analyze and vscode cpp plugin
 
 if(CMAKE_BUILD_TYPE MATCHES "Release")
   include(CheckIPOSupported)

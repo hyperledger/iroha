@@ -346,7 +346,7 @@ node ('master') {
                            x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${compiler}", x64LinuxWorker, tasks)
       }
     }
-    // If "main" branch also run Release build
+    // If "main" also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
                          current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage*/false,
@@ -420,7 +420,7 @@ node ('master') {
                            s390xLinuxAlwaysPostSteps, "s390x Linux ${build_type} ${compiler}", s390xLinuxWorker, tasks)
       }
     }
-    // If "master" also run Release build
+    // If "main" also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
                          current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage_s390x*/false,
@@ -446,7 +446,7 @@ node ('master') {
                        mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, use_libursa, use_burrow, environmentList)}],
                        release_build ? x64MacAlwaysPostSteps : x64MacPostSteps, "Mac ${build_type}", x64MacWorker, tasks)
 
-    //If "master" also run Release build
+    //If "main" also run Release build
     if (release_build) {
       registerBuildSteps([{x64BuildScript.buildSteps(current_parallelism,
                          mac_compiler_list, 'Release', /*coverage_mac*/false, /*testing*/false, testList, /*packageBuild*/true, /*fuzzing*/false, /*benchmarking*/false, /*use_btf*/false,

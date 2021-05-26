@@ -16,7 +16,7 @@ Requirements
 
 — has a peer keypair (Ed25519 with SHA-2/SHA-3)
 
-**The account that is sending the transaction adding a peer must have the `Can Add Peer permission <../develop/api/permissions.html#can-add-peer>`_ and to remove a peer —`Can Remove Peer permission <../develop/api/permissions.html#can-remove-peer>`_ in their role - this must be set in the genesis block. **
+.. important:: The account that is sending the transaction adding a peer must have the `Can Add Peer permission <../develop/api/permissions.html#can-add-peer>`_ and to remove a peer —`Can Remove Peer permission <../develop/api/permissions.html#can-remove-peer>`_ in their role - this must be set in the genesis block.
 
 Usage
 =====
@@ -29,10 +29,11 @@ As described in `the API reference <../develop/api/commands.html#add-peer>`_ to 
 
 Steps:
 
-1. Create a network with **`Can Add Peer <../develop/api/permissions.html#can-add-peer>`_ ** and **`Can Remove Peer <../develop/api/permissions.html#can-remove-peer>`_** permissions set up in the genesis block assigned to a user;
+1. Create a network with `Can Add Peer <../develop/api/permissions.html#can-add-peer>`_ and `Can Remove Peer <../develop/api/permissions.html#can-remove-peer>`_ permissions set up in the genesis block assigned to a user;
 2. Create another peer running HL Iroha with the same genesis block and similar configuration;
 3. Send a transaction from the account with the necessary permissions that has ``add peer`` command in it (see an example below)
 4. Check the logs of the peers to see if everything is working correctly.
+
 You can also make sure the everything is ok by sending a transaction and checking if the number of blocks is the same on the nodes.
 
 .. note:: If there are only 1 existing peer running, you will need to configure the peers that you are adding so that they would have all of the peers (both already existing and the new ones) in the "initial_peers" parameter in the `configuration <../configure/index.html#environment-specific-parameters>`_. Another case when this is needed is when the network has been running for some time and the peers indicated in the genesis block are no longer there (because they were removed using Remove Peer command while new peers were added). 

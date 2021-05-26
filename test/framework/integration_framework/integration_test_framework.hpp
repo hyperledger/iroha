@@ -19,6 +19,7 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/startup_params.hpp"
+#include "main/subscription_fwd.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
 namespace google {
@@ -79,6 +80,9 @@ namespace iroha {
     class Proposal;
     class Transaction;
   }  // namespace protocol
+  namespace simulator {
+    struct VerifiedProposalCreatorEvent;
+  }
   namespace validation {
     struct VerifiedProposalAndErrors;
   }
@@ -427,9 +431,6 @@ namespace integration_framework {
 
     rxcpp::observable<iroha::consensus::GateObject> getYacOnCommitObservable();
 
-    rxcpp::observable<iroha::synchronizer::SynchronizationEvent>
-    getPcsOnCommitObservable();
-
     /// Get block query for iroha block storage.
     std::shared_ptr<iroha::ametsuchi::BlockQuery> getBlockQuery();
 
@@ -503,8 +504,12 @@ namespace integration_framework {
     std::unique_ptr<
         CheckerQueue<std::shared_ptr<const shared_model::interface::Proposal>>>
         proposal_queue_;
-    std::unique_ptr<CheckerQueue<VerifiedProposalType>>
+    std::shared_ptr<CheckerQueue<VerifiedProposalType>>
         verified_proposal_queue_;
+    std::shared_ptr<
+        iroha::BaseSubscriber<bool,
+                              iroha::simulator::VerifiedProposalCreatorEvent>>
+        verified_proposal_subscription_;
     std::unique_ptr<CheckerQueue<BlockType>> block_queue_;
     std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
         responses_queues_;

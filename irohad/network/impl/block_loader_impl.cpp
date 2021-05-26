@@ -10,7 +10,6 @@
 
 #include <fmt/core.h>
 #include <grpc++/create_channel.h>
-#include <rxcpp/rx-lite.hpp>
 #include "backend/protobuf/block.hpp"
 #include "builders/protobuf/transport_builder.hpp"
 #include "common/bind.hpp"
@@ -25,6 +24,59 @@ using namespace iroha::network;
 using namespace shared_model::crypto;
 using namespace shared_model::interface;
 
+namespace {
+  class BlockReaderImpl : public BlockReader {
+   public:
+    BlockReaderImpl(
+        std::weak_ptr<shared_model::proto::ProtoBlockFactory> block_factory,
+        std::unique_ptr<iroha::network::proto::Loader::StubInterface> client,
+        proto::BlockRequest request)
+        : block_factory_(std::move(block_factory)),
+          client_(std::move(client)),
+          reader_(client_->retrieveBlocks(&context_, std::move(request))) {
+      context_.set_deadline(std::chrono::system_clock::now()
+                            + std::chrono::minutes(1ull));
+    }
+
+    std::variant<iteration_complete,
+                 std::shared_ptr<const shared_model::interface::Block>,
+                 std::string>
+    read() override {
+      iroha::protocol::Block proto_block;
+      auto maybe_block_factory = block_factory_.lock();
+      if (not maybe_block_factory) {
+        return fmt::format("Failed to lock block factory");
+      }
+
+      if (not reader_->Read(&proto_block)) {
+        auto status = reader_->Finish();
+        if (not status.ok()) {
+          return fmt::format("Failed to read block: {}",
+                             status.error_message());
+        }
+        return iteration_complete{};
+      }
+
+      auto maybe_block =
+          maybe_block_factory->createBlock(std::move(proto_block));
+      if (hasError(maybe_block)) {
+        context_.TryCancel();
+        return fmt::format("Failed to parse received block: {}",
+                           std::move(maybe_block).assumeError());
+      }
+
+      return std::move(maybe_block).assumeValue();
+    }
+
+   private:
+    std::weak_ptr<shared_model::proto::ProtoBlockFactory> block_factory_;
+    grpc::ClientContext context_;
+    std::unique_ptr<iroha::network::proto::Loader::StubInterface> client_;
+    std::unique_ptr<grpc::ClientReaderInterface<iroha::protocol::Block>>
+        reader_;
+  };
+}  // namespace
+
 BlockLoaderImpl::BlockLoaderImpl(
     std::shared_ptr<PeerQueryFactory> peer_query_factory,
     std::shared_ptr<shared_model::proto::ProtoBlockFactory> factory,
@@ -35,46 +87,26 @@ BlockLoaderImpl::BlockLoaderImpl(
       client_factory_(std::move(client_factory)),
       log_(std::move(log)) {}
 
-Result<rxcpp::observable<std::shared_ptr<Block>>, std::string>
-BlockLoaderImpl::retrieveBlocks(
+Result<std::unique_ptr<BlockReader>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
     types::PublicKeyHexStringView peer_pubkey) {
-  return findPeer(peer_pubkey) | [&](const auto &peer) {
-    return client_factory_->createClient(*peer) | [&](auto client) {
-      std::shared_ptr<typename decltype(client)::element_type> shared_client(
-          std::move(client));
-      return rxcpp::observable<std::shared_ptr<Block>>(
-          rxcpp::observable<>::create<std::shared_ptr<Block>>(
-              [height, shared_client, block_factory = block_factory_](
-                  auto subscriber) {
-                grpc::ClientContext context;
-                context.set_deadline(std::chrono::system_clock::now() + std::chrono::minutes(1ull));
+  auto maybe_peer = findPeer(peer_pubkey);
+  if (hasError(maybe_peer)) {
+    return maybe_peer.assumeError();
+  }
 
-                proto::BlockRequest request;
-                request.set_height(height
-                                   + 1);  // request next block to our top
-                auto reader = shared_client->retrieveBlocks(&context, request);
-                protocol::Block block;
-                while (subscriber.is_subscribed() and reader->Read(&block)) {
-                  block_factory->createBlock(std::move(block))
-                      .match(
-                          [&](auto &&result) {
-                            subscriber.on_next(std::move(result.value));
-                          },
-                          [&](const auto &error) {
-                            context.TryCancel();
-                            reader->Finish();
-                            subscriber.on_error(std::make_exception_ptr(
-                                std::runtime_error(fmt::format(
-                                    "Failed to parse received block: {}.",
-                                    error.error))));
-                          });
-                }
-                reader->Finish();
-                subscriber.on_completed();
-              }));
-    };
-  };
+  auto maybe_client = client_factory_->createClient(*maybe_peer.assumeValue());
+  if (hasError(maybe_client)) {
+    return maybe_client.assumeError();
+  }
+
+  proto::BlockRequest request;
+  request.set_height(height + 1);  // request next block to our top
+
+  return std::make_unique<BlockReaderImpl>(
+      block_factory_,
+      std::move(maybe_client).assumeValue(),
+      std::move(request));
 }
 
 Result<std::unique_ptr<Block>, std::string> BlockLoaderImpl::retrieveBlock(

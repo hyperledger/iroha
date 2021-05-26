@@ -8,3 +8,4 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: false
+
