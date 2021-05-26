@@ -17,4 +17,6 @@ repos:
   - id: check-merge-conflict
   - id: check-added-large-files
   - id: end-of-file-fixer
+    exclude: '.*\.patch$'
   - id: trailing-whitespace
+    exclude: '.*\.patch$'
