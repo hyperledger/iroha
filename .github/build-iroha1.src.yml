@@ -13,6 +13,7 @@ name: Iroha1
 ##       Solution: open PR from the same repo.
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+## TODO store ccache with rclone
 
 ## TODO schedule: nightly
 
@@ -44,7 +45,7 @@ jobs:
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/buildme') }}
     steps:
-      -
+      - &step_show_context
         name: Show context
         run: |
           cat >/dev/null <<'END'
@@ -67,12 +68,7 @@ jobs:
     runs-on: [ self-hosted, Linux ]
     continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
     steps:
-      - &step_show_context
-        name: Show context
-        run: |
-          cat >/dev/null <<'END'
-            ${{ toJson(github) }}
-          END
+      - *step_show_context
       - &step_cancel_previous_runs
         if: ${{false}}
         name: Cancel Previous Workflow Runs
@@ -87,6 +83,7 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
+          ccache --show-stats
       - &step_build_info
         name: Build info
         run: |

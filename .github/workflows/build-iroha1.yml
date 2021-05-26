@@ -15,6 +15,7 @@ name: Iroha1
 ##       Solution: open PR from the same repo.
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+## TODO store ccache with rclone
 
 ## TODO schedule: nightly
 
@@ -77,6 +78,7 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
+          ccache --show-stats
       - name: Build info
         run: |
           cat << 'END'
@@ -248,6 +250,7 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
+          ccache --show-stats
       - name: Build info
         run: |
           cat << 'END'
@@ -394,6 +397,7 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
+          ccache --show-stats
       - name: Build info
         run: |
           cat << 'END'
@@ -612,6 +616,7 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
+          ccache --show-stats
       - name: Build info
         run: |
           cat << 'END'
