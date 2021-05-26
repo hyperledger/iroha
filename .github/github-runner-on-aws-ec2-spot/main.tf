@@ -1,3 +1,10 @@
+
+variable "github_app_key_base64" {}
+variable "github_app_id" {}
+variable "github_app_client_id" {}
+variable "github_app_client_secret" {}
+
+
 locals {
   environment = "iroha1"
   aws_region  = "eu-central-1"
@@ -43,10 +50,10 @@ module "runners" {
 
   github_app = {
     webhook_secret = random_password.random.result
-    key_base64     = filebase64("aws-runners-sora.2021-05-17.private-key.pem")
-    id             = "115773"
-    client_id      = "Iv1.0dbddb060efb4816"
-    client_secret  = "3cc3303a5da42958e5e01d62e817df5d8c437adf"
+    key_base64     = var.github_app_key_base64
+    id             = var.github_app_id
+    client_id      = var.github_app_client_id
+    client_secret  = var.github_app_client_secret
   }
 
   runners_maximum_count = 10

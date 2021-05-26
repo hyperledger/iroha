@@ -41,4 +41,4 @@ cmake-build*
 
 .gitsecret/keys/random_seed
 !*.secret
-.github/dockerhub.env
+.github/github-runner-on-aws-ec2-spot/terraform.tfvars
