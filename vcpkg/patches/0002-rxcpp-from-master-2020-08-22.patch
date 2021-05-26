@@ -24,7 +24,7 @@ index b98701132..b11458d3c 100644
      HEAD_REF master
 -    PATCHES support_find_package.patch
  )
-
+ 
  vcpkg_configure_cmake(
 diff --git a/ports/rxcpp/support_find_package.patch b/ports/rxcpp/support_find_package.patch
 deleted file mode 100644
@@ -37,12 +37,12 @@ index bb1da2d2d..000000000
 ---- a/projects/CMake/CMakeLists.txt
 -+++ b/projects/CMake/CMakeLists.txt
 -@@ -146,3 +146,27 @@ set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY TRUE CACHE BOOL "Don't require all project
--
+- 
 - install(DIRECTORY ${RXCPP_DIR}/Rx/v2/src/rxcpp/ DESTINATION include/rxcpp
 -         FILES_MATCHING PATTERN "*.hpp")
 -+
 -+# Here we are exporting TARGETS so that other projects can import rxcpp
--+# just with find_package(rxcpp CONFIG) after rxcpp is installed into system by "make install".
+-+# just with find_package(rxcpp CONFIG) after rxcpp is installed into system by "make install". 
 -+add_library(rxcpp INTERFACE)
 -+
 -+target_include_directories(rxcpp INTERFACE
@@ -64,5 +64,6 @@ index bb1da2d2d..000000000
 -+        AnyNewerVersion
 -+)
 -+install(FILES "${PROJECT_BINARY_DIR}/rxcppConfigVersion.cmake" DESTINATION share/rxcpp/cmake)
---
+-- 
 2.31.1
+
