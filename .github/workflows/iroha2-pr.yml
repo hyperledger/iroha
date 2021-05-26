@@ -13,22 +13,45 @@ env:
 jobs:
   long-tests:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Run long tests
         run: cargo test --workspace --verbose -- --ignored --test-threads=1 long
   test-docker:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
+      - name: Install latest rust
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: iroha_client_cli
