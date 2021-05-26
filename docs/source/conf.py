@@ -30,7 +30,8 @@ extensions = [
     'sphinx.ext.ifconfig',
     'sphinx.ext.viewcode',
     'm2r2',
-    'sphinx_extensions.iroha_permissions'
+    'sphinx_extensions.iroha_permissions',
+    "sphinxext.remoteliteralinclude"
 ]
 
 html_static_path = ['_static']
