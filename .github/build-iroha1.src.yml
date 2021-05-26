@@ -1,6 +1,6 @@
 name: Iroha1
 
-## TODO 1. vcpkg build only Debug or only Release
+## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times
 ## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
 ##      to improve performance and reduce storage consumption
 ## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
@@ -12,6 +12,7 @@ name: Iroha1
 ##       Because GitHub secrets inaccessable to PRs from forks.
 ##       Solution: open PR from the same repo.
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
+## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
 ## TODO schedule: nightly
 
