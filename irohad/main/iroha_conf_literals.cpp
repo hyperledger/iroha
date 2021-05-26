@@ -55,4 +55,5 @@ namespace config_members {
   const char *kSigner = "signer";
   const char *kCryptoProviderDefault = "default";
   const char *PrivateKey = "private_key";
+  const char *kMetrics = "metrics";
 }  // namespace config_members

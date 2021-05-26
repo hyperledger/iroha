@@ -21,6 +21,7 @@
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
+#include "main/subscription_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
@@ -70,7 +71,7 @@ namespace iroha {
     class CommandService;
     class CommandServiceTransportGrpc;
     class QueryService;
-
+    class TransactionProcessor;
     struct TlsParams;
   }  // namespace torii
   namespace validation {
@@ -349,6 +350,7 @@ class Irohad {
   std::shared_ptr<iroha::MstProcessor> mst_processor;
 
   // transaction service
+  std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor;
   std::shared_ptr<iroha::torii::CommandService> command_service;
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc>
       command_service_transport;
@@ -370,6 +372,8 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
+
+  std::shared_ptr<iroha::Subscription> subscription_engine_;
 };
 
 #endif  // IROHA_APPLICATION_HPP

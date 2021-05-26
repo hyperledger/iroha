@@ -28,6 +28,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "maintenance/metrics.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "util/status_notifier.hpp"
 #include "util/utility_service.hpp"
@@ -105,6 +106,14 @@ static bool validateVerbosity(const char *flagname, const std::string &val) {
 /// Verbosity flag for spdlog configuration
 DEFINE_string(verbosity, kLogSettingsFromConfigFile, "Log verbosity");
 DEFINE_validator(verbosity, &validateVerbosity);
+
+/// Metrics. ToDo validator
+DEFINE_string(metrics_addr,
+              "127.0.0.1",
+              "Prometeus HTTP server listen address");
+DEFINE_string(metrics_port,
+              "",
+              "Prometeus HTTP server listens port, disabled by default");
 
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
@@ -202,8 +211,8 @@ int main(int argc, char *argv[]) {
   // Parsing command line arguments
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  logger::LoggerManagerTreePtr log_manager;
-  logger::LoggerPtr log;
+  logger::LoggerManagerTreePtr log_manager = getDefaultLogManager();
+  logger::LoggerPtr log = log_manager->getChild("Init")->getLogger();
 
   try {
     // If the global log level override was set in the command line arguments,
@@ -215,13 +224,8 @@ int main(int argc, char *argv[]) {
       log = log_manager->getChild("Init")->getLogger();
     }
 
-    // Reading iroha configuration file
-    std::optional<logger::LoggerPtr> maybe_log;
-    if (log) {
-      maybe_log = log;
-    }
     auto config_result =
-        parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), maybe_log);
+        parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), {log});
     if (auto e = iroha::expected::resultToOptionalError(config_result)) {
       if (log) {
         log->error("Failed reading the configuration: {}", e.value());
@@ -230,7 +234,7 @@ int main(int argc, char *argv[]) {
     }
     auto config = std::move(config_result).assumeValue();
 
-    if (not log_manager) {
+    if (FLAGS_verbosity == kLogSettingsFromConfigFile) {
       log_manager = config.logger_manager.value_or(getDefaultLogManager());
       log = log_manager->getChild("Init")->getLogger();
     }
@@ -253,6 +257,12 @@ int main(int argc, char *argv[]) {
             std::lock_guard<std::mutex>{shutdown_wait_mutex};
           },
           log_manager);
+    }
+
+    if (FLAGS_metrics_port.size()) {
+      maintenance_metrics_init(FLAGS_metrics_addr + ":" + FLAGS_metrics_port);
+    } else if (config.metrics_addr_port.size()) {
+      maintenance_metrics_init(config.metrics_addr_port);
     }
 
     daemon_status_notifier->notify(

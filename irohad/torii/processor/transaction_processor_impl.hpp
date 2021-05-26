@@ -8,9 +8,6 @@
 
 #include "torii/processor/transaction_processor.hpp"
 
-#include <mutex>
-
-#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
@@ -18,6 +15,7 @@
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "network/peer_communication_service.hpp"
 #include "torii/status_bus.hpp"
+#include "validation/stateful_validator_common.hpp"
 
 namespace iroha {
   namespace torii {
@@ -28,7 +26,6 @@ namespace iroha {
        * @param mst_processor is a handler for multisignature transactions
        * @param status_bus is a common notifier for tx statuses
        * @param status_factory creates transaction statuses
-       * @param commits - an observable on committed blocks
        * @param log to print the progress
        */
       TransactionProcessorImpl(
@@ -37,13 +34,28 @@ namespace iroha {
           std::shared_ptr<iroha::torii::StatusBus> status_bus,
           std::shared_ptr<shared_model::interface::TxStatusFactory>
               status_factory,
-          rxcpp::observable<
-              std::shared_ptr<const shared_model::interface::Block>> commits,
           logger::LoggerPtr log);
 
       void batchHandle(
           std::shared_ptr<shared_model::interface::TransactionBatch>
               transaction_batch) const override;
+
+      void processVerifiedProposalCreatorEvent(
+          simulator::VerifiedProposalCreatorEvent const &event) override;
+
+      void processCommit(
+          std::shared_ptr<const shared_model::interface::Block> const &block)
+          override;
+
+      void processStateUpdate(std::shared_ptr<MstState> const &state) override;
+
+      void processPreparedBatch(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) override;
+
+      void processExpiredBatch(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) override;
 
      private:
       // connections
@@ -53,11 +65,6 @@ namespace iroha {
       std::shared_ptr<MstProcessor> mst_processor_;
 
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
-
-      // internal
-      rxcpp::subjects::subject<
-          std::shared_ptr<shared_model::interface::TransactionResponse>>
-          notifier_;
 
       // keeps hashes of transaction, which were committed during this round
       std::vector<shared_model::interface::types::HashType> current_txs_hashes_;

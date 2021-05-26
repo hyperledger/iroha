@@ -10,9 +10,7 @@
 #include <limits>
 #include <memory>
 #include <rxcpp/operators/rx-filter.hpp>
-#include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-take.hpp>
-#include <rxcpp/operators/rx-zip.hpp>
 
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/block.hpp"
@@ -44,6 +42,7 @@
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
@@ -57,6 +56,7 @@
 #include "network/impl/client_factory.hpp"
 #include "network/peer_communication_service.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
+#include "simulator/verified_proposal_creator_common.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
@@ -416,31 +416,28 @@ namespace integration_framework {
       log_->info("proposal");
     });
 
-    auto proposal_flat_map =
-        [](auto t) -> rxcpp::observable<std::tuple_element_t<0, decltype(t)>> {
-      if (std::get<1>(t).proposal) {
-        return rxcpp::observable<>::just(std::get<0>(t));
-      }
-      return rxcpp::observable<>::empty<std::tuple_element_t<0, decltype(t)>>();
-    };
-
-    rxcpp::observable<iroha::simulator::VerifiedProposalCreatorEvent>
-        verified_proposals = iroha_instance_->getIrohaInstance()
-                                 ->getPeerCommunicationService()
-                                 ->onVerifiedProposal();
-
-    rxcpp::observable<std::tuple<iroha::simulator::VerifiedProposalCreatorEvent,
-                                 iroha::network::OrderingEvent>>
-        verified_proposals_with_events =
-            verified_proposals.zip(requested_proposals);
-    rxcpp::observable<iroha::simulator::VerifiedProposalCreatorEvent>
-        nonempty_proposals =
-            verified_proposals_with_events.flat_map(proposal_flat_map);
-    nonempty_proposals.subscribe([this](auto verified_proposal_and_errors) {
-      verified_proposal_queue_->push(
-          getVerifiedProposalUnsafe(verified_proposal_and_errors));
-      log_->info("verified proposal");
-    });
+    verified_proposal_subscription_ = iroha::SubscriberCreator<
+        bool,
+        iroha::simulator::VerifiedProposalCreatorEvent>::
+        template create<iroha::EventTypes::kOnVerifiedProposal>(
+            static_cast<iroha::SubscriptionEngineHandlers>(
+                decltype(iroha::getSubscription())::element_type::Dispatcher::
+                    kExecuteInPool),
+            [verified_proposal_queue(
+                 iroha::utils::make_weak(verified_proposal_queue_)),
+             log(iroha::utils::make_weak(log_))](
+                auto, auto verified_proposal_and_errors) {
+              auto maybe_verified_proposal_queue =
+                  verified_proposal_queue.lock();
+              auto maybe_log = log.lock();
+              if (maybe_verified_proposal_queue and maybe_log
+                  and verified_proposal_and_errors.verified_proposal_result) {
+                maybe_verified_proposal_queue->push(
+                    iroha::simulator::getVerifiedProposalUnsafe(
+                        verified_proposal_and_errors));
+                maybe_log->info("verified proposal");
+              }
+            });
 
     iroha_instance_->getIrohaInstance()->getStorage()->on_commit().subscribe(
         [this](auto committed_block) {
@@ -507,13 +504,6 @@ namespace integration_framework {
   rxcpp::observable<iroha::consensus::GateObject>
   IntegrationTestFramework::getYacOnCommitObservable() {
     return iroha_instance_->getIrohaInstance()->getConsensusGate()->onOutcome();
-  }
-
-  rxcpp::observable<iroha::synchronizer::SynchronizationEvent>
-  IntegrationTestFramework::getPcsOnCommitObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getPeerCommunicationService()
-        ->onSynchronization();
   }
 
   std::shared_ptr<iroha::ametsuchi::BlockQuery>

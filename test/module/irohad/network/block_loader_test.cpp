@@ -15,7 +15,6 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
@@ -33,7 +32,6 @@ using namespace std::literals;
 using namespace iroha::network;
 using namespace iroha::ametsuchi;
 using namespace framework::expected;
-using namespace framework::test_subscriber;
 using namespace shared_model::crypto;
 using namespace shared_model::interface::types;
 using namespace shared_model::validation;
@@ -153,11 +151,14 @@ TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
   setPeerQuery();
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
-  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
-  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 0);
-  wrapper.subscribe();
-
-  ASSERT_TRUE(wrapper.validate());
+  auto reader = loader->retrieveBlocks(1, peer_key).assumeValue();
+  size_t count = 0;
+  while (std::holds_alternative<
+         std::shared_ptr<const shared_model::interface::Block>>(
+      reader->read())) {
+    ++count;
+  }
+  ASSERT_EQ(0, count);
 }
 
 /**
@@ -188,11 +189,17 @@ TEST_F(BlockLoaderTest, ValidWhenOneBlock) {
   EXPECT_CALL(*storage, getBlock(top_block.height()))
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(top_block)))));
-  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
-  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 1);
-  wrapper.subscribe([&top_block](auto block) { ASSERT_EQ(*block, top_block); });
-
-  ASSERT_TRUE(wrapper.validate());
+  auto reader = loader->retrieveBlocks(1, peer_key).assumeValue();
+  size_t count = 0;
+  for (auto maybe_block = reader->read(); std::holds_alternative<
+           std::shared_ptr<const shared_model::interface::Block>>(maybe_block);
+       maybe_block = reader->read()) {
+    ++count;
+    ASSERT_EQ(*std::get<std::shared_ptr<const shared_model::interface::Block>>(
+                  maybe_block),
+              top_block);
+  }
+  ASSERT_EQ(1, count);
 }
 
 /**
@@ -228,13 +235,20 @@ TEST_F(BlockLoaderTest, ValidWhenMultipleBlocks) {
   }
 
   setPeerQuery();
-  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
-  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, num_blocks);
+  auto reader = loader->retrieveBlocks(1, peer_key).assumeValue();
+  size_t count = 0;
   auto height = next_height;
-  wrapper.subscribe(
-      [&height](auto block) { ASSERT_EQ(block->height(), height++); });
-
-  ASSERT_TRUE(wrapper.validate());
+  for (auto maybe_block = reader->read(); std::holds_alternative<
+           std::shared_ptr<const shared_model::interface::Block>>(maybe_block);
+       maybe_block = reader->read()) {
+    ++count;
+    ASSERT_EQ(std::get<std::shared_ptr<const shared_model::interface::Block>>(
+                  maybe_block)
+                  ->height(),
+              height);
+    ++height;
+  }
+  ASSERT_EQ(num_blocks, count);
 }
 
 MATCHER_P(RefAndPointerEq, arg1, "") {

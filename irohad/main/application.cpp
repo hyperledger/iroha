@@ -37,6 +37,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
@@ -128,7 +129,8 @@ Irohad::Irohad(
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
-      log_(log_manager_->getLogger()) {
+      log_(log_manager_->getLogger()),
+      subscription_engine_(getSubscription()) {
   log_->info("created");
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
@@ -154,6 +156,7 @@ Irohad::~Irohad() {
   }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
+  subscription_engine_->dispose();
 }
 
 /**
@@ -636,7 +639,6 @@ Irohad::RunResult Irohad::initSimulator() {
 
     simulator = std::make_shared<Simulator>(
         std::move(command_executor),
-        ordering_gate,
         stateful_validator,
         storage,
         crypto_signer_,
@@ -703,7 +705,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
       storage,
       config_.initial_peers,
       *initial_ledger_state,
-      simulator,
       block_loader,
       *keypair_,
       consensus_result_cache_,
@@ -729,7 +730,6 @@ Irohad::RunResult Irohad::initSynchronizer() {
              [this](auto &&command_executor) -> RunResult {
     synchronizer = std::make_shared<SynchronizerImpl>(
         std::move(command_executor),
-        consensus_gate,
         chain_validator,
         storage,
         storage,
@@ -741,35 +741,37 @@ Irohad::RunResult Irohad::initSynchronizer() {
   };
 }
 
+namespace {
+  void printSynchronizationEvent(
+      logger::LoggerPtr log, synchronizer::SynchronizationEvent const &event) {
+    using iroha::synchronizer::SynchronizationOutcomeType;
+    switch (event.sync_outcome) {
+      case SynchronizationOutcomeType::kCommit:
+        log->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
+        break;
+      case SynchronizationOutcomeType::kReject:
+        log->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");
+        break;
+      case SynchronizationOutcomeType::kNothing:
+        log->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
+        break;
+      case SynchronizationOutcomeType::kError:
+        log->info(R"(~~~~~~~~~| ERROR :-?????? |~~~~~~~~~ )");
+        break;
+    }
+  }
+}  // namespace
+
 /**
  * Initializing peer communication service
  */
 Irohad::RunResult Irohad::initPeerCommunicationService() {
   pcs = std::make_shared<PeerCommunicationServiceImpl>(
       ordering_gate,
-      synchronizer,
-      simulator,
       log_manager_->getChild("PeerCommunicationService")->getLogger());
 
   pcs->onProposal().subscribe([this](const auto &) {
     log_->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-  });
-
-  pcs->onSynchronization().subscribe([this](const auto &event) {
-    using iroha::synchronizer::SynchronizationOutcomeType;
-    switch (event.sync_outcome) {
-      case SynchronizationOutcomeType::kCommit:
-        log_->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
-        break;
-      case SynchronizationOutcomeType::kReject:
-        log_->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");
-        break;
-      case SynchronizationOutcomeType::kNothing:
-        log_->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
-        break;
-      default:
-        break;
-    }
   });
 
   log_->info("[Init] => pcs");
@@ -847,13 +849,42 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
   auto status_factory =
       std::make_shared<shared_model::proto::ProtoTxStatusFactory>();
   auto cs_cache = std::make_shared<::torii::CommandServiceImpl::CacheType>();
-  auto tx_processor = std::make_shared<TransactionProcessorImpl>(
+  tx_processor = std::make_shared<TransactionProcessorImpl>(
       pcs,
       mst_processor,
       status_bus_,
       status_factory,
-      storage->on_commit(),
       command_service_log_manager->getChild("Processor")->getLogger());
+  storage->on_commit().subscribe(
+      [tx_processor(utils::make_weak(tx_processor))](
+          std::shared_ptr<shared_model::interface::Block const> const &block) {
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processCommit(block);
+        }
+      });
+  mst_processor->onStateUpdate().subscribe(
+      [tx_processor(utils::make_weak(tx_processor))](
+          std::shared_ptr<MstState> const &state) {
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processStateUpdate(state);
+        }
+      });
+  mst_processor->onPreparedBatches().subscribe(
+      [tx_processor(utils::make_weak(tx_processor))](
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) {
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processPreparedBatch(batch);
+        }
+      });
+  mst_processor->onExpiredBatches().subscribe(
+      [tx_processor(utils::make_weak(tx_processor))](
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) {
+        if (auto maybe_tx_processor = tx_processor.lock()) {
+          maybe_tx_processor->processExpiredBatch(batch);
+        }
+      });
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
       storage,
@@ -921,8 +952,48 @@ Irohad::RunResult Irohad::initWsvRestorer() {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
+  ordering_gate->onProposal().subscribe(
+      [simulator(utils::make_weak(simulator)),
+       consensus_gate(utils::make_weak(consensus_gate)),
+       tx_processor(utils::make_weak(tx_processor)),
+       subscription(utils::make_weak(getSubscription()))](
+          network::OrderingEvent const &event) {
+        auto maybe_simulator = simulator.lock();
+        auto maybe_consensus_gate = consensus_gate.lock();
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_subscription = subscription.lock();
+        if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
+            and maybe_subscription) {
+          auto verified_proposal = maybe_simulator->processProposal(event);
+          maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
+                                     verified_proposal);
+          maybe_tx_processor->processVerifiedProposalCreatorEvent(
+              verified_proposal);
+          auto block = maybe_simulator->processVerifiedProposal(
+              std::move(verified_proposal));
+          maybe_consensus_gate->vote(std::move(block));
+        }
+      });
+
   using iroha::expected::operator|;
   using iroha::operator|;
+
+  consensus_gate->onOutcome().subscribe(
+      [synchronizer(utils::make_weak(synchronizer)),
+       sync_event_notifier(ordering_init.sync_event_notifier),
+       log(utils::make_weak(log_)),
+       subscription(utils::make_weak(getSubscription()))](
+          consensus::GateObject object) {
+        auto maybe_synchronizer = synchronizer.lock();
+        auto maybe_log = log.lock();
+        auto maybe_subscription = subscription.lock();
+        if (maybe_synchronizer and maybe_log and maybe_subscription) {
+          auto event = maybe_synchronizer->processOutcome(std::move(object));
+          maybe_subscription->notify(EventTypes::kOnSynchronization, event);
+          printSynchronizationEvent(maybe_log, event);
+          sync_event_notifier.get_subscriber().on_next(std::move(event));
+        }
+      });
 
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(
@@ -1006,8 +1077,6 @@ Irohad::RunResult Irohad::run() {
       return expected::makeError("Failed to fetch ledger state!");
     }
 
-    pcs->onSynchronization().subscribe(
-        ordering_init.sync_event_notifier.get_subscriber());
     storage->on_commit().subscribe(
         ordering_init.commit_notifier.get_subscriber());
 
@@ -1018,6 +1087,7 @@ Irohad::RunResult Irohad::run() {
             SynchronizationOutcomeType::kCommit,
             {block_height, ordering::kFirstRejectRound},
             *initial_ledger_state});
+
     return {};
   };
 }
