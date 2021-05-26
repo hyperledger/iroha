@@ -6,7 +6,7 @@
 #ifndef IROHA_MST_PROPAGATION_STRATEGY_HPP
 #define IROHA_MST_PROPAGATION_STRATEGY_HPP
 
-#include <rxcpp/rx-observable.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include <vector>
 #include "interfaces/common_objects/peer.hpp"
 
