@@ -14,6 +14,7 @@ env:
 jobs:
   coverage:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: ubuntu:20.04
     steps:
       - uses: actions/checkout@v2
       - name: Set nightly toolchain
@@ -21,6 +22,15 @@ jobs:
         with:
           toolchain: nightly-2021-02-20
           override: true
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Cargo clean
         uses: actions-rs/cargo@v1
         with:
@@ -43,25 +53,47 @@ jobs:
         uses: codecov/codecov-action@v1
         with:
           file: ${{ steps.coverage.outputs.report }}
+
   bench:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Run benchmarks
         run: cargo bench --workspace --verbose
+
   publish-artifacts:
     needs: [coverage, bench]
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Build
         run: cargo build --release --verbose
       - name: Archive build
