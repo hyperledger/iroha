@@ -3,6 +3,7 @@ name: Iroha 2 main branch workflow
 on:
   push:
     branches: [ iroha2 ]
+
 env:
   CACHE_PATHS: |
     ~/.cargo/registry
@@ -11,9 +12,11 @@ env:
     target
     iroha/target
     iroha_client/target
+
 jobs:
   coverage:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    container: rust:1.52-buster
     steps:
     - uses: actions/checkout@v2
     - name: Set nightly toolchain  
@@ -46,6 +49,7 @@ jobs:
       uses: codecov/codecov-action@v1
       with:
         file: ${{ steps.coverage.outputs.report }}
+
   bench:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     steps:
@@ -56,6 +60,7 @@ jobs:
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Run benchmarks
       run: cargo bench --workspace --verbose
+
   deploy:
     needs: [coverage, bench]
     runs-on: [ self-hosted, Linux ] #ubuntu-latest

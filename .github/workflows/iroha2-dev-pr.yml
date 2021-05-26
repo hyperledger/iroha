@@ -61,6 +61,15 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Run tests
         run: cargo test --workspace --verbose
 
@@ -73,6 +82,15 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Run iroha_network mock tests
         run: cargo test --features mock --verbose
         working-directory: iroha_network
@@ -93,6 +111,15 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
             toolchain: stable
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: iroha_client_cli
