@@ -6,7 +6,7 @@
 #ifndef IROHA_PEER_COMMUNICATION_SERVICE_HPP
 #define IROHA_PEER_COMMUNICATION_SERVICE_HPP
 
-#include <rxcpp/rx-observable.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "network/ordering_gate_common.hpp"
 
 namespace shared_model {

@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include <rxcpp/rx-observable.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 
