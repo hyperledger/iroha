@@ -84,7 +84,7 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
-          ccache --show-stats
+        #  ccache --show-stats
       - &step_build_info
         name: Build info
         run: |
@@ -203,7 +203,7 @@ jobs:
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
       DOCKERHUB_ORG: ${{steps.creds.outputs.DOCKERHUB_ORG}}
-      # result: job.status
+      status: job.status
 
   ## Build in a docker container
   build-iroha-ubuntu:
@@ -269,8 +269,10 @@ jobs:
           if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
           echo CC=$CC                                                >>$GITHUB_ENV
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-          echo $CCACHE_PATH >>$GITHUB_PATH
-          echp _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+          echo >>$GITHUB_PATH $CCACHE_PATH
+          echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+          echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$( vcpkg help binarycaching |
+                  awk '/Based on your system settings, the default path to store binaries is/{getline; print}' | xargs )
         env:
           CCACHE_PATH: /usr/lib/ccache
       - &step_restore_ccache
@@ -286,11 +288,13 @@ jobs:
         uses: actions/cache@v2
         with:
           path: |
-            build-vcpkg
+            ${{ env._VCPKG_BINARYCACHING_DIR }}
+          #  build-vcpkg
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
           #  $HOME/.cache/vcpkg
-          key:          ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          restore-keys: ${{ runner.os }}-vcpkg-
+          key: ${{ runner.os }}-${{matrix.cc}}-vcpkg
+          # key:          ${{ runner.os }}-vcpkg-${{matrix.cc}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
+          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.cc}}-
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
