@@ -16,6 +16,7 @@ name: Iroha1
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 ## TODO store ccache with rclone
+## TODO Use vcpkg binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
 
 ## TODO schedule: nightly
 
@@ -238,11 +239,6 @@ jobs:
 
             Please ask @kuvaldini on GitHub or in Telegram if you need help.
           END
-      - if: ${{false}}
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2
-        with:
-          token: ${{ github.token }}
       - name: System info
         run: |
           set -x
@@ -280,6 +276,16 @@ jobs:
           if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
           echo CC=$CC                                                >>$GITHUB_ENV
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+          echo $CCACHE_PATH >>$GITHUB_PATH
+          echp _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+        env:
+          CCACHE_PATH: /usr/lib/ccache
+      - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        name: Cache ccache
+        uses: actions/cache@v2
+        with:
+          path: ${{ env._CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
         uses: actions/cache@v2
@@ -409,7 +415,7 @@ jobs:
           event.issue.number:${{ github.event.issue.number }}
           END
       - name: Homebrew
-        run: brew install cmake ninja coreutils
+        run: brew install cmake ninja coreutils ccache
         ## Takes 22 seconds with default github runner
       - if: ${{ contains(matrix.cc, 'gcc-10') }}
         name: Homebrew GCC
@@ -443,6 +449,16 @@ jobs:
           if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
           echo CC=$CC                                                >>$GITHUB_ENV
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
+          echo $CCACHE_PATH >>$GITHUB_PATH
+          echp _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+        env:
+          CCACHE_PATH: /usr/local/opt/ccache/libexec
+      - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        name: Cache ccache
+        uses: actions/cache@v2
+        with:
+          path: ${{ env._CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache
       - ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Cache vcpkg
         uses: actions/cache@v2
