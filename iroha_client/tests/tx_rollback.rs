@@ -41,16 +41,16 @@ mod tests {
         //Then
         let request = client::asset::by_account_id(account_id);
         let query_result = iroha_client
-            .request(&request)
+            .request(request)
             .expect("Failed to execute request.");
         assert!(query_result
-            .find_asset_by_id(&wrong_asset_definition_id)
-            .is_none());
+            .iter()
+            .all(|asset| asset.id.definition_id != wrong_asset_definition_id));
         let definition_query_result = iroha_client
-            .request(&client::asset::all_definitions())
+            .request(client::asset::all_definitions())
             .expect("Failed to execute request.");
         assert!(definition_query_result
-            .find_asset_by_id(&wrong_asset_definition_id)
-            .is_none());
+            .iter()
+            .all(|asset| asset.id != wrong_asset_definition_id));
     }
 }

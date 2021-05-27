@@ -36,10 +36,11 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
             account_id.clone(),
         )),
     );
-    test_client.submit_till(mint, &client::asset::by_account_id(account_id), |result| {
-        result
-            .find_asset_by_id(&asset_definition_id)
-            .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
+    test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
+        result.iter().any(|asset| {
+            asset.id.definition_id == asset_definition_id
+                && asset.value == AssetValue::Quantity(quantity)
+        })
     });
     Ok(())
 }
@@ -66,28 +67,17 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     test_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
 
-    let result = test_client
-        .request(&client::asset::all_definitions())
-        .expect("Failed to execute request.");
+    let asset_definition_ids = test_client
+        .request(client::asset::all_definitions())
+        .expect("Failed to execute request.")
+        .into_iter()
+        .map(|asset| asset.id)
+        .collect::<Vec<_>>();
 
-    if let QueryResult(Value::Vec(assets)) = result {
-        let asset_definition_ids: Vec<AssetDefinitionId> = assets
-            .into_iter()
-            .filter_map(|asset| {
-                if let Value::Identifiable(IdentifiableBox::AssetDefinition(asset_definition)) =
-                    asset
-                {
-                    return Some(asset_definition.id);
-                }
-                None
-            })
-            .collect();
-        assert!(asset_definition_ids.contains(&normal_asset_definition_id));
-        assert!(asset_definition_ids
-            .contains(&incorrect_asset_definition_id)
-            .not());
-    } else {
-        panic!("Wrong Query Result Type.");
-    };
+    assert!(asset_definition_ids.contains(&normal_asset_definition_id));
+    assert!(asset_definition_ids
+        .contains(&incorrect_asset_definition_id)
+        .not());
+
     Ok(())
 }

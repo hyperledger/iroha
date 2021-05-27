@@ -16,6 +16,7 @@ const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
 // TODO: design macro to load config from env.
 #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
+#[serde(default)]
 #[config(env_prefix = "IROHA_")]
 pub struct Configuration {
     /// Public key of the user account.
@@ -26,20 +27,31 @@ pub struct Configuration {
     /// User account id.
     pub account_id: AccountId,
     /// Torii URL.
-    #[serde(default = "default_torii_api_url")]
     pub torii_api_url: String,
     /// Proposed transaction TTL in milliseconds.
-    #[serde(default = "default_transaction_time_to_live_ms")]
     pub transaction_time_to_live_ms: u64,
     /// `Logger` configuration.
     #[config(inner)]
     pub logger_configuration: LoggerConfiguration,
     /// Transaction status wait timeout in milliseconds.
-    #[serde(default = "default_transaction_status_timeout_ms")]
     pub transaction_status_timeout_ms: u64,
     /// Maximum number of instructions per transaction
-    #[serde(default = "default_max_instruction_number")]
     pub max_instruction_number: usize,
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            public_key: PublicKey::default(),
+            private_key: PrivateKey::default(),
+            account_id: AccountId::new("", ""),
+            torii_api_url: DEFAULT_TORII_API_URL.to_owned(),
+            transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
+            transaction_status_timeout_ms: DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS,
+            max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
+            logger_configuration: LoggerConfiguration::default(),
+        }
+    }
 }
 
 impl Configuration {
@@ -54,20 +66,4 @@ impl Configuration {
         let reader = BufReader::new(file);
         serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")
     }
-}
-
-fn default_torii_api_url() -> String {
-    DEFAULT_TORII_API_URL.to_owned()
-}
-
-const fn default_transaction_time_to_live_ms() -> u64 {
-    DEFAULT_TRANSACTION_TIME_TO_LIVE_MS
-}
-
-const fn default_transaction_status_timeout_ms() -> u64 {
-    DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS
-}
-
-const fn default_max_instruction_number() -> usize {
-    DEFAULT_MAX_INSTRUCTION_NUMBER
 }

@@ -33,10 +33,10 @@ fn client_add_account_with_name_length_more_than_limit_should_not_commit_transac
     thread::sleep(pipeline_time * 2);
 
     assert!(test_client
-        .request(&client::account::by_id(normal_account_id))
+        .request(client::account::by_id(normal_account_id))
         .is_ok());
     assert!(test_client
-        .request(&client::account::by_id(incorrect_account_id))
+        .request(client::account::by_id(incorrect_account_id))
         .is_err());
 
     Ok(())

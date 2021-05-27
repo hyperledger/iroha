@@ -128,7 +128,7 @@ pub mod query {
 
     impl Query for FindAllDomains {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             Ok(world_state_view
                 .domains()
                 .iter()
@@ -138,13 +138,12 @@ pub mod query {
     }
 
     impl Query for FindDomainByName {
-        #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .name
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get domain name")?;
-            Ok(world_state_view.domain(&name)?.clone().into())
+            Ok(world_state_view.domain(&name)?.clone())
         }
     }
 }

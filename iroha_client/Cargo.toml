@@ -17,6 +17,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+iroha = { path = "../iroha" }
 iroha_dsl = { version = "=0.1.0", path = "../iroha_dsl" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}

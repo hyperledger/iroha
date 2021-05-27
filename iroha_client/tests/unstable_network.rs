@@ -68,15 +68,14 @@ fn unstable_network(
 
     //Then
     iroha_client.poll_request_with_period(
-        &client::asset::by_account_id(account_id),
+        client::asset::by_account_id(account_id),
         Configuration::pipeline_time(),
         polling_max_attempts,
         |result| {
-            result
-                .find_asset_by_id(&asset_definition_id)
-                .map_or(false, |asset| {
-                    asset.value == AssetValue::Quantity(account_has_quantity)
-                })
+            result.iter().any(|asset| {
+                asset.id.definition_id == asset_definition_id
+                    && asset.value == AssetValue::Quantity(account_has_quantity)
+            })
         },
     );
 }

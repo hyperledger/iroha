@@ -209,48 +209,32 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let expected_seller_btc = 0;
     let expected_buyer_eth = 180;
     let expected_buyer_btc = 20;
-    if let QueryResult(Value::U32(quantity)) = iroha_client
-        .request(&QueryRequest::new(
-            FindAssetQuantityById::new(AssetId::from_names("eth", "crypto", "seller", "company"))
-                .into(),
-        ))
-        .expect("Failed to execute Iroha Query")
-    {
-        assert_eq!(expected_seller_eth, quantity);
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
-    if let QueryResult(Value::U32(quantity)) = iroha_client
-        .request(&QueryRequest::new(
-            FindAssetQuantityById::new(AssetId::from_names("btc", "crypto", "seller", "company"))
-                .into(),
-        ))
-        .expect("Failed to execute Iroha Query")
-    {
-        assert_eq!(expected_seller_btc, quantity);
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
-    if let QueryResult(Value::U32(quantity)) = iroha_client
-        .request(&QueryRequest::new(
-            FindAssetQuantityById::new(AssetId::from_names("eth", "crypto", "buyer", "company"))
-                .into(),
-        ))
-        .expect("Failed to execute Iroha Query")
-    {
-        assert_eq!(expected_buyer_eth, quantity);
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
-    if let QueryResult(Value::U32(quantity)) = iroha_client
-        .request(&QueryRequest::new(
-            FindAssetQuantityById::new(AssetId::from_names("btc", "crypto", "buyer", "company"))
-                .into(),
-        ))
-        .expect("Failed to execute Iroha Query")
-    {
-        assert_eq!(expected_buyer_btc, quantity);
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
+
+    let eth_quantity = iroha_client
+        .request(FindAssetQuantityById::new(AssetId::from_names(
+            "eth", "crypto", "seller", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_seller_eth, eth_quantity);
+
+    let btc_quantity = iroha_client
+        .request(FindAssetQuantityById::new(AssetId::from_names(
+            "btc", "crypto", "seller", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_seller_btc, btc_quantity);
+
+    let buyer_eth_quantity = iroha_client
+        .request(FindAssetQuantityById::new(AssetId::from_names(
+            "eth", "crypto", "buyer", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_buyer_eth, buyer_eth_quantity);
+
+    let buyer_btc_quantity = iroha_client
+        .request(FindAssetQuantityById::new(AssetId::from_names(
+            "btc", "crypto", "buyer", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_buyer_btc, buyer_btc_quantity);
 }
