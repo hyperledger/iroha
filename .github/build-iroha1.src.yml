@@ -1,20 +1,16 @@
 name: Iroha1
 
-## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times
-## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
+## TODO vcpkg build only Debug or only Release
+## TODO better caching utilizing diff-backup style tools like restic and rclone
 ##      to improve performance and reduce storage consumption
-## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
-##         GitHub's default runners also idles much time before started
-## TODO 4. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## TODO 6. Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
-## FIXME 7. ctest integration_fake_peer_example_test
-## FIXME 8. cannot push docker image iroha-builder without credentials when PR is from fork.
+## TODO More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
+## TODO Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
+## TODO Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
+## FIXME ctest integration_fake_peer_example_test [ubuntu clang-10 Debug]
+## FIXME cannot push docker image iroha-builder without credentials when PR is from fork.
 ##       Because GitHub secrets inaccessable to PRs from forks.
 ##       Solution: open PR from the same repo.
-## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
-## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-## TODO store ccache with rclone
-## TODO Use vcpkg binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
+## FIXME change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 
 ## TODO schedule: nightly
 
@@ -46,7 +42,7 @@ jobs:
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/buildme') }}
     steps:
-      - &step_show_context
+      -
         name: Show context
         run: |
           cat >/dev/null <<'END'
@@ -67,9 +63,14 @@ jobs:
     # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
     # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
     runs-on: [ self-hosted, Linux ]
-    continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
+    continue-on-error: true  ##FIXME
     steps:
-      - *step_show_context
+      - &step_show_context
+        name: Show context
+        run: |
+          cat >/dev/null <<'END'
+            ${{ toJson(github) }}
+          END
       - &step_cancel_previous_runs
         if: ${{false}}
         name: Cancel Previous Workflow Runs
@@ -84,7 +85,6 @@ jobs:
           free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
             /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
           df -h
-        #  ccache --show-stats
       - &step_build_info
         name: Build info
         run: |
@@ -113,14 +113,10 @@ jobs:
         with:
           ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-      - &step_docker_tag
+      -
         name: Determine dockertag
         id: dockertag
-        env:
-          dockertag: ${{ hashFiles('docker/develop/Dockerfile.builder') }}
-        run: |
-          echo "::set-output name=dockertag::$dockertag"
-          echo >>$GITHUB_ENV  dockertag=$dockertag
+        run: echo "::set-output name=dockertag::${{ hashFiles('docker/develop/Dockerfile.builder') }}"
       - &step_docker_creds
         ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
         name: Dockerhub creds
@@ -140,10 +136,10 @@ jobs:
         name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
-        with: &step_docker_meta_with
+        with:
           images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
-            type=raw,value=${{env.dockertag}}
+            type=raw,value=${{steps.dockertag.outputs.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -158,31 +154,31 @@ jobs:
         ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
         ##  - tag 'edge' when branch support/1.2.x is pushed
         ##  - schedule, see the docs
-      - &step_docker_buildx
+      -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - &step_docker_cache
+      -
         name: Cache Docker layers
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key:           ${{ runner.os }}-buildx-${{env.dockertag}}
+          key:           ${{ runner.os }}-buildx-${{steps.dockertag.outputs.dockertag}}
           restore-keys:  ${{ runner.os }}-buildx-
-      - &step_docker_login
+      -
         name: Login to DockerHub
         uses: docker/login-action@v1
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}       ## humb1t  for hyperledger
           password: ${{ env.DOCKERHUB_TOKEN }}          ## ${{ secrets.DOCKERHUB }}
-      - &step_docker_login_failure
+      -
         name: When Login to DockerHub imposible
         id: login_failed
         if: failure()
         run: echo ::set-output name=result::"true"
-      - &step_docker_build_and_push
+      -
         name: Build and push
         uses: docker/build-push-action@v2
-        with: &step_docker_build_and_push_with
+        with:
           file: docker/develop/Dockerfile.builder
           # context: .
           cache-from: type=local,src=/tmp/.buildx-cache
@@ -190,7 +186,7 @@ jobs:
           push: true  #${{ github.event_name != 'pull_request' }}
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      - &step_docker_move_cache
+      -
         # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
@@ -203,7 +199,7 @@ jobs:
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
       DOCKERHUB_ORG: ${{steps.creds.outputs.DOCKERHUB_ORG}}
-      status: job.status
+      # result: job.status
 
   ## Build in a docker container
   build-iroha-ubuntu:
@@ -235,11 +231,11 @@ jobs:
             ${{ toJson(needs) }}
           END
       -
-        if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
+        if: ${{ needs.Docker-iroha-builder.result != 'success' }} #needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
         name: Possible WARNING
         run: |
           cat <<END
-            ::warning::Running on container '${{toJson(job.container)}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+            Running on container '${{job.container}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
             The most possible reason you see this message is that docker image
             '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
@@ -259,6 +255,7 @@ jobs:
 
             Please ask @kuvaldini on GitHub or in Telegram if you need help.
           END
+      - *step_cancel_previous_runs
       - *step_system_info
       - *step_build_info
       - *step_detect_commented_pr
@@ -269,32 +266,17 @@ jobs:
           if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
           echo CC=$CC                                                >>$GITHUB_ENV
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-          echo >>$GITHUB_PATH $CCACHE_PATH
-          echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
-          # echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$( vcpkg help binarycaching |
-          #         awk '/Based on your system settings, the default path to store binaries is/{getline; print}' | xargs )
-          echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$HOME/.cache/vcpkg/archives
-        env:
-          CCACHE_PATH: /usr/lib/ccache
-      - &step_restore_ccache
-        name: Restore cache ccache
-        uses: actions/cache@v2
-        with:
-          path: ${{ env._CCACHE_DIR }}
-          key:  ${{ runner.os }}-ccache
       - &step_vcpkg_cache
-        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Restore cache vcpkg
+        ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        name: Cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env._VCPKG_BINARYCACHING_DIR }}
-          #  build-vcpkg
+            build-vcpkg
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
           #  $HOME/.cache/vcpkg
-          key: ${{ runner.os }}-${{matrix.cc}}-vcpkg
-          # key:          ${{ runner.os }}-vcpkg-${{matrix.cc}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.cc}}-
+          key:          ${{ runner.os }}-vcpkg-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
+          restore-keys: ${{ runner.os }}-vcpkg-
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
@@ -312,15 +294,12 @@ jobs:
       - &step_cmake_configure
         name: CMake configure
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
-          -GNinja ${{ matrix.CMAKE_USE }}  $(test ${{matrix.build_type}} = Release && echo -DPACKAGE_DEB=ON)
+          -GNinja ${{ matrix.CMAKE_USE }}
           #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - &step_cmake_build
         name: CMake build
-        run: |
-          set -x
-          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
-          if test ${{matrix.build_type}} = 'Release' ;then ( cd build; cpack; ) ;fi
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Takes 18m44s on regular GitHub runner
       - &step_always_after_build
         name: Show free space and disk usage
@@ -338,9 +317,8 @@ jobs:
           build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
-          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
-        env: &step_artifact_suffix_env
-          os:         ubuntu  ## maybe ${{ run.os }}
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+        env:
           cc:         ${{ matrix.cc }}
           build_type: ${{ matrix.build_type }}
           CMAKE_USE:  ${{ matrix.CMAKE_USE }}
@@ -349,12 +327,12 @@ jobs:
         name: Archive artifact irohad
         uses: actions/upload-artifact@v2
         with:
-          name: irohad${{env.ARTIFACT_SUFFIX}}
+          name: irohad-ubuntu${{env.ARTIFACT_SUFFIX}}
           path: &step_artifact_irohad_path |
             build/bin/irohad
             build/bin/iroha-cli
-            *.deb
           # required: ${{ matrix.build_type == 'Release' }}
+
       - &step_artifact_tests
         if: ${{ false }}
         name: Archive artifact tests
@@ -364,22 +342,25 @@ jobs:
           path: |
             build/test_bin/**
             build/test_data/**
+      # - &step_exclude_ctest  ## This was a temporal fix for clang-10 but that test often fails on other compilers
+      #   if: ${{ matrix.cc == 'clang-10' && matrix.CMAKE_USE=='' && matrix.build_type=='Debug' }}
+      #   name: FIXME(do not) Exclude integration_fake_peer_example_test
+      #   run: echo >>$GITHUB_ENV CTEST_EXCLUDE="-E ^integration_fake_peer_example_test$"
       - &step_ctest
         timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
-          set -x
           initdb --locale=C -E UTF-8 $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           createuser -s postgres -p5432
 
           cd build
           ##FIXME enable yac when it were fixed lag
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac_
-          ctest --output-on-failure -R '^module_yac_'
-          ctest --output-on-failure -R '^integration_' --repeat until-pass:3 -E '^integration_fake_peer_example_test$'
-          ctest --output-on-failure -R '^integration_fake_peer_example_test$' || true
+          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac
+          ctest --output-on-failure -R '^integration_' --repeat until-pass:3 $CTEST_EXCLUDE
         #FIXME do not CTEST_EXCLUDE
+        env:
+          CTEST_EXCLUDE: -E ^integration_fake_peer_example_test$
 
   build-iroha-macos:
     # if: ${{ false }}  # disable for now
@@ -401,7 +382,7 @@ jobs:
       - *step_build_info
       -
         name: Homebrew
-        run: brew install cmake ninja coreutils ccache
+        run: brew install cmake ninja coreutils
         ## Takes 22 seconds with default github runner
       -
         if: ${{ contains(matrix.cc, 'gcc-10') }}
@@ -422,21 +403,11 @@ jobs:
 
       - *step_detect_commented_pr
       - *step_checkout
-      - <<: *step_export_cxx
-        env:
-          CCACHE_PATH: /usr/local/opt/ccache/libexec
-      - *step_restore_ccache
+      - *step_export_cxx
       - *step_vcpkg_cache
       - *step_vcpkg_build
       - *step_cmake_configure
       - *step_cmake_build
-      - *step_always_after_build
-      - <<: *step_artifact_suffix
-        name: Generate artifact suffix gcc9 >> env.ARTIFACT_SUFFIX
-        #run: inherited
-        env:
-          <<: *step_artifact_suffix_env
-          os: macos  ##${{run.os}}
       - <<: *step_artifact_irohad
         with:
           name: irohad-macos${{env.ARTIFACT_SUFFIX}}
@@ -489,53 +460,17 @@ jobs:
     needs: build-iroha-ubuntu
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        cc: [ gcc-9 ]
-        build_type: [ Release ]
-        # CMAKE_USE:  [ '' ]
     steps:
-      - *step_show_context
-      - *step_system_info
-      - *step_build_info
-      - *step_detect_commented_pr
-      - *step_checkout
-      - <<: *step_docker_tag
-        env:
-          dockertag: ${{ hashFiles('docker/release/**') }}
-      - *step_docker_creds
-      - <<: *step_docker_meta
-        with:
-          <<: *step_docker_meta_with
-          images: ${{ env.DOCKERHUB_ORG }}/iroha
-      - *step_docker_buildx
-      - <<: *step_docker_cache
-        with:
-          path: /tmp/.buildx-cache
-          key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys:  ${{ runner.os }}-buildx-release
-      - *step_docker_login
-      #- *step_docker_login_failure
       - <<: *step_artifact_suffix
-      - &step_download_artifact_irohad
+        name: Generate artifact suffix gcc9 >> env.ARTIFACT_SUFFIX
+        #run: inherited
+        env:
+          cc: gcc-9
+          build_type: Release
+      -
         name: Download artifact
         uses: actions/download-artifact@v2
         with:
           name: irohad${{env.ARTIFACT_SUFFIX}}
-      -
-        name: Rename artifact debs
-        run: |
-          mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
-          mv *iroha.deb          docker/release/iroha.deb
-      - <<: *step_docker_build_and_push
-        with:
-          <<: *step_docker_build_and_push_with
-          #file:    docker/release/Dockerfile
-          context: docker/release/
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to:   type=local,dest=/tmp/.buildx-cache-new
-          push: true  #${{ github.event_name != 'pull_request' }}
-          tags:   ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-      - *step_docker_move_cache
+      # - Checkout
+      # - build/bin/irohad
