@@ -620,12 +620,9 @@ mod asset {
         let asset_id = AssetDefinitionId::from_str(asset_id)
             .wrap_err("Failed to parse Asset Definition Id.")?;
 
-        let query_result = iroha_client
-            .request(&asset::by_account_id_and_definition_id(
-                account_id, asset_id,
-            ))
+        let value = iroha_client
+            .request(asset::by_account_id_and_definition_id(account_id, asset_id))
             .wrap_err("Failed to get asset.")?;
-        let QueryResult(value) = query_result;
         println!("Get Asset result: {:?}", value);
         Ok(())
     }

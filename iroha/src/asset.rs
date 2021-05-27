@@ -225,46 +225,45 @@ pub mod query {
 
     impl Query for FindAllAssets {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in world_state_view.domains().iter() {
                 for account in domain.accounts.values() {
                     for asset in account.assets.values() {
-                        vec.push(Value::from(asset.clone()))
+                        vec.push(asset.clone())
                     }
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAllAssetsDefinitions {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in world_state_view.domains().iter() {
                 for asset_definition_entry in domain.asset_definitions.values() {
-                    vec.push(Value::from(asset_definition_entry.definition.clone()))
+                    vec.push(asset_definition_entry.definition.clone())
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAssetById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            Ok(world_state_view.asset(&id)?.into())
+            world_state_view.asset(&id)
         }
     }
 
     impl Query for FindAssetsByName {
-        #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .name
                 .evaluate(world_state_view, &Context::default())
@@ -274,29 +273,29 @@ pub mod query {
                 for account in domain.accounts.values() {
                     for asset in account.assets.values() {
                         if asset.id.definition_id.name == name {
-                            vec.push(Value::from(asset.clone()))
+                            vec.push(asset.clone())
                         }
                     }
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAssetsByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .account_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get account id")?;
-            Ok(world_state_view.account_assets(&id)?.into())
+            world_state_view.account_assets(&id)
         }
     }
 
     impl Query for FindAssetsByAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .asset_definition_id
                 .evaluate(world_state_view, &Context::default())
@@ -306,18 +305,18 @@ pub mod query {
                 for account in domain.accounts.values() {
                     for asset in account.assets.values() {
                         if asset.id.definition_id == id {
-                            vec.push(Value::from(asset.clone()))
+                            vec.push(asset.clone())
                         }
                     }
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAssetsByDomainName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .domain_name
                 .evaluate(world_state_view, &Context::default())
@@ -325,16 +324,16 @@ pub mod query {
             let mut vec = Vec::new();
             for account in world_state_view.domain(&name)?.accounts.values() {
                 for asset in account.assets.values() {
-                    vec.push(Value::from(asset.clone()))
+                    vec.push(asset.clone())
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAssetsByAccountIdAndAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .account_id
                 .evaluate(world_state_view, &Context::default())
@@ -343,25 +342,17 @@ pub mod query {
                 .asset_definition_id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            Ok(Value::Vec(
-                world_state_view
-                    .account_assets(&id)?
-                    .into_iter()
-                    .filter_map(|asset| {
-                        if asset.id.definition_id == asset_id {
-                            Some(Value::from(asset))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-            ))
+            Ok(world_state_view
+                .account_assets(&id)?
+                .into_iter()
+                .filter(|asset| asset.id.definition_id == asset_id)
+                .collect())
         }
     }
 
     impl Query for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .domain_name
                 .evaluate(world_state_view, &Context::default())
@@ -385,23 +376,22 @@ pub mod query {
                     }
                 }
             }
-            Ok(assets.into_iter().collect())
+            Ok(assets)
         }
     }
 
     impl Query for FindAssetQuantityById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<u32> {
             let asset_id = self
                 .id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            let quantity: Result<u32> = world_state_view
+            world_state_view
                 .asset(&asset_id)?
                 .value
                 .try_as_ref()
-                .map(Clone::clone);
-            Ok(quantity?.into())
+                .map(Clone::clone)
         }
     }
 

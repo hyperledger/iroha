@@ -1,5 +1,5 @@
 use std::{
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     fmt::{self, Debug, Formatter},
     sync::mpsc,
     thread,
@@ -7,6 +7,7 @@ use std::{
 };
 
 use http_client::WebSocketStream;
+use iroha::query::Query;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_dsl::prelude::*;
 use iroha_error::{error, Error, Result, WrapErr};
@@ -21,12 +22,14 @@ use crate::{
 /// Iroha client
 #[derive(Clone)]
 pub struct Client {
-    torii_url: String,
+    /// Url for accessing iroha node
+    pub torii_url: String,
     max_instruction_number: usize,
     key_pair: KeyPair,
     proposed_transaction_ttl_ms: u64,
     transaction_status_timout: Duration,
-    account_id: AccountId,
+    /// Current account
+    pub account_id: AccountId,
 }
 
 /// Representation of `Iroha` client.
@@ -233,27 +236,33 @@ impl Client {
     /// # Errors
     /// Fails if sending request fails
     #[log]
-    pub fn request_with_pagination(
+    pub fn request_with_pagination<R>(
         &mut self,
-        request: &QueryRequest,
+        request: R,
         pagination: Pagination,
-    ) -> Result<QueryResult> {
+    ) -> Result<R::Output>
+    where
+        R: Query + Into<QueryRequest> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+    {
         let pagination: Vec<_> = pagination.into();
-        let request: VersionedSignedQueryRequest = request.clone().sign(&self.key_pair)?.into();
+        let request: VersionedSignedQueryRequest = request.into().sign(&self.key_pair)?.into();
         let response = http_client::get(
             &format!("http://{}{}", self.torii_url, uri::QUERY_URI),
             request.encode_versioned()?,
             pagination,
         )?;
-        if response.status() == StatusCode::OK {
-            response.body().clone().try_into().map_err(Error::msg)
-        } else {
-            Err(error!(
+        if response.status() != StatusCode::OK {
+            return Err(error!(
                 "Failed to make query request with HTTP status: {}, {}",
                 response.status(),
                 std::str::from_utf8(response.body()).unwrap_or(""),
-            ))
+            ));
         }
+        let QueryResult(result) = response.body().clone().try_into().map_err(Error::msg)?;
+        R::Output::try_from(result)
+            .map_err(Into::into)
+            .wrap_err("Unexpected type")
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
@@ -261,7 +270,11 @@ impl Client {
     /// # Errors
     /// Fails if sending request fails
     #[log]
-    pub fn request(&mut self, request: &QueryRequest) -> Result<QueryResult> {
+    pub fn request<R>(&mut self, request: R) -> Result<R::Output>
+    where
+        R: Query + Into<QueryRequest> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+    {
         self.request_with_pagination(request, Pagination::default())
     }
 
@@ -419,13 +432,13 @@ pub mod account {
     use super::*;
 
     /// Get query to get all accounts
-    pub fn all() -> QueryRequest {
-        QueryRequest::new(FindAllAccounts::new().into())
+    pub const fn all() -> FindAllAccounts {
+        FindAllAccounts::new()
     }
 
     /// Get query to get account by id
-    pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> QueryRequest {
-        QueryRequest::new(FindAccountById::new(account_id).into())
+    pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAccountById {
+        FindAccountById::new(account_id)
     }
 }
 
@@ -434,30 +447,28 @@ pub mod asset {
     use super::*;
 
     /// Get query to get all assets
-    pub fn all() -> QueryRequest {
-        QueryRequest::new(FindAllAssets::new().into())
+    pub const fn all() -> FindAllAssets {
+        FindAllAssets::new()
     }
 
     /// Get query to get all asset definitions
-    pub fn all_definitions() -> QueryRequest {
-        QueryRequest::new(FindAllAssetsDefinitions::new().into())
+    pub const fn all_definitions() -> FindAllAssetsDefinitions {
+        FindAllAssetsDefinitions::new()
     }
 
     /// Get query to get all assets by account id
     pub fn by_account_id(
         account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>,
-    ) -> QueryRequest {
-        QueryRequest::new(FindAssetsByAccountId::new(account_id).into())
+    ) -> FindAssetsByAccountId {
+        FindAssetsByAccountId::new(account_id)
     }
 
     /// Get query to get all assets by account id and definition id
     pub fn by_account_id_and_definition_id(
         account_id: impl Into<EvaluatesTo<AccountId>>,
         asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-    ) -> QueryRequest {
-        QueryRequest::new(
-            FindAssetsByAccountIdAndAssetDefinitionId::new(account_id, asset_definition_id).into(),
-        )
+    ) -> FindAssetsByAccountIdAndAssetDefinitionId {
+        FindAssetsByAccountIdAndAssetDefinitionId::new(account_id, asset_definition_id)
     }
 }
 
@@ -466,13 +477,13 @@ pub mod domain {
     use super::*;
 
     /// Get query to get all domains
-    pub fn all() -> QueryRequest {
-        QueryRequest::new(FindAllDomains::new().into())
+    pub const fn all() -> FindAllDomains {
+        FindAllDomains::new()
     }
 
     /// Get query to get all domain by name
-    pub fn by_name(domain_name: impl Into<EvaluatesTo<String>>) -> QueryRequest {
-        QueryRequest::new(FindDomainByName::new(domain_name).into())
+    pub fn by_name(domain_name: impl Into<EvaluatesTo<String>>) -> FindDomainByName {
+        FindDomainByName::new(domain_name)
     }
 }
 
@@ -481,8 +492,10 @@ pub mod transaction {
     use super::*;
 
     /// Get query to retrieve transactions for account
-    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> QueryRequest {
-        QueryRequest::new(FindTransactionsByAccountId::new(account_id).into())
+    pub fn by_account_id(
+        account_id: impl Into<EvaluatesTo<AccountId>>,
+    ) -> FindTransactionsByAccountId {
+        FindTransactionsByAccountId::new(account_id)
     }
 }
 

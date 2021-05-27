@@ -28,18 +28,14 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     thread::sleep(pipeline_time);
     //When
 
-    let result = iroha_client
+    let vec = iroha_client
         .request_with_pagination(
-            &asset::all_definitions(),
+            asset::all_definitions(),
             Pagination {
                 start: Some(5),
                 limit: Some(5),
             },
         )
         .expect("Failed to get assets");
-    if let QueryResult(Value::Vec(vec)) = result {
-        assert_eq!(vec.len(), 5)
-    } else {
-        panic!("Expected vector of assets")
-    }
+    assert_eq!(vec.len(), 5);
 }

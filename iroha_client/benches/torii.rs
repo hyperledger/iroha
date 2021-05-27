@@ -68,14 +68,10 @@ fn query_requests(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let _dropable = group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
     let _dropable2 = group.bench_function("query", |b| {
-        b.iter(|| match iroha_client.request(&request) {
-            Ok(query_result) => {
-                if let QueryResult(Value::Vec(assets)) = query_result {
-                    assert!(!assets.is_empty());
-                    success_count += 1;
-                } else {
-                    panic!("Wrong Query Result Type.");
-                }
+        b.iter(|| match iroha_client.request(request.clone()) {
+            Ok(assets) => {
+                assert!(!assets.is_empty());
+                success_count += 1;
             }
             Err(e) => {
                 eprintln!("Query failed: {}", e);

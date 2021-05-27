@@ -2,6 +2,7 @@
 
 #![allow(clippy::missing_inline_in_public_items)]
 
+use std::convert::TryFrom;
 use std::time::SystemTime;
 
 use iroha_crypto::prelude::*;
@@ -85,6 +86,16 @@ pub enum QueryBox {
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
 }
 
+/// Trait for typesafe query output
+pub trait QueryOutput {
+    /// Output type of query
+    type Output: Into<Value> + TryFrom<Value>;
+}
+
+impl QueryOutput for QueryBox {
+    type Output = Value;
+}
+
 /// I/O ready structure to send queries.
 #[derive(Debug, Io, Encode, Decode, Clone)]
 pub struct QueryRequest {
@@ -93,6 +104,12 @@ pub struct QueryRequest {
     pub timestamp_ms: u128,
     /// Query definition.
     pub query: QueryBox,
+}
+
+impl<Q: Into<QueryBox>> From<Q> for QueryRequest {
+    fn from(query: Q) -> QueryRequest {
+        QueryRequest::new(query.into())
+    }
 }
 
 declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2);
@@ -202,6 +219,10 @@ pub mod role {
     )]
     pub struct FindAllRoles {}
 
+    impl QueryOutput for FindAllRoles {
+        type Output = Vec<Role>;
+    }
+
     /// `FindRolesByAccountId` Iroha Query will find an `Role`s for a specified account.
     #[derive(
         Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord,
@@ -209,6 +230,10 @@ pub mod role {
     pub struct FindRolesByAccountId {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
+    }
+
+    impl QueryOutput for FindRolesByAccountId {
+        type Output = Vec<RoleId>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
@@ -233,6 +258,10 @@ pub mod permissions {
     pub struct FindPermissionTokensByAccountId {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
+    }
+
+    impl QueryOutput for FindPermissionTokensByAccountId {
+        type Output = Vec<PermissionToken>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
@@ -269,6 +298,10 @@ pub mod account {
     )]
     pub struct FindAllAccounts {}
 
+    impl QueryOutput for FindAllAccounts {
+        type Output = Vec<Account>;
+    }
+
     /// `FindAccountById` Iroha Query will find an `Account` by it's identification.
     #[derive(
         Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord,
@@ -276,6 +309,10 @@ pub mod account {
     pub struct FindAccountById {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
+    }
+
+    impl QueryOutput for FindAccountById {
+        type Output = Account;
     }
 
     /// `FindAccountById` Iroha Query will find a [`Value`] of the key-value metadata pair
@@ -290,6 +327,10 @@ pub mod account {
         pub key: EvaluatesTo<String>,
     }
 
+    impl QueryOutput for FindAccountKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
     /// find all `Account`s with this name.
     #[derive(
@@ -300,6 +341,10 @@ pub mod account {
         pub name: EvaluatesTo<Name>,
     }
 
+    impl QueryOutput for FindAccountsByName {
+        type Output = Vec<Account>;
+    }
+
     /// `FindAccountsByDomainName` Iroha Query will get `Domain`s name as input and
     /// find all `Account`s under this `Domain`.
     #[derive(
@@ -308,6 +353,10 @@ pub mod account {
     pub struct FindAccountsByDomainName {
         /// `domain_name` under which accounts should be found.
         pub domain_name: EvaluatesTo<Name>,
+    }
+
+    impl QueryOutput for FindAccountsByDomainName {
+        type Output = Vec<Account>;
     }
 
     impl FindAllAccounts {
@@ -391,6 +440,10 @@ pub mod asset {
     )]
     pub struct FindAllAssets {}
 
+    impl QueryOutput for FindAllAssets {
+        type Output = Vec<Asset>;
+    }
+
     /// `FindAllAssetsDefinitions` Iroha Query will find all `AssetDefinition`s presented
     /// in Iroha Peer.
     #[derive(
@@ -410,6 +463,10 @@ pub mod asset {
     )]
     pub struct FindAllAssetsDefinitions {}
 
+    impl QueryOutput for FindAllAssetsDefinitions {
+        type Output = Vec<AssetDefinition>;
+    }
+
     /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
     #[derive(
         Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord,
@@ -417,6 +474,10 @@ pub mod asset {
     pub struct FindAssetById {
         /// `Id` of an `Asset` to find.
         pub id: EvaluatesTo<AssetId>,
+    }
+
+    impl QueryOutput for FindAssetById {
+        type Output = Asset;
     }
 
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
@@ -429,6 +490,10 @@ pub mod asset {
         pub name: EvaluatesTo<Name>,
     }
 
+    impl QueryOutput for FindAssetsByName {
+        type Output = Vec<Asset>;
+    }
+
     /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
     /// owned by the `Account` in Iroha Peer.
     #[derive(
@@ -437,6 +502,10 @@ pub mod asset {
     pub struct FindAssetsByAccountId {
         /// `AccountId` under which assets should be found.
         pub account_id: EvaluatesTo<AccountId>,
+    }
+
+    impl QueryOutput for FindAssetsByAccountId {
+        type Output = Vec<Asset>;
     }
 
     /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
@@ -449,6 +518,10 @@ pub mod asset {
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
+    impl QueryOutput for FindAssetsByAssetDefinitionId {
+        type Output = Vec<Asset>;
+    }
+
     /// `FindAssetsByDomainName` Iroha Query will get `Domain`s name as input and
     /// find all `Asset`s under this `Domain` in Iroha `Peer`.
     #[derive(
@@ -457,6 +530,10 @@ pub mod asset {
     pub struct FindAssetsByDomainName {
         /// `Name` of the domain under which assets should be found.
         pub domain_name: EvaluatesTo<Name>,
+    }
+
+    impl QueryOutput for FindAssetsByDomainName {
+        type Output = Vec<Asset>;
     }
 
     // TODO: remove as it is the same as `FindAssetById`
@@ -473,6 +550,10 @@ pub mod asset {
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
+    impl QueryOutput for FindAssetsByAccountIdAndAssetDefinitionId {
+        type Output = Vec<Asset>;
+    }
+
     /// `FindAssetsByDomainNameAndAssetDefinitionId` Iroha Query will get `Domain`'s name and
     /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
@@ -486,6 +567,10 @@ pub mod asset {
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
+    impl QueryOutput for FindAssetsByDomainNameAndAssetDefinitionId {
+        type Output = Vec<Asset>;
+    }
+
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
     /// parameter's value if `Asset` is presented in Iroha Peer.
     #[derive(
@@ -494,6 +579,10 @@ pub mod asset {
     pub struct FindAssetQuantityById {
         /// `Id` of an `Asset` to find quantity of.
         pub id: EvaluatesTo<AssetId>,
+    }
+
+    impl QueryOutput for FindAssetQuantityById {
+        type Output = u32;
     }
 
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` and key as input and find [`Value`]
@@ -506,6 +595,10 @@ pub mod asset {
         pub id: EvaluatesTo<AssetId>,
         /// The key of the key-value pair stored in the asset.
         pub key: EvaluatesTo<Name>,
+    }
+
+    impl QueryOutput for FindAssetKeyValueByIdAndKey {
+        type Output = Value;
     }
 
     impl FindAllAssets {
@@ -651,6 +744,10 @@ pub mod domain {
     )]
     pub struct FindAllDomains {}
 
+    impl QueryOutput for FindAllDomains {
+        type Output = Vec<Domain>;
+    }
+
     /// `FindDomainByName` Iroha Query will find a `Domain` by it's identification in Iroha `Peer`.
     #[derive(
         Clone, Debug, Io, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord,
@@ -658,6 +755,10 @@ pub mod domain {
     pub struct FindDomainByName {
         /// Name of the domain to find.
         pub name: EvaluatesTo<Name>,
+    }
+
+    impl QueryOutput for FindDomainByName {
+        type Output = Domain;
     }
 
     impl FindAllDomains {
@@ -688,6 +789,9 @@ pub mod peer {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
+    use super::QueryOutput;
+    use crate::{peer::Peer, Parameter};
+
     /// `FindAllPeers` Iroha Query will find all trusted `Peer`s presented in current Iroha `Peer`.
     #[derive(
         Copy,
@@ -706,6 +810,10 @@ pub mod peer {
     )]
     pub struct FindAllPeers {}
 
+    impl QueryOutput for FindAllPeers {
+        type Output = Vec<Peer>;
+    }
+
     /// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
     #[derive(
         Copy,
@@ -723,6 +831,10 @@ pub mod peer {
         Ord,
     )]
     pub struct FindAllParameters {}
+
+    impl QueryOutput for FindAllParameters {
+        type Output = Vec<Parameter>;
+    }
 
     impl FindAllPeers {
         ///Default `FindAllPeers` constructor.
@@ -752,8 +864,10 @@ pub mod transaction {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
+    use super::QueryOutput;
     use crate::account::prelude::AccountId;
     use crate::expression::EvaluatesTo;
+    use crate::transaction::TransactionValue;
 
     /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
     /// for the account
@@ -763,6 +877,10 @@ pub mod transaction {
     pub struct FindTransactionsByAccountId {
         /// Signer's `AccountId` under which transactions should be found.
         pub account_id: EvaluatesTo<AccountId>,
+    }
+
+    impl QueryOutput for FindTransactionsByAccountId {
+        type Output = Vec<TransactionValue>;
     }
 
     impl FindTransactionsByAccountId {
@@ -782,6 +900,7 @@ pub mod transaction {
 pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
+    pub use super::QueryOutput;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
         permissions::prelude::*, transaction::*, QueryBox, QueryRequest, QueryResult,

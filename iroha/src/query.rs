@@ -31,12 +31,17 @@ pub struct VerifiedQueryRequest {
 
 /// This trait should be implemented for all Iroha Queries.
 #[allow(clippy::missing_errors_doc)]
-pub trait Query {
+pub trait Query: QueryOutput {
     /// Execute query on the `WorldStateView`.
     /// Should not mutate `WorldStateView`!
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value>;
+    fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output>;
+
+    /// Executes query and maps it into value
+    fn execute_into_value(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        self.execute(world_state_view).map(Into::into)
+    }
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
@@ -133,37 +138,36 @@ impl TryFrom<RawHttpRequest> for VerifiedQueryRequest {
 }
 
 impl Query for QueryBox {
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Value> {
+        use QueryBox::*;
+
         match self {
-            QueryBox::FindAllAccounts(query) => query.execute(world_state_view),
-            QueryBox::FindAccountById(query) => query.execute(world_state_view),
-            QueryBox::FindAccountsByName(query) => query.execute(world_state_view),
-            QueryBox::FindAccountsByDomainName(query) => query.execute(world_state_view),
-            QueryBox::FindAllAssets(query) => query.execute(world_state_view),
-            QueryBox::FindAllAssetsDefinitions(query) => query.execute(world_state_view),
-            QueryBox::FindAssetById(query) => query.execute(world_state_view),
-            QueryBox::FindAssetsByName(query) => query.execute(world_state_view),
-            QueryBox::FindAssetsByAccountId(query) => query.execute(world_state_view),
-            QueryBox::FindAssetsByAssetDefinitionId(query) => query.execute(world_state_view),
-            QueryBox::FindAssetsByDomainName(query) => query.execute(world_state_view),
-            QueryBox::FindAssetsByAccountIdAndAssetDefinitionId(query) => {
-                query.execute(world_state_view)
-            }
-            QueryBox::FindAssetsByDomainNameAndAssetDefinitionId(query) => {
-                query.execute(world_state_view)
-            }
-            QueryBox::FindAssetQuantityById(query) => query.execute(world_state_view),
-            QueryBox::FindAllDomains(query) => query.execute(world_state_view),
-            QueryBox::FindDomainByName(query) => query.execute(world_state_view),
-            QueryBox::FindAllPeers(query) => query.execute(world_state_view),
-            QueryBox::FindAssetKeyValueByIdAndKey(query) => query.execute(world_state_view),
-            QueryBox::FindAccountKeyValueByIdAndKey(query) => query.execute(world_state_view),
-            QueryBox::FindTransactionsByAccountId(query) => query.execute(world_state_view),
+            FindAllAccounts(query) => query.execute_into_value(wsv),
+            FindAccountById(query) => query.execute_into_value(wsv),
+            FindAccountsByName(query) => query.execute_into_value(wsv),
+            FindAccountsByDomainName(query) => query.execute_into_value(wsv),
+            FindAllAssets(query) => query.execute_into_value(wsv),
+            FindAllAssetsDefinitions(query) => query.execute_into_value(wsv),
+            FindAssetById(query) => query.execute_into_value(wsv),
+            FindAssetsByName(query) => query.execute_into_value(wsv),
+            FindAssetsByAccountId(query) => query.execute_into_value(wsv),
+            FindAssetsByAssetDefinitionId(query) => query.execute_into_value(wsv),
+            FindAssetsByDomainName(query) => query.execute_into_value(wsv),
+            FindAssetsByAccountIdAndAssetDefinitionId(query) => query.execute_into_value(wsv),
+            FindAssetsByDomainNameAndAssetDefinitionId(query) => query.execute_into_value(wsv),
+            FindAssetQuantityById(query) => query.execute_into_value(wsv),
+            FindAllDomains(query) => query.execute_into_value(wsv),
+            FindDomainByName(query) => query.execute_into_value(wsv),
+            FindAllPeers(query) => query.execute_into_value(wsv),
+            FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
+            FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
+            FindTransactionsByAccountId(query) => query.execute_into_value(wsv),
+            FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
+
             #[cfg(feature = "roles")]
-            QueryBox::FindAllRoles(query) => query.execute(world_state_view),
+            FindAllRoles(query) => query.execute_into_value(wsv),
             #[cfg(feature = "roles")]
-            QueryBox::FindRolesByAccountId(query) => query.execute(world_state_view),
-            QueryBox::FindPermissionTokensByAccountId(query) => query.execute(world_state_view),
+            FindRolesByAccountId(query) => query.execute_into_value(wsv),
         }
     }
 }

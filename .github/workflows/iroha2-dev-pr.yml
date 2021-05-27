@@ -42,14 +42,14 @@ jobs:
       - name: Install nightly for rustfmt
         run: rustup install --profile default nightly-2021-03-24
       - name: Format check
-        run: cargo +nightly-2021-03-24 fmt --all --verbose -- --check
+        run: cargo +nightly-2021-03-24 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --workspace --benches --tests
       - name: Static analysis with all features enabled
         run: cargo lints clippy --workspace --benches --tests --all-features
       - name: Documentation check
         run: |
-          cargo doc --no-deps --verbose
+          cargo doc --no-deps
           ./scripts/check_docs.sh
 
   test:
@@ -71,7 +71,7 @@ jobs:
             llvm-dev \
             libssl-dev
       - name: Run tests
-        run: cargo test --workspace --verbose
+        run: cargo test --workspace
 
   test-iroha_network-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest
@@ -92,10 +92,10 @@ jobs:
             llvm-dev \
             libssl-dev
       - name: Run iroha_network mock tests
-        run: cargo test --features mock --verbose
+        run: cargo test --features mock
         working-directory: iroha_network
       - name: Run iroha tests with network mock
-        run: cargo test --features network-mock --verbose
+        run: cargo test --features network-mock
         working-directory: iroha
 
   test-docker:
@@ -112,6 +112,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install dependencies
+        if: ${{ false }}
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
@@ -121,7 +122,7 @@ jobs:
             llvm-dev \
             libssl-dev
       - name: Build Client CLI
-        run: cargo build --verbose
+        run: cargo build
         working-directory: iroha_client_cli
       - name: Setup docker test environment
         run: ./scripts/setup_docker_test_env.sh

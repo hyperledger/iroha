@@ -58,31 +58,23 @@ mod tests {
         }
         thread::sleep(pipeline_time * 5);
 
-        let query_result = iroha_client
+        let transactions = iroha_client
             .request_with_pagination(
-                &transaction::by_account_id(account_id.clone()),
+                transaction::by_account_id(account_id.clone()),
                 Pagination {
                     start: Some(1),
                     limit: Some(50),
                 },
             )
             .expect("Failed to get transaction history");
+        assert_eq!(transactions.len(), 50);
 
-        if let QueryResult(Value::Vec(transactions)) = query_result {
-            assert_eq!(transactions.len(), 50);
-            let mut prev_creation_time = 0;
-            for tx in &transactions {
-                if let Value::TransactionValue(tx) = tx {
-                    assert_eq!(&tx.payload().account_id, &account_id);
-                    //check sorted
-                    assert!(tx.payload().creation_time >= prev_creation_time);
-                    prev_creation_time = tx.payload().creation_time;
-                } else {
-                    panic!("Wrong Query Result Type.");
-                }
-            }
-        } else {
-            panic!("Wrong Query Result Type.");
+        let mut prev_creation_time = 0;
+        for tx in &transactions {
+            assert_eq!(&tx.payload().account_id, &account_id);
+            //check sorted
+            assert!(tx.payload().creation_time >= prev_creation_time);
+            prev_creation_time = tx.payload().creation_time;
         }
     }
 }

@@ -52,27 +52,14 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
     //Then
-    let request = client::asset::by_account_id(account_id.clone());
-    let query_result = iroha_client
-        .request(&request)
+    let assets = iroha_client
+        .request(client::asset::by_account_id(account_id.clone()))
         .expect("Failed to execute request.");
-    if let QueryResult(Value::Vec(assets)) = query_result {
-        let asset = assets
-            .iter()
-            .find_map(|asset| {
-                if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
-                    if asset.id.definition_id == asset_definition_id {
-                        return Some(asset);
-                    }
-                }
-                None
-            })
-            .expect("Asset should exist.");
-
-        assert_eq!(AssetValue::Quantity(quantity), asset.value);
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
+    let asset = assets
+        .iter()
+        .find(|asset| asset.id.definition_id == asset_definition_id)
+        .expect("Asset should exist.");
+    assert_eq!(AssetValue::Quantity(quantity), asset.value);
 
     peer_handle
         .send(ShutdownRuntime)
@@ -82,26 +69,14 @@ fn restarted_peer_should_have_the_same_asset_amount() {
 
     drop(peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir));
     thread::sleep(pipeline_time);
-    let request = client::asset::by_account_id(account_id);
-    let query_result = iroha_client
-        .request(&request)
+
+    let account_assets = iroha_client
+        .request(client::asset::by_account_id(account_id))
         .expect("Failed to execute request.");
+    let account_asset = account_assets
+        .iter()
+        .find(|asset| asset.id.definition_id == asset_definition_id)
+        .expect("Asset should exist.");
 
-    if let QueryResult(Value::Vec(assets)) = query_result {
-        let asset = assets
-            .iter()
-            .find_map(|asset| {
-                if let Value::Identifiable(IdentifiableBox::Asset(ref asset)) = asset {
-                    if asset.id.definition_id == asset_definition_id {
-                        return Some(asset);
-                    }
-                }
-                None
-            })
-            .expect("Asset should exist.");
-
-        assert_eq!(AssetValue::Quantity(quantity), asset.value);
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
+    assert_eq!(AssetValue::Quantity(quantity), account_asset.value);
 }

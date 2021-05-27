@@ -11,6 +11,7 @@
 )]
 
 use std::{
+    convert::TryFrom,
     fmt::Debug,
     sync::mpsc::{self, Sender},
     thread,
@@ -376,36 +377,48 @@ pub trait TestClient: Sized {
     fn loop_on_events(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
 
     /// Submits instruction with polling
-    fn submit_till(
+    fn submit_till<R>(
         &mut self,
         instruction: impl Into<Instruction> + Debug,
-        request: &QueryRequest,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult;
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug;
 
     /// Submits instructions with polling
-    fn submit_all_till(
+    fn submit_all_till<R>(
         &mut self,
         instructions: Vec<Instruction>,
-        request: &QueryRequest,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult;
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
-    fn poll_request(
-        &mut self,
-        request: &QueryRequest,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult;
+    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
-    fn poll_request_with_period(
+    fn poll_request_with_period<R>(
         &mut self,
-        request: &QueryRequest,
+        request: R,
         period: Duration,
         max_attempts: u32,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult;
+        f: impl Fn(&R::Output) -> bool,
+    ) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug;
 }
 
 pub trait TestQueryResult {
@@ -470,53 +483,67 @@ impl TestClient for Client {
         }
     }
 
-    fn submit_till(
+    fn submit_till<R>(
         &mut self,
         instruction: impl Into<Instruction> + Debug,
-        request: &QueryRequest,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult {
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug,
+    {
         self.submit(instruction)
             .expect("Failed to submit instruction.");
         self.poll_request(request, f)
     }
 
-    fn submit_all_till(
+    fn submit_all_till<R>(
         &mut self,
         instructions: Vec<Instruction>,
-        request: &QueryRequest,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult {
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug,
+    {
         self.submit_all(instructions)
             .expect("Failed to submit instruction.");
         self.poll_request(request, f)
     }
 
-    fn poll_request_with_period(
+    fn poll_request_with_period<R>(
         &mut self,
-        request: &QueryRequest,
+        request: R,
         period: Duration,
         max_attempts: u32,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult {
+        f: impl Fn(&R::Output) -> bool,
+    ) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug,
+    {
         let mut query_result = None;
         for _ in 0..max_attempts {
             thread::sleep(period);
-            query_result = Some(self.request(request));
-            if let Some(Ok(result)) = &query_result {
-                if f(result) {
-                    return result.clone();
-                }
+            query_result = match self.request(request.clone()) {
+                Ok(result) if f(&result) => return result,
+                result => Some(result),
             }
         }
-        panic!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", query_result)
+        panic!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result)
     }
 
-    fn poll_request(
-        &mut self,
-        request: &QueryRequest,
-        f: impl Fn(&QueryResult) -> bool,
-    ) -> QueryResult {
+    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
+    where
+        R: Query + Into<QueryRequest> + Debug + Clone,
+        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        R::Output: Clone + Debug,
+    {
         self.poll_request_with_period(request, Configuration::pipeline_time(), 10, f)
     }
 }
