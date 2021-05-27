@@ -271,20 +271,20 @@ jobs:
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
           echo >>$GITHUB_PATH $CCACHE_PATH
           echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
-          echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$( vcpkg help binarycaching |
-                  awk '/Based on your system settings, the default path to store binaries is/{getline; print}' | xargs )
+          # echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$( vcpkg help binarycaching |
+          #         awk '/Based on your system settings, the default path to store binaries is/{getline; print}' | xargs )
+          echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$HOME/.cache/vcpkg/archives
         env:
           CCACHE_PATH: /usr/lib/ccache
       - &step_restore_ccache
-        ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Cache ccache
+        name: Restore cache ccache
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
           key:  ${{ runner.os }}-ccache
       - &step_vcpkg_cache
-        ## Read the docs https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Cache vcpkg
+        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
