@@ -84,12 +84,10 @@ mod tests {
         client_configuration.torii_api_url = network.peers.last().unwrap().api_address.clone();
         let mut iroha_client = Client::new(&client_configuration);
         let request = client::asset::by_account_id(account_id);
-        let query_result = iroha_client.request(&request).expect("Query failed.");
-        if let QueryResult(Value::Vec(assets)) = query_result {
-            assert!(assets.is_empty());
-        } else {
-            panic!("Wrong Query Result Type.");
-        }
+        assert!(iroha_client
+            .request(request.clone())
+            .expect("Query failed.")
+            .is_empty());
         client_configuration.public_key = key_pair_2.public_key;
         client_configuration.private_key = key_pair_2.private_key;
         let mut iroha_client = Client::new(&client_configuration);
@@ -108,18 +106,8 @@ mod tests {
             )
             .expect("Failed to submit transaction.");
         thread::sleep(pipeline_time * 2);
-        let query_result = iroha_client.request(&request).expect("Query failed.");
-        if let QueryResult(Value::Vec(assets)) = query_result {
-            assert!(!assets.is_empty());
-            if let Value::Identifiable(IdentifiableBox::Asset(asset)) =
-                assets.first().expect("Asset should exist.")
-            {
-                assert_eq!(AssetValue::Quantity(quantity), asset.value);
-            } else {
-                panic!("Wrong Query Result Type.")
-            }
-        } else {
-            panic!("Wrong Query Result Type.");
-        }
+        let assets = iroha_client.request(request).expect("Query failed.");
+        assert!(!assets.is_empty());
+        assert_eq!(AssetValue::Quantity(quantity), assets[0].value);
     }
 }

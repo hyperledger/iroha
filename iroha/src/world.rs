@@ -94,32 +94,20 @@ pub mod query {
     #[cfg(feature = "roles")]
     impl Query for FindAllRoles {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(Value::Vec(
-                world_state_view
-                    .world
-                    .roles
-                    .iter()
-                    .map(|pair| Box::new(pair.value().clone()))
-                    .map(IdentifiableBox::Role)
-                    .map(Value::Identifiable)
-                    .collect::<Vec<_>>(),
-            ))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+            Ok(world_state_view
+                .world
+                .roles
+                .iter()
+                .map(|role| role.value().clone())
+                .collect())
         }
     }
 
     impl Query for FindAllPeers {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
-            Ok(Value::Vec(
-                world_state_view
-                    .peers()
-                    .into_iter()
-                    .map(Box::new)
-                    .map(IdentifiableBox::Peer)
-                    .map(Value::Identifiable)
-                    .collect::<Vec<_>>(),
-            ))
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+            Ok(world_state_view.peers())
         }
     }
 }

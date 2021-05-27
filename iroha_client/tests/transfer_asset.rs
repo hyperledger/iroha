@@ -80,14 +80,13 @@ mod tests {
         );
         iroha_client.submit_till(
             transfer_asset,
-            &client::asset::by_account_id(account2_id.clone()),
+            client::asset::by_account_id(account2_id.clone()),
             |result| {
-                result
-                    .find_asset_by_id(&asset_definition_id)
-                    .map_or(false, |asset| {
-                        asset.value == AssetValue::Quantity(quantity)
-                            && asset.id.account_id == account2_id
-                    })
+                result.iter().any(|asset| {
+                    asset.id.definition_id == asset_definition_id
+                        && asset.value == AssetValue::Quantity(quantity)
+                        && asset.id.account_id == account2_id
+                })
             },
         );
     }

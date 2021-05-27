@@ -29,10 +29,10 @@ fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transact
     thread::sleep(pipeline_time * 2);
 
     assert!(test_client
-        .request(&client::domain::by_name(normal_domain_name.to_string()))
+        .request(client::domain::by_name(normal_domain_name.to_string()))
         .is_ok());
     assert!(test_client
-        .request(&client::domain::by_name(too_long_domain_name.to_string()))
+        .request(client::domain::by_name(too_long_domain_name.to_string()))
         .is_err());
 
     Ok(())

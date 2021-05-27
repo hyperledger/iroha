@@ -19,16 +19,10 @@ const MINT_REJECTION_REASON: &str = "Failed to pass first check with Can\'t tran
     PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
     DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..";
 
-fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Value> {
-    let request = client::asset::by_account_id(id.clone());
-    let query_result = iroha_client
-        .request(&request)
-        .expect("Failed to execute request.");
-    if let QueryResult(Value::Vec(assets)) = query_result {
-        assets
-    } else {
-        panic!("Wrong Query Result Type.");
-    }
+fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
+    iroha_client
+        .request(client::asset::by_account_id(id.clone()))
+        .expect("Failed to execute request.")
 }
 
 #[test]

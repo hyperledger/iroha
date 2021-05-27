@@ -48,11 +48,12 @@ mod tests {
 
         //Then
         Client::test(&network.peers.last().unwrap().api_address).poll_request(
-            &client::asset::by_account_id(account_id),
+            client::asset::by_account_id(account_id),
             |result| {
-                result
-                    .find_asset_by_id(&asset_definition_id)
-                    .map_or(false, |asset| asset.value == AssetValue::Quantity(quantity))
+                result.iter().any(|asset| {
+                    asset.id.definition_id == asset_definition_id
+                        && asset.value == AssetValue::Quantity(quantity)
+                })
             },
         );
         Ok(())

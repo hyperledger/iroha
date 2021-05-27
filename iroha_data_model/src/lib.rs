@@ -3,12 +3,13 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+use std::error;
 use std::ops::RangeInclusive;
 use std::{convert::TryFrom, fmt::Debug};
 
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
-use iroha_error::Result;
+use iroha_error::{error, Result, WrapErr};
 use iroha_macro::error::ErrorTryFromEnum;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -156,7 +157,11 @@ pub enum Value {
     /// `String` value.
     String(String),
     /// `Vec` of `Value`.
-    Vec(#[skip_from] Vec<Value>),
+    Vec(
+        #[skip_from]
+        #[skip_try_from]
+        Vec<Value>,
+    ),
     /// `Id` of `Asset`, `Account`, etc.
     Id(IdBox),
     /// `Identifiable` as `Asset`, `Account` etc.
@@ -270,6 +275,7 @@ macro_rules! from_and_try_from_value_identifiable {
 
 from_and_try_from_value_identifiablebox!(
     Account(Box<account::Account>),
+    NewAccount(Box<account::NewAccount>),
     Asset(Box<asset::Asset>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Domain(Box<domain::Domain>),
@@ -277,6 +283,7 @@ from_and_try_from_value_identifiablebox!(
 );
 from_and_try_from_value_identifiable!(
     Account(Box<account::Account>),
+    NewAccount(Box<account::NewAccount>),
     Asset(Box<asset::Asset>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Domain(Box<domain::Domain>),
@@ -286,6 +293,24 @@ from_and_try_from_value_identifiable!(
 impl<V: Into<Value>> From<Vec<V>> for Value {
     fn from(values: Vec<V>) -> Value {
         Value::Vec(values.into_iter().map(Into::into).collect())
+    }
+}
+
+impl<V> TryFrom<Value> for Vec<V>
+where
+    V: TryFrom<Value>,
+    <V as TryFrom<Value>>::Error: Send + Sync + error::Error + 'static,
+{
+    type Error = iroha_error::Error;
+    fn try_from(value: Value) -> Result<Vec<V>> {
+        if let Value::Vec(vec) = value {
+            vec.into_iter()
+                .map(V::try_from)
+                .collect::<Result<Vec<_>, _>>()
+                .wrap_err("Failed to convert to vector")
+        } else {
+            Err(error!("Expected vector, but found something else"))
+        }
     }
 }
 
@@ -418,14 +443,16 @@ pub mod role {
 
     use std::{
         collections::BTreeSet,
+        convert::TryFrom,
         fmt::{Display, Formatter, Result as FmtResult},
     };
 
     use dashmap::DashMap;
+    use iroha_error::Result;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
-    use crate::{permissions::PermissionToken, IdBox, Identifiable, Name, Value};
+    use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
 
     /// `RolesMap` provides an API to work with collection of key (`Id`) - value
     /// (`Role`) pairs.
@@ -459,9 +486,39 @@ pub mod role {
         }
     }
 
+    impl TryFrom<Value> for Id {
+        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Id>;
+
+        fn try_from(value: Value) -> Result<Self, Self::Error> {
+            if let Value::Id(IdBox::RoleId(id)) = value {
+                Ok(id)
+            } else {
+                Err(Self::Error::default())
+            }
+        }
+    }
+
     impl Display for Id {
         fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
             write!(f, "{}", self.name)
+        }
+    }
+
+    impl From<Role> for Value {
+        fn from(role: Role) -> Self {
+            IdentifiableBox::from(Box::new(role)).into()
+        }
+    }
+
+    impl TryFrom<Value> for Role {
+        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Role>;
+
+        fn try_from(value: Value) -> Result<Self, Self::Error> {
+            if let Value::Identifiable(IdentifiableBox::Role(role)) = value {
+                Ok(*role)
+            } else {
+                Err(Self::Error::default())
+            }
         }
     }
 

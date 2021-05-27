@@ -154,24 +154,18 @@ pub mod query {
     #[cfg(feature = "roles")]
     impl Query for FindRolesByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let account_id = self.id.evaluate(world_state_view, &Context::new())?;
             let roles = world_state_view.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
-            Ok(Value::Vec(
-                roles
-                    .into_iter()
-                    .map(IdBox::RoleId)
-                    .map(Value::Id)
-                    .collect::<Vec<_>>(),
-            ))
+            Ok(roles)
         }
     }
 
     impl Query for FindPermissionTokensByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let account_id = self.id.evaluate(world_state_view, &Context::new())?;
             let tokens = world_state_view.map_account(&account_id, |account| {
                 account
@@ -180,42 +174,37 @@ pub mod query {
                     .cloned()
                     .collect::<Vec<_>>()
             })?;
-            Ok(Value::Vec(
-                tokens
-                    .into_iter()
-                    .map(Value::PermissionToken)
-                    .collect::<Vec<_>>(),
-            ))
+            Ok(tokens)
         }
     }
 
     impl Query for FindAllAccounts {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in world_state_view.domains().iter() {
                 for account in domain.accounts.values() {
-                    vec.push(Value::from(account.clone()))
+                    vec.push(account.clone())
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAccountById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .id
                 .evaluate(world_state_view, &Context::default())
                 .wrap_err("Failed to get id")?;
-            Ok(world_state_view.map_account(&id, Clone::clone)?.into())
+            Ok(world_state_view.map_account(&id, Clone::clone)?)
         }
     }
 
     impl Query for FindAccountsByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .name
                 .evaluate(world_state_view, &Context::default())
@@ -224,17 +213,17 @@ pub mod query {
             for domain in world_state_view.domains().iter() {
                 for (id, account) in &domain.accounts {
                     if id.name == name {
-                        vec.push(Value::from(account.clone()))
+                        vec.push(account.clone())
                     }
                 }
             }
-            Ok(vec.into())
+            Ok(vec)
         }
     }
 
     impl Query for FindAccountsByDomainName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .domain_name
                 .evaluate(world_state_view, &Context::default())
@@ -244,14 +233,13 @@ pub mod query {
                 .accounts
                 .values()
                 .cloned()
-                .collect::<Vec<_>>()
-                .into())
+                .collect::<Vec<_>>())
         }
     }
 
     impl Query for FindAccountKeyValueByIdAndKey {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Value> {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .id
                 .evaluate(world_state_view, &Context::default())
