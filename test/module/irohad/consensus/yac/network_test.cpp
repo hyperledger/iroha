@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/transport/impl/consensus_service_impl.hpp"
+#include "consensus/yac/transport/impl/network_impl.hpp"
 
 #include <grpc++/grpc++.h>
 
