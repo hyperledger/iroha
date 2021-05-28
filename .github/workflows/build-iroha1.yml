@@ -278,9 +278,6 @@ jobs:
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
           echo >>$GITHUB_PATH $CCACHE_PATH
           echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
-          # echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$( vcpkg help binarycaching |
-          #         awk '/Based on your system settings, the default path to store binaries is/{getline; print}' | xargs )
-          echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$HOME/.cache/vcpkg/archives
         env:
           CCACHE_PATH: /usr/lib/ccache
       - name: Restore cache ccache
@@ -288,15 +285,16 @@ jobs:
         with:
           path: ${{ env._CCACHE_DIR }}
           key: ${{ runner.os }}-ccache
-      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+      - if: ${{false}}
+        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env._VCPKG_BINARYCACHING_DIR }}
-          #  build-vcpkg
-          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
+            ${{ env.HOME }}/.cache/vcpkg/archives
           #  $HOME/.cache/vcpkg
+          #  build-vcpkg/installed
+          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
           key: ${{ runner.os }}-${{matrix.cc}}-vcpkg
           # key:          ${{ runner.os }}-vcpkg-${{matrix.cc}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
           # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.cc}}-
@@ -377,7 +375,7 @@ jobs:
           ctest --output-on-failure -R '^integration_fake_peer_example_test$' || true
         #FIXME do not CTEST_EXCLUDE
   build-iroha-macos:
-    # if: ${{ false }}  # disable for now
+    if: ${{ false }} # disable for now
     runs-on: macos-latest #[ self-hosted, MacOS ] #
     strategy:
       fail-fast: false
@@ -455,9 +453,6 @@ jobs:
           echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
           echo >>$GITHUB_PATH $CCACHE_PATH
           echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
-          # echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$( vcpkg help binarycaching |
-          #         awk '/Based on your system settings, the default path to store binaries is/{getline; print}' | xargs )
-          echo >>$GITHUB_ENV _VCPKG_BINARYCACHING_DIR=$HOME/.cache/vcpkg/archives
         env:
           CCACHE_PATH: /usr/local/opt/ccache/libexec
       - name: Restore cache ccache
@@ -465,15 +460,16 @@ jobs:
         with:
           path: ${{ env._CCACHE_DIR }}
           key: ${{ runner.os }}-ccache
-      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+      - if: ${{false}}
+        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env._VCPKG_BINARYCACHING_DIR }}
-          #  build-vcpkg
-          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
+            ${{ env.HOME }}/.cache/vcpkg/archives
           #  $HOME/.cache/vcpkg
+          #  build-vcpkg/installed
+          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
           key: ${{ runner.os }}-${{matrix.cc}}-vcpkg
           # key:          ${{ runner.os }}-vcpkg-${{matrix.cc}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
           # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.cc}}-
