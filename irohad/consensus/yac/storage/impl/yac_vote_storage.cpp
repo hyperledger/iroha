@@ -97,11 +97,10 @@ boost::optional<iroha::consensus::yac::Answer> YacVoteStorage::store(
                     &round](auto &&insert_outcome) -> boost::optional<Answer> {
           last_round_ = std::max(last_round_.value_or(round), round);
           this->strategy_->finalize(round, insert_outcome) |
-              [this](auto &&remove) {
-                std::for_each(
-                    remove.begin(), remove.end(), [this](const auto &round) {
-                      this->remove(round);
-                    });
+              [this](auto &&to_remove) {
+                for (auto const &round : to_remove) {
+                  remove(round);
+                }
               };
           return insert_outcome;
         };
