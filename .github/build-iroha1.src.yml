@@ -64,6 +64,7 @@ jobs:
 
 
   Docker-iroha-builder:
+    if: ${{false}}
     # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
     # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
     runs-on: [ self-hosted, Linux ]
