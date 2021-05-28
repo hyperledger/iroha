@@ -10,24 +10,20 @@
 
 #include <chrono>
 
-namespace iroha {
-  namespace consensus {
-    namespace yac {
-      class TimerImpl : public Timer {
-       public:
-        /**
-         * Constructor
-         * @param delay_milliseconds delay before the next method invoke
-         */
-        TimerImpl(std::chrono::milliseconds delay_milliseconds);
+namespace iroha::consensus::yac {
+  class TimerImpl : public Timer {
+   public:
+    /**
+     * Constructor
+     * @param delay_milliseconds delay before the next method invoke
+     */
+    TimerImpl(std::chrono::milliseconds delay_milliseconds);
 
-        void invokeAfterDelay(std::function<void()> handler) override;
+    void invokeAfterDelay(std::function<void()> handler) override;
 
-       private:
-        std::chrono::milliseconds delay_milliseconds_;
-      };
-    }  // namespace yac
-  }    // namespace consensus
-}  // namespace iroha
+   private:
+    std::chrono::milliseconds delay_milliseconds_;
+  };
+}  // namespace iroha::consensus::yac
 
 #endif  // IROHA_TIMER_IMPL_HPP

@@ -19,65 +19,58 @@
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
-
   namespace simulator {
     class BlockCreator;
   }
-
   namespace network {
     class BlockLoader;
   }
-
-  namespace consensus {
-    namespace yac {
-
-      struct CommitMessage;
-      class YacPeerOrderer;
-
-      class YacGateImpl : public YacGate {
-       public:
-        YacGateImpl(std::shared_ptr<HashGate> hash_gate,
-                    std::shared_ptr<YacPeerOrderer> orderer,
-                    boost::optional<ClusterOrdering> alternative_order,
-                    std::shared_ptr<const LedgerState> ledger_state,
-                    std::shared_ptr<YacHashProvider> hash_provider,
-                    std::shared_ptr<consensus::ConsensusResultCache>
-                        consensus_result_cache,
-                    logger::LoggerPtr log);
-        void vote(const simulator::BlockCreatorEvent &event) override;
-
-        std::optional<GateObject> processOutcome(Answer const &outcome);
-
-        void stop() override;
-
-       private:
-        /**
-         * Update current block with signatures from commit message
-         * @param commit - commit message to get signatures from
-         */
-        void copySignatures(const CommitMessage &commit);
-
-        std::optional<GateObject> handleCommit(const CommitMessage &msg);
-        std::optional<GateObject> handleReject(const RejectMessage &msg);
-        std::optional<GateObject> handleFuture(const FutureMessage &msg);
-
-        logger::LoggerPtr log_;
-
-        boost::optional<std::shared_ptr<shared_model::interface::Block>>
-            current_block_;
-        YacHash current_hash_;
-        boost::optional<ClusterOrdering> alternative_order_;
-        std::shared_ptr<const LedgerState> current_ledger_state_;
-
-        std::shared_ptr<YacPeerOrderer> orderer_;
-        std::shared_ptr<YacHashProvider> hash_provider_;
-        std::shared_ptr<consensus::ConsensusResultCache>
-            consensus_result_cache_;
-        std::shared_ptr<HashGate> hash_gate_;
-      };
-
-    }  // namespace yac
-  }    // namespace consensus
 }  // namespace iroha
+
+namespace iroha::consensus::yac {
+  struct CommitMessage;
+  class YacPeerOrderer;
+
+  class YacGateImpl : public YacGate {
+   public:
+    YacGateImpl(
+        std::shared_ptr<HashGate> hash_gate,
+        std::shared_ptr<YacPeerOrderer> orderer,
+        boost::optional<ClusterOrdering> alternative_order,
+        std::shared_ptr<const LedgerState> ledger_state,
+        std::shared_ptr<YacHashProvider> hash_provider,
+        std::shared_ptr<consensus::ConsensusResultCache> consensus_result_cache,
+        logger::LoggerPtr log);
+    void vote(const simulator::BlockCreatorEvent &event) override;
+
+    std::optional<GateObject> processOutcome(Answer const &outcome);
+
+    void stop() override;
+
+   private:
+    /**
+     * Update current block with signatures from commit message
+     * @param commit - commit message to get signatures from
+     */
+    void copySignatures(const CommitMessage &commit);
+
+    std::optional<GateObject> handleCommit(const CommitMessage &msg);
+    std::optional<GateObject> handleReject(const RejectMessage &msg);
+    std::optional<GateObject> handleFuture(const FutureMessage &msg);
+
+    logger::LoggerPtr log_;
+
+    boost::optional<std::shared_ptr<shared_model::interface::Block>>
+        current_block_;
+    YacHash current_hash_;
+    boost::optional<ClusterOrdering> alternative_order_;
+    std::shared_ptr<const LedgerState> current_ledger_state_;
+
+    std::shared_ptr<YacPeerOrderer> orderer_;
+    std::shared_ptr<YacHashProvider> hash_provider_;
+    std::shared_ptr<consensus::ConsensusResultCache> consensus_result_cache_;
+    std::shared_ptr<HashGate> hash_gate_;
+  };
+}  // namespace iroha::consensus::yac
 
 #endif  // IROHA_YAC_GATE_IMPL_HPP
