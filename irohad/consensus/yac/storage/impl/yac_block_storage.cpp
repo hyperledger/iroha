@@ -40,8 +40,9 @@ boost::optional<iroha::consensus::yac::Answer> YacBlockStorage::insert(
 
 boost::optional<iroha::consensus::yac::Answer> YacBlockStorage::insert(
     std::vector<VoteMessage> votes) {
-  std::for_each(
-      votes.begin(), votes.end(), [this](auto vote) { this->insert(vote); });
+  for (auto &vote : votes) {
+    insert(std::move(vote));
+  }
   return getState();
 }
 

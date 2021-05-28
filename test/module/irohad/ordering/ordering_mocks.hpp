@@ -8,6 +8,7 @@
 
 #include <gmock/gmock.h>
 
+#include "interfaces/common_objects/peer.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
@@ -38,8 +39,8 @@ namespace iroha {
           forCachedBatches,
           void(std::function<
                void(const OnDemandOrderingService::BatchesSetType &)> const &));
-      MOCK_METHOD(bool, isEmptyBatchesCache, (), (const override));
-      MOCK_METHOD(bool, hasProposal, (consensus::Round), (const override));
+      MOCK_METHOD(bool, isEmptyBatchesCache, (), (const, override));
+      MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
     };
 
   }  // namespace ordering
