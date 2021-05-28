@@ -1,6 +1,15 @@
 Sending Transactions With Python library
 ========================================
 
+Open a new terminal (note that Iroha container and ``irohad`` should be up and
+running) and attach to an ``iroha`` docker container:
+
+.. code-block:: shell
+
+  docker exec -it iroha /bin/bash
+
+Now you are in the interactive shell of Iroha's container.
+
 Prerequisites
 -------------
 
@@ -61,81 +70,11 @@ Running example transactions
 If you only want to try what Iroha transactions would look like,
 you can simply go to the examples from the repository
 `here <https://github.com/hyperledger/iroha-python/tree/master/examples>`_.
-Let's check out the `tx-example.py` file.
+Here is the `tx-example.py` file with comments to clarify each step:
 
-Here are Iroha dependencies.
-Python library generally consists of 3 parts: Iroha, IrohaCrypto and IrohaGrpc which we need to import:
+.. remoteliteralinclude:: https://raw.githubusercontent.com/hyperledger/iroha-python/master/examples/tx-example.py
+   :language: python
 
-.. code-block:: python
-
-	from iroha import Iroha, IrohaGrpc
-	from iroha import IrohaCrypto
-
-The line
-
-.. code-block:: python
-
-	from iroha.primitive_pb2 import can_set_my_account_detail
-
-
-is actually about the permissions you might be using for the transaction.
-You can find a full list here: `Permissions <../develop/api/permissions.html>`_.
-
-
-In the next block we can see the following:
-
-.. code-block:: python
-
-	admin_private_key = 'f101537e319568c765b2cc89698325604991dca57b9716b58016b253506cab70'
-	user_private_key = IrohaCrypto.private_key()
-	user_public_key = IrohaCrypto.derive_public_key(user_private_key)
-	iroha = Iroha('admin@test')
-	net = IrohaGrpc()
-
-Here you can see the example account information.
-It will be used later with the commands.
-If you change the commands in the transaction,
-the set of data in this part might also change depending on what you need.
-
-Defining the commands
----------------------
-
-Let's look at the first of the defined commands:
-
-.. code-block:: python
-
-	def create_domain_and_asset():
-	    commands = [
-	        iroha.command('CreateDomain', domain_id='domain', default_role='user'),
-	        iroha.command('CreateAsset', asset_name='coin',
-	                      domain_id='domain', precision=2)
-	    ]
-	    tx = IrohaCrypto.sign_transaction(
-	        iroha.transaction(commands), admin_private_key)
-	    send_transaction_and_print_status(tx)
-
-Here we define a transaction made of 2 commands: CreateDomain and CreateAsset.
-You can find a full list here: `commands <../develop/api/commands.html>`_.
-Each of Iroha commands has its own set of parameters.
-You can check them in command descriptions in `iroha-api-reference <../develop/api.html>`_.
-
-Then we sign the transaction with the parameters defined earlier.
-
-You can define `queries <../develop/api/queries.html>`_ the same way.
-
-Running the commands
---------------------
-
-Last lines
-
-.. code-block:: python
-
-	create_domain_and_asset()
-	add_coin_to_admin()
-	create_account_userone()
-	...
-
-run the commands defined previously.
 
 Now, if you have `irohad` running, you can run the example or
 your own file by simply opening the .py file in another tab.
