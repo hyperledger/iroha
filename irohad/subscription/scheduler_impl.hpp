@@ -128,12 +128,12 @@ namespace iroha::subscription {
       return 0;
     }
 
-    void dispose(bool wait_for_release = true) {
+    void dispose(bool wait_for_release = true) override {
       proceed_.clear();
       event_.set();
     }
 
-    bool isBusy() const {
+    bool isBusy() const override {
       return is_busy_.load();
     }
 
