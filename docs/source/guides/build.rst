@@ -40,6 +40,7 @@ Please choose your preferred platform below for a quick access:
     - :ref:`linux-pre`
     - :ref:`MacOS-pre`
     - :ref:`Windows-pre`
+    - :ref:`RaspberryPi-pre`
 
 
 .. hint:: Having troubles? Check FAQ section or communicate to us directly, in
@@ -210,6 +211,10 @@ Save it somewhere for later use and move to `Building Iroha <#build-process>`_ s
 .. note:: If you plan to build 32-bit version of Iroha -
   you will need to install all the mentioned librares above
   prefixed with ``x86`` term instead of ``x64``.
+  
+.. _RaspberryPi-pre:
+
+.. include:: raspberrypi.rst
 
 Build Process
 -------------
