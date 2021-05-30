@@ -197,11 +197,36 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kPathRoles{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES)};
 
+  // account
+  static auto constexpr kPathTransactionByTs{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
+                     RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_TIMESTAMP)};
+
+  // account
+  static auto constexpr kPathTransactionByPosition{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
+                     RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_POSITION)};
+
   /**
    * ######################################
    * ############# FOLDERS ################
    * ######################################
    */
+  // account/height/index ➡️ tx_hash
+  static auto constexpr kTransactionByPosition{FMT_STRING(
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+          RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX /**/ RDB_XXX)};
+
+  // account/ts ➡️ tx_hash
+  static auto constexpr kTransactionByTs{FMT_STRING(
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+          RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX)};
+
+  // tx_hash ➡️ status
+  static auto constexpr kTransactionStatus{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
+                     RDB_STATUSES /**/ RDB_XXX)};
+
   // domain_id/account_name/role_name
   static auto constexpr kAccountRole{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ROLES /**/ RDB_XXX)};
@@ -392,8 +417,6 @@ namespace iroha::ametsuchi {
       assert(transaction_db_);
       tx_context.transaction.reset(
           transaction_db_->BeginTransaction(rocksdb::WriteOptions()));
-      tx_context.key_buffer.clear();
-      tx_context.value_buffer.clear();
     }
   };
 
@@ -413,6 +436,8 @@ namespace iroha::ametsuchi {
    */
   class RocksDbCommon {
     auto &transaction() {
+      if (!tx_context_->transaction)
+        tx_context_->db_port->prepareTransaction(*tx_context_);
       return tx_context_->transaction;
     }
 
@@ -422,8 +447,6 @@ namespace iroha::ametsuchi {
           context_guard_(tx_context_->this_context_cs) {
       assert(tx_context_);
       assert(tx_context_->db_port);
-
-      tx_context_->db_port->prepareTransaction(*tx_context_);
     }
 
     /// Get value buffer
@@ -438,7 +461,9 @@ namespace iroha::ametsuchi {
 
     /// Makes commit to DB
     auto commit() {
-      return transaction()->Commit();
+      auto res = transaction()->Commit();
+      transaction().reset();
+      return res;
     }
 
     /// Encode number into @see valueBuffer
@@ -753,6 +778,110 @@ namespace iroha::ametsuchi {
   }
 
   /**
+   * Access to transactions statuses
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param tx_hash is a current transaction hash
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forTransactionStatus(RocksDbCommon &common, std::string_view tx_hash) {
+    assert(!tx_hash.empty());
+
+    auto status = executeOperation<kOp, kSc>(
+        common,
+        [&] { return fmt::format("Transaction {}", tx_hash); },
+        fmtstrings::kTransactionStatus,
+        tx_hash);
+    RDB_ERROR_CHECK(status);
+
+    std::optional<std::string_view> tx;
+    if constexpr (kOp == kDbOperation::kGet)
+      if (status.assumeValue().ok())
+        tx = common.valueBuffer();
+
+    return tx;
+  }
+
+  /**
+   * Access to transactions by position
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param account name
+   * @param height of the block
+   * @param index of the transaction
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forTransactionByPosition(RocksDbCommon &common,
+                           std::string_view account,
+                           uint64_t height,
+                           uint64_t index) {
+    assert(!account.empty());
+
+    auto status = executeOperation<kOp, kSc>(
+        common,
+        [&] {
+          return fmt::format(
+              "Transaction from {} by position {}:{}", account, height, index);
+        },
+        fmtstrings::kTransactionByPosition,
+        account,
+        height,
+        index);
+    RDB_ERROR_CHECK(status);
+
+    std::optional<std::string_view> tx;
+    if constexpr (kOp == kDbOperation::kGet)
+      if (status.assumeValue().ok())
+        tx = common.valueBuffer();
+
+    return tx;
+  }
+
+  /**
+   * Access to transactions by timestamp
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param account name
+   * @param ts is a transaction timestamp
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forTransactionByTimestamp(RocksDbCommon &common,
+                            std::string_view account,
+                            uint64_t ts) {
+    assert(!account.empty());
+
+    auto status = executeOperation<kOp, kSc>(
+        common,
+        [&] {
+          return fmt::format(
+              "Transaction from {} by timestamp {}", account, ts);
+        },
+        fmtstrings::kTransactionByTs,
+        account,
+        ts);
+    RDB_ERROR_CHECK(status);
+
+    std::optional<std::string_view> tx;
+    if constexpr (kOp == kDbOperation::kGet)
+      if (status.assumeValue().ok())
+        tx = common.valueBuffer();
+
+    return tx;
+  }
+
+  /**
    * Access to setting file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
@@ -762,7 +891,7 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string>, DbError> forSettings(
+  inline expected::Result<std::optional<std::string_view>, DbError> forSettings(
       RocksDbCommon &common, std::string_view key) {
     auto status = executeOperation<kOp, kSc>(
         common,
@@ -771,7 +900,7 @@ namespace iroha::ametsuchi {
         key);
     RDB_ERROR_CHECK(status);
 
-    std::optional<std::string> value;
+    std::optional<std::string_view> value;
     if constexpr (kOp == kDbOperation::kGet)
       if (status.assumeValue().ok())
         value = common.valueBuffer();
@@ -789,8 +918,8 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string>, DbError> forPeerAddress(
-      RocksDbCommon &common, std::string_view pubkey) {
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forPeerAddress(RocksDbCommon &common, std::string_view pubkey) {
     assert(!pubkey.empty());
 
     auto status = executeOperation<kOp, kSc>(
@@ -800,7 +929,7 @@ namespace iroha::ametsuchi {
         pubkey);
     RDB_ERROR_CHECK(status);
 
-    std::optional<std::string> address;
+    std::optional<std::string_view> address;
     if constexpr (kOp == kDbOperation::kGet)
       if (status.assumeValue().ok())
         address = common.valueBuffer();
@@ -818,7 +947,7 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string>, DbError> forPeerTLS(
+  inline expected::Result<std::optional<std::string_view>, DbError> forPeerTLS(
       RocksDbCommon &common, std::string_view pubkey) {
     assert(!pubkey.empty());
 
@@ -829,7 +958,7 @@ namespace iroha::ametsuchi {
         pubkey);
     RDB_ERROR_CHECK(status);
 
-    std::optional<std::string> tls;
+    std::optional<std::string_view> tls;
     if constexpr (kOp == kDbOperation::kGet)
       if (status.assumeValue().ok())
         tls = common.valueBuffer();
@@ -883,7 +1012,7 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  expected::Result<std::optional<std::string>, DbError> forTopBlockInfo(
+  expected::Result<std::optional<std::string_view>, DbError> forTopBlockInfo(
       RocksDbCommon &common) {
     auto status =
         executeOperation<kOp, kSc>(common,
@@ -891,7 +1020,7 @@ namespace iroha::ametsuchi {
                                    fmtstrings::kTopBlock);
     RDB_ERROR_CHECK(status);
 
-    std::optional<std::string> info;
+    std::optional<std::string_view> info;
     if constexpr (kOp == kDbOperation::kGet)
       if (status.assumeValue().ok())
         info = common.valueBuffer();
@@ -949,13 +1078,13 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string>, DbError> forAccountDetail(
-      RocksDbCommon &common,
-      std::string_view account,
-      std::string_view domain,
-      std::string_view creator_account,
-      std::string_view creator_domain,
-      std::string_view key) {
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forAccountDetail(RocksDbCommon &common,
+                   std::string_view account,
+                   std::string_view domain,
+                   std::string_view creator_account,
+                   std::string_view creator_domain,
+                   std::string_view key) {
     assert(!domain.empty());
     assert(!account.empty());
     assert(!creator_domain.empty());
@@ -980,7 +1109,7 @@ namespace iroha::ametsuchi {
         key);
     RDB_ERROR_CHECK(status);
 
-    std::optional<std::string> value;
+    std::optional<std::string_view> value;
     if constexpr (kOp == kDbOperation::kGet)
       if (status.assumeValue().ok())
         value = common.valueBuffer();
@@ -1032,7 +1161,7 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string>, DbError> forDomain(
+  inline expected::Result<std::optional<std::string_view>, DbError> forDomain(
       RocksDbCommon &common, std::string_view domain) {
     assert(!domain.empty());
 
@@ -1043,7 +1172,7 @@ namespace iroha::ametsuchi {
         domain);
     RDB_ERROR_CHECK(status);
 
-    std::optional<std::string> default_role;
+    std::optional<std::string_view> default_role;
     if constexpr (kOp == kDbOperation::kGet)
       if (status.assumeValue().ok())
         default_role = common.valueBuffer();
