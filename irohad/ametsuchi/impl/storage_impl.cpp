@@ -13,9 +13,9 @@
 #include <boost/format.hpp>
 #include <boost/range/algorithm/replace_if.hpp>
 #include <boost/tuple/tuple.hpp>
+#include "ametsuchi/impl/block_index_impl.hpp"
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
-#include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
@@ -344,7 +344,7 @@ namespace iroha {
 
         soci::session sql(*connection_);
         sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
-        PostgresBlockIndex block_index(
+        BlockIndexImpl block_index(
             std::make_unique<PostgresIndexer>(sql),
             log_manager_->getChild("BlockIndex")->getLogger());
         block_index.index(*block);

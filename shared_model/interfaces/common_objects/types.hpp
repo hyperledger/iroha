@@ -95,6 +95,7 @@ namespace shared_model {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>;
       /// Type of a TLS certificate
       using TLSCertificateType = std::string;
+      using TLSCertificateTypeView = std::string_view;
       /// Type of command index within a transaction
       using CommandIndexType = int32_t;
       /// Transaction index type

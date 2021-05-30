@@ -116,17 +116,31 @@ add_library(ametsuchi
     impl/in_memory_block_storage_factory.cpp
     )
 
-add_library(postgres_indexer
-    impl/postgres_indexer.cpp
-    impl/postgres_block_index.cpp
+add_library(block_indexer
+    impl/block_index_impl.cpp
     )
-target_link_libraries(postgres_indexer
+target_link_libraries(block_indexer
     common
     logger
     shared_model_interfaces
     shared_model_cryptography
+    )
+
+add_library(postgres_indexer
+    impl/postgres_indexer.cpp
+    )
+target_link_libraries(postgres_indexer
+    block_indexer
     SOCI::postgresql
     SOCI::core
+    )
+
+add_library(rocksdb_indexer
+    impl/rocksdb_indexer.cpp
+    )
+target_link_libraries(rocksdb_indexer
+    block_indexer
+    RocksDB::rocksdb
     )
 
 target_compile_definitions(postgres_indexer
