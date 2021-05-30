@@ -6,7 +6,7 @@
 #include "integration/executor/executor_fixture_param_postgres.hpp"
 
 #include <soci/soci.h>
-#include "ametsuchi/impl/postgres_block_index.hpp"
+#include "ametsuchi/impl/block_index_impl.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_indexer.hpp"
@@ -58,7 +58,7 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
   burrow_storage_session_ = db_manager_->getSession();
 
   block_indexer_session_ = db_manager_->getSession();
-  block_indexer_ = std::make_shared<PostgresBlockIndex>(
+  block_indexer_ = std::make_shared<BlockIndexImpl>(
       std::make_unique<PostgresIndexer>(*block_indexer_session_),
       getTestLogger("PostgresIndexer"));
 }

@@ -27,10 +27,9 @@ namespace iroha {
      *   2. account -> block for source and destination accounts
      *   3. (account, height) -> list of txes
      */
-    class PostgresBlockIndex : public BlockIndex {
+    class BlockIndexImpl : public BlockIndex {
      public:
-      PostgresBlockIndex(std::unique_ptr<Indexer> indexer,
-                         logger::LoggerPtr log);
+      BlockIndexImpl(std::unique_ptr<Indexer> indexer, logger::LoggerPtr log);
 
       /// Index a block.
       void index(const shared_model::interface::Block &block) override;

@@ -112,7 +112,9 @@ namespace iroha::ametsuchi {
 
             if (opt_tls)
               utils::reinterpret_pointer_cast<shared_model::plain::Peer>(peer)
-                  ->setTlsCertificate(*opt_tls);
+                  ->setTlsCertificate(
+                      shared_model::interface::types::TLSCertificateType{
+                          *opt_tls});
           }
 
           return peers;

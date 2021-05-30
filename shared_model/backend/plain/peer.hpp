@@ -17,7 +17,7 @@ namespace shared_model {
      public:
       Peer(const interface::types::AddressTypeView address,
            std::string public_key_hex,
-           const std::optional<interface::types::TLSCertificateType>
+           const std::optional<interface::types::TLSCertificateTypeView>
                &tls_certificate);
 
       const interface::types::AddressType &address() const override;

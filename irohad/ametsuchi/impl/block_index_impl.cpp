@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ametsuchi/impl/postgres_block_index.hpp"
+#include "ametsuchi/impl/block_index_impl.hpp"
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>
@@ -38,7 +38,7 @@ namespace {
 // Collect all assets belonging to creator, sender, and receiver
 // to make account_id:height:asset_id -> list of tx indexes
 // for transfer asset in command
-void PostgresBlockIndex::makeAccountAssetIndex(
+void BlockIndexImpl::makeAccountAssetIndex(
     const AccountIdType &account_id,
     shared_model::interface::types::HashType const &hash,
     shared_model::interface::types::TimestampType const ts,
@@ -67,11 +67,11 @@ void PostgresBlockIndex::makeAccountAssetIndex(
   }
 }
 
-PostgresBlockIndex::PostgresBlockIndex(std::unique_ptr<Indexer> indexer,
-                                       logger::LoggerPtr log)
+BlockIndexImpl::BlockIndexImpl(std::unique_ptr<Indexer> indexer,
+                               logger::LoggerPtr log)
     : indexer_(std::move(indexer)), log_(std::move(log)) {}
 
-void PostgresBlockIndex::index(const shared_model::interface::Block &block) {
+void BlockIndexImpl::index(const shared_model::interface::Block &block) {
   auto height = block.height();
   for (auto tx : block.transactions() | boost::adaptors::indexed(0)) {
     const auto &creator_id = tx.value().creatorAccountId();

@@ -23,8 +23,8 @@ namespace iroha::ametsuchi {
                                       std::string_view delims);
 
   template <size_t C>
-  std::array<std::string_view, C> staticSplitId(std::string_view const str) {
-    std::string_view const delims = "@#";
+  std::array<std::string_view, C> staticSplitId(
+      std::string_view const str, std::string_view const delims = "@#") {
     std::array<std::string_view, C> output;
 
     auto it_first = str.data();

@@ -34,6 +34,12 @@ target_link_libraries(rdb_wsv_query_test
     ametsuchi_rocksdb
     )
 
+addtest(rocksdb_indexer_test rocksdb_indexer_test.cpp)
+target_link_libraries(rocksdb_indexer_test
+    Boost::filesystem
+    rocksdb_indexer
+    )
+
 addtest(wsv_query_test wsv_query_test.cpp)
 target_link_libraries(wsv_query_test
     ametsuchi
