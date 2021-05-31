@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -xeuo pipefail
+set -xeu  #o pipefail
+#JENKINS [2021-05-31T12:51:42.277Z] /tmp/vcpkg-vars/build_iroha_deps.sh: 2: set: Illegal option -o pipefail
 
 vcpkg_path="${1:-$(pwd)/vcpkg-build}"
 script_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
@@ -73,7 +74,7 @@ cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
 done
 )
 
-## PROFILING
+#################### PROFILING ####################
 ## system macos big sur on macbook pro 2016 i7 2.8GHz
 ## Installation of already built packages takes about 43 sec
 ##
