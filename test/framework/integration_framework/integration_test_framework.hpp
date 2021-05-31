@@ -10,7 +10,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
-#include <rxcpp/rx-observable.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 
 #include "consensus/gate_object.hpp"
 #include "cryptography/keypair.hpp"
