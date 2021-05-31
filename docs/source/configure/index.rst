@@ -18,39 +18,8 @@ at ``example/config.sample``
 We will start with looking at config file and then look at how Iroha can be configured with
 `environment parameters <#environment-variables>`_.
 
-.. code-block:: javascript
-  :linenos:
-
-  {
-    "block_store_path": "/tmp/block_store/",
-    "torii_port": 50051,
-    "torii_tls_params": {
-      "port": 55552,
-      "key_pair_path": "/path/to/the/keypair"
-    },
-    "internal_port": 10001,
-    "pg_opt": "host=localhost port=5432 user=postgres password=mysecretpassword dbname=iroha",
-    "database": {
-      "host": "localhost",
-      "port": 5432,
-      "user": "postgres",
-      "password": "mysecretpassword",
-      "working database": "iroha_data",
-      "maintenance database": "postgres"
-    },
-    "max_proposal_size": 10,
-    "proposal_delay": 5000,
-    "vote_delay": 5000,
-    "mst_enable" : false,
-    "mst_expiration_time" : 1440,
-    "max_rounds_delay": 3000,
-    "stale_stream_max_rounds": 2,
-    "utility_service": {
-      "ip": "127.0.0.1",
-      "port": 11001
-    },
-    "metrics":"127.0.0.1:8080"
-  }
+.. remoteliteralinclude:: https://raw.githubusercontent.com/hyperledger/iroha/main/example/config.sample
+   :language: json
 
 As you can see, configuration file is a valid ``json`` structure.
 Let's go line-by-line and understand what every parameter means in configuration file format.
@@ -64,7 +33,7 @@ Deployment-specific parameters
 - ``internal_port`` sets the port for internal communications: ordering
   service, consensus and block loader.
 - ``database`` (optional) is used to set the database configuration (see below)
-- ``pg_opt`` (optional) is a deprecated way of setting credentials of PostgreSQL:
+- ``pg_opt`` (optional) is a **deprecated** way of setting credentials of PostgreSQL:
   hostname, port, username, password and database name.
   All data except the database name are mandatory.
   If database name is not provided, the default one gets used, which is ``iroha_default``.
