@@ -10,7 +10,7 @@
 #include <string>
 
 #include <boost/core/noncopyable.hpp>
-#include <rxcpp/rx-observable.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "common/result_fwd.hpp"
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
