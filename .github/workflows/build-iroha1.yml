@@ -2,20 +2,19 @@
 ## Generated from build-iroha1.src.yml with make-workflows.sh
 
 name: Iroha1
-## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times
+## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times https://stackoverflow.com/a/52781832/3743145
 ## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
-##      to improve performance and reduce storage consumption
+##      to improve performance and reduce storage consumption.
+##      Store ccache with rclone, Store
 ## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started
 ## TODO 4. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
 ## TODO 6. Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
-## FIXME 7. ctest integration_fake_peer_example_test
 ## FIXME 8. cannot push docker image iroha-builder without credentials when PR is from fork.
-##       Because GitHub secrets inaccessable to PRs from forks.
-##       Solution: open PR from the same repo.
+##       Because GitHub secrets inaccessable when building PRs from public forks.
+##       Solution: open PR from the same repo. (Noted in job as Possible WARNING)
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-## TODO store ccache with rclone
 ## TODO Use vcpkg binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
 
 ## TODO schedule: nightly
@@ -24,10 +23,10 @@ name: Iroha1
 ## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 on:
   push:
-    branches: [main, support/1.2.x]
+    branches: [main, support/1.*, test-ci]
     tags: ['v*']
   pull_request:
-    branches: [main, support/1.2.x] ## target branches
+    branches: [main, support/1.*, test-ci] ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
@@ -337,6 +336,7 @@ jobs:
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+          echo >>$GITHUB_ENV  USES_SUFFIX=${uses:+-$uses}
         env:
           os: ubuntu ## maybe ${{ run.os }}
           cc: ${{ matrix.cc }}
@@ -511,6 +511,7 @@ jobs:
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+          echo >>$GITHUB_ENV  USES_SUFFIX=${uses:+-$uses}
         name: Generate artifact suffix gcc9 >> env.ARTIFACT_SUFFIX
         #run: inherited
         env:
@@ -554,7 +555,7 @@ jobs:
           ctest --output-on-failure -R '^integration_fake_peer_example_test$' || true
         #FIXME do not CTEST_EXCLUDE
   build-iroha-windows:
-    if: ${{ false }} # disable for now
+    # if: ${{ false }}  ##
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -564,9 +565,10 @@ jobs:
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [Debug] #,Release, RelWithDebInfo
-    # defaults:
-    #   run:
-    #     shell: bash  #pwsh
+    defaults:
+      run:
+        shell: bash #pwshdefaults:
+        working-directory: 'C:\github\iroha' ## Use disk C: because D: is out of space
     steps:
       # - *cancel_previous_runs
       - name: uname in bash
@@ -623,7 +625,7 @@ jobs:
       matrix:
         cc: [gcc-9]
         build_type: [Release]
-        # CMAKE_USE:  [ '' ]
+        CMAKE_USE: ['', -DUSE_BURROW=ON]
     steps:
       - name: Show context
         run: |
@@ -662,6 +664,27 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      - name: Generate artifact suffix depending on matrix
+        run: |
+          cc=$(echo $cc | sed -Ee's,[-/],,g' )
+          build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
+          uses=$(echo $CMAKE_USE |
+            tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+          echo >>$GITHUB_ENV  USES_SUFFIX=${uses:+-$uses}
+        env:
+          os: ubuntu ## maybe ${{ run.os }}
+          cc: ${{ matrix.cc }}
+          build_type: ${{ matrix.build_type }}
+          CMAKE_USE: ${{ matrix.CMAKE_USE }}
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: irohad${{env.ARTIFACT_SUFFIX}}
+      - name: Rename artifact debs
+        run: |
+          mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
+          mv *iroha.deb          docker/release/iroha.deb
       - name: Determine dockertag
         id: dockertag
         run: |
@@ -683,6 +706,7 @@ jobs:
           echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
         id: creds
+      - run: echo
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
@@ -704,7 +728,12 @@ jobs:
           ##  - tag 'edge' when branch support/1.2.x is pushed
           ##  - schedule, see the docs
 
-          images: ${{ env.DOCKERHUB_ORG }}/iroha
+          images: ${{ env.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger
+          password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
       - name: Cache Docker layers
@@ -713,32 +742,6 @@ jobs:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-release-${{env.dockertag}}
           restore-keys: ${{ runner.os }}-buildx-release
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger
-          password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
-      #- *step_docker_login_failure
-      - name: Generate artifact suffix depending on matrix
-        run: |
-          cc=$(echo $cc | sed -Ee's,[-/],,g' )
-          build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
-          uses=$(echo $CMAKE_USE |
-            tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
-          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
-        env:
-          os: ubuntu ## maybe ${{ run.os }}
-          cc: ${{ matrix.cc }}
-          build_type: ${{ matrix.build_type }}
-          CMAKE_USE: ${{ matrix.CMAKE_USE }}
-      - name: Download artifact
-        uses: actions/download-artifact@v2
-        with:
-          name: irohad${{env.ARTIFACT_SUFFIX}}
-      - name: Rename artifact debs
-        run: |
-          mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
-          mv *iroha.deb          docker/release/iroha.deb
       - name: Build and push
         uses: docker/build-push-action@v2
         with:

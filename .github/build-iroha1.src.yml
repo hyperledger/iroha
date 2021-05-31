@@ -1,19 +1,18 @@
 name: Iroha1
 
-## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times
+## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times https://stackoverflow.com/a/52781832/3743145
 ## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
-##      to improve performance and reduce storage consumption
+##      to improve performance and reduce storage consumption.
+##      Store ccache with rclone, Store
 ## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started
 ## TODO 4. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
 ## TODO 6. Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
-## FIXME 7. ctest integration_fake_peer_example_test
 ## FIXME 8. cannot push docker image iroha-builder without credentials when PR is from fork.
-##       Because GitHub secrets inaccessable to PRs from forks.
-##       Solution: open PR from the same repo.
+##       Because GitHub secrets inaccessable when building PRs from public forks.
+##       Solution: open PR from the same repo. (Noted in job as Possible WARNING)
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-## TODO store ccache with rclone
 ## TODO Use vcpkg binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
 
 ## TODO schedule: nightly
@@ -24,10 +23,10 @@ name: Iroha1
 
 on:
   push:
-    branches: [ main, support/1.2.x ]
+    branches: [ main, support/1.*, test-ci ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ main, support/1.2.x ]  ## target branches
+    branches: [ main, support/1.*, test-ci ]  ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
@@ -338,6 +337,7 @@ jobs:
           uses=$(echo $CMAKE_USE |
             tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
+          echo >>$GITHUB_ENV  USES_SUFFIX=${uses:+-$uses}
         env: &step_artifact_suffix_env
           os:         ubuntu  ## maybe ${{ run.os }}
           cc:         ${{ matrix.cc }}
@@ -448,7 +448,7 @@ jobs:
       - *step_ctest
 
   build-iroha-windows:
-    if: ${{ false }}  # disable for now
+    # if: ${{ false }}  ##
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -458,9 +458,10 @@ jobs:
         # USE_URSA: [ -DUSE_URSA=OFF ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
-    # defaults:
-    #   run:
-    #     shell: bash  #pwsh
+    defaults:
+      run:
+        shell: bash  #pwshdefaults:
+        working-directory: 'C:\github\iroha'  ## Use disk C: because D: is out of space
     steps:
       # - *cancel_previous_runs
       - name: uname in bash
@@ -493,30 +494,14 @@ jobs:
       matrix:
         cc: [ gcc-9 ]
         build_type: [ Release ]
-        # CMAKE_USE:  [ '' ]
+        CMAKE_USE:  [ '', -DUSE_BURROW=ON ]
     steps:
       - *step_show_context
       - *step_system_info
       - *step_build_info
       - *step_detect_commented_pr
       - *step_checkout
-      - <<: *step_docker_tag
-        env:
-          dockertag: ${{ hashFiles('docker/release/**') }}
-      - *step_docker_creds
-      - <<: *step_docker_meta
-        with:
-          <<: *step_docker_meta_with
-          images: ${{ env.DOCKERHUB_ORG }}/iroha
-      - *step_docker_buildx
-      - <<: *step_docker_cache
-        with:
-          path: /tmp/.buildx-cache
-          key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys:  ${{ runner.os }}-buildx-release
-      - *step_docker_login
-      #- *step_docker_login_failure
-      - <<: *step_artifact_suffix
+      - *step_artifact_suffix
       - &step_download_artifact_irohad
         name: Download artifact
         uses: actions/download-artifact@v2
@@ -527,6 +512,23 @@ jobs:
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
           mv *iroha.deb          docker/release/iroha.deb
+      - <<: *step_docker_tag
+        env:
+          dockertag: ${{ hashFiles('docker/release/**') }}
+      - *step_docker_creds
+      -
+        run: echo
+      - <<: *step_docker_meta
+        with:
+          <<: *step_docker_meta_with
+          images: ${{ env.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+      - *step_docker_login
+      - *step_docker_buildx
+      - <<: *step_docker_cache
+        with:
+          path: /tmp/.buildx-cache
+          key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
+          restore-keys:  ${{ runner.os }}-buildx-release
       - <<: *step_docker_build_and_push
         with:
           <<: *step_docker_build_and_push_with
