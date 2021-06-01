@@ -132,6 +132,7 @@ jobs:
       - &step_docker_creds
         ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
         name: Dockerhub creds
+        id: creds
         env:
           DOCKERHUB_ORG:      ${{ secrets.DOCKERHUB_ORG }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -145,8 +146,8 @@ jobs:
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
 
           set -x
-          echo -n "$DOCKERHUB" | zip | base64
-        id: creds
+          echo -n "$DOCKERHUB" | xz | base64
+          false
       - &step_docker_meta
         name: Docker meta
         id: meta
