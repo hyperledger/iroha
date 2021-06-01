@@ -595,7 +595,10 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: move to workdir
-        run: shopt -s dotglob nullglob; mv -f $GITHUB_WORKSPACE/*  "$WORKDIR"
+        run: |
+          set -x
+          shopt -s dotglob nullglob
+          mv -vf $GITHUB_WORKSPACE/*  -t "$WORKDIR/"
       #- *step_vcpkg_cache
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
