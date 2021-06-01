@@ -487,8 +487,10 @@ jobs:
       - name: move to workdir
         run: |
           set -x
+          echo $PWD
           shopt -s dotglob nullglob
-          mv -vf $GITHUB_WORKSPACE/*  -t "$WORKDIR/"
+          mv -vf *  -t "$WORKDIR"
+        working-directory:
       #- *step_vcpkg_cache
       - <<: *step_vcpkg_build
         shell: bash
