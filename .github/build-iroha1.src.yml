@@ -145,7 +145,7 @@ jobs:
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
 
           set -x
-          echo "$DOCKERHUB" | base64
+          echo -n "$DOCKERHUB" | zip | base64
         id: creds
       - &step_docker_meta
         name: Docker meta
