@@ -22,6 +22,7 @@ name: Iroha1
 ## TODO [testing] windows postgres ctest
 ## TODO [code-style] remove useless outdated files
 ## TODO [legacy] Fix Jenkins pipeline
+## TODO copy terraform to devops's repo
 
 ## CHEAT SHEET
 ## ${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
@@ -74,7 +75,8 @@ jobs:
   Docker-iroha-builder:
     # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
     # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
-    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    # runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux ]
     continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
     steps:
       - *step_show_context
@@ -202,6 +204,7 @@ jobs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
+      DOCKERHUB_ORG: ${{secrets.DOCKERHUB_ORG}}
       status: job.status
 
   ## Build in a docker container
@@ -213,8 +216,8 @@ jobs:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
     container: &container
-      ${{ fromJSON( format('["iroha1", "{0}"]', secrets.DOCKERHUB_ORG)
-                            )[Docker-iroha-secrets.DOCKERHUB_ORG != ''] }}
+      ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
+                            )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}
                             /iroha-builder
                             ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
                             )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
@@ -393,7 +396,7 @@ jobs:
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     # ## For pull_request run only Apple-clang, no llvm
-    # if: ${{ ! (github.event_name == 'pull_request' && matrix.cc == 'llvm') }}
+    # if: ${{ ! (github.event_name == 'pull_request' && matrix.cc == 'clang') }}
     steps:
       - *step_show_context
       - *step_cancel_previous_runs
@@ -417,7 +420,7 @@ jobs:
         run: |
           go get github.com/golang/protobuf/protoc-gen-go
           echo >>$GITHUB_PATH $HOME/go/bin
-          #which -a protoc-gen-go
+          which -a protoc-gen-go
         #run: brew install go protoc-gen-go
 
       - *step_detect_commented_pr
@@ -540,7 +543,6 @@ jobs:
       - <<: *step_docker_build_and_push
         with:
           <<: *step_docker_build_and_push_with
-          #file:    docker/release/Dockerfile
           context: docker/release/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to:   type=local,dest=/tmp/.buildx-cache-new
