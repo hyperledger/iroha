@@ -217,14 +217,13 @@ jobs:
     ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
     container: &container
       ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
-                            )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}
-                            /iroha-builder
-                            ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
+                            )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
+                            fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
                             )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy:
       fail-fast: false
       matrix:
-        cc: [ gcc-9, gcc-10, clang-10 ]
+        cc: [ gcc-9 ] #, gcc-10, clang-10 ]
         CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
         ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ]
