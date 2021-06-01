@@ -2,24 +2,27 @@
 ## Generated from build-iroha1.src.yml with make-workflows.sh
 
 name: Iroha1
-## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times
+## TODO 1. [vcpkg] build only Debug or only Release - reduce vcpkg build duration and output size 2times
 ##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
-## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
+## TODO 2. [vcpkg] Do not rebuild vcpkg-tool every time [takes about 1min], see build_iroha_deps.sh
+## TODO 3. [vcpkg] Use binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
+## TODO 3. better caching utilizing diff-backup style tools like restic and rclone
 ##         to improve performance and reduce storage consumption.
 ##         Store ccache with rclone, maybe Store vcpkg binarycache with rclone
 ##         The problem/pitfail is to get access token during build from fork
-## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
+## TODO 4. Self-hosted MacOS and Windows
+##         Need more powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache,
+##                                                         and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started
-## TODO 4. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## TODO 6. Do not rebuild vcpkg tool every time [takes about 1min], see vcpkg/bootstrap
+## TODO 5. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
 ## FIXME 8. cannot push docker image iroha-builder without credentials when PR is from fork.
 ##       Because GitHub secrets inaccessable when building PRs from public forks.
 ##       Solution: open PR from the same repo. (Noted in job as Possible WARNING)
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-## TODO Use vcpkg binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
-## TODO update status badges in README.md
+## TODO [prettify,documentation] update status badges in README.md
 ## TODO windows postgres ctest
+## TODO remove useless outdated files
 
 ## CHEAT SHEET
 ## ${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
@@ -61,10 +64,9 @@ jobs:
             -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
             -H "Authorization: token ${{github.token}}"
   Docker-iroha-builder:
-    if: ${{false}}
     # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
     # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest #[ self-hosted, Linux ]
     continue-on-error: true ##FIXME  ##Sets needs.job_id.result always to success
     steps:
       - name: Show context
@@ -162,7 +164,7 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger
+          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger, TODO drop user humb1t
           password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
       - name: When Login to DockerHub imposible
         id: login_failed
@@ -199,7 +201,7 @@ jobs:
     if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
-    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }} /iroha-builder ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy:
       fail-fast: false
       matrix:
@@ -223,7 +225,7 @@ jobs:
       - if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
         name: Possible WARNING
         env:
-          container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+          container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }} /iroha-builder ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
@@ -747,7 +749,7 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger
+          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger, TODO drop user humb1t
           password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
