@@ -6,23 +6,24 @@ name: Iroha1
 ##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
 ## TODO 2. [vcpkg] Do not rebuild vcpkg-tool every time [takes about 1min], see build_iroha_deps.sh
 ## TODO 3. [vcpkg] Use binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
-## TODO 3. better caching utilizing diff-backup style tools like restic and rclone
+## TODO 3. [speed] better caching utilizing diff-backup style tools like restic and rclone
 ##         to improve performance and reduce storage consumption.
 ##         Store ccache with rclone, maybe Store vcpkg binarycache with rclone
 ##         The problem/pitfail is to get access token during build from fork
-## TODO 4. Self-hosted MacOS and Windows
+## TODO 4. [speed] Self-hosted MacOS and Windows
 ##         Need more powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache,
 ##                                                         and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started
-## TODO 5. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## FIXME 8. cannot push docker image iroha-builder without credentials when PR is from fork.
+## TODO 5. [speed] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
+## FIXME 8. [organization] cannot push docker image iroha-builder without credentials when PR is from fork.
 ##       Because GitHub secrets inaccessable when building PRs from public forks.
 ##       Solution: open PR from the same repo. (Noted in job as Possible WARNING)
-## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
-## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+## FIXME 9. [organization] change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
+## TODO [speed] cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 ## TODO [prettify,documentation] update status badges in README.md
-## TODO windows postgres ctest
-## TODO remove useless outdated files
+## TODO [testing] windows postgres ctest
+## TODO [code-style] remove useless outdated files
+## TODO [legacy] Fix Jenkins pipeline
 
 ## CHEAT SHEET
 ## ${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
