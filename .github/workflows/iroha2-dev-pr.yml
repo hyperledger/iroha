@@ -69,6 +69,8 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
+      - name: Run tps benchmark
+        run: cargo bench -p iroha_client --bench tps
       - name: Run tests
         run: cargo test --workspace --no-fail-fast -- --test-threads=1
 

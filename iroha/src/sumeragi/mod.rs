@@ -690,7 +690,6 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
         let block = block.commit();
 
         for event in Vec::<Event>::from(&block) {
-            iroha_logger::error!("ev {:?}", event);
             drop(self.events_sender.send(event));
         }
 
@@ -1125,7 +1124,6 @@ pub mod message {
                 return Ok(());
             }
             for event in Vec::<Event>::from(&self.block.clone()) {
-                iroha_logger::error!("ev {:?}", event);
                 drop(sumeragi.events_sender.send(event));
             }
             self.update_view_changes(sumeragi);

@@ -50,3 +50,7 @@ tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 [[bench]]
 name = "torii"
 harness = false
+
+[[bench]]
+name = "tps"
+harness = false
