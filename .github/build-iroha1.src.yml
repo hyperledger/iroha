@@ -485,8 +485,10 @@ jobs:
       #   run: choco install cmake ninja
       - *step_checkout
       - name: move to workdir
-        run: shopt -s dotglob nullglob;
-             mv -f $GITHUB_WORKSPACE/*  "$WORKDIR"
+        run: |
+          set -x
+          shopt -s dotglob nullglob
+          mv -vf $GITHUB_WORKSPACE/*  -t "$WORKDIR/"
       #- *step_vcpkg_cache
       - <<: *step_vcpkg_build
         shell: bash
