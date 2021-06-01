@@ -573,7 +573,7 @@ jobs:
         working-directory: 'C:\\github\\iroha' ## Use disk C: because D: is out of space
     steps:
       - name: create working-directory
-        run: set -x; mkdir -p "$GITHUB_WORKSPACE"
+        run: set -x; mkdir -p "$GITHUB_WORKSPACE"; echo $PWD
         working-directory: 'C:\'
       - name: uname in bash
         run: uname
