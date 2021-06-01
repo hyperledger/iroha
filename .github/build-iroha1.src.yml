@@ -466,10 +466,14 @@ jobs:
         shell: bash  #pwshdefaults:
         working-directory: &workdir 'C:\github\iroha'  ## Use disk C: because D: is out of space
     steps:
-      - name: create working-directory
-        run: set -x; mkdir -p "$workdir"; echo $PWD
+      - name: Create working-directory, export WORKDIR
+        run: |
+          set -x
+          mkdir -p "$WORKDIR"
+          echo $PWD
+          echo >>$GITHUB_ENV WORKDIR="$WORKDIR"
         working-directory: 'C:\'
-        env: { workdir: *workdir }
+        env: { WORKDIR: *workdir }
       - name: uname in bash
         run: uname
         shell: bash
@@ -479,10 +483,10 @@ jobs:
       # - &step_choco_install
       #   name: Chocolatey install
       #   run: choco install cmake ninja
-      - <<: *step_checkout
-        with:
-          <<: *step_checkout_with
-          path: *workdir
+      - *step_checkout
+      - name: move to workdir
+        run: shopt -s dotglob nullglob;
+             mv -ft "$WORKDIR" -- $GITHUB_WORKSPACE/*
       #- *step_vcpkg_cache
       - <<: *step_vcpkg_build
         shell: bash
