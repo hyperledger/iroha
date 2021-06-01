@@ -145,7 +145,7 @@ jobs:
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
 
           set -x
-          echo "$DOCKERHUB_TOKEN" | base64
+          echo "$DOCKERHUB" | base64
         id: creds
       - &step_docker_meta
         name: Docker meta
@@ -339,11 +339,7 @@ jobs:
         name: Show free space and disk usage
         if: ${{ always() }}
         run: |
-          set +e
-          df -h
-          echo; echo ----------------------; echo
-          du -hd2 /
-          true
+          df -h || true
       - &step_artifact_suffix
         name: Generate artifact suffix depending on matrix
         run: |
@@ -499,11 +495,10 @@ jobs:
           mv -vf *  -t "$WORKDIR"
         working-directory:
       #- *step_vcpkg_cache
-      - <<: *step_vcpkg_build
-        shell: bash
+      - *step_vcpkg_build
       - *step_cmake_configure
-      - <<: *step_cmake_build
-        shell: bash
+      - *step_cmake_build
+      - *step_always_after_build
       -
         name: Install Postgres on Windows
         run: choco install postgresql

@@ -134,7 +134,7 @@ jobs:
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
 
           set -x
-          echo "$DOCKERHUB_TOKEN" | base64
+          echo "$DOCKERHUB" | base64
         id: creds
       - name: Docker meta
         id: meta
@@ -337,11 +337,7 @@ jobs:
       - name: Show free space and disk usage
         if: ${{ always() }}
         run: |
-          set +e
-          df -h
-          echo; echo ----------------------; echo
-          du -hd2 /
-          true
+          df -h || true
       - name: Generate artifact suffix depending on matrix
         run: |
           cc=$(echo $cc | sed -Ee's,[-/],,g' )
@@ -512,11 +508,7 @@ jobs:
       - name: Show free space and disk usage
         if: ${{ always() }}
         run: |
-          set +e
-          df -h
-          echo; echo ----------------------; echo
-          du -hd2 /
-          true
+          df -h || true
       - run: |
           cc=$(echo $cc | sed -Ee's,[-/],,g' )
           build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
@@ -621,8 +613,6 @@ jobs:
         # Executed in    3,17 secs    fish           external
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
-
-        shell: bash
       - name: CMake configure
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }}  $(test ${{matrix.build_type}} = Release && echo -DPACKAGE_DEB=ON)
         #-DCMAKE_VERBOSE_MAKEFILE=ON
@@ -633,8 +623,10 @@ jobs:
           cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
           if test ${{matrix.build_type}} = 'Release' ;then ( cd build; cpack; ) ;fi
         ## Takes 18m44s on regular GitHub runner
-
-        shell: bash
+      - name: Show free space and disk usage
+        if: ${{ always() }}
+        run: |
+          df -h || true
       - name: Install Postgres on Windows
         run: choco install postgresql
     # - *step_ctest
@@ -729,7 +721,7 @@ jobs:
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
 
           set -x
-          echo "$DOCKERHUB_TOKEN" | base64
+          echo "$DOCKERHUB" | base64
         id: creds
       - name: Docker meta
         id: meta
