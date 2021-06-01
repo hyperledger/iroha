@@ -1,4 +1,4 @@
-name: Iroha 2 main branch workflow
+name: Iroha 2 dev branch workflow
 
 on:
   push:
@@ -13,7 +13,7 @@ env:
     iroha_client/target
 jobs:
   coverage:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: ubuntu:20.04
     steps:
       - uses: actions/checkout@v2
@@ -55,7 +55,7 @@ jobs:
           file: ${{ steps.coverage.outputs.report }}
 
   bench:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
@@ -77,7 +77,7 @@ jobs:
 
   publish-artifacts:
     needs: [coverage, bench]
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
@@ -113,7 +113,7 @@ jobs:
           path: target/release/iroha_crypto_cli
 
   deploy:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Build and push Iroha Docker image

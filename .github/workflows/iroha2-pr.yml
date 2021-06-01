@@ -1,4 +1,4 @@
-name: Iroha 2 pull requests workflow
+name: Iroha 2 main branch pull requests workflow
 on:
   pull_request:
     branches: [iroha2]
@@ -12,7 +12,7 @@ env:
     iroha_client/target
 jobs:
   long-tests:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
@@ -51,7 +51,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: stable
+          toolchain: stable
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: iroha_client_cli
