@@ -115,7 +115,7 @@ jobs:
       - &step_checkout
         name: Checkout
         uses: actions/checkout@v2
-        with:
+        with: &step_checkout_with
           ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - &step_docker_tag
@@ -479,7 +479,10 @@ jobs:
       # - &step_choco_install
       #   name: Chocolatey install
       #   run: choco install cmake ninja
-      - *step_checkout
+      - <<: *step_checkout
+        with:
+          <<: *step_checkout_with
+          path: *workdir
       #- *step_vcpkg_cache
       - <<: *step_vcpkg_build
         shell: bash

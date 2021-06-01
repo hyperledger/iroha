@@ -590,6 +590,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          path: 'C:\github\iroha'
       #- *step_vcpkg_cache
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
