@@ -79,7 +79,7 @@ jobs:
     steps:
       - *step_show_context
       - &step_cancel_previous_runs
-        if: ${{false}}
+        if: ${{false}}  ## TODO FIXME this must not cancel scheduled and manual runs, and almost finished runs
         name: Cancel Previous Workflow Runs
         uses: n1hility/cancel-previous-runs@v2
         with:
@@ -295,7 +295,7 @@ jobs:
           path: ${{ env._CCACHE_DIR }}
           key:  ${{ runner.os }}-ccache
       - &step_vcpkg_cache
-        if: ${{false}}
+        if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
         ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
@@ -312,6 +312,7 @@ jobs:
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
         ## Takes 48m16s on default GitHub runner with 2 cores
+        ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
         # ________________________________________________________
         # Executed in   32,08 mins    fish           external
         #    usr time  110,52 mins    0,24 millis  110,52 mins
@@ -334,7 +335,9 @@ jobs:
           set -x
           cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
           if test ${{matrix.build_type}} = 'Release' ;then ( cd build; cpack; ) ;fi
-        ## Takes 18m44s on regular GitHub runner
+        ## Debug   takes 18m44s on regular GitHub runner
+        ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
+        ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - &step_always_after_build
         name: Show free space and disk usage
         if: ${{ always() }}
