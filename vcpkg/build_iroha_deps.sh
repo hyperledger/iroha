@@ -68,7 +68,7 @@ bootstrap
 # #   --binarysource=files,$BINARYCACHE_PATH,readwrite \
 
 ## The old lamp way to install
-$vcpkg_path/vcpkg install --feature-flags=-manifests $(cat $script_dir/VCPKG_DEPS_LIST | xargs)
+$vcpkg_path/vcpkg install --feature-flags=-manifests $(cat $script_dir/VCPKG_DEPS_LIST | tr -d '\r')
 # ( #cd /tmp
 # cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
 #    $vcpkg_path/vcpkg install --feature-flags=-manifests $pkgspec
