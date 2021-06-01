@@ -572,10 +572,14 @@ jobs:
         shell: bash #pwshdefaults:
         working-directory: 'C:\github\iroha' ## Use disk C: because D: is out of space
     steps:
-      - name: create working-directory
-        run: set -x; mkdir -p "$workdir"; echo $PWD
+      - name: Create working-directory, export WORKDIR
+        run: |
+          set -x
+          mkdir -p "$WORKDIR"
+          echo $PWD
+          echo >>$GITHUB_ENV WORKDIR="$WORKDIR"
         working-directory: 'C:\'
-        env: {workdir: 'C:\github\iroha'}
+        env: {WORKDIR: 'C:\github\iroha'}
       - name: uname in bash
         run: uname
         shell: bash
@@ -590,7 +594,8 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-          path: 'C:\github\iroha'
+      - name: move to workdir
+        run: shopt -s dotglob nullglob; mv -ft "$WORKDIR" -- $GITHUB_WORKSPACE/*
       #- *step_vcpkg_cache
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
