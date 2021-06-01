@@ -464,10 +464,10 @@ jobs:
     defaults:
       run:
         shell: bash  #pwshdefaults:
-        working-directory: 'C:\github\iroha'  ## Use disk C: because D: is out of space
+        working-directory: 'C:\\github\\iroha'  ## Use disk C: because D: is out of space
     steps:
       - name: create working-directory
-        run: mkdir -p "$GITHUB_WORKSPACE"
+        run: set -x; mkdir -p "$GITHUB_WORKSPACE"
         working-directory: 'C:\'
       - name: uname in bash
         run: uname
