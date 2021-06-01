@@ -1,4 +1,4 @@
-name: Iroha 2 pull requests workflow
+name: Iroha 2 dev branch pull requests workflow
 on:
   pull_request:
     branches: [iroha2-dev]
