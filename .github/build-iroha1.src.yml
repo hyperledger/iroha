@@ -1,9 +1,11 @@
 name: Iroha1
 
-## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times https://stackoverflow.com/a/52781832/3743145
+## TODO 1. vcpkg build only Debug or only Release - reduce vcpkg build duration and output size 2times
+##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
 ## TODO 2. better caching utilizing diff-backup style tools like restic and rclone
-##      to improve performance and reduce storage consumption.
-##      Store ccache with rclone, Store
+##         to improve performance and reduce storage consumption.
+##         Store ccache with rclone, maybe Store vcpkg binarycache with rclone
+##         The problem/pitfail is to get access token during build from fork
 ## TODO 3. More powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache, and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started
 ## TODO 4. Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
@@ -14,10 +16,11 @@ name: Iroha1
 ## FIXME 9. change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
 ## TODO optimization cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 ## TODO Use vcpkg binarycaching on CI https://devblogs.microsoft.com/cppblog/vcpkg-accelerate-your-team-development-environment-with-binary-caching-and-manifests/
+## TODO update status badges in README.md
+## TODO windows postgres ctest
 
-## TODO schedule: nightly
-
-#${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
+## CHEAT SHEET
+## ${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
 ## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
 
@@ -36,6 +39,8 @@ on:
         default: 'hello world!'
   issue_comment:
     types: [created, edited]
+  schedule:
+    - cron: '12 22 * * *'
 
 jobs:
   pr_comment_reaction_rocket:
@@ -212,11 +217,12 @@ jobs:
     ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
     if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    ## Container tag is taken from previous job or [default] 'edge'; default=ikyb/iroha-builder:edge
-    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
-                            )[0] }}/iroha-builder${{
+    ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
+    container: &container
+      ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
+                            )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
                    fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
-                            )[0] }}
+                            )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy:
       fail-fast: false
       matrix:
@@ -229,7 +235,7 @@ jobs:
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
-        name: Show context
+        name: Show needs
         run: |
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
@@ -237,9 +243,11 @@ jobs:
       -
         if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
         name: Possible WARNING
+        env:
+          container: *container
         run: |
           cat <<END
-            ::warning::Running on container '${{toJson(job.container)}}', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+            ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
             The most possible reason you see this message is that docker image
             '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
@@ -381,7 +389,6 @@ jobs:
         #FIXME do not CTEST_EXCLUDE
 
   build-iroha-macos:
-    if: ${{ false }}  # disable for now
     runs-on: macos-latest #[ self-hosted, MacOS ] #
     strategy:
       fail-fast: false
@@ -448,22 +455,20 @@ jobs:
       - *step_ctest
 
   build-iroha-windows:
-    # if: ${{ false }}  ##
+    # if: ${{ false }}  ## Because it not enough space on D:
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        # cc: [ cl, clang, mingw ]
-        # USE_BURROW: [ -DUSE_BURROW=OFF ]
-        # USE_URSA: [ -DUSE_URSA=OFF ]
-        ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
         build_type: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
         shell: bash  #pwshdefaults:
         working-directory: 'C:\github\iroha'  ## Use disk C: because D: is out of space
     steps:
-      # - *cancel_previous_runs
+      - name: create working-directory
+        run: mkdir -p "$GITHUB_WORKSPACE"
+        working-directory: 'C:\'
       - name: uname in bash
         run: uname
         shell: bash
@@ -487,7 +492,7 @@ jobs:
 
   release-iroha-docker-image:
     needs: build-iroha-ubuntu
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
@@ -516,8 +521,6 @@ jobs:
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
       - *step_docker_creds
-      -
-        run: echo
       - <<: *step_docker_meta
         with:
           <<: *step_docker_meta_with
