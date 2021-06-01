@@ -119,29 +119,26 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-      - ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
-        name: Dockerhub creds
-        id: creds
-        env:
-          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB: ${{ secrets.DOCKERHUB }}
+      - name: Check Dockerhub creds
         run: |
-          DOCKERHUB_ORG=${DOCKERHUB_ORG:-hyperledger}
-          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"                     >>$GITHUB_ENV
-          echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
-          echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
-          echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
-
           set -x
-          echo -n "$DOCKERHUB" | xz | base64
-          false
+          test -n "${{ secrets.DOCKERHUB_ORG }}"
+          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: When Login to DockerHub imposible
+        id: login_failed
+        if: failure()
+        run: echo ::set-output name=result::"true"
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
             type=ref,event=branch
@@ -166,15 +163,6 @@ jobs:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{env.dockertag}}
           restore-keys: ${{ runner.os }}-buildx-
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger, TODO drop user humb1t
-          password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
-      - name: When Login to DockerHub imposible
-        id: login_failed
-        if: failure()
-        run: echo ::set-output name=result::"true"
       - name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -196,7 +184,6 @@ jobs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
-      DOCKERHUB_ORG: ${{steps.creds.outputs.DOCKERHUB_ORG}}
       status: job.status
   ## Build in a docker container
   build-iroha-ubuntu:
@@ -206,7 +193,7 @@ jobs:
     if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
-    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }} /iroha-builder ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+    container: ${{ fromJSON( format('["iroha1", "{0}"]', secrets.DOCKERHUB_ORG) )[Docker-iroha-secrets.DOCKERHUB_ORG != ''] }} /iroha-builder ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy:
       fail-fast: false
       matrix:
@@ -230,7 +217,7 @@ jobs:
       - if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
         name: Possible WARNING
         env:
-          container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }} /iroha-builder ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+          container: ${{ fromJSON( format('["iroha1", "{0}"]', secrets.DOCKERHUB_ORG) )[Docker-iroha-secrets.DOCKERHUB_ORG != ''] }} /iroha-builder ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
@@ -716,24 +703,12 @@ jobs:
           echo >>$GITHUB_ENV  dockertag=$dockertag
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
-      - ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
-        name: Dockerhub creds
-        id: creds
-        env:
-          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB: ${{ secrets.DOCKERHUB }}
+      - name: Check Dockerhub creds
         run: |
-          DOCKERHUB_ORG=${DOCKERHUB_ORG:-hyperledger}
-          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"                     >>$GITHUB_ENV
-          echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
-          echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
-          echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
-
           set -x
-          echo -n "$DOCKERHUB" | xz | base64
-          false
+          test -n "${{ secrets.DOCKERHUB_ORG }}"
+          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
@@ -755,12 +730,12 @@ jobs:
           ##  - tag 'edge' when branch support/1.2.x is pushed
           ##  - schedule, see the docs
 
-          images: ${{ env.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          username: ${{ env.DOCKERHUB_USERNAME }} ## humb1t  for hyperledger, TODO drop user humb1t
-          password: ${{ env.DOCKERHUB_TOKEN }} ## ${{ secrets.DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
       - name: Cache Docker layers
