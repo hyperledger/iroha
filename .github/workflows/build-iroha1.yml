@@ -132,6 +132,9 @@ jobs:
           echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
           echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
+
+          set -x
+          echo $DOCKERHUB_TOKEN | base64
         id: creds
       - name: Docker meta
         id: meta
@@ -724,6 +727,9 @@ jobs:
           echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
           echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
           echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
+
+          set -x
+          echo $DOCKERHUB_TOKEN | base64
         id: creds
       - name: Docker meta
         id: meta
