@@ -575,7 +575,7 @@ jobs:
       - name: create working-directory
         run: set -x; mkdir -p "$workdir"; echo $PWD
         working-directory: 'C:\'
-        env: [{workdir: 'C:\github\iroha'}]
+        env: {workdir: 'C:\github\iroha'}
       - name: uname in bash
         run: uname
         shell: bash

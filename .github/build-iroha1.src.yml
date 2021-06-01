@@ -469,7 +469,7 @@ jobs:
       - name: create working-directory
         run: set -x; mkdir -p "$workdir"; echo $PWD
         working-directory: 'C:\'
-        env: [ workdir: *workdir ]
+        env: { workdir: *workdir }
       - name: uname in bash
         run: uname
         shell: bash
