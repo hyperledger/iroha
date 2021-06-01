@@ -130,30 +130,29 @@ jobs:
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
       - &step_docker_creds
-        ## This step is required since we cannot rely on secrets.DOCKERHUB_ORG
-        name: Dockerhub creds
-        id: creds
-        env:
-          DOCKERHUB_ORG:      ${{ secrets.DOCKERHUB_ORG }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB:          ${{ secrets.DOCKERHUB }}
+        name: Check Dockerhub creds
         run: |
-          DOCKERHUB_ORG=${DOCKERHUB_ORG:-hyperledger}
-          echo DOCKERHUB_ORG="$DOCKERHUB_ORG"                     >>$GITHUB_ENV
-          echo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-humb1t}" >>$GITHUB_ENV
-          echo DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-$DOCKERHUB}"   >>$GITHUB_ENV
-          echo ::set-output name=DOCKERHUB_ORG::"$DOCKERHUB_ORG"
-
           set -x
-          echo -n "$DOCKERHUB" | xz | base64
-          false
+          test -n "${{ secrets.DOCKERHUB_ORG }}"
+          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
+      - &step_docker_login
+        name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - &step_docker_login_failure
+        name: When Login to DockerHub imposible
+        id: login_failed
+        if: failure()
+        run: echo ::set-output name=result::"true"
       - &step_docker_meta
         name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
         with: &step_docker_meta_with
-          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
             type=ref,event=branch
@@ -180,17 +179,6 @@ jobs:
           path: /tmp/.buildx-cache
           key:           ${{ runner.os }}-buildx-${{env.dockertag}}
           restore-keys:  ${{ runner.os }}-buildx-
-      - &step_docker_login
-        name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }}       ## humb1t  for hyperledger, TODO drop user humb1t
-          password: ${{ env.DOCKERHUB_TOKEN }}          ## ${{ secrets.DOCKERHUB }}
-      - &step_docker_login_failure
-        name: When Login to DockerHub imposible
-        id: login_failed
-        if: failure()
-        run: echo ::set-output name=result::"true"
       - &step_docker_build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
@@ -214,7 +202,6 @@ jobs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
-      DOCKERHUB_ORG: ${{steps.creds.outputs.DOCKERHUB_ORG}}
       status: job.status
 
   ## Build in a docker container
@@ -226,8 +213,8 @@ jobs:
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
     container: &container
-      ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
-                            )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}
+      ${{ fromJSON( format('["iroha1", "{0}"]', secrets.DOCKERHUB_ORG)
+                            )[Docker-iroha-secrets.DOCKERHUB_ORG != ''] }}
                             /iroha-builder
                             ${{fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
                             )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
@@ -542,7 +529,7 @@ jobs:
       - <<: *step_docker_meta
         with:
           <<: *step_docker_meta_with
-          images: ${{ env.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
       - *step_docker_login
       - *step_docker_buildx
       - <<: *step_docker_cache
