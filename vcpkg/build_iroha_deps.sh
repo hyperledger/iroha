@@ -68,11 +68,12 @@ bootstrap
 # #   --binarysource=files,$BINARYCACHE_PATH,readwrite \
 
 ## The old lamp way to install
-( #cd /tmp
-cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
-   $vcpkg_path/vcpkg install --feature-flags=-manifests $pkgspec
-done
-)
+$vcpkg_path/vcpkg install --feature-flags=-manifests $(cat $script_dir/VCPKG_DEPS_LIST | xargs)
+# ( #cd /tmp
+# cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
+#    $vcpkg_path/vcpkg install --feature-flags=-manifests $pkgspec
+# done
+# )
 
 #################### PROFILING ####################
 ## system macos big sur on macbook pro 2016 i7 2.8GHz
