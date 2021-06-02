@@ -206,6 +206,7 @@ jobs:
         build_type: [Debug]
         include:
           - {build_type: Release, cc: gcc-9}
+          - {build_type: Release, cc: gcc-9, CMAKE_USE: -DUSE_BURROW=ON}
     steps:
       - name: Show context
         run: |
@@ -217,7 +218,7 @@ jobs:
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
           END
-      - if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
+      - if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') && needs.Docker-iroha-builder.outputs._dockertag == '' }}
         name: Possible WARNING
         env:
           container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
@@ -345,18 +346,22 @@ jobs:
           cc: ${{ matrix.cc }}
           build_type: ${{ matrix.build_type }}
           CMAKE_USE: ${{ matrix.CMAKE_USE }}
-      - # if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Release' }}  #ToDo Release
-        name: Archive artifact irohad
+      - name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad${{env.ARTIFACT_SUFFIX}}
           path: |
             build/bin/irohad
             build/bin/iroha-cli
-            *.deb
-          # required: ${{ matrix.build_type == 'Release' }}
-      - if: ${{ false }}
-        name: Archive artifact tests
+      - if: ${{ matrix.build_type == 'Release' }}
+        name: Upload artifact irohad
+        uses: actions/upload-artifact@v2
+        with:
+          name: iroha-deb${{env.ARTIFACT_SUFFIX}}
+          path: |
+            build/*.deb
+      - if: ${{ false }} ## Maybe test in another job
+        name: Upload artifact tests
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
@@ -433,8 +438,6 @@ jobs:
         run: |
           go get github.com/golang/protobuf/protoc-gen-go
           echo >>$GITHUB_PATH $HOME/go/bin
-          which -a protoc-gen-go
-        #run: brew install go protoc-gen-go
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -520,17 +523,15 @@ jobs:
           build_type: ${{ matrix.build_type }}
           CMAKE_USE: ${{ matrix.CMAKE_USE }}
           os: macos ##${{run.os}}
-      - # if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Release' }}  #ToDo Release
-        name: Archive artifact irohad
+      - name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad-macos${{env.ARTIFACT_SUFFIX}}
           path: |
             build/bin/irohad
             build/bin/iroha-cli
-            *.deb
-      - if: ${{ false }}
-        name: Archive artifact tests
+      - if: ${{ false }} ## Maybe test in another job
+        name: Upload artifact tests
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
@@ -694,7 +695,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v2
         with:
-          name: irohad${{env.ARTIFACT_SUFFIX}}
+          name: iroha-deb${{env.ARTIFACT_SUFFIX}}
       - name: Rename artifact debs
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb

@@ -229,6 +229,7 @@ jobs:
         build_type: [ Debug ]
         include:
           - { build_type: Release, cc: gcc-9 }
+          - { build_type: Release, cc: gcc-9, CMAKE_USE: -DUSE_BURROW=ON }
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -238,7 +239,8 @@ jobs:
             ${{ toJson(needs) }}
           END
       -
-        if: ${{ needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true' }}
+        if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
+                 needs.Docker-iroha-builder.outputs._dockertag == '' }}
         name: Possible WARNING
         env:
           container: *container
@@ -348,19 +350,24 @@ jobs:
           build_type: ${{ matrix.build_type }}
           CMAKE_USE:  ${{ matrix.CMAKE_USE }}
       - &step_artifact_irohad
-        # if: ${{ matrix.CMAKE_USE == '' && matrix.cc == 'gcc-9' && matrix.build_type == 'Release' }}  #ToDo Release
-        name: Archive artifact irohad
+        name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
           name: irohad${{env.ARTIFACT_SUFFIX}}
           path: &step_artifact_irohad_path |
             build/bin/irohad
             build/bin/iroha-cli
-            *.deb
-          # required: ${{ matrix.build_type == 'Release' }}
+      - &step_artifact_iroha_deb
+        if: ${{ matrix.build_type == 'Release' }}
+        name: Upload artifact irohad
+        uses: actions/upload-artifact@v2
+        with:
+          name: iroha-deb${{env.ARTIFACT_SUFFIX}}
+          path: &step_artifact_iroha_deb_path |
+            build/*.deb
       - &step_artifact_tests
-        if: ${{ false }}
-        name: Archive artifact tests
+        if: ${{ false }}  ## Maybe test in another job
+        name: Upload artifact tests
         uses: actions/upload-artifact@v2
         with:
           name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
@@ -419,9 +426,6 @@ jobs:
         run: |
           go get github.com/golang/protobuf/protoc-gen-go
           echo >>$GITHUB_PATH $HOME/go/bin
-          which -a protoc-gen-go
-        #run: brew install go protoc-gen-go
-
       - *step_detect_commented_pr
       - *step_checkout
       - <<: *step_export_cxx
@@ -514,11 +518,11 @@ jobs:
       - *step_detect_commented_pr
       - *step_checkout
       - *step_artifact_suffix
-      - &step_download_artifact_irohad
+      - &step_download_artifact_iroha_deb
         name: Download artifact
         uses: actions/download-artifact@v2
         with:
-          name: irohad${{env.ARTIFACT_SUFFIX}}
+          name: iroha-deb${{env.ARTIFACT_SUFFIX}}
       -
         name: Rename artifact debs
         run: |
