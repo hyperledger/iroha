@@ -699,7 +699,7 @@ jobs:
       - name: Rename artifact debs
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
-          mv *iroha.deb          docker/release/iroha.deb
+          mv *irohad.deb          docker/release/iroha.deb
       - name: Determine dockertag
         id: dockertag
         run: |
