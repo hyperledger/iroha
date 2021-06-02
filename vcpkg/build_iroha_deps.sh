@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-set -xeu  #o pipefail
-#JENKINS [2021-05-31T12:51:42.277Z] /tmp/vcpkg-vars/build_iroha_deps.sh: 2: set: Illegal option -o pipefail
+set -xeuo pipefail
 
 vcpkg_path="${1:-$(pwd)/vcpkg-build}"
 script_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
@@ -24,7 +23,7 @@ done
 # cp -r "$script_dir"/ports $vcpkg_path/
 
 # MANIFEST_ROOT=$(realpath $script_dir/..)
-MANIFEST_ROOT=$(git -C $script_dir rev-parse --show-toplevel)
+# MANIFEST_ROOT=$(git -C $script_dir rev-parse --show-toplevel)
 BINARYCACHE_PATH=$(realpath $vcpkg_path)/binarycache
 INSTALL_ROOT=$vcpkg_path/installed
 
@@ -36,7 +35,7 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
       bootstrap(){
          $vcpkg_path/bootstrap-vcpkg.bat -disableMetrics
       }
-      MANIFEST_ROOT=$(cygpath -wa $MANIFEST_ROOT)
+      # MANIFEST_ROOT=$(cygpath -wa $MANIFEST_ROOT)
       BINARYCACHE_PATH=$(cygpath -wa $BINARYCACHE_PATH)
       INSTALL_ROOT=$(cygpath -wa $INSTALL_ROOT)
       ;;

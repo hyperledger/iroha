@@ -50,7 +50,7 @@ RUN go get github.com/golang/protobuf/protoc-gen-go
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -e; \
     export VCPKG_FORCE_SYSTEM_BINARIES=1; \
-    sh /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
+    /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
     chmod +x /opt/dependencies/installed/*/tools/protobuf/protoc*; \
