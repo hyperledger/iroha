@@ -466,7 +466,7 @@ jobs:
       - *step_ctest
 
   build-iroha-windows:
-    # if: ${{ false }}  ## Because it not enough space on D:
+    if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -493,7 +493,7 @@ jobs:
         shell: pwsh
       - &step_choco_install
         name: Chocolatey install
-        run: choco install cmake ninja ccache
+        run: choco install cmake ninja #ccache
       - *step_checkout
       - name: move to workdir
         run: |

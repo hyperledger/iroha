@@ -749,7 +749,7 @@ jobs:
           ctest --output-on-failure -R '^integration_fake_peer_example_test$' || true
         #FIXME do not CTEST_EXCLUDE
   build-iroha-windows:
-    # if: ${{ false }}  ## Because it not enough space on D:
+    if: ${{ false }} ##FIXME Somehow cmake fails to find GTest and others
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -775,7 +775,7 @@ jobs:
         run: uname
         shell: pwsh
       - name: Chocolatey install
-        run: choco install cmake ninja ccache
+        run: choco install cmake ninja #ccache
       - name: Checkout
         uses: actions/checkout@v2
         with:
