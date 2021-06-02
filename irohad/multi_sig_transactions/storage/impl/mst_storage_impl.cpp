@@ -21,44 +21,13 @@ namespace iroha {
     return target_state_iter;
   }
   // -----------------------------| interface API |-----------------------------
-  MstStorageStateImpl::MstStorageStateImpl(MstStorageStateImpl::private_tag,
-                                           CompleterType const &completer,
+  MstStorageStateImpl::MstStorageStateImpl(CompleterType const &completer,
                                            logger::LoggerPtr mst_state_logger,
                                            logger::LoggerPtr log)
       : MstStorage(log),
         completer_(completer),
         own_state_(MstState::empty(mst_state_logger, completer_)),
         mst_state_logger_(std::move(mst_state_logger)) {}
-
-  std::shared_ptr<MstStorageStateImpl> MstStorageStateImpl::create(
-      CompleterType const &completer,
-      rxcpp::observable<shared_model::interface::types::HashType> finalized_txs,
-      logger::LoggerPtr mst_state_logger,
-      logger::LoggerPtr log) {
-    auto storage = std::make_shared<MstStorageStateImpl>(
-        MstStorageStateImpl::private_tag{},
-        completer,
-        std::move(mst_state_logger),
-        std::move(log));
-    std::weak_ptr<MstStorageStateImpl> storage_(storage);
-
-    auto subscription = rxcpp::composite_subscription();
-    finalized_txs.subscribe(
-        subscription,
-        [storage_,
-         subscription](shared_model::interface::types::HashType const &hash) {
-          if (auto storage = storage_.lock()) {
-            for (auto &p : storage->peer_states_) {
-              p.second.eraseByTransactionHash(hash);
-            }
-            storage->own_state_.eraseByTransactionHash(hash);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-
-    return storage;
-  }
 
   auto MstStorageStateImpl::applyImpl(
       shared_model::interface::types::PublicKeyHexStringView target_peer_key,
@@ -100,6 +69,14 @@ namespace iroha {
 
   bool MstStorageStateImpl::batchInStorageImpl(const DataType &batch) const {
     return own_state_.contains(batch);
+  }
+
+  void MstStorageStateImpl::processFinalizedTransactionImpl(
+      shared_model::interface::types::HashType const &hash) {
+    for (auto &p : peer_states_) {
+      p.second.eraseByTransactionHash(hash);
+    }
+    own_state_.eraseByTransactionHash(hash);
   }
 
 }  // namespace iroha

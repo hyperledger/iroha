@@ -27,6 +27,10 @@ namespace iroha {
                 &first_tx_hash));
     MOCK_METHOD1(insertPresenceCache,
                  void(std::shared_ptr<ametsuchi::TxPresenceCache> &cache));
+    MOCK_METHOD(void,
+                removeTransaction,
+                (shared_model::interface::types::HashType const &),
+                (override));
   };
 
 }  // namespace iroha

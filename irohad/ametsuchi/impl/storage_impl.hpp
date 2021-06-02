@@ -13,7 +13,6 @@
 
 #include <soci/soci.h>
 #include <boost/optional.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/key_value_storage.hpp"
@@ -51,6 +50,8 @@ namespace iroha {
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           std::shared_ptr<BlockStorage> persistent_block_storage,
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
@@ -110,9 +111,6 @@ namespace iroha {
 
       std::shared_ptr<BlockQuery> getBlockQuery() const override;
 
-      rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() override;
-
       void prepareBlock(std::unique_ptr<TemporaryWsv> wsv) override;
 
       ~StorageImpl() override;
@@ -132,6 +130,8 @@ namespace iroha {
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           size_t pool_size,
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager);
 
      private:
@@ -157,10 +157,8 @@ namespace iroha {
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<soci::connection_pool> &connection_;
 
-      rxcpp::composite_subscription notifier_lifetime_;
-      rxcpp::subjects::subject<
-          std::shared_ptr<const shared_model::interface::Block>>
-          notifier_;
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+          callback_;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;

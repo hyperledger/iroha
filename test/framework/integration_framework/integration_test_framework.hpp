@@ -493,7 +493,11 @@ namespace integration_framework {
         iroha::BaseSubscriber<bool,
                               iroha::simulator::VerifiedProposalCreatorEvent>>
         verified_proposal_subscription_;
-    std::unique_ptr<CheckerQueue<BlockType>> block_queue_;
+    std::shared_ptr<iroha::BaseSubscriber<
+        bool,
+        std::shared_ptr<shared_model::interface::Block const>>>
+        block_subscription_;
+    std::shared_ptr<CheckerQueue<BlockType>> block_queue_;
     std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
         responses_queues_;
 

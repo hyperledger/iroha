@@ -5,15 +5,15 @@
 
 #include "torii/query_service.hpp"
 
-#include <rxcpp/operators/rx-observe_on.hpp>
-#include <rxcpp/operators/rx-take_while.hpp>
+#include "backend/protobuf/block.hpp"
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/util.hpp"
-#include "common/run_loop_handler.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
+#include "subscription/scheduler_impl.hpp"
 #include "validators/default_validator.hpp"
 
 namespace iroha {
@@ -78,71 +78,69 @@ namespace iroha {
         grpc::ServerWriter<iroha::protocol::BlockQueryResponse> *writer) {
       log_->debug("Fetching commits");
 
-      rxcpp::schedulers::run_loop run_loop;
-      auto current_thread = rxcpp::synchronize_in_one_worker(
-          rxcpp::schedulers::make_run_loop(run_loop));
+      auto maybe_query = blocks_query_factory_->build(*request);
+      if (iroha::expected::hasError(maybe_query)) {
+        log_->debug("Stateless invalid: {}", maybe_query.assumeError().error);
+        iroha::protocol::BlockQueryResponse response;
+        response.mutable_block_error_response()->set_message(
+            std::move(maybe_query.assumeError().error));
+        writer->WriteLast(response, grpc::WriteOptions());
+        return grpc::Status::OK;
+      }
 
-      blocks_query_factory_->build(*request).match(
-          [this, context, request, writer, &current_thread, &run_loop](
-              const auto &query) {
-            rxcpp::composite_subscription subscription;
-            std::string client_id =
-                (boost::format("Peer: '%s'") % context->peer()).str();
-            query_processor_->blocksQueryHandle(*query.value)
-                .observe_on(current_thread)
-                .take_while([this, context, request, writer, client_id](
-                                const std::shared_ptr<
-                                    shared_model::interface::BlockQueryResponse>
-                                    response) {
-                  if (context->IsCancelled()) {
-                    log_->debug("Unsubscribed from block stream");
-                    return false;
-                  }
+      auto maybe_result =
+          query_processor_->blocksQueryHandle(*maybe_query.assumeValue());
+      if (iroha::expected::hasError(maybe_result)) {
+        log_->debug("Query processor error: {}", maybe_result.assumeError());
+        iroha::protocol::BlockQueryResponse response;
+        response.mutable_block_error_response()->set_message(
+            std::move(maybe_result.assumeError()));
+        writer->WriteLast(response, grpc::WriteOptions());
+        return grpc::Status::OK;
+      }
 
-                  log_->debug("{} receives {}",
-                              request->meta().creator_account_id(),
-                              *response);
+      std::string client_id = fmt::format("Peer: '{}'", context->peer());
 
-                  const auto &proto_response =
-                      std::static_pointer_cast<
-                          shared_model::proto::BlockQueryResponse>(response)
-                          ->getTransport();
+      auto scheduler = std::make_shared<iroha::subscription::SchedulerBase>();
+      auto tid = iroha::getSubscription()->dispatcher()->bind(scheduler);
 
-                  if (not writer->Write(proto_response)) {
-                    log_->error("write to stream has failed to client {}",
-                                client_id);
-                    return false;
-                  }
+      auto batches_subscription = SubscriberCreator<
+          bool,
+          std::shared_ptr<shared_model::interface::Block const>>::
+          template create<EventTypes::kOnBlock>(
+              static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+              [&](auto, auto block) {
+                if (context->IsCancelled()) {
+                  log_->debug("Unsubscribed from block stream");
+                  scheduler->dispose();
+                  return;
+                }
 
-                  return iroha::visit_in_place(
-                      response->get(),
-                      [](const shared_model::interface::BlockResponse &) {
-                        return true;
-                      },
-                      [](const shared_model::interface::BlockErrorResponse &) {
-                        return false;
-                      });
-                })
-                .subscribe(
-                    subscription,
-                    [](const auto &) {},
-                    [&](std::exception_ptr ep) {
-                      log_->error(
-                          "something bad happened during block "
-                          "streaming, client_id {}",
-                          client_id);
-                    },
-                    [&] { log_->debug("block stream done, {}", client_id); });
+                log_->debug("{} receives {}",
+                            request->meta().creator_account_id(),
+                            *block);
 
-            iroha::schedulers::handleEvents(subscription, run_loop);
-          },
-          [this, writer](auto &&error) {
-            log_->debug("Stateless invalid: {}", error.error.error);
-            iroha::protocol::BlockQueryResponse response;
-            response.mutable_block_error_response()->set_message(
-                std::move(error.error.error));
-            writer->WriteLast(response, grpc::WriteOptions());
-          });
+                iroha::protocol::BlockQueryResponse response;
+                *response.mutable_block_response()
+                     ->mutable_block()
+                     ->mutable_block_v1() =
+                    std::static_pointer_cast<shared_model::proto::Block const>(
+                        block)
+                        ->getTransport();
+
+                if (not writer->Write(response)) {
+                  log_->error("write to stream has failed to client {}",
+                              client_id);
+                  scheduler->dispose();
+                  return;
+                }
+              });
+
+      scheduler->process();
+
+      getSubscription()->dispatcher()->unbind(*tid);
+
+      log_->debug("block stream done, {}", client_id);
 
       return grpc::Status::OK;
     }

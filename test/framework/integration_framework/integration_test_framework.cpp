@@ -440,11 +440,22 @@ namespace integration_framework {
               }
             });
 
-    iroha_instance_->getIrohaInstance()->getStorage()->on_commit().subscribe(
-        [this](auto committed_block) {
-          block_queue_->push(committed_block);
-          log_->info("block commit");
-        });
+    block_subscription_ = iroha::SubscriberCreator<
+        bool,
+        std::shared_ptr<shared_model::interface::Block const>>::
+        template create<iroha::EventTypes::kOnBlock>(
+            static_cast<iroha::SubscriptionEngineHandlers>(
+                iroha::getSubscription()->dispatcher()->kExecuteInPool),
+            [block_queue(iroha::utils::make_weak(block_queue_)),
+             log(iroha::utils::make_weak(log_))](auto, auto block) {
+              auto maybe_block_queue = block_queue.lock();
+              auto maybe_log = log.lock();
+              if (maybe_block_queue and maybe_log) {
+                maybe_block_queue->push(block);
+                maybe_log->info("block commit");
+              }
+            });
+
     iroha_instance_->getIrohaInstance()->getStatusBus()->statuses().subscribe(
         [this](auto response) {
           const auto hash = response->transactionHash().hex();

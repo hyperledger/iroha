@@ -41,6 +41,7 @@ target_link_libraries(find_fuzz
   GTest::gmock
   ametsuchi
   torii_service
+  sync_subscription
   ${fuzzing_engine}
   )
 

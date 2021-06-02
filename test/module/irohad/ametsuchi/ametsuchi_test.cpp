@@ -18,7 +18,6 @@
 #include "framework/result_fixture.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
@@ -27,7 +26,6 @@
 
 using namespace common_constants;
 using namespace iroha::ametsuchi;
-using namespace framework::test_subscriber;
 using namespace shared_model::interface::permissions;
 using namespace shared_model::interface::types;
 using framework::expected::err;
@@ -400,9 +398,6 @@ TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
       "=> insert block "
       "=> assert that inserted");
   ASSERT_TRUE(storage);
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe();
   auto wsv = storage->getWsvQuery();
   ASSERT_EQ(0, wsv->getPeers().value().size());
 
@@ -415,8 +410,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
 
   ASSERT_NE(0, wsv->getPeers().value().size());
 
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
+  ASSERT_EQ(1, committed_blocks_.size());
 }
 
 /**
@@ -429,20 +423,13 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
 
   auto expected_block = getBlock();
 
-  // create test subscriber to check if committed block is as expected
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe([&expected_block](const auto &block) {
-    ASSERT_EQ(*block, *expected_block);
-  });
-
   auto mutable_storage = createMutableStorage();
   mutable_storage->apply(expected_block);
 
   ASSERT_TRUE(val(storage->commit(std::move(mutable_storage))));
 
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
+  ASSERT_EQ(1, committed_blocks_.size());
+  ASSERT_EQ(*expected_block, *committed_blocks_.front());
 }
 
 class IdentityChainValidator : public iroha::validation::ChainValidator {
@@ -726,18 +713,12 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
 
   auto expected_block = createBlock({add_ast_tx}, 2, genesis_block->hash());
 
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe([&](const auto &block) {
-    ASSERT_EQ(*block, *expected_block);
-    validateAccountAsset(
-        sql_query, kSameDomainUserId, kAssetId, transferredAmount);
-  });
-
   apply(storage, expected_block);
 
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
+  ASSERT_EQ(2, committed_blocks_.size());
+  ASSERT_EQ(*expected_block, *committed_blocks_.back());
+  validateAccountAsset(
+      sql_query, kSameDomainUserId, kAssetId, transferredAmount);
 }
 
 class PreparedBlockTest : public AmetsuchiTest {

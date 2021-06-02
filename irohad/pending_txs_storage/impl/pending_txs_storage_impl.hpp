@@ -43,7 +43,6 @@ namespace iroha {
     using PreparedTransactionDescriptor = std::pair<AccountIdType, HashType>;
     using PreparedTransactionsObservable =
         rxcpp::observable<PreparedTransactionDescriptor>;
-    using FinalizedTransactionsObservable = rxcpp::observable<HashType>;
 
     PendingTransactionStorageImpl(PendingTransactionStorageImpl::private_tag);
 
@@ -56,8 +55,7 @@ namespace iroha {
         StateObservable updated_batches,
         BatchObservable prepared_batch,
         BatchObservable expired_batch,
-        PreparedTransactionsObservable prepared_txs,
-        FinalizedTransactionsObservable finalized_txs);
+        PreparedTransactionsObservable prepared_txs);
 
     SharedTxsCollectionType getPendingTransactions(
         const AccountIdType &account_id) const override;
@@ -71,6 +69,8 @@ namespace iroha {
     void insertPresenceCache(
         std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
 
+    void removeTransaction(HashType const &hash) override;
+
    private:
     void updatedBatchesHandler(const SharedState &updated_batches);
 
@@ -81,8 +81,6 @@ namespace iroha {
     void removeFromStorage(const HashType &first_tx_hash,
                            const std::set<AccountIdType> &batch_creators,
                            uint64_t batch_size);
-
-    void removeTransaction(HashType const &hash);
 
     static std::set<AccountIdType> batchCreators(const TransactionBatch &batch);
 

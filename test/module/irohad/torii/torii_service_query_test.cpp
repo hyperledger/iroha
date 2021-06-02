@@ -14,6 +14,7 @@
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/torii/processor/mock_query_processor.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
@@ -27,12 +28,80 @@ using ::testing::_;
 using ::testing::Return;
 using ::testing::Truly;
 
+template <uint32_t kCount, uint32_t kPoolSize>
+class TestDispatcher final : public iroha::subscription::IDispatcher,
+                             iroha::utils::NoCopy,
+                             iroha::utils::NoMove {
+ private:
+  using Parent = iroha::subscription::IDispatcher;
+
+ public:
+  TestDispatcher() = default;
+
+  void dispose() override {}
+
+  void add(typename Parent::Tid /*tid*/,
+           typename Parent::Task &&task) override {
+    task();
+  }
+
+  void addDelayed(typename Parent::Tid /*tid*/,
+                  std::chrono::microseconds /*timeout*/,
+                  typename Parent::Task &&task) override {
+    task();
+  }
+
+  std::optional<Tid> bind(
+      std::shared_ptr<iroha::subscription::IScheduler> scheduler) override {
+    if (!scheduler)
+      return std::nullopt;
+
+    scheduler->dispose();
+    return kCount;
+  }
+
+  bool unbind(Tid tid) override {
+    iroha::protocol::Block block;
+    block.mutable_block_v1()->mutable_payload()->set_height(123);
+    std::shared_ptr<shared_model::interface::Block const> shared_block =
+        std::make_shared<shared_model::proto::Block>(block.block_v1());
+    iroha::getSubscription()->notify(iroha::EventTypes::kOnBlock, shared_block);
+    return tid == kCount;
+  }
+};
+
+namespace iroha {
+
+  std::shared_ptr<Dispatcher> getDispatcher() {
+    return std::make_shared<
+        TestDispatcher<SubscriptionEngineHandlers::kTotalCount,
+                       kThreadPoolSize>>();
+  }
+
+  std::shared_ptr<Subscription> getSubscription() {
+    static std::weak_ptr<Subscription> engine;
+    if (auto ptr = engine.lock())
+      return ptr;
+
+    static std::mutex engine_cs;
+    std::lock_guard<std::mutex> lock(engine_cs);
+    if (auto ptr = engine.lock())
+      return ptr;
+
+    auto ptr = std::make_shared<Subscription>(getDispatcher());
+    engine = ptr;
+    return ptr;
+  }
+
+}  // namespace iroha
+
 /**
  * Module tests on torii query service
  */
 class ToriiQueryServiceTest : public ::testing::Test {
  public:
   virtual void SetUp() {
+    subscription = iroha::getSubscription();
     runner = std::make_unique<iroha::network::ServerRunner>(
         ip + ":0", getTestLogger("ServerRunner"));
 
@@ -86,6 +155,7 @@ class ToriiQueryServiceTest : public ::testing::Test {
             std::move(proto_blocks_query_validator));
   }
 
+  std::shared_ptr<iroha::Subscription> subscription;
   std::unique_ptr<iroha::network::ServerRunner> runner;
   std::shared_ptr<iroha::torii::MockQueryProcessor> query_processor;
   std::shared_ptr<iroha::torii::QueryService::QueryFactoryType> query_factory;
@@ -122,17 +192,12 @@ TEST_F(ToriiQueryServiceTest, FetchBlocksWhenValidQuery) {
 
   iroha::protocol::Block block;
   block.mutable_block_v1()->mutable_payload()->set_height(123);
-  auto proto_block =
-      std::make_unique<shared_model::proto::Block>(block.block_v1());
-  std::shared_ptr<shared_model::interface::BlockQueryResponse> block_response =
-      shared_model::proto::ProtoQueryResponseFactory().createBlockQueryResponse(
-          std::move(proto_block));
 
   EXPECT_CALL(*query_processor,
               blocksQueryHandle(Truly([&blocks_query](auto &query) {
                 return query == *blocks_query;
               })))
-      .WillOnce(Return(rxcpp::observable<>::just(block_response)));
+      .WillOnce(Return(iroha::expected::makeValue()));
 
   auto client = torii_utils::QuerySyncClient(stub_);
   auto proto_blocks_query =

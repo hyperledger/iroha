@@ -19,11 +19,8 @@ class StorageTest : public testing::Test {
  public:
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
-    storage = MstStorageStateImpl::create(
-        completer_,
-        rxcpp::observable<>::empty<shared_model::interface::types::HashType>(),
-        getTestLogger("MstState"),
-        getTestLogger("MstStorage"));
+    storage = std::make_shared<MstStorageStateImpl>(
+        completer_, getTestLogger("MstState"), getTestLogger("MstStorage"));
     fillOwnState();
   }
 

@@ -5,8 +5,6 @@
 
 #include "main/impl/pending_transaction_storage_init.hpp"
 
-#include <boost/range/adaptor/transformed.hpp>
-#include <rxcpp/operators/rx-flat_map.hpp>
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "network/peer_communication_service.hpp"
@@ -25,8 +23,7 @@ PendingTransactionStorageInit::createPendingTransactionsStorage() {
   return PendingTransactionStorageImpl::create(updated_batches.get_observable(),
                                                prepared_batch.get_observable(),
                                                expired_batch.get_observable(),
-                                               prepared_txs.get_observable(),
-                                               finalized_txs.get_observable());
+                                               prepared_txs.get_observable());
 }
 
 void PendingTransactionStorageInit::setMstSubscriptions(
@@ -37,12 +34,6 @@ void PendingTransactionStorageInit::setMstSubscriptions(
                                               prepared_batch.get_subscriber());
   mst_processor.onExpiredBatches().subscribe(pending_storage_lifetime,
                                              expired_batch.get_subscriber());
-}
-
-void PendingTransactionStorageInit::setFinalizedTxsSubscription(
-    rxcpp::observable<shared_model::interface::types::HashType> finalized_txs) {
-  finalized_txs.subscribe(pending_storage_lifetime,
-                          this->finalized_txs.get_subscriber());
 }
 
 PendingTransactionStorageInit::~PendingTransactionStorageInit() {

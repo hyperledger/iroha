@@ -21,6 +21,7 @@
 #include "framework/integration_framework/iroha_instance.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/test_logger.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 
 using namespace common_constants;
@@ -225,36 +226,30 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
 
   // wait for the real peer to commit the blocks and check they are from the
   // valid branch
-  itf.getIrohaInstance()
-      .getIrohaInstance()
-      ->getStorage()
-      ->on_commit()
-      .tap([&valid_block_storage](
-               const std::shared_ptr<const shared_model::interface::Block>
-                   &committed_block) {
-        const auto valid_hash =
-            valid_block_storage->getBlockByHeight(committed_block->height())
-                ->hash()
-                .hex();
-        const auto commited_hash = committed_block->hash().hex();
-        ASSERT_EQ(commited_hash, valid_hash) << "Wrong block got committed!";
-      })
-      .filter([expected_height = valid_block_storage->getTopBlock()->height()](
-                  const auto &committed_block) {
-        return committed_block->height() == expected_height;
-      })
-      .take(1)
-      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
-      .as_blocking()
-      .subscribe([](const auto &) {},
-                 [](std::exception_ptr ep) {
-                   try {
-                     std::rethrow_exception(ep);
-                   } catch (const std::exception &e) {
-                     FAIL()
-                         << "Error waiting for synchronization: " << e.what();
-                   }
-                 });
+  iroha::utils::WaitForSingleObject completed;
+  auto subscriber = iroha::SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::Block const>>::
+      template create<iroha::EventTypes::kOnBlock>(
+          static_cast<iroha::SubscriptionEngineHandlers>(
+              iroha::getSubscription()->dispatcher()->kExecuteInPool),
+          [&valid_block_storage,
+           &completed,
+           expected_height = valid_block_storage->getTopBlock()->height()](
+              auto, auto block) {
+            const auto valid_hash =
+                valid_block_storage->getBlockByHeight(block->height())
+                    ->hash()
+                    .hex();
+            const auto commited_hash = block->hash().hex();
+            ASSERT_EQ(commited_hash, valid_hash)
+                << "Wrong block got committed!";
+            if (block->height() == expected_height) {
+              completed.set();
+            }
+          });
+  ASSERT_TRUE(completed.wait(kSynchronizerWaitingTime))
+      << "Error waiting for synchronization";
 }
 
 /**
@@ -275,37 +270,27 @@ TEST_F(FakePeerFixture, OnDemandOrderingProposalAfterValidCommandReceived) {
 
   createFakePeers(1);
 
-  auto &itf = prepareState();
+  prepareState();
 
   // provide the proposal
   fake_peers_.front()->getProposalStorage().addTransactions({clone(tx)});
 
   // watch the proposal requests to fake peer
   constexpr std::chrono::seconds kCommitWaitingTime(20);
-  itf.getIrohaInstance()
-      .getIrohaInstance()
-      ->getStorage()
-      ->on_commit()
-      .flat_map([](const auto &block) {
-        std::vector<shared_model::interface::types::HashType> hashes;
-        hashes.reserve(boost::size(block->transactions()));
-        for (const auto &tx : block->transactions()) {
-          hashes.emplace_back(tx.reducedHash());
-        }
-        return rxcpp::observable<>::iterate(hashes);
-      })
-      .filter([my_hash = tx.reducedHash()](const auto &incoming_hash) {
-        return incoming_hash == my_hash;
-      })
-      .take(1)
-      .timeout(kCommitWaitingTime, rxcpp::observe_on_new_thread())
-      .as_blocking()
-      .subscribe([](const auto &) {},
-                 [](std::exception_ptr ep) {
-                   try {
-                     std::rethrow_exception(ep);
-                   } catch (const std::exception &e) {
-                     FAIL() << "Error waiting for the commit: " << e.what();
-                   }
-                 });
+  iroha::utils::WaitForSingleObject completed;
+  auto subscriber = iroha::SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::Block const>>::
+      template create<iroha::EventTypes::kOnBlock>(
+          static_cast<iroha::SubscriptionEngineHandlers>(
+              iroha::getSubscription()->dispatcher()->kExecuteInPool),
+          [&completed, my_hash = tx.reducedHash()](auto, auto block) {
+            for (const auto &tx : block->transactions()) {
+              if (my_hash == tx.reducedHash()) {
+                completed.set();
+              }
+            }
+          });
+  ASSERT_TRUE(completed.wait(kCommitWaitingTime))
+      << "Error waiting for the commit";
 }

@@ -57,11 +57,13 @@ namespace iroha {
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         size_t pool_size,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+        std::function<void(
+            std::shared_ptr<shared_model::interface::Block const>)> callback,
         logger::LoggerManagerTreePtr log_manager)
         : block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_->connection_pool_),
-          notifier_(notifier_lifetime_),
+          callback_(std::move(callback)),
           perm_converter_(std::move(perm_converter)),
           pending_txs_storage_(std::move(pending_txs_storage)),
           query_response_factory_(std::move(query_response_factory)),
@@ -146,18 +148,22 @@ namespace iroha {
     expected::Result<void, std::string> StorageImpl::insertBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       log_->info("create mutable storage");
-      return createCommandExecutor() | [&](auto &&command_executor) {
-        return createMutableStorage(std::move(command_executor)) |
-                   [&](auto &&mutable_storage)
-                   -> expected::Result<void, std::string> {
-          const bool is_inserted = mutable_storage->apply(block);
-          commit(std::move(mutable_storage));
-          if (is_inserted) {
-            return {};
-          }
-          return "Stateful validation failed.";
-        };
-      };
+      auto maybe_command_executor = createCommandExecutor();
+      if (iroha::expected::hasError(maybe_command_executor)) {
+        return maybe_command_executor.assumeError();
+      }
+      auto maybe_mutable_storage =
+          createMutableStorage(std::move(maybe_command_executor.assumeValue()));
+      if (iroha::expected::hasError(maybe_mutable_storage)) {
+        return maybe_mutable_storage.assumeError();
+      }
+      const bool is_inserted =
+          maybe_mutable_storage.assumeValue()->apply(block);
+      commit(std::move(maybe_mutable_storage.assumeValue()));
+      if (is_inserted) {
+        return {};
+      }
+      return "Stateful validation failed.";
     }
 
     expected::Result<void, std::string> StorageImpl::insertPeer(
@@ -259,6 +265,8 @@ namespace iroha {
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         std::shared_ptr<BlockStorage> persistent_block_storage,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+        std::function<void(
+            std::shared_ptr<shared_model::interface::Block const>)> callback,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
@@ -292,25 +300,28 @@ namespace iroha {
                           std::move(temporary_block_storage_factory),
                           pool_size,
                           std::move(vm_caller_ref),
+                          std::move(callback),
                           std::move(log_manager))));
     }
 
     CommitResult StorageImpl::commit(
         std::unique_ptr<MutableStorage> mutable_storage) {
       auto old_height = block_store_->size();
-      return std::move(*mutable_storage).commit(*block_store_) |
-                 [this, old_height](auto commit_result) -> CommitResult {
-        ledger_state_ = commit_result.ledger_state;
-        auto new_height = block_store_->size();
-        for (auto height = old_height + 1; height <= new_height; ++height) {
-          auto maybe_block = block_store_->fetch(height);
-          if (not maybe_block) {
-            return fmt::format("Failed to fetch block {}", height);
-          }
-          notifier_.get_subscriber().on_next(*std::move(maybe_block));
+      auto maybe_result = std::move(*mutable_storage).commit(*block_store_);
+      if (iroha::expected::hasError(maybe_result)) {
+        return maybe_result.assumeError();
+      }
+      ledger_state_ = maybe_result.assumeValue().ledger_state;
+      auto new_height = block_store_->size();
+      for (auto height = old_height + 1; height <= new_height; ++height) {
+        auto maybe_block = block_store_->fetch(height);
+        if (not maybe_block) {
+          return fmt::format("Failed to fetch block {}", height);
         }
-        return expected::makeValue(std::move(commit_result.ledger_state));
-      };
+        callback_(*std::move(maybe_block));
+      }
+      return expected::makeValue(
+          std::move(maybe_result.assumeValue().ledger_state));
     }
 
     bool StorageImpl::preparedCommitEnabled() const {
@@ -356,7 +367,7 @@ namespace iroha {
           throw std::runtime_error(e.value());
         }
 
-        notifier_.get_subscriber().on_next(block);
+        callback_(block);
 
         decltype(std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
         {
@@ -418,11 +429,6 @@ namespace iroha {
       return boost::make_optional(std::move(setting_query_ptr));
     }
 
-    rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-    StorageImpl::on_commit() {
-      return notifier_.get_observable();
-    }
-
     void StorageImpl::prepareBlock(std::unique_ptr<TemporaryWsv> wsv) {
       auto &wsv_impl = static_cast<TemporaryWsvImpl &>(*wsv);
       if (not prepared_blocks_enabled_) {
@@ -447,14 +453,13 @@ namespace iroha {
     }
 
     StorageImpl::~StorageImpl() {
-      notifier_lifetime_.unsubscribe();
       freeConnections();
     }
 
     StorageImpl::StoreBlockResult StorageImpl::storeBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       if (block_store_->insert(block)) {
-        notifier_.get_subscriber().on_next(block);
+        callback_(block);
         return {};
       }
       return expected::makeError("Block insertion to storage failed");

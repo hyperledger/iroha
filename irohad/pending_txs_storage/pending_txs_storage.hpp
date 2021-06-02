@@ -81,6 +81,9 @@ namespace iroha {
         const std::optional<shared_model::interface::types::HashType>
             &first_tx_hash) const = 0;
 
+    virtual void removeTransaction(
+        shared_model::interface::types::HashType const &hash) = 0;
+
     virtual ~PendingTransactionStorage() = default;
   };
 

@@ -17,6 +17,7 @@
 #include "logger/logger_manager_fwd.hpp"
 
 namespace shared_model::interface {
+  class Block;
   class QueryResponseFactory;
 }
 
@@ -40,6 +41,8 @@ namespace iroha {
       boost::optional<std::string> block_storage_dir,
       std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
           vm_caller_ref,
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+          callback,
       logger::LoggerManagerTreePtr log_manager);
 }  // namespace iroha
 

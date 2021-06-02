@@ -75,6 +75,9 @@ namespace iroha {
      */
     bool batchInStorage(const DataType &batch) const;
 
+    void processFinalizedTransaction(
+        shared_model::interface::types::HashType const &hash);
+
     virtual ~MstStorage() = default;
 
    protected:
@@ -106,6 +109,9 @@ namespace iroha {
         -> decltype(whatsNew(new_state)) = 0;
 
     virtual bool batchInStorageImpl(const DataType &batch) const = 0;
+
+    virtual void processFinalizedTransactionImpl(
+        shared_model::interface::types::HashType const &hash) = 0;
 
     // -------------------------------| fields |--------------------------------
 

@@ -19,8 +19,7 @@ namespace iroha {
       StateObservable updated_batches,
       BatchObservable prepared_batch,
       BatchObservable expired_batch,
-      PreparedTransactionsObservable prepared_txs,
-      FinalizedTransactionsObservable finalized_txs) {
+      PreparedTransactionsObservable prepared_txs) {
     auto storage = std::make_shared<PendingTransactionStorageImpl>(
         PendingTransactionStorageImpl::private_tag{});
     std::weak_ptr<PendingTransactionStorageImpl> storage_(storage);
@@ -61,17 +60,6 @@ namespace iroha {
             PreparedTransactionDescriptor const &prepared_transaction) {
           if (auto storage = storage_.lock()) {
             storage->removeBatch(prepared_transaction);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-    subscription = rxcpp::composite_subscription();
-    finalized_txs.subscribe(
-        subscription,
-        [storage_,
-         subscription](shared_model::interface::types::HashType const &hash) {
-          if (auto storage = storage_.lock()) {
-            storage->removeTransaction(hash);
           } else {
             subscription.unsubscribe();
           }

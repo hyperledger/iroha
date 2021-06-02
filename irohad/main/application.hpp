@@ -33,6 +33,7 @@ namespace iroha {
   class PendingTransactionStorage;
   class PendingTransactionStorageInit;
   class MstProcessor;
+  class MstStorage;
   namespace ametsuchi {
     class WsvRestorer;
     class TxPresenceCache;
@@ -267,8 +268,6 @@ class Irohad {
  protected:
   std::shared_ptr<iroha::Subscription> subscription_engine_;
 
-  rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
-
   // initialization objects
   std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
@@ -362,6 +361,7 @@ class Irohad {
   std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
   // mst
+  std::shared_ptr<iroha::MstStorage> mst_storage;
   std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
 

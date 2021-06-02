@@ -258,35 +258,36 @@ Irohad::RunResult Irohad::initStorage(
       vm_caller_ref = *vm_caller_.value();
     }
 
-    return ::iroha::initStorage(*pg_opt_,
-                                pool_wrapper_,
-                                pending_txs_storage_,
-                                query_response_factory_,
-                                config_.block_store_path,
-                                vm_caller_ref,
-                                log_manager_->getChild("Storage"))
+    return ::iroha::initStorage(
+               *pg_opt_,
+               pool_wrapper_,
+               pending_txs_storage_,
+               query_response_factory_,
+               config_.block_store_path,
+               vm_caller_ref,
+               [this](std::shared_ptr<shared_model::interface::Block const>
+                          block) {
+                 iroha::getSubscription()->notify(EventTypes::kOnBlock, block);
+                 if (ordering_init and tx_processor and pending_txs_storage_
+                     and mst_storage) {
+                   ordering_init->processCommittedBlock(block);
+                   tx_processor->processCommit(block);
+                   for (auto const &completed_tx : block->transactions()) {
+                     pending_txs_storage_->removeTransaction(
+                         completed_tx.hash());
+                     mst_storage->processFinalizedTransaction(
+                         completed_tx.hash());
+                   }
+                   for (auto const &rejected_tx_hash :
+                        block->rejected_transactions_hashes()) {
+                     pending_txs_storage_->removeTransaction(rejected_tx_hash);
+                     mst_storage->processFinalizedTransaction(rejected_tx_hash);
+                   }
+                 }
+               },
+               log_manager_->getChild("Storage"))
                | [&](auto &&v) -> RunResult {
       storage = std::move(v);
-
-      using shared_model::crypto::Hash;
-      using shared_model::interface::Block;
-
-      finalized_txs_ =
-          storage->on_commit()
-              .template lift<Hash>([](rxcpp::subscriber<Hash> dest) {
-                return rxcpp::make_subscriber<std::shared_ptr<Block const>>(
-                    dest, [=](std::shared_ptr<Block const> const &block) {
-                      for (auto const &completed_tx : block->transactions()) {
-                        dest.on_next(completed_tx.hash());
-                      }
-                      for (auto const &rejected_tx_hash :
-                           block->rejected_transactions_hashes()) {
-                        dest.on_next(rejected_tx_hash);
-                      }
-                    });
-              })
-              .publish()
-              .ref_count();
 
       log_->info("[Init] => storage");
       return {};
@@ -751,12 +752,10 @@ Irohad::RunResult Irohad::initMstProcessor() {
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
   auto mst_completer = std::make_shared<DefaultCompleter>(std::chrono::minutes(
       config_.mst_expiration_time.value_or(kMstExpirationTimeDefault)));
-  auto mst_storage = MstStorageStateImpl::create(
+  mst_storage = std::make_shared<MstStorageStateImpl>(
       mst_completer,
-      finalized_txs_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
-  pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (config_.mst_support) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
@@ -816,13 +815,6 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       status_bus_,
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
-  storage->on_commit().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
-          std::shared_ptr<shared_model::interface::Block const> const &block) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
-          maybe_tx_processor->processCommit(block);
-        }
-      });
   mst_processor->onStateUpdate().subscribe(
       [tx_processor(utils::make_weak(tx_processor))](
           std::shared_ptr<MstState> const &state) {
@@ -1041,13 +1033,6 @@ Irohad::RunResult Irohad::run() {
     if (not initial_ledger_state) {
       return expected::makeError("Failed to fetch ledger state!");
     }
-
-    storage->on_commit().subscribe(
-        [ordering_init(utils::make_weak(ordering_init))](auto block) {
-          if (auto maybe_ordering_init = ordering_init.lock()) {
-            maybe_ordering_init->processCommittedBlock(block);
-          }
-        });
 
     ordering_init->processCommittedBlock(std::move(block));
 

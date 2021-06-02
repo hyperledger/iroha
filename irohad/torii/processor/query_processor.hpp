@@ -6,8 +6,6 @@
 #ifndef IROHA_QUERY_PROCESSOR_HPP
 #define IROHA_QUERY_PROCESSOR_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
-
 #include <memory>
 #include <string>
 
@@ -18,7 +16,6 @@ namespace shared_model {
     class Query;
     class BlocksQuery;
     class QueryResponse;
-    class BlockQueryResponse;
   }  // namespace interface
 }  // namespace shared_model
 
@@ -39,16 +36,16 @@ namespace iroha {
           std::unique_ptr<shared_model::interface::QueryResponse>,
           std::string>
       queryHandle(const shared_model::interface::Query &qry) = 0;
+
       /**
        * Register client blocks query
        * @param query - client intent
-       * @return observable with block query responses
+       * @return error if query is invalid
        */
-      virtual rxcpp::observable<
-          std::shared_ptr<shared_model::interface::BlockQueryResponse>>
-      blocksQueryHandle(const shared_model::interface::BlocksQuery &qry) = 0;
+      virtual iroha::expected::Result<void, std::string> blocksQueryHandle(
+          shared_model::interface::BlocksQuery const &qry) = 0;
 
-      virtual ~QueryProcessor(){};
+      virtual ~QueryProcessor() = default;
     };
   }  // namespace torii
 }  // namespace iroha

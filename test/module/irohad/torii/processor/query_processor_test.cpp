@@ -11,7 +11,6 @@
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "interfaces/query_responses/block_error_response.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
@@ -30,7 +29,6 @@
 using namespace iroha;
 using namespace iroha::ametsuchi;
 using namespace iroha::validation;
-using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
@@ -172,60 +170,17 @@ TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
  * @then Query Processor should emit an error to the observable
  */
 TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
-  auto block_number = 5;
   auto block_query = getBlocksQuery(kAccountId);
+  std::string error_message{"QueryExecutor fails to create"};
 
   EXPECT_CALL(*storage, createQueryExecutor(_, _))
-      .WillRepeatedly([](const auto &, const auto &) {
-        return "QueryExecutor fails to create";
+      .WillRepeatedly([error_message](const auto &, const auto &) {
+        return error_message;
       });
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(qpi->blocksQueryHandle(block_query), 1);
-  wrapper.subscribe([](auto response) {
-    ASSERT_NO_THROW({
-      const auto &error_response =
-          boost::get<const shared_model::interface::BlockErrorResponse &>(
-              response->get());
-      EXPECT_THAT(
-          error_response.message(),
-          ::testing::HasSubstr("Internal error during query validation."));
-    });
-  });
-  for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder().build()));
-  }
-  ASSERT_TRUE(wrapper.validate());
-}
-
-/**
- * @given account, ametsuchi queries
- * @when valid block query is sent
- * @then Query Processor should start emitting BlockQueryResponses to the
- * observable
- */
-TEST_F(QueryProcessorTest, GetBlocksQuery) {
-  auto block_number = 5;
-  auto block_query = getBlocksQuery(kAccountId);
-
-  EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(true));
-  EXPECT_CALL(*storage, createQueryExecutor(_, _))
-      .WillOnce(Return(ByMove(std::move(qry_exec))));
-
-  auto wrapper = make_test_subscriber<CallExact>(
-      qpi->blocksQueryHandle(block_query), block_number);
-  wrapper.subscribe([](auto response) {
-    ASSERT_NO_THROW({
-      boost::get<const shared_model::interface::BlockResponse &>(
-          response->get());
-    });
-  });
-  for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder().build()));
-  }
-  ASSERT_TRUE(wrapper.validate());
+  auto result = qpi->blocksQueryHandle(block_query);
+  ASSERT_TRUE(iroha::expected::hasError(result));
+  ASSERT_EQ(error_message, result.assumeError());
 }
 
 /**
@@ -234,27 +189,13 @@ TEST_F(QueryProcessorTest, GetBlocksQuery) {
  * @then Query Processor should return an observable with BlockError
  */
 TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
-  auto block_number = 5;
   auto block_query = getBlocksQuery(kAccountId);
 
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(false));
   EXPECT_CALL(*storage, createQueryExecutor(_, _))
       .WillOnce(Return(ByMove(std::move(qry_exec))));
 
-  auto wrapper =
-      make_test_subscriber<CallExact>(qpi->blocksQueryHandle(block_query), 1);
-  wrapper.subscribe([](auto response) {
-    ASSERT_NO_THROW({
-      boost::get<const shared_model::interface::BlockErrorResponse &>(
-          response->get());
-    });
-  });
-  for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder()
-                  .height(1)
-                  .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
-                  .build()));
-  }
-  ASSERT_TRUE(wrapper.validate());
+  auto result = qpi->blocksQueryHandle(block_query);
+  ASSERT_TRUE(iroha::expected::hasError(result));
+  ASSERT_EQ("stateful invalid", result.assumeError());
 }

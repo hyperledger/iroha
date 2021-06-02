@@ -8,7 +8,6 @@
 
 #include "torii/processor/query_processor.hpp"
 
-#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/storage.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
@@ -35,15 +34,11 @@ namespace iroha {
           std::string>
       queryHandle(const shared_model::interface::Query &qry) override;
 
-      rxcpp::observable<
-          std::shared_ptr<shared_model::interface::BlockQueryResponse>>
+      iroha::expected::Result<void, std::string>
       blocksQueryHandle(
           const shared_model::interface::BlocksQuery &qry) override;
 
      private:
-      rxcpp::subjects::subject<
-          std::shared_ptr<shared_model::interface::BlockQueryResponse>>
-          blocks_query_subject_;
       std::shared_ptr<ametsuchi::Storage> storage_;
       std::shared_ptr<ametsuchi::QueryExecutorFactory> qry_exec_;
       std::shared_ptr<iroha::PendingTransactionStorage> pending_transactions_;
