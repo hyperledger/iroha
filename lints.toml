@@ -25,11 +25,14 @@ deny = [
 ]
 allow = [
     'clippy::as_conversions',
+    'clippy::cognitive_complexity',
+    'clippy::default-numeric-fallback',
+    'clippy::else-if-without-else',
     'clippy::enum_glob_use',
     'clippy::exhaustive_enums',
     'clippy::exhaustive_structs',
-    'clippy::else-if-without-else',
     'clippy::implicit_return',
+    'clippy::inconsistent_struct_constructor',
     'clippy::indexing_slicing',
     'clippy::integer_arithmetic',
     'clippy::let_underscore_must_use',
@@ -38,6 +41,7 @@ allow = [
     'clippy::missing_inline_in_public_items',
     'clippy::must_use_candidate',
     'clippy::pattern_type_mismatch',
+    'clippy::semicolon_if_nothing_returned',
     'clippy::shadow_reuse',
     'clippy::shadow_same',
     'clippy::unreachable',
@@ -45,8 +49,5 @@ allow = [
     'clippy::wildcard-enum-match-arm',
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
-    'clippy::inconsistent_struct_constructor',
-    'clippy::semicolon_if_nothing_returned',
-    'clippy::default-numeric-fallback',
 ]
 warn = []
