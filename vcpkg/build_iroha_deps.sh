@@ -44,35 +44,44 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
          $vcpkg_path/bootstrap-vcpkg.sh -disableMetrics -useSystemBinaries
       }
       ;;
+   quick-alternative)
+      ## TODO: Do not use `bootstrap` because it is slow and old and has too much logic overhead
+      bootstrap()(
+         vcpkg_tool_path=$vcpkg_path/vcpkg-tool
+         VCPKG_TOOL_REF=2021-05-05-9f849c4c43e50d1b16186ae76681c27b0c1be9d9  #2021-02-24-d67989bce1043b98092ac45996a8230a059a2d7e #
+         git -C $vcpkg_tool_path fetch origin ||
+            git clone https://github.com/microsoft/vcpkg-tool.git $vcpkg_tool_path
+         cd $vcpkg_tool_path
+         git checkout $VCPKG_TOOL_REF
+         cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_TESTING=OFF -DVCPKG_DEVELOPMENT_WARNINGS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+         cmake --build build
+         cp build/vcpkg $vcpkg_path/vcpkg
+      )
+      ;;
 esac
 
 bootstrap
-# ## Do not use `bootstrap` because it is slow and old and has too much logic overhead
-# vcpkg_tool_path=$vcpkg_path/vcpkg-tool
-# VCPKG_TOOL_REF=2021-05-05-9f849c4c43e50d1b16186ae76681c27b0c1be9d9  #2021-02-24-d67989bce1043b98092ac45996a8230a059a2d7e #
-# (
-# git -C $vcpkg_tool_path fetch origin ||
-#    git clone https://github.com/microsoft/vcpkg-tool.git $vcpkg_tool_path
-# cd $vcpkg_tool_path
-# git checkout $VCPKG_TOOL_REF
-# cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_TESTING=OFF -DVCPKG_DEVELOPMENT_WARNINGS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-# cmake --build build
-# cp build/vcpkg $vcpkg_path/vcpkg
-# )
 
-# $vcpkg_path/vcpkg install \
-#    --x-install-root=$INSTALL_ROOT \
-#    --feature-flags=manifests
-# #   --x-manifest-root=. \
-# #   --binarysource=files,$BINARYCACHE_PATH,readwrite \
-
-## The old lamp way to install
-$vcpkg_path/vcpkg install --feature-flags=-manifests $(cat $script_dir/VCPKG_DEPS_LIST | tr -d '\r')
-# ( #cd /tmp
-# cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
-#    $vcpkg_path/vcpkg install --feature-flags=-manifests $pkgspec
-# done
-# )
+case usual-mode in
+   usual-mode)
+      ## The old lamp way to install
+      $vcpkg_path/vcpkg install \
+         --feature-flags=-manifests \
+         $(cat $script_dir/VCPKG_DEPS_LIST | tr -d '\r')
+      # ( #cd /tmp
+      # cat $script_dir/VCPKG_DEPS_LIST | while read pkgspec ;do
+      #    $vcpkg_path/vcpkg install --feature-flags=-manifests $pkgspec
+      # done
+      # )
+      ;;
+   manifest-mode)
+      $vcpkg_path/vcpkg install \
+         --x-install-root=$INSTALL_ROOT \
+         --feature-flags=manifests
+      #   --x-manifest-root=. \
+      #   --binarysource=files,$BINARYCACHE_PATH,readwrite \
+      ;;
+esac
 
 #################### PROFILING ####################
 ## system macos big sur on macbook pro 2016 i7 2.8GHz
