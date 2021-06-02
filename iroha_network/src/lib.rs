@@ -3,27 +3,23 @@
 #![allow(clippy::module_name_repetitions)]
 
 #[cfg(feature = "mock")]
-/// Network mock
-pub mod mock;
+mod mock;
+#[cfg(not(feature = "mock"))]
+mod network;
 
-use std::{
-    convert::{TryFrom, TryInto},
-    future::Future,
-    io::{prelude::*, ErrorKind},
-    net::TcpStream as SyncTcpStream,
-    sync::Arc,
-    time::Duration,
-};
+use std::{future::Future, sync::Arc};
 
 use iroha_derive::Io;
 use iroha_error::{error, Result, WrapErr};
 use iroha_logger::log;
+#[cfg(feature = "mock")]
+use mock::*;
+#[cfg(not(feature = "mock"))]
+use network::*;
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
     sync::RwLock,
-    time::timeout,
 };
 
 const BUFFER_SIZE: usize = 2_usize.pow(12);
@@ -81,16 +77,7 @@ impl Network {
     #[iroha_futures::telemetry_future]
     #[log("TRACE")]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
-        timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
-            let mut stream = TcpStream::connect(server_url).await?;
-            let payload: Vec<u8> = request.into();
-            stream.write_all(&payload).await?;
-            stream.flush().await?;
-            let mut buffer = vec![0_u8; BUFFER_SIZE];
-            let read_size = stream.read(&mut buffer).await?;
-            Response::try_from(buffer[..read_size].to_vec())
-        })
-        .await?
+        send_request_to(server_url, request).await
     }
 
     /// Listens on the specified `server_url`.
@@ -104,27 +91,14 @@ impl Network {
     /// # Errors
     /// Can fail during accepting connection or handling incoming message
     #[iroha_futures::telemetry_future]
-    pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
+    pub async fn listen<H, F, S>(state: State<S>, server_url: &str, handler: H) -> Result<()>
     where
         H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<()>> + Send + 'static,
         State<S>: Send,
         S: Send + Sync,
     {
-        let listener = TcpListener::bind(server_url).await?;
-        loop {
-            let stream = match listener.accept().await {
-                Ok((stream, _)) => Box::new(stream),
-                Err(err) => {
-                    use std::error::Error;
-
-                    let err: &dyn Error = &err;
-                    iroha_logger::warn!(err, "Failed to accept connection");
-                    continue;
-                }
-            };
-            let _drop = tokio::spawn(handler(Arc::clone(&state), stream));
-        }
+        listen(state, server_url, handler).await
     }
 
     /// Helper function to call inside `listen` `handler` function to parse and send response.
@@ -143,33 +117,14 @@ impl Network {
         H: FnMut(State<S>, Request) -> F,
         F: Future<Output = Result<Response>>,
     {
-        let mut buffer = [0_u8; BUFFER_SIZE];
-        let read_size = stream
-            .read(&mut buffer)
+        let request = Request::from_async_stream(&mut stream)
             .await
             .wrap_err("Request read failed.")?;
-        let bytes: Vec<u8> = buffer[..read_size].to_vec();
-        let request: Request = bytes.try_into()?;
         let response: Vec<u8> = handler(state, request).await?.into();
         stream.write_all(&response).await?;
         stream.flush().await?;
         Ok(())
     }
-
-    /// Connects to network
-    ///
-    /// # Errors
-    /// Fails if initing connection or sending tcp packets or receiving fails
-    #[iroha_futures::telemetry_future]
-    pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection> {
-        Connection::connect(&self.server_url, REQUEST_TIMEOUT_MILLIS, initial_message)
-    }
-}
-
-/// Connection
-#[derive(Debug)]
-pub struct Connection {
-    tcp_stream: SyncTcpStream,
 }
 
 /// `Receipt` should be used by [Consumers](https://github.com/cloudevents/spec/blob/v1.0/spec.md#consumer)
@@ -181,60 +136,7 @@ pub enum Receipt {
     Ok,
 }
 
-impl Connection {
-    fn connect(address: &str, timeout_millis: u64, initial_message: &[u8]) -> Result<Self> {
-        let mut tcp_stream: SyncTcpStream = SyncTcpStream::connect(address)?;
-        tcp_stream
-            .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
-            .wrap_err("Set read timeout call failed.")?;
-        tcp_stream
-            .set_nonblocking(true)
-            .wrap_err("Failed to set stream to be nonblocking.")?;
-        tcp_stream
-            .write_all(initial_message)
-            .wrap_err("Failed to write initial message.")?;
-        tcp_stream
-            .flush()
-            .wrap_err("Failed to flush initial message.")?;
-        Ok(Connection { tcp_stream })
-    }
-}
-
-impl Iterator for Connection {
-    type Item = Vec<u8>;
-
-    #[allow(clippy::cognitive_complexity)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buffer = [0_u8; BUFFER_SIZE];
-        loop {
-            match self.tcp_stream.read(&mut buffer) {
-                Ok(read_size) => {
-                    let bytes: Vec<u8> = buffer[..read_size].to_vec();
-                    let receipt: Vec<u8> = Receipt::Ok.into();
-                    if let Err(e) = self.tcp_stream.write_all(&receipt) {
-                        iroha_logger::error!("Write receipt to stream failed: {}", e);
-                        return None;
-                    }
-                    if let Err(e) = self.tcp_stream.flush() {
-                        iroha_logger::error!("Flush stream with receipt failed: {}", e);
-                        return None;
-                    }
-                    return Some(bytes);
-                }
-                Err(e) => {
-                    if ErrorKind::WouldBlock == e.kind() {
-                        continue;
-                    }
-                    iroha_logger::error!("Read data from stream failed: {}", e);
-                    return None;
-                }
-            }
-        }
-    }
-}
-
 /// Request
-#[non_exhaustive]
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Request {
     /// at uri
@@ -268,14 +170,60 @@ impl Request {
         Request::new(uri_path, Vec::new())
     }
 
-    /// getter for url
-    pub fn url(&self) -> &str {
-        &self.uri_path[..]
-    }
+    /// Constructs `Request` from `AsyncStream`
+    /// # Errors
+    /// May fail if parsing fails or reading through stream fails
+    pub async fn from_async_stream(stream: &mut impl AsyncStream) -> Result<Self> {
+        async fn read_header<'a, 'b: 'a>(
+            stream: &'b mut impl AsyncStream,
+            buf: &'a mut [u8],
+        ) -> Result<&'a [u8]> {
+            let len = stream.read(buf).await.wrap_err("Failed to read header")?;
+            Ok(&buf[..len])
+        }
 
-    /// getter for payload
-    pub fn payload(&self) -> &[u8] {
-        &self.payload[..]
+        fn get_crlf(buf: &[u8]) -> Result<usize> {
+            buf.iter()
+                .position(|&b| b == b'\n')
+                .ok_or_else(|| error!("Request shoud contain CRLF sequences"))
+                .map(|n| n + 1)
+        }
+
+        fn read_uri(buf: &[u8]) -> Result<(String, &[u8])> {
+            let end_uri = get_crlf(buf)?;
+            let uri =
+                String::from_utf8(buf[..end_uri - 2].to_vec()).wrap_err("Failed to decode uri")?;
+            Ok((uri, &buf[end_uri..]))
+        }
+
+        fn read_payload_len(buf: &[u8]) -> Result<(usize, &[u8])> {
+            let end_len = get_crlf(buf)?;
+            let len = std::str::from_utf8(&buf[..end_len - 2])
+                .wrap_err("Failed to decode length")?
+                .parse::<usize>()
+                .wrap_err("Failed to parse length")?;
+            Ok((len, &buf[end_len..]))
+        }
+
+        let mut buf = [0; 100];
+        let buf = read_header(stream, &mut buf).await?;
+
+        let (uri_path, buf) = read_uri(buf)?;
+        let (len, buf) = read_payload_len(buf)?;
+
+        if len < buf.len() {
+            return Err(error!("Provided length is wrong"));
+        }
+
+        let mut payload = buf.to_vec();
+        let mut rest_payload = vec![0; len - payload.len()];
+        let _ = stream
+            .read_exact(&mut rest_payload)
+            .await
+            .wrap_err("Failed to read payload")?;
+        payload.append(&mut rest_payload);
+
+        Ok(Self { payload, uri_path })
     }
 }
 
@@ -285,30 +233,10 @@ impl From<Request> for Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(request.uri_path.as_bytes());
         bytes.extend_from_slice(b"\r\n");
+        bytes.extend_from_slice(request.payload.len().to_string().as_bytes());
+        bytes.extend_from_slice(b"\r\n");
         bytes.extend(request.payload.into_iter());
         bytes
-    }
-}
-
-impl TryFrom<Vec<u8>> for Request {
-    type Error = iroha_error::Error;
-
-    #[log("TRACE")]
-    #[allow(clippy::integer_arithmetic)]
-    fn try_from(mut bytes: Vec<u8>) -> Result<Request> {
-        if bytes.len() <= 2 {
-            return Err(error!("Request should always be larger than 2 bytes"));
-        }
-        let n = bytes
-            .iter()
-            .position(|byte| *byte == b"\n"[0])
-            .ok_or_else(|| error!("Request should contain \\r\\n sequence."))?
-            + 1;
-        let payload: Vec<u8> = bytes.drain(n..).collect();
-        Ok(Request {
-            uri_path: String::from_utf8(bytes[..(bytes.len() - 2)].to_vec())?,
-            payload,
-        })
     }
 }
 
@@ -341,21 +269,18 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Connection, Network, Receipt, Request, Response, State};
+    pub use crate::{AsyncStream, Network, Receipt, Request, Response, State};
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::panic, clippy::expect_used, clippy::clippy::unwrap_used)]
 
-    use std::{convert::TryFrom, sync::Arc};
+    use std::sync::Arc;
 
     use iroha_error::Result;
     use tokio::sync::RwLock;
 
-    #[cfg(feature = "mock")]
-    use super::mock::*;
-    #[cfg(not(feature = "mock"))]
     use super::*;
 
     fn get_empty_state() -> State<()> {
@@ -369,19 +294,7 @@ mod tests {
             payload: b"some_instruction".to_vec(),
         };
         let bytes: Vec<u8> = request.into();
-        assert_eq!(b"/instructions\r\nsome_instruction".to_vec(), bytes)
-    }
-
-    #[test]
-    fn request_correctly_parsed() {
-        let request = Request {
-            uri_path: "/instructions".to_owned(),
-            payload: b"some_instruction".to_vec(),
-        };
-        assert_eq!(
-            Request::try_from(b"/instructions\r\nsome_instruction".to_vec()).unwrap(),
-            request
-        )
+        assert_eq!(b"/instructions\r\n16\r\nsome_instruction".to_vec(), bytes)
     }
 
     #[tokio::test(flavor = "multi_thread")]

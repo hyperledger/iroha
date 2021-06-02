@@ -409,6 +409,7 @@ async fn handle_requests(
     let state_arc = Arc::clone(&state);
     task::spawn(async {
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
+            let e = e.report();
             iroha_logger::error!("Failed to handle message: {}", e);
         }
     })
@@ -444,16 +445,16 @@ async fn handle_request(
     request: Request,
 ) -> iroha_error::Result<Response> {
     #[allow(clippy::pattern_type_mismatch)]
-    match request.url() {
+    match request.uri_path.as_ref() {
         uri::CONSENSUS_URI
-            if request.payload().len()
+            if request.payload.len()
                 > state.read().await.config.torii_max_sumeragi_message_size =>
         {
             iroha_logger::error!("Message is too big. Droping");
             Ok(Response::InternalError)
         }
         uri::CONSENSUS_URI => {
-            let message = match SumeragiVersionedMessage::decode_versioned(request.payload()) {
+            let message = match SumeragiVersionedMessage::decode_versioned(&request.payload) {
                 Ok(message) => message,
                 Err(e) => {
                     iroha_logger::error!("Failed to decode peer message: {}", e);
@@ -472,7 +473,7 @@ async fn handle_request(
             Ok(Response::empty_ok())
         }
         uri::BLOCK_SYNC_URI => {
-            let message = match BlockSyncVersionedMessage::decode_versioned(request.payload()) {
+            let message = match BlockSyncVersionedMessage::decode_versioned(&request.payload) {
                 Ok(message) => message.into_inner_v1(),
                 Err(e) => {
                     iroha_logger::error!("Failed to decode peer message: {}", e);
