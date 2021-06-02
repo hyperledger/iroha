@@ -354,7 +354,7 @@ jobs:
             build/bin/irohad
             build/bin/iroha-cli
       - if: ${{ matrix.build_type == 'Release' }}
-        name: Upload artifact irohad
+        name: Upload artifact iroha-deb
         uses: actions/upload-artifact@v2
         with:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
@@ -582,9 +582,8 @@ jobs:
       - name: uname in [default] pwsh shell
         run: uname
         shell: pwsh
-      # - &step_choco_install
-      #   name: Chocolatey install
-      #   run: choco install cmake ninja
+      - name: Chocolatey install
+        run: choco install cmake ninja ccache
       - name: Checkout
         uses: actions/checkout@v2
         with:
@@ -597,6 +596,7 @@ jobs:
           shopt -s dotglob nullglob
           mv -vf *  -t "$WORKDIR"
         working-directory:
+      #- *step_restore_ccache
       #- *step_vcpkg_cache
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg
