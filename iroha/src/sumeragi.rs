@@ -51,7 +51,7 @@ pub struct Sumeragi {
     blocks_sender: CommittedBlockSender,
     events_sender: EventsSender,
     transactions_sender: TransactionSender,
-    world_state_view: Arc<WorldStateView>,
+    wsv: Arc<WorldStateView>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
     transactions_awaiting_receipts: Arc<DashSet<Hash>>,
     /// Hashes of the transactions that were accepted by the leader and are waiting to be stored in CreatedBlock.
@@ -79,7 +79,7 @@ impl Sumeragi {
         configuration: &config::SumeragiConfiguration,
         blocks_sender: CommittedBlockSender,
         events_sender: EventsSender,
-        world_state_view: Arc<WorldStateView>,
+        wsv: Arc<WorldStateView>,
         transactions_sender: TransactionSender,
         permissions_validator: PermissionsValidatorBox,
         //TODO: separate initialization from construction and do not return Result in `new`
@@ -97,7 +97,7 @@ impl Sumeragi {
             votes_for_blocks: BTreeMap::new(),
             blocks_sender,
             events_sender,
-            world_state_view,
+            wsv,
             transactions_awaiting_receipts: Arc::new(DashSet::new()),
             transactions_awaiting_created_block: Arc::new(DashSet::new()),
             commit_time: Duration::from_millis(configuration.commit_time_ms),
@@ -125,7 +125,7 @@ impl Sumeragi {
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
     pub async fn update_network_topology(&mut self) {
-        let wsv_peers = self.world_state_view.trusted_peers_ids().clone();
+        let wsv_peers = self.wsv.trusted_peers_ids().clone();
         self.network_topology
             .update(wsv_peers, self.latest_block_hash);
     }
@@ -216,7 +216,7 @@ impl Sumeragi {
                 .send_to(self.network_topology.leader()),
             );
             // Don't require leader to submit receipts and therefore create blocks if the transaction is still waiting for more signatures.
-            if let Ok(true) = transaction.check_signature_condition(&self.world_state_view) {
+            if let Ok(true) = transaction.check_signature_condition(&self.wsv) {
                 let _ = self
                     .transactions_awaiting_receipts
                     .insert(transaction.hash());
@@ -313,7 +313,7 @@ impl Sumeragi {
     /// Can fail signing block
     #[iroha_futures::telemetry_future]
     pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
-        let block = block.validate(&self.world_state_view, &self.permissions_validator);
+        let block = block.validate(&self.wsv, &self.permissions_validator);
         let network_topology = self.network_topology_current_or_genesis(&block);
         iroha_logger::info!(
             "{:?} - Created a block with hash {}.",
@@ -982,14 +982,14 @@ pub mod message {
             match network_topology.role(&sumeragi.peer_id) {
                 Role::ValidatingPeer => {
                     if self.block.validation_check(
-                        &sumeragi.world_state_view,
+                        &sumeragi.wsv,
                         sumeragi.latest_block_hash,
                         sumeragi.number_of_view_changes,
                         sumeragi.block_height,
                         sumeragi.max_instruction_number,
                     ) {
                         let block_clone = self.block.clone();
-                        let wsv_clone = Arc::clone(&sumeragi.world_state_view);
+                        let wsv_clone = Arc::clone(&sumeragi.wsv);
                         let permission_validator_clone =
                             Arc::clone(&sumeragi.permissions_validator);
                         let key_pair_clone = sumeragi.key_pair.clone();

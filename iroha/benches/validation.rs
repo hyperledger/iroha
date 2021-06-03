@@ -97,17 +97,14 @@ fn validate_transaction(criterion: &mut Criterion) {
         .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    let world_state_view = build_test_wsv(&keys);
+    let wsv = build_test_wsv(&keys);
     let _ = criterion.bench_function("validate", |b| {
-        b.iter(|| {
-            match transaction
-                .clone()
-                .validate(&world_state_view, &AllowAll.into(), false)
-            {
+        b.iter(
+            || match transaction.clone().validate(&wsv, &AllowAll.into(), false) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            }
-        });
+            },
+        );
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -138,10 +135,10 @@ fn sign_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)
         .expect("Failed to accept transaction.");
-    let world_state_view = build_test_wsv(&keys);
+    let wsv = build_test_wsv(&keys);
     let block = PendingBlock::new(vec![transaction.into()])
         .chain_first()
-        .validate(&world_state_view, &AllowAll.into());
+        .validate(&wsv, &AllowAll.into());
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -173,14 +170,14 @@ fn validate_blocks(criterion: &mut Criterion) {
     };
     let mut domains = BTreeMap::new();
     drop(domains.insert(domain_name, domain));
-    let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
+    let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::from_transaction(build_test_transaction(&keys), 4096)
         .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()]).chain_first();
     let _ = criterion.bench_function("validate_block", |b| {
-        b.iter(|| block.clone().validate(&world_state_view, &AllowAll.into()));
+        b.iter(|| block.clone().validate(&wsv, &AllowAll.into()));
     });
 }
 

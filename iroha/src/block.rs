@@ -206,17 +206,13 @@ impl ChainedBlock {
     /// Validate block transactions against current state of the world.
     pub fn validate(
         self,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
     ) -> VersionedValidBlock {
         let mut transactions = Vec::new();
         let mut rejected_transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(
-                world_state_view,
-                permissions_validator,
-                self.header.is_genesis(),
-            ) {
+            match transaction.validate(wsv, permissions_validator, self.header.is_genesis()) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(transaction) => {
                     iroha_logger::warn!(
@@ -394,7 +390,7 @@ impl ValidBlock {
     /// Validate block transactions against current state of the world.
     pub fn revalidate(
         self,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
     ) -> ValidBlock {
         ValidBlock {
@@ -408,7 +404,7 @@ impl ValidBlock {
                     .chain(self.rejected_transactions.into_iter().map(Into::into))
                     .collect(),
             }
-            .validate(world_state_view, permissions_validator)
+            .validate(wsv, permissions_validator)
             .into_inner_v1()
         }
     }
@@ -439,14 +435,14 @@ impl ValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions(&self, world_state_view: &WorldStateView) -> bool {
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.transactions
             .iter()
-            .any(|transaction| transaction.is_in_blockchain(world_state_view))
+            .any(|transaction| transaction.is_in_blockchain(wsv))
             || self
                 .rejected_transactions
                 .iter()
-                .any(|transaction| transaction.is_in_blockchain(world_state_view))
+                .any(|transaction| transaction.is_in_blockchain(wsv))
     }
 }
 

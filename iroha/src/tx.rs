@@ -183,11 +183,11 @@ impl AcceptedTransaction {
     #[allow(clippy::expect_used)]
     fn validate_internal(
         &self,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
-        let world_state_view_temp = world_state_view.clone();
+        let wsv_temp = wsv.clone();
         let account_id = self.payload.account_id.clone();
         if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
@@ -208,7 +208,7 @@ impl AcceptedTransaction {
                 .map_err(TransactionRejectionReason::SignatureVerification)?,
         );
 
-        let option_reason = match self.check_signature_condition(world_state_view) {
+        let option_reason = match self.check_signature_condition(wsv) {
             Ok(true) => None,
             Ok(false) => Some("Signature condition not satisfied.".to_owned()),
             Err(reason) => Some(reason.to_string()),
@@ -225,7 +225,7 @@ impl AcceptedTransaction {
 
             instruction
                 .clone()
-                .execute(account_id.clone(), &world_state_view_temp)
+                .execute(account_id.clone(), &wsv_temp)
                 .map_err(|reason| InstructionExecutionFail {
                     instruction: instruction.clone(),
                     reason: reason.to_string(),
@@ -238,12 +238,12 @@ impl AcceptedTransaction {
                 {
                     let instructions = permissions::unpack_if_role_grant(
                             instruction.clone(),
-                            world_state_view,
+                            wsv,
                         )
                         .expect("Unreachable as evalutions should have been checked previously by instruction executions.");
                     for instruction in &instructions {
                         permissions_validator
-                            .check_instruction(&account_id, instruction, world_state_view)
+                            .check_instruction(&account_id, instruction, wsv)
                             .map_err(|reason| NotPermittedFail { reason })
                             .map_err(TransactionRejectionReason::NotPermitted)?;
                     }
@@ -251,7 +251,7 @@ impl AcceptedTransaction {
                 #[cfg(not(feature = "roles"))]
                 {
                     permissions_validator
-                        .check_instruction(&account_id, instruction, world_state_view)
+                        .check_instruction(&account_id, instruction, wsv)
                         .map_err(|reason| NotPermittedFail { reason })
                         .map_err(TransactionRejectionReason::NotPermitted)?;
                 }
@@ -271,11 +271,11 @@ impl AcceptedTransaction {
     /// - permission check fails
     pub fn validate(
         self,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
         permissions_validator: &PermissionsValidatorBox,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
-        match self.validate_internal(world_state_view, permissions_validator, is_genesis) {
+        match self.validate_internal(wsv, permissions_validator, is_genesis) {
             Ok(()) => Ok(ValidTransaction {
                 payload: self.payload,
                 signatures: self.signatures,
@@ -288,12 +288,12 @@ impl AcceptedTransaction {
     ///
     /// # Errors
     /// Can fail if signature conditionon account fails or if account is not found
-    pub fn check_signature_condition(&self, world_state_view: &WorldStateView) -> Result<bool> {
+    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
         let account_id = self.payload.account_id.clone();
-        world_state_view.map_account(&account_id, |account| {
+        wsv.map_account(&account_id, |account| {
             account
                 .check_signature_condition(&self.signatures)
-                .evaluate(world_state_view, &Context::new())
+                .evaluate(wsv, &Context::new())
         })?
     }
 
@@ -308,8 +308,8 @@ impl AcceptedTransaction {
     }
 
     /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(&self.hash())
+    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        wsv.has_transaction(&self.hash())
     }
 }
 
@@ -346,14 +346,14 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 }
 
 impl IsInBlockchain for VersionedRejectedTransaction {
-    fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        self.as_inner_v1().is_in_blockchain(world_state_view)
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        self.as_inner_v1().is_in_blockchain(wsv)
     }
 }
 
 impl IsInBlockchain for RejectedTransaction {
-    fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(&self.hash())
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        wsv.has_transaction(&self.hash())
     }
 }
 
@@ -434,11 +434,11 @@ impl ValidTransaction {
     ///
     /// # Errors
     /// Can fail if execution of instructions fail
-    pub fn proceed(&self, world_state_view: &WorldStateView) -> Result<()> {
+    pub fn proceed(&self, wsv: &WorldStateView) -> Result<()> {
         for instruction in &self.payload.instructions {
             instruction
                 .clone()
-                .execute(self.payload.account_id.clone(), world_state_view)?;
+                .execute(self.payload.account_id.clone(), wsv)?;
         }
         Ok(())
     }
@@ -450,8 +450,8 @@ impl ValidTransaction {
     }
 
     /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool {
-        world_state_view.has_transaction(&self.hash())
+    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        wsv.has_transaction(&self.hash())
     }
 }
 

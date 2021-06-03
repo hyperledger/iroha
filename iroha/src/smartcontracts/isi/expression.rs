@@ -17,19 +17,14 @@ pub trait Evaluate {
     type Value;
 
     /// Calculates result.
-    fn evaluate(&self, world_state_view: &WorldStateView, context: &Context)
-        -> Result<Self::Value>;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value>;
 }
 
 impl<E: Into<Error>, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
     type Value = V;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        match V::try_from(self.expression.evaluate(world_state_view, context)?) {
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        match V::try_from(self.expression.evaluate(wsv, context)?) {
             Ok(value) => Ok(value),
             Err(err) => Err(err.into()),
         }
@@ -39,33 +34,29 @@ impl<E: Into<Error>, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
 impl Evaluate for Expression {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
         use Expression::*;
         match self {
-            Add(add) => add.evaluate(world_state_view, context),
-            Subtract(subtract) => subtract.evaluate(world_state_view, context),
-            Greater(greater) => greater.evaluate(world_state_view, context),
-            Less(less) => less.evaluate(world_state_view, context),
-            Equal(equal) => equal.evaluate(world_state_view, context),
-            Not(not) => not.evaluate(world_state_view, context),
-            And(and) => and.evaluate(world_state_view, context),
-            Or(or) => or.evaluate(world_state_view, context),
-            If(if_expression) => if_expression.evaluate(world_state_view, context),
+            Add(add) => add.evaluate(wsv, context),
+            Subtract(subtract) => subtract.evaluate(wsv, context),
+            Greater(greater) => greater.evaluate(wsv, context),
+            Less(less) => less.evaluate(wsv, context),
+            Equal(equal) => equal.evaluate(wsv, context),
+            Not(not) => not.evaluate(wsv, context),
+            And(and) => and.evaluate(wsv, context),
+            Or(or) => or.evaluate(wsv, context),
+            If(if_expression) => if_expression.evaluate(wsv, context),
             Raw(value) => Ok(*value.clone()),
-            Query(query) => query.execute(world_state_view),
-            Contains(contains) => contains.evaluate(world_state_view, context),
-            ContainsAll(contains_all) => contains_all.evaluate(world_state_view, context),
-            ContainsAny(contains_any) => contains_any.evaluate(world_state_view, context),
-            Where(where_expression) => where_expression.evaluate(world_state_view, context),
-            ContextValue(context_value) => context_value.evaluate(world_state_view, context),
-            Multiply(multiply) => multiply.evaluate(world_state_view, context),
-            Divide(divide) => divide.evaluate(world_state_view, context),
-            Mod(modulus) => modulus.evaluate(world_state_view, context),
-            RaiseTo(raise_to) => raise_to.evaluate(world_state_view, context),
+            Query(query) => query.execute(wsv),
+            Contains(contains) => contains.evaluate(wsv, context),
+            ContainsAll(contains_all) => contains_all.evaluate(wsv, context),
+            ContainsAny(contains_any) => contains_any.evaluate(wsv, context),
+            Where(where_expression) => where_expression.evaluate(wsv, context),
+            ContextValue(context_value) => context_value.evaluate(wsv, context),
+            Multiply(multiply) => multiply.evaluate(wsv, context),
+            Divide(divide) => divide.evaluate(wsv, context),
+            Mod(modulus) => modulus.evaluate(wsv, context),
+            RaiseTo(raise_to) => raise_to.evaluate(wsv, context),
         }
     }
 }
@@ -73,11 +64,7 @@ impl Evaluate for Expression {
 impl Evaluate for ContextValue {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        _world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
+    fn evaluate(&self, _wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
         context
             .get(&self.value_name)
             .ok_or_else(|| error!("Value with name {} not found in context", self.value_name))
@@ -88,13 +75,9 @@ impl Evaluate for ContextValue {
 impl Evaluate for Add {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left + right).into())
     }
 }
@@ -102,13 +85,9 @@ impl Evaluate for Add {
 impl Evaluate for Subtract {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left - right).into())
     }
 }
@@ -116,13 +95,9 @@ impl Evaluate for Subtract {
 impl Evaluate for Greater {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left > right).into())
     }
 }
@@ -130,13 +105,9 @@ impl Evaluate for Greater {
 impl Evaluate for Less {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left < right).into())
     }
 }
@@ -144,12 +115,8 @@ impl Evaluate for Less {
 impl Evaluate for Not {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let expression = self.expression.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let expression = self.expression.evaluate(wsv, context)?;
         Ok((!expression).into())
     }
 }
@@ -157,13 +124,9 @@ impl Evaluate for Not {
 impl Evaluate for And {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left && right).into())
     }
 }
@@ -171,13 +134,9 @@ impl Evaluate for And {
 impl Evaluate for Or {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left || right).into())
     }
 }
@@ -185,16 +144,12 @@ impl Evaluate for Or {
 impl Evaluate for IfExpression {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let condition = self.condition.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let condition = self.condition.evaluate(wsv, context)?;
         if condition {
-            self.then_expression.evaluate(world_state_view, context)
+            self.then_expression.evaluate(wsv, context)
         } else {
-            self.else_expression.evaluate(world_state_view, context)
+            self.else_expression.evaluate(wsv, context)
         }
     }
 }
@@ -202,13 +157,9 @@ impl Evaluate for IfExpression {
 impl Evaluate for Contains {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let collection = self.collection.evaluate(world_state_view, context)?;
-        let element = self.element.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let collection = self.collection.evaluate(wsv, context)?;
+        let element = self.element.evaluate(wsv, context)?;
         Ok(collection.contains(&element).into())
     }
 }
@@ -216,13 +167,9 @@ impl Evaluate for Contains {
 impl Evaluate for ContainsAll {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let collection = self.collection.evaluate(world_state_view, context)?;
-        let elements = self.elements.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let collection = self.collection.evaluate(wsv, context)?;
+        let elements = self.elements.evaluate(wsv, context)?;
         Ok(elements
             .iter()
             .all(|element| collection.contains(element))
@@ -233,13 +180,9 @@ impl Evaluate for ContainsAll {
 impl Evaluate for ContainsAny {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let collection = self.collection.evaluate(world_state_view, context)?;
-        let elements = self.elements.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let collection = self.collection.evaluate(wsv, context)?;
+        let elements = self.elements.evaluate(wsv, context)?;
         Ok(elements
             .iter()
             .any(|element| collection.contains(element))
@@ -250,13 +193,9 @@ impl Evaluate for ContainsAny {
 impl Evaluate for Equal {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left == right).into())
     }
 }
@@ -264,23 +203,19 @@ impl Evaluate for Equal {
 impl Evaluate for Where {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
         let additional_context: Result<Context> = self
             .values
             .clone()
             .into_iter()
             .map(|(value_name, expression)| {
                 expression
-                    .evaluate(world_state_view, context)
+                    .evaluate(wsv, context)
                     .map(|expression_result| (value_name, expression_result))
             })
             .collect();
         self.expression.evaluate(
-            world_state_view,
+            wsv,
             &context
                 .clone()
                 .into_iter()
@@ -293,13 +228,9 @@ impl Evaluate for Where {
 impl Evaluate for Multiply {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left * right).into())
     }
 }
@@ -307,13 +238,9 @@ impl Evaluate for Multiply {
 impl Evaluate for RaiseTo {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok(left.pow(right).into())
     }
 }
@@ -321,13 +248,9 @@ impl Evaluate for RaiseTo {
 impl Evaluate for Divide {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         #[allow(clippy::integer_division)]
         if right == 0 {
             Err(error!("Failed to divide by zero"))
@@ -340,13 +263,9 @@ impl Evaluate for Divide {
 impl Evaluate for Mod {
     type Value = Value;
 
-    fn evaluate(
-        &self,
-        world_state_view: &WorldStateView,
-        context: &Context,
-    ) -> Result<Self::Value> {
-        let left = self.left.evaluate(world_state_view, context)?;
-        let right = self.right.evaluate(world_state_view, context)?;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
         Ok((left % right).into())
     }
 }

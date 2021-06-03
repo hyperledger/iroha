@@ -109,11 +109,11 @@ pub enum MathError {
 /// Trait implementations should provide actions to apply changes on `WorldStateView`.
 #[allow(clippy::missing_errors_doc)]
 pub trait Execute {
-    /// Apply actions to `world_state_view` on behalf of `authority`.
+    /// Apply actions to `wsv` on behalf of `authority`.
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error>;
 }
 
@@ -121,24 +121,22 @@ impl Execute for Instruction {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         use Instruction::*;
         match self {
-            Register(register_box) => register_box.execute(authority, world_state_view),
-            Unregister(unregister_box) => unregister_box.execute(authority, world_state_view),
-            Mint(mint_box) => mint_box.execute(authority, world_state_view),
-            Burn(burn_box) => burn_box.execute(authority, world_state_view),
-            Transfer(transfer_box) => transfer_box.execute(authority, world_state_view),
-            If(if_box) => if_box.execute(authority, world_state_view),
-            Pair(pair_box) => pair_box.execute(authority, world_state_view),
-            Sequence(sequence) => sequence.execute(authority, world_state_view),
-            Fail(fail_box) => fail_box.execute(authority, world_state_view),
-            SetKeyValue(set_key_value) => set_key_value.execute(authority, world_state_view),
-            RemoveKeyValue(remove_key_value) => {
-                remove_key_value.execute(authority, world_state_view)
-            }
-            Grant(grant_box) => grant_box.execute(authority, world_state_view),
+            Register(register_box) => register_box.execute(authority, wsv),
+            Unregister(unregister_box) => unregister_box.execute(authority, wsv),
+            Mint(mint_box) => mint_box.execute(authority, wsv),
+            Burn(burn_box) => burn_box.execute(authority, wsv),
+            Transfer(transfer_box) => transfer_box.execute(authority, wsv),
+            If(if_box) => if_box.execute(authority, wsv),
+            Pair(pair_box) => pair_box.execute(authority, wsv),
+            Sequence(sequence) => sequence.execute(authority, wsv),
+            Fail(fail_box) => fail_box.execute(authority, wsv),
+            SetKeyValue(set_key_value) => set_key_value.execute(authority, wsv),
+            RemoveKeyValue(remove_key_value) => remove_key_value.execute(authority, wsv),
+            Grant(grant_box) => grant_box.execute(authority, wsv),
         }
     }
 }
@@ -148,23 +146,20 @@ impl Execute for RegisterBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        match self.object.evaluate(world_state_view, &context)? {
+        match self.object.evaluate(wsv, &context)? {
             IdentifiableBox::NewAccount(account) => {
-                Register::<NewAccount>::new(*account).execute(authority, world_state_view)
+                Register::<NewAccount>::new(*account).execute(authority, wsv)
             }
             IdentifiableBox::AssetDefinition(asset_definition) => {
-                Register::<AssetDefinition>::new(*asset_definition)
-                    .execute(authority, world_state_view)
+                Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
             }
             IdentifiableBox::Domain(domain) => {
-                Register::<Domain>::new(*domain).execute(authority, world_state_view)
+                Register::<Domain>::new(*domain).execute(authority, wsv)
             }
-            IdentifiableBox::Peer(peer) => {
-                Register::<Peer>::new(*peer).execute(authority, world_state_view)
-            }
+            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
             _ => Err(error!("Unsupported instruction.").into()),
         }
     }
@@ -175,19 +170,18 @@ impl Execute for UnregisterBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        match self.object_id.evaluate(world_state_view, &context)? {
+        match self.object_id.evaluate(wsv, &context)? {
             IdBox::AccountId(account_id) => {
-                Unregister::<Account>::new(account_id).execute(authority, world_state_view)
+                Unregister::<Account>::new(account_id).execute(authority, wsv)
             }
             IdBox::AssetDefinitionId(asset_definition_id) => {
-                Unregister::<AssetDefinition>::new(asset_definition_id)
-                    .execute(authority, world_state_view)
+                Unregister::<AssetDefinition>::new(asset_definition_id).execute(authority, wsv)
             }
             IdBox::DomainName(domain_name) => {
-                Unregister::<Domain>::new(domain_name).execute(authority, world_state_view)
+                Unregister::<Domain>::new(domain_name).execute(authority, wsv)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -199,23 +193,22 @@ impl Execute for MintBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match (
-            self.destination_id.evaluate(world_state_view, &context)?,
-            self.object.evaluate(world_state_view, &context)?,
+            self.destination_id.evaluate(wsv, &context)?,
+            self.object.evaluate(wsv, &context)?,
         ) {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
-                Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
+                Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
-                Mint::<Account, PublicKey>::new(public_key, account_id)
-                    .execute(authority, world_state_view)
+                Mint::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
             (IdBox::AccountId(account_id), Value::SignatureCheckCondition(condition)) => {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
-                    .execute(authority, world_state_view)
+                    .execute(authority, wsv)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -227,19 +220,18 @@ impl Execute for BurnBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match (
-            self.destination_id.evaluate(world_state_view, &context)?,
-            self.object.evaluate(world_state_view, &context)?,
+            self.destination_id.evaluate(wsv, &context)?,
+            self.object.evaluate(wsv, &context)?,
         ) {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
-                Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, world_state_view)
+                Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
-                Burn::<Account, PublicKey>::new(public_key, account_id)
-                    .execute(authority, world_state_view)
+                Burn::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -251,23 +243,23 @@ impl Execute for TransferBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        let source_asset_id = match self.source_id.evaluate(world_state_view, &context)? {
+        let source_asset_id = match self.source_id.evaluate(wsv, &context)? {
             IdBox::AssetId(source_asset_id) => source_asset_id,
             _ => return Err(error!("Unsupported instruction.").into()),
         };
 
-        let quantity = match self.object.evaluate(world_state_view, &context)? {
+        let quantity = match self.object.evaluate(wsv, &context)? {
             Value::U32(quantity) => quantity,
             _ => return Err(error!("Unsupported instruction.").into()),
         };
 
-        match self.destination_id.evaluate(world_state_view, &context)? {
+        match self.destination_id.evaluate(wsv, &context)? {
             IdBox::AssetId(destination_asset_id) => {
                 Transfer::<Asset, u32, Asset>::new(source_asset_id, quantity, destination_asset_id)
-                    .execute(authority, world_state_view)
+                    .execute(authority, wsv)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -279,19 +271,19 @@ impl Execute for SetKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        let key = self.key.evaluate(world_state_view, &context)?;
-        let value = self.value.evaluate(world_state_view, &context)?;
-        match self.object_id.evaluate(world_state_view, &context)? {
+        let key = self.key.evaluate(wsv, &context)?;
+        let value = self.value.evaluate(wsv, &context)?;
+        match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
                 SetKeyValue::<Asset, String, Value>::new(asset_id, key, value)
-                    .execute(authority, world_state_view)
+                    .execute(authority, wsv)
             }
             IdBox::AccountId(account_id) => {
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
-                    .execute(authority, world_state_view)
+                    .execute(authority, wsv)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
@@ -303,15 +295,17 @@ impl Execute for RemoveKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        let key = self.key.evaluate(world_state_view, &context)?;
-        match self.object_id.evaluate(world_state_view, &context)? {
-            IdBox::AssetId(asset_id) => RemoveKeyValue::<Asset, String>::new(asset_id, key)
-                .execute(authority, world_state_view),
-            IdBox::AccountId(account_id) => RemoveKeyValue::<Account, String>::new(account_id, key)
-                .execute(authority, world_state_view),
+        let key = self.key.evaluate(wsv, &context)?;
+        match self.object_id.evaluate(wsv, &context)? {
+            IdBox::AssetId(asset_id) => {
+                RemoveKeyValue::<Asset, String>::new(asset_id, key).execute(authority, wsv)
+            }
+            IdBox::AccountId(account_id) => {
+                RemoveKeyValue::<Account, String>::new(account_id, key).execute(authority, wsv)
+            }
             _ => Err(error!("Unsupported instruction.").into()),
         }
     }
@@ -322,16 +316,14 @@ impl Execute for If {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
-        if self.condition.evaluate(world_state_view, &context)? {
-            self.then.execute(authority, world_state_view)
+        if self.condition.evaluate(wsv, &context)? {
+            self.then.execute(authority, wsv)
         } else {
-            self.otherwise.map_or_else(
-                || Ok(()),
-                |otherwise| otherwise.execute(authority, world_state_view),
-            )
+            self.otherwise
+                .map_or_else(|| Ok(()), |otherwise| otherwise.execute(authority, wsv))
         }
     }
 }
@@ -341,12 +333,10 @@ impl Execute for Pair {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
-        self.left_instruction
-            .execute(authority.clone(), world_state_view)?;
-        self.right_instruction
-            .execute(authority, world_state_view)?;
+        self.left_instruction.execute(authority.clone(), wsv)?;
+        self.right_instruction.execute(authority, wsv)?;
         Ok(())
     }
 }
@@ -356,21 +346,21 @@ impl Execute for SequenceBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         for instruction in self.instructions {
-            instruction.execute(authority.clone(), world_state_view)?;
+            instruction.execute(authority.clone(), wsv)?;
         }
         Ok(())
     }
 }
 
 impl Execute for FailBox {
-    #[iroha_logger::log(skip(_authority, _world_state_view))]
+    #[iroha_logger::log(skip(_authority, _wsv))]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
-        _world_state_view: &WorldStateView,
+        _wsv: &WorldStateView,
     ) -> Result<(), Error> {
         Err(error!("Execution failed: {}.", self.message).into())
     }
@@ -381,21 +371,20 @@ impl Execute for GrantBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), Error> {
         let context = Context::new();
         match (
-            self.destination_id.evaluate(world_state_view, &context)?,
-            self.object.evaluate(world_state_view, &context)?,
+            self.destination_id.evaluate(wsv, &context)?,
+            self.object.evaluate(wsv, &context)?,
         ) {
             (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
                 Grant::<Account, PermissionToken>::new(permission_token, account_id)
-                    .execute(authority, world_state_view)
+                    .execute(authority, wsv)
             }
             #[cfg(feature = "roles")]
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
-                Grant::<Account, RoleId>::new(role_id, account_id)
-                    .execute(authority, world_state_view)
+                Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
             _ => Err(error!("Unsupported instruction.").into()),
         }
