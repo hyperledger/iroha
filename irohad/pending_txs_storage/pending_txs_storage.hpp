@@ -15,6 +15,7 @@
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 
 namespace iroha {
+  class MstState;
 
   /**
    * Interface of storage for not fully signed transactions.
@@ -83,6 +84,13 @@ namespace iroha {
 
     virtual void removeTransaction(
         shared_model::interface::types::HashType const &hash) = 0;
+
+    virtual void updatedBatchesHandler(
+        std::shared_ptr<MstState> const &updated_batches) = 0;
+
+    virtual void removeBatch(
+        std::shared_ptr<shared_model::interface::TransactionBatch> const
+            &batch) = 0;
 
     virtual ~PendingTransactionStorage() = default;
   };

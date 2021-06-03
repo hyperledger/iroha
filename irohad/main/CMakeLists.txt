@@ -43,11 +43,6 @@ add_library(sync_subscription
     impl/subscription.cpp
     impl/sync_dispatcher.cpp)
 
-add_library(pending_txs_storage_init impl/pending_transaction_storage_init.cpp)
-target_link_libraries(pending_txs_storage_init
-    pending_txs_storage
-    )
-
 add_library(application
     application.cpp
     # TODO andrei 08.11.2018 IR-1851 Create separate targets for initialization
@@ -87,7 +82,7 @@ target_link_libraries(application
     block_loader_service
     mst_processor
     torii_service
-    pending_txs_storage_init
+    pending_txs_storage
     common
     pg_connection_init
     generator

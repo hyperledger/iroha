@@ -34,8 +34,7 @@ namespace iroha {
           std::string>
       queryHandle(const shared_model::interface::Query &qry) override;
 
-      iroha::expected::Result<void, std::string>
-      blocksQueryHandle(
+      iroha::expected::Result<void, std::string> blocksQueryHandle(
           const shared_model::interface::BlocksQuery &qry) override;
 
      private:

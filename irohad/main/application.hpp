@@ -8,7 +8,6 @@
 
 #include <optional>
 
-#include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
@@ -31,7 +30,6 @@ namespace google::protobuf {
 
 namespace iroha {
   class PendingTransactionStorage;
-  class PendingTransactionStorageInit;
   class MstProcessor;
   class MstStorage;
   namespace ametsuchi {
@@ -247,9 +245,6 @@ class Irohad {
   boost::optional<
       std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>>
       peer_tls_certificates_provider_;
-
-  std::unique_ptr<iroha::PendingTransactionStorageInit>
-      pending_txs_storage_init;
 
   // pending transactions storage
   std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;

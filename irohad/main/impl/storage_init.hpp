@@ -19,7 +19,7 @@
 namespace shared_model::interface {
   class Block;
   class QueryResponseFactory;
-}
+}  // namespace shared_model::interface
 
 namespace iroha {
   class PendingTransactionStorage;

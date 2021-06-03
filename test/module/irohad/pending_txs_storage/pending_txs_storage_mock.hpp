@@ -31,6 +31,15 @@ namespace iroha {
                 removeTransaction,
                 (shared_model::interface::types::HashType const &),
                 (override));
+    MOCK_METHOD(void,
+                updatedBatchesHandler,
+                (std::shared_ptr<MstState> const &),
+                (override));
+    MOCK_METHOD(
+        void,
+        removeBatch,
+        (std::shared_ptr<shared_model::interface::TransactionBatch> const &),
+        (override));
   };
 
 }  // namespace iroha

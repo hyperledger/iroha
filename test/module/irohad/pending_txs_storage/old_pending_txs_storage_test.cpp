@@ -4,7 +4,6 @@
  */
 
 #include <gtest/gtest.h>
-#include <rxcpp/rx-lite.hpp>
 #include "datetime/time.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
@@ -32,12 +31,8 @@ class OldPendingTxsStorageFixture : public ::testing::Test {
     }
   }
 
-  auto dummyPreparedTxsObservable() {
-    return rxcpp::observable<>::empty<
-        std::pair<shared_model::interface::types::AccountIdType,
-                  shared_model::interface::types::HashType>>();
-  }
-
+  std::shared_ptr<iroha::PendingTransactionStorageImpl> storage_ =
+      std::make_shared<iroha::PendingTransactionStorageImpl>();
   std::shared_ptr<iroha::DefaultCompleter> completer_ =
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0));
 
@@ -84,16 +79,9 @@ TEST_F(OldPendingTxsStorageFixture, InsertionTest) {
       makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state += transactions;
 
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates, dummy, dummy, dummyPreparedTxsObservable());
+  storage_->updatedBatchesHandler(state);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
-    auto pending = storage->getPendingTransactions(creator);
+    auto pending = storage_->getPendingTransactions(creator);
     ASSERT_EQ(pending.size(), 2)
         << "Wrong amount of pending transactions was retrieved for " << creator
         << " account";
@@ -127,17 +115,9 @@ TEST_F(OldPendingTxsStorageFixture, SignaturesUpdate) {
       transactions, 0, makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey));
   *state2 += transactions;
 
-  auto updates =
-      rxcpp::observable<>::create<decltype(state1)>([&state1, &state2](auto s) {
-        s.on_next(state1);
-        s.on_next(state2);
-        s.on_completed();
-      });
-  auto dummy = rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates, dummy, dummy, dummyPreparedTxsObservable());
-  auto pending = storage->getPendingTransactions("alice@iroha");
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
+  auto pending = storage_->getPendingTransactions("alice@iroha");
   ASSERT_EQ(pending.size(), 1);
   ASSERT_EQ(boost::size(pending.front()->signatures()), 2);
 }
@@ -169,18 +149,11 @@ TEST_F(OldPendingTxsStorageFixture, SeveralBatches) {
   *state += batch2;
   *state += batch3;
 
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates, dummy, dummy, dummyPreparedTxsObservable());
-  auto alice_pending = storage->getPendingTransactions("alice@iroha");
+  storage_->updatedBatchesHandler(state);
+  auto alice_pending = storage_->getPendingTransactions("alice@iroha");
   ASSERT_EQ(alice_pending.size(), 4);
 
-  auto bob_pending = storage->getPendingTransactions("bob@iroha");
+  auto bob_pending = storage_->getPendingTransactions("bob@iroha");
   ASSERT_EQ(bob_pending.size(), 3);
 }
 
@@ -208,20 +181,12 @@ TEST_F(OldPendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
       makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state2 += batch2;
 
-  auto updates =
-      rxcpp::observable<>::create<decltype(state1)>([&state1, &state2](auto s) {
-        s.on_next(state1);
-        s.on_next(state2);
-        s.on_completed();
-      });
-  auto dummy = rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates, dummy, dummy, dummyPreparedTxsObservable());
-  auto alice_pending = storage->getPendingTransactions("alice@iroha");
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
+  auto alice_pending = storage_->getPendingTransactions("alice@iroha");
   ASSERT_EQ(alice_pending.size(), 4);
 
-  auto bob_pending = storage->getPendingTransactions("bob@iroha");
+  auto bob_pending = storage_->getPendingTransactions("bob@iroha");
   ASSERT_EQ(bob_pending.size(), 2);
 }
 
@@ -242,25 +207,13 @@ TEST_F(OldPendingTxsStorageFixture, PreparedBatch) {
           makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state += batch;
 
-  rxcpp::subjects::subject<decltype(batch)> prepared_batches_subject;
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      prepared_batches_subject.get_observable(),
-      dummy,
-      dummyPreparedTxsObservable());
-
+  storage_->updatedBatchesHandler(state);
   batch = addSignatures(batch,
                         0,
                         makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey),
                         makeSignature("3"_hex_sig, "pub_key_3"_hex_pubkey));
-  prepared_batches_subject.get_subscriber().on_next(batch);
-  prepared_batches_subject.get_subscriber().on_completed();
-  auto pending = storage->getPendingTransactions("alice@iroha");
+  storage_->removeBatch(batch);
+  auto pending = storage_->getPendingTransactions("alice@iroha");
   ASSERT_EQ(pending.size(), 0);
 }
 
@@ -280,20 +233,8 @@ TEST_F(OldPendingTxsStorageFixture, ExpiredBatch) {
           makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state += batch;
 
-  rxcpp::subjects::subject<decltype(batch)> expired_batches_subject;
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummy,
-      expired_batches_subject.get_observable(),
-      dummyPreparedTxsObservable());
-
-  expired_batches_subject.get_subscriber().on_next(batch);
-  expired_batches_subject.get_subscriber().on_completed();
-  auto pending = storage->getPendingTransactions("alice@iroha");
+  storage_->updatedBatchesHandler(state);
+  storage_->removeBatch(batch);
+  auto pending = storage_->getPendingTransactions("alice@iroha");
   ASSERT_EQ(pending.size(), 0);
 }

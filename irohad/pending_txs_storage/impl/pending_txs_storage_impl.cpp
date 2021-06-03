@@ -10,64 +10,6 @@
 #include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
-
-  PendingTransactionStorageImpl::PendingTransactionStorageImpl(
-      PendingTransactionStorageImpl::private_tag) {}
-
-  std::shared_ptr<PendingTransactionStorageImpl>
-  PendingTransactionStorageImpl::create(
-      StateObservable updated_batches,
-      BatchObservable prepared_batch,
-      BatchObservable expired_batch,
-      PreparedTransactionsObservable prepared_txs) {
-    auto storage = std::make_shared<PendingTransactionStorageImpl>(
-        PendingTransactionStorageImpl::private_tag{});
-    std::weak_ptr<PendingTransactionStorageImpl> storage_(storage);
-
-    auto subscription = rxcpp::composite_subscription();
-    updated_batches.subscribe(
-        subscription, [storage_, subscription](SharedState const &batches) {
-          if (auto storage = storage_.lock()) {
-            storage->updatedBatchesHandler(batches);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-    subscription = rxcpp::composite_subscription();
-    prepared_batch.subscribe(
-        subscription,
-        [storage_, subscription](SharedBatch const &preparedBatch) {
-          if (auto storage = storage_.lock()) {
-            storage->removeBatch(preparedBatch);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-    subscription = rxcpp::composite_subscription();
-    expired_batch.subscribe(
-        subscription,
-        [storage_, subscription](SharedBatch const &expiredBatch) {
-          if (auto storage = storage_.lock()) {
-            storage->removeBatch(expiredBatch);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-    subscription = rxcpp::composite_subscription();
-    prepared_txs.subscribe(
-        subscription,
-        [storage_, subscription](
-            PreparedTransactionDescriptor const &prepared_transaction) {
-          if (auto storage = storage_.lock()) {
-            storage->removeBatch(prepared_transaction);
-          } else {
-            subscription.unsubscribe();
-          }
-        });
-
-    return storage;
-  }
-
   PendingTransactionStorageImpl::SharedTxsCollectionType
   PendingTransactionStorageImpl::getPendingTransactions(
       const AccountIdType &account_id) const {
@@ -244,33 +186,6 @@ namespace iroha {
     auto batch_size = batch->transactions().size();
     std::unique_lock<std::shared_timed_mutex> lock(mutex_);
     removeFromStorage(first_tx_hash, creators, batch_size);
-  }
-
-  void PendingTransactionStorageImpl::removeBatch(
-      const PreparedTransactionDescriptor &prepared_transaction) {
-    boost::optional<std::set<AccountIdType>> creators = boost::none;
-    boost::optional<uint64_t> batch_size = boost::none;
-    auto &creator_id = prepared_transaction.first;
-    auto &first_transaction_hash = prepared_transaction.second;
-    {
-      std::shared_lock<std::shared_timed_mutex> lock(mutex_);
-      auto account_batches_iterator = storage_.find(creator_id);
-      if (account_batches_iterator != storage_.end()) {
-        auto &account_batches = account_batches_iterator->second;
-        auto index_iterator =
-            account_batches.index.find(first_transaction_hash);
-        if (index_iterator != account_batches.index.end()) {
-          auto &batch_iterator = index_iterator->second;
-          BOOST_ASSERT(batch_iterator != account_batches.batches.end());
-          creators = batchCreators(**batch_iterator);
-          batch_size = boost::size((*batch_iterator)->transactions());
-        }
-      }
-    }
-    if (creators and batch_size) {
-      std::unique_lock<std::shared_timed_mutex> lock(mutex_);
-      removeFromStorage(first_transaction_hash, *creators, *batch_size);
-    }
   }
 
   void PendingTransactionStorageImpl::removeTransaction(HashType const &hash) {

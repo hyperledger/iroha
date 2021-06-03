@@ -9,6 +9,7 @@
 #include <chrono>
 #include <csignal>
 #include <fstream>
+#include <future>
 #include <thread>
 
 #include "ametsuchi/storage.hpp"

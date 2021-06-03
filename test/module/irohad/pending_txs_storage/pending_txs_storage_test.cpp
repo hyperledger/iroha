@@ -5,9 +5,6 @@
 
 #include <gtest/gtest.h>
 
-#include <rxcpp/operators/rx-flat_map.hpp>
-#include <rxcpp/rx-lite.hpp>
-
 #include "common/result.hpp"
 #include "datetime/time.hpp"
 #include "framework/crypto_literals.hpp"
@@ -40,26 +37,6 @@ class PendingTxsStorageFixture : public ::testing::Test {
     } else {
       return ++latest_timestamp;
     }
-  }
-
-  auto dummyObservable() {
-    return rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
-  }
-
-  auto dummyPreparedTxsObservable() {
-    return rxcpp::observable<>::empty<
-        std::pair<shared_model::interface::types::AccountIdType,
-                  shared_model::interface::types::HashType>>();
-  }
-
-  auto dummyPresenceCache() {
-    std::shared_ptr<iroha::ametsuchi::TxPresenceCache> res =
-        std::make_shared<iroha::ametsuchi::MockTxPresenceCache>();
-    return res;
-  }
-
-  auto updatesObservable(std::vector<std::shared_ptr<iroha::MstState>> states) {
-    return rxcpp::observable<>::iterate(states);
   }
 
   auto emptyState() {
@@ -95,6 +72,14 @@ class PendingTxsStorageFixture : public ::testing::Test {
     }
   }
 
+  void SetUp() override {
+    storage_ = std::make_shared<iroha::PendingTransactionStorageImpl>();
+    presence_cache_ = std::make_shared<iroha::ametsuchi::MockTxPresenceCache>();
+    storage_->insertPresenceCache(presence_cache_);
+  }
+
+  std::shared_ptr<iroha::ametsuchi::TxPresenceCache> presence_cache_;
+  std::shared_ptr<iroha::PendingTransactionStorageImpl> storage_;
   std::shared_ptr<iroha::DefaultCompleter> completer_ =
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0));
 
@@ -136,17 +121,10 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
                                transactions->transactions().end());
   expected.all_transactions_size = transactions->transactions().size();
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updatesObservable({state}),
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage->getPendingTransactions(creator, kPageSize, std::nullopt);
+        storage_->getPendingTransactions(creator, kPageSize, std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(pending);
     checkResponse(pending.assumeValue(), expected);
   }
@@ -170,16 +148,10 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
                                transactions->transactions().end());
   expected.all_transactions_size = transactions->transactions().size();
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updatesObservable({state}),
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage->getPendingTransactions(creator, kPageSize, std::nullopt);
+        storage_->getPendingTransactions(creator, kPageSize, std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(pending);
     checkResponse(pending.assumeValue(), expected);
   }
@@ -198,23 +170,12 @@ TEST_F(PendingTxsStorageFixture, CompletedTransactionsAreRemoved) {
 
   const auto kPageSize = transactions->transactions().size();
 
-  auto updates = updatesObservable({state});
-  auto prepared = updates.flat_map([&transactions](const auto &) {
-    return rxcpp::observable<>::just<
-        std::pair<shared_model::interface::types::AccountIdType,
-                  shared_model::interface::types::HashType>>(
-        std::make_pair(transactions->transactions().front()->creatorAccountId(),
-                       transactions->transactions().front()->hash()));
-  });
-
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates, dummyObservable(), dummyObservable(), prepared);
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
+  storage_->removeBatch(transactions);
   Response empty_response;
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage->getPendingTransactions(creator, kPageSize, std::nullopt);
+        storage_->getPendingTransactions(creator, kPageSize, std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(pending);
     checkResponse(pending.assumeValue(), empty_response);
   }
@@ -241,16 +202,10 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
       transactions->transactions().front()->hash();
   expected.next_batch_info->batch_size = transactions->transactions().size();
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updatesObservable({state}),
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage->getPendingTransactions(creator, kPageSize, std::nullopt);
+        storage_->getPendingTransactions(creator, kPageSize, std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(pending);
     checkResponse(pending.assumeValue(), expected);
   }
@@ -271,7 +226,6 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
 
   const auto kPageSize =
       batch1->transactions().size() + batch2->transactions().size() - 1;
-  auto updates = updatesObservable({state1, state2});
   Response expected;
   expected.transactions.insert(expected.transactions.end(),
                                batch1->transactions().begin(),
@@ -283,16 +237,11 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
       batch2->transactions().front()->hash();
   expected.next_batch_info->batch_size = batch2->transactions().size();
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage->getPendingTransactions(creator, kPageSize, std::nullopt);
+        storage_->getPendingTransactions(creator, kPageSize, std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(pending);
     checkResponse(pending.assumeValue(), expected);
   }
@@ -312,7 +261,6 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
   *state2 += batch2;
 
   const auto kPageSize = batch2->transactions().size();
-  auto updates = updatesObservable({state1, state2});
   Response expected;
   expected.transactions.insert(expected.transactions.end(),
                                batch2->transactions().begin(),
@@ -320,15 +268,10 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
   expected.all_transactions_size =
       batch1->transactions().size() + batch2->transactions().size();
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
-    auto pending = storage->getPendingTransactions(
+    auto pending = storage_->getPendingTransactions(
         creator, kPageSize, batch2->transactions().front()->hash());
     IROHA_ASSERT_RESULT_VALUE(pending);
     checkResponse(pending.assumeValue(), expected);
@@ -350,15 +293,9 @@ TEST_F(PendingTxsStorageFixture, NoPendingBatches) {
   const auto kPageSize = 100u;
   Response empty_response;
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updatesObservable({state}),
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
   auto pending =
-      storage->getPendingTransactions(kThirdAccount, kPageSize, std::nullopt);
+      storage_->getPendingTransactions(kThirdAccount, kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(pending);
   checkResponse(pending.assumeValue(), empty_response);
 }
@@ -381,17 +318,11 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
       transactions, 0, makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey));
   *state2 += transactions;
 
-  auto updates = updatesObservable({state1, state2});
   const auto kPageSize = 100u;
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
   auto pending =
-      storage->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   pending.match(
       [&txs = transactions](const auto &response) {
         const auto &resp = response.value;
@@ -426,22 +357,15 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
   *state += batch2;
   *state += batch3;
 
-  auto updates = updatesObservable({state});
   const auto kPageSize = 100u;
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
   auto alice_pending =
-      storage->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(alice_pending);
   EXPECT_EQ(alice_pending.assumeValue().transactions.size(), 4);
 
   auto bob_pending =
-      storage->getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(bob_pending);
   EXPECT_EQ(bob_pending.assumeValue().transactions.size(), 3);
 }
@@ -465,22 +389,16 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
       makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state2 += batch2;
 
-  auto updates = updatesObservable({state1, state2});
   const auto kPageSize = 100u;
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
   auto alice_pending =
-      storage->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(alice_pending);
   EXPECT_EQ(alice_pending.assumeValue().transactions.size(), 4);
 
   auto bob_pending =
-      storage->getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(bob_pending);
   EXPECT_EQ(bob_pending.assumeValue().transactions.size(), 2);
 }
@@ -501,24 +419,15 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
           makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state += batch;
 
-  rxcpp::subjects::subject<decltype(batch)> prepared_batches_subject;
-  auto updates = updatesObservable({state});
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      prepared_batches_subject.get_observable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state);
   batch = addSignatures(batch,
                         0,
                         makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey),
                         makeSignature("3"_hex_sig, "pub_key_3"_hex_pubkey));
-  prepared_batches_subject.get_subscriber().on_next(batch);
-  prepared_batches_subject.get_subscriber().on_completed();
+  storage_->removeBatch(batch);
   const auto kPageSize = 100u;
   auto pending =
-      storage->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(pending);
   EXPECT_EQ(pending.assumeValue().transactions.size(), 0);
 }
@@ -538,20 +447,11 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
           makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   *state += batch;
 
-  rxcpp::subjects::subject<decltype(batch)> expired_batches_subject;
-  auto updates = updatesObservable({state});
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      expired_batches_subject.get_observable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
-  expired_batches_subject.get_subscriber().on_next(batch);
-  expired_batches_subject.get_subscriber().on_completed();
+  storage_->updatedBatchesHandler(state);
+  storage_->removeBatch(batch);
   const auto kPageSize = 100u;
   auto pending =
-      storage->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
+      storage_->getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   IROHA_ASSERT_RESULT_VALUE(pending);
   EXPECT_EQ(pending.assumeValue().transactions.size(), 0);
 }
@@ -568,14 +468,8 @@ TEST_F(PendingTxsStorageFixture, QueryingWrongBatch) {
 
   const auto kThirdAccount = "clark@iroha";
   const auto kPageSize = 100u;
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updatesObservable({state}),
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
-  auto response = storage->getPendingTransactions(
+  storage_->updatedBatchesHandler(state);
+  auto response = storage_->getPendingTransactions(
       kThirdAccount, kPageSize, transactions->transactions().front()->hash());
   IROHA_ASSERT_RESULT_ERROR(response);
   EXPECT_EQ(response.assumeError(),
@@ -602,7 +496,6 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
     return batch->transactions().front()->hash();
   };
 
-  auto updates = updatesObservable({state1, state2});
   Response first_page_expected;
   first_page_expected.transactions.insert(
       first_page_expected.transactions.end(),
@@ -622,19 +515,14 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
   second_page_expected.all_transactions_size =
       batchSize(batch1) + batchSize(batch2);
 
-  auto storage = iroha::PendingTransactionStorageImpl::create(
-      updates,
-      dummyObservable(),
-      dummyObservable(),
-      dummyPreparedTxsObservable());
-  auto pc = dummyPresenceCache();
-  storage->insertPresenceCache(pc);
+  storage_->updatedBatchesHandler(state1);
+  storage_->updatedBatchesHandler(state2);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
-    auto first_page = storage->getPendingTransactions(
+    auto first_page = storage_->getPendingTransactions(
         creator, batchSize(batch1), std::nullopt);
     IROHA_ASSERT_RESULT_VALUE(first_page);
     checkResponse(first_page.assumeValue(), first_page_expected);
-    auto second_page = storage->getPendingTransactions(
+    auto second_page = storage_->getPendingTransactions(
         creator, batchSize(batch2), firstHash(batch2));
     IROHA_ASSERT_RESULT_VALUE(second_page);
     checkResponse(second_page.assumeValue(), second_page_expected);

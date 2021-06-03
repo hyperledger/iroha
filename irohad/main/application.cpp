@@ -34,7 +34,6 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
-#include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
@@ -57,6 +56,7 @@
 #include "network/impl/tls_credentials.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
+#include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 #include "simulator/impl/simulator.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
@@ -120,8 +120,6 @@ Irohad::Irohad(
       grpc_channel_params_(std::move(grpc_channel_params)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
-      pending_txs_storage_init(
-          std::make_unique<PendingTransactionStorageInit>()),
       pg_opt_(std::move(pg_opt)),
       subscription_engine_(getSubscription()),
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
@@ -794,15 +792,12 @@ Irohad::RunResult Irohad::initMstProcessor() {
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
 
-  pending_txs_storage_init->setMstSubscriptions(*mst_processor);
-
   log_->info("[Init] => MST processor");
   return {};
 }
 
 Irohad::RunResult Irohad::initPendingTxsStorage() {
-  pending_txs_storage_ =
-      pending_txs_storage_init->createPendingTransactionsStorage();
+  pending_txs_storage_ = std::make_shared<PendingTransactionStorageImpl>();
   log_->info("[Init] => pending transactions storage");
   return {};
 }
@@ -822,26 +817,38 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
   mst_processor->onStateUpdate().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor)),
+       pending_txs_storage(utils::make_weak(pending_txs_storage_))](
           std::shared_ptr<MstState> const &state) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_pending_txs_storage = pending_txs_storage.lock();
+        if (maybe_tx_processor and maybe_pending_txs_storage) {
           maybe_tx_processor->processStateUpdate(state);
+          maybe_pending_txs_storage->updatedBatchesHandler(state);
         }
       });
   mst_processor->onPreparedBatches().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor)),
+       pending_txs_storage(utils::make_weak(pending_txs_storage_))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_pending_txs_storage = pending_txs_storage.lock();
+        if (maybe_tx_processor and maybe_pending_txs_storage) {
           maybe_tx_processor->processPreparedBatch(batch);
+          maybe_pending_txs_storage->removeBatch(batch);
         }
       });
   mst_processor->onExpiredBatches().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor)),
+       pending_txs_storage(utils::make_weak(pending_txs_storage_))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_pending_txs_storage = pending_txs_storage.lock();
+        if (maybe_tx_processor and maybe_pending_txs_storage) {
           maybe_tx_processor->processExpiredBatch(batch);
+          maybe_pending_txs_storage->removeBatch(batch);
         }
       });
   command_service = std::make_shared<::torii::CommandServiceImpl>(

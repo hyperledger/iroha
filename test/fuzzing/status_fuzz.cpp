@@ -21,9 +21,9 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/network/network_mocks.hpp"
+#include "module/irohad/torii/torii_mocks.hpp"
 #include "torii/impl/command_service_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
-#include "module/irohad/torii/torii_mocks.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
