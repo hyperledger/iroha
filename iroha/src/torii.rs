@@ -24,8 +24,8 @@ use crate::{
     event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
-    query::VerifiedQueryRequest,
     queue::Queue,
+    smartcontracts::isi::query::VerifiedQueryRequest,
     sumeragi::{message::VersionedMessage as SumeragiVersionedMessage, Sumeragi},
     BlockSyncMessageSender, SumeragiMessageSender,
 };

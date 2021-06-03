@@ -1,29 +1,22 @@
 //! Iroha - A simple, enterprise-grade decentralized ledger.
 
-pub mod account;
-pub mod asset;
 pub mod block;
 pub mod block_sync;
 pub mod config;
-pub mod domain;
 pub mod event;
-pub mod expression;
 pub mod genesis;
 mod init;
-pub mod isi;
 mod kura;
 pub mod maintenance;
 mod merkle;
 pub mod modules;
-pub mod permissions;
-pub mod query;
 mod queue;
+pub mod smartcontracts;
 pub mod sumeragi;
 #[cfg(feature = "telemetry")]
 mod telemetry;
 pub mod torii;
 pub mod tx;
-pub mod world;
 pub mod wsv;
 
 use std::{sync::Arc, time::Duration};
@@ -31,7 +24,7 @@ use std::{sync::Arc, time::Duration};
 use iroha_data_model::prelude::*;
 use iroha_error::{Result, WrapErr};
 use iroha_logger::{telemetry::Telemetry, InstrumentFutures};
-use permissions::PermissionsValidatorBox;
+use smartcontracts::permissions::PermissionsValidatorBox;
 use tokio::{
     sync::{
         mpsc::{self, Receiver, Sender},
@@ -351,8 +344,8 @@ pub mod prelude {
         block::{
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
         },
-        permissions::AllowAll,
-        query::Query,
+        smartcontracts::permissions::AllowAll,
+        smartcontracts::query::Query,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
             VersionedValidTransaction,

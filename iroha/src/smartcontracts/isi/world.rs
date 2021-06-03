@@ -1,6 +1,7 @@
 //! This module contains `World` related ISI implementations.
 
-use crate::{isi::prelude::*, prelude::*};
+use super::prelude::*;
+use crate::prelude::*;
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {

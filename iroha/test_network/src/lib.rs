@@ -19,7 +19,7 @@ use std::{
 };
 
 use iroha::{
-    config::Configuration, permissions::PermissionsValidatorBox, prelude::*,
+    config::Configuration, prelude::*, smartcontracts::permissions::PermissionsValidatorBox,
     sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
 };
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
