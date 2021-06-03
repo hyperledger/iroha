@@ -7,7 +7,6 @@
 #define IROHA_NETWORK_MOCKS_HPP
 
 #include <gmock/gmock.h>
-#include <rxcpp/rx-lite.hpp>
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "network/block_loader.hpp"
@@ -33,8 +32,6 @@ namespace iroha {
       MOCK_CONST_METHOD1(
           propagate_batch,
           void(std::shared_ptr<shared_model::interface::TransactionBatch>));
-
-      MOCK_CONST_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
     };
 
     class MockBlockLoader : public BlockLoader {
@@ -62,8 +59,6 @@ namespace iroha {
       MOCK_METHOD1(
           propagateBatch,
           void(std::shared_ptr<shared_model::interface::TransactionBatch>));
-
-      MOCK_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
 
       MOCK_METHOD1(setPcs, void(const PeerCommunicationService &));
 

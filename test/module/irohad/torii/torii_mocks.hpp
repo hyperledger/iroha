@@ -25,7 +25,6 @@ namespace iroha {
     class MockStatusBus : public StatusBus {
      public:
       MOCK_METHOD1(publish, void(StatusBus::Objects));
-      MOCK_METHOD0(statuses, rxcpp::observable<StatusBus::Objects>());
     };
 
     class MockCommandService : public iroha::torii::CommandService {
@@ -37,11 +36,11 @@ namespace iroha {
           getStatus,
           std::shared_ptr<shared_model::interface::TransactionResponse>(
               const shared_model::crypto::Hash &request));
-      MOCK_METHOD1(
-          getStatusStream,
-          rxcpp::observable<
-              std::shared_ptr<shared_model::interface::TransactionResponse>>(
-              const shared_model::crypto::Hash &));
+      MOCK_METHOD(
+          void,
+          processTransactionResponse,
+          (std::shared_ptr<shared_model::interface::TransactionResponse>),
+          (override));
     };
 
     class MockTransactionProcessor : public TransactionProcessor {

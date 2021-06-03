@@ -376,8 +376,6 @@ class Irohad {
 
   // consensus gate
   std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
-  rxcpp::composite_subscription consensus_gate_objects_lifetime;
-  rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
 
   std::unique_ptr<iroha::network::ServerRunner> torii_server;
   boost::optional<std::unique_ptr<iroha::network::ServerRunner>>

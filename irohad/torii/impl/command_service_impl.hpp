@@ -8,7 +8,6 @@
 
 #include "torii/command_service.hpp"
 
-#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "cache/cache.hpp"
@@ -34,7 +33,6 @@ namespace iroha {
       /**
        * Creates a new instance of CommandService
        * @param tx_processor - processor of received transactions
-       * @param storage - to query transactions outside the cache
        * @param status_bus is a common notifier for tx statuses
        * @param cache - non-persistent cache, an instance of type
        * CommandServiceImpl::CacheType
@@ -43,15 +41,12 @@ namespace iroha {
        */
       CommandServiceImpl(
           std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor,
-          std::shared_ptr<iroha::ametsuchi::Storage> storage,
           std::shared_ptr<iroha::torii::StatusBus> status_bus,
           std::shared_ptr<shared_model::interface::TxStatusFactory>
               status_factory,
           std::shared_ptr<iroha::torii::CommandServiceImpl::CacheType> cache,
           std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache,
           logger::LoggerPtr log);
-
-      ~CommandServiceImpl() override;
 
       /**
        * Disable copying in any way to prevent potential issues with common
@@ -66,20 +61,12 @@ namespace iroha {
 
       std::shared_ptr<shared_model::interface::TransactionResponse> getStatus(
           const shared_model::crypto::Hash &request) override;
-      rxcpp::observable<
-          std::shared_ptr<shared_model::interface::TransactionResponse>>
-      getStatusStream(const shared_model::crypto::Hash &hash) override;
+
+      void processTransactionResponse(
+          std::shared_ptr<shared_model::interface::TransactionResponse>
+              response) override;
 
      private:
-      /**
-       * Execute events scheduled in run loop until it is not empty and the
-       * subscriber is active
-       * @param subscription - tx status subscription
-       * @param run_loop - gRPC thread run loop
-       */
-      inline void handleEvents(rxcpp::composite_subscription &subscription,
-                               rxcpp::schedulers::run_loop &run_loop);
-
       /**
        * Share tx status and log it
        * @param who identifier for the logging
@@ -99,13 +86,10 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch> batch);
 
       std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor_;
-      std::shared_ptr<iroha::ametsuchi::Storage> storage_;
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
       std::shared_ptr<CacheType> cache_;
       std::shared_ptr<shared_model::interface::TxStatusFactory> status_factory_;
       std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
-
-      rxcpp::composite_subscription status_subscription_;
 
       logger::LoggerPtr log_;
     };

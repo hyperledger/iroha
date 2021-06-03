@@ -3,25 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "common/default_constructible_unary_fn.hpp"  // non-copyable value workaround
-
 #include "torii/impl/command_service_transport_grpc.hpp"
 
-#include <atomic>
-#include <condition_variable>
-#include <iterator>
-
-#include <boost/algorithm/string/join.hpp>
-#include <boost/format.hpp>
-#include <boost/range/adaptor/filtered.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <rxcpp/operators/rx-start_with.hpp>
-#include <rxcpp/operators/rx-take_while.hpp>
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "backend/protobuf/util.hpp"
-#include "common/combine_latest_until_first_completed.hpp"
-#include "common/run_loop_handler.hpp"
 #include "cryptography/hash_providers/sha3_256.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
@@ -30,6 +16,9 @@
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
+#include "subscription/scheduler_impl.hpp"
+#include "torii/impl/final_status_value.hpp"
 #include "torii/status_bus.hpp"
 
 namespace iroha {
@@ -45,7 +34,6 @@ namespace iroha {
             batch_parser,
         std::shared_ptr<shared_model::interface::TransactionBatchFactory>
             transaction_batch_factory,
-        rxcpp::observable<ConsensusGateEvent> consensus_gate_objects,
         int maximum_rounds_without_update,
         logger::LoggerPtr log)
         : command_service_(std::move(command_service)),
@@ -55,7 +43,6 @@ namespace iroha {
           batch_parser_(std::move(batch_parser)),
           batch_factory_(std::move(transaction_batch_factory)),
           log_(std::move(log)),
-          consensus_gate_objects_(std::move(consensus_gate_objects)),
           maximum_rounds_without_update_(maximum_rounds_without_update) {}
 
     grpc::Status CommandServiceTransportGrpc::Torii(
@@ -127,84 +114,99 @@ namespace iroha {
         grpc::ServerContext *context,
         const iroha::protocol::TxStatusRequest *request,
         grpc::ServerWriter<iroha::protocol::ToriiResponse> *response_writer) {
-      rxcpp::schedulers::run_loop rl;
-
-      auto current_thread = rxcpp::synchronize_in_one_worker(
-          rxcpp::schedulers::make_run_loop(rl));
-
-      rxcpp::composite_subscription subscription;
-
       auto hash = shared_model::crypto::Hash::fromHexString(request->tx_hash());
 
-      auto client_id_format = boost::format("Peer: '%s', %s");
       std::string client_id =
-          (client_id_format % context->peer() % hash.toString()).str();
-      auto status_bus = command_service_->getStatusStream(hash);
-      auto consensus_gate_observable =
-          consensus_gate_objects_
-              // a dummy start_with lets us don't wait for the consensus event
-              // on further combine_latest
-              .start_with(ConsensusGateEvent{});
+          fmt::format("Peer: '{}', {}", context->peer(), hash.toString());
 
-      boost::optional<iroha::protocol::TxStatus> last_tx_status;
+      auto initial_response =
+          std::static_pointer_cast<shared_model::proto::TransactionResponse>(
+              command_service_->getStatus(hash))
+              ->getTransport();
+      if (not response_writer->Write(initial_response)) {
+        log_->error("write to stream has failed to client {}", client_id);
+        return grpc::Status::OK;
+      }
+
+      iroha::protocol::TxStatus last_tx_status = initial_response.tx_status();
       auto rounds_counter{0};
-      makeCombineLatestUntilFirstCompleted(
-          status_bus,
-          current_thread,
-          [](auto status, auto) { return status; },
-          consensus_gate_observable)
-          // complete the observable if client is disconnected or too many
-          // rounds have passed without tx status change
-          .take_while([=, &rounds_counter, &last_tx_status](
-                          const auto &response) {
-            const auto &proto_response =
-                std::static_pointer_cast<
-                    shared_model::proto::TransactionResponse>(response)
-                    ->getTransport();
 
-            if (context->IsCancelled()) {
-              log_->debug("client unsubscribed, {}", client_id);
-              return false;
-            }
+      auto scheduler = std::make_shared<iroha::subscription::SchedulerBase>();
+      auto tid = iroha::getSubscription()->dispatcher()->bind(scheduler);
 
-            // increment round counter when the same status arrived again.
-            auto status = proto_response.tx_status();
-            auto status_is_same =
-                last_tx_status and (status == *last_tx_status);
-            if (status_is_same) {
-              ++rounds_counter;
-              if (rounds_counter >= maximum_rounds_without_update_) {
-                // we stop the stream when round counter is greater than
-                // allowed.
-                return false;
-              }
-              // omit the received status, but do not stop the stream
-              return true;
-            }
-            rounds_counter = 0;
-            last_tx_status = status;
+      // complete the observable if client is disconnected or too many
+      // rounds have passed without tx status change
 
-            // write a new status to the stream
-            if (not response_writer->Write(proto_response)) {
-              log_->error("write to stream has failed to client {}", client_id);
-              return false;
-            }
-            log_->debug("status written, {}", client_id);
-            return true;
-          })
-          .subscribe(subscription,
-                     [](const auto &) {},
-                     [&](std::exception_ptr ep) {
-                       log_->error("something bad happened, client_id {}",
-                                   client_id);
-                     },
-                     [&] { log_->debug("stream done, {}", client_id); });
+      auto responses_subscription = SubscriberCreator<
+          bool,
+          std::shared_ptr<shared_model::interface::TransactionResponse>>::
+          template create<EventTypes::kOnTransactionResponse>(
+              static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+              [&](auto, auto response) {
+                const auto &proto_response =
+                    std::static_pointer_cast<
+                        shared_model::proto::TransactionResponse>(response)
+                        ->getTransport();
 
-      // run loop while subscription is active or there are pending events in
-      // the queue
-      iroha::schedulers::handleEvents(subscription, rl);
+                if (context->IsCancelled()) {
+                  log_->debug("client unsubscribed, {}", client_id);
+                  scheduler->dispose();
+                  return;
+                }
 
+                // increment round counter when the same status arrived
+                // again.
+                auto status = proto_response.tx_status();
+                auto status_is_same = status == last_tx_status;
+                if (status_is_same) {
+                  ++rounds_counter;
+                  if (rounds_counter >= maximum_rounds_without_update_) {
+                    // we stop the stream when round counter is greater than
+                    // allowed.
+                    scheduler->dispose();
+                    return;
+                  }
+                  // omit the received status, but do not stop the stream
+                  return;
+                }
+                rounds_counter = 0;
+                last_tx_status = status;
+
+                // write a new status to the stream
+                if (not response_writer->Write(proto_response)) {
+                  log_->error("write to stream has failed to client {}",
+                              client_id);
+                  scheduler->dispose();
+                  return;
+                }
+                log_->debug("status written, {}", client_id);
+              });
+
+      auto sync_events_subscription =
+          SubscriberCreator<bool, ConsensusGateEvent>::template create<
+              EventTypes::kOnConsensusGateEvent>(
+              static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+              [&, last_compared_status = last_tx_status](auto, auto) mutable {
+                auto status_is_same = last_compared_status == last_tx_status;
+                last_compared_status = last_tx_status;
+                if (status_is_same) {
+                  ++rounds_counter;
+                  if (rounds_counter >= maximum_rounds_without_update_) {
+                    // we stop the stream when round counter is greater than
+                    // allowed.
+                    scheduler->dispose();
+                    return;
+                  }
+                }
+              });
+
+      scheduler->process();
+
+      getSubscription()->dispatcher()->unbind(*tid);
+
+      log_->debug("stream done, {}", client_id);
       log_->debug("status stream done, {}", client_id);
+
       return grpc::Status::OK;
     }
   }  // namespace torii

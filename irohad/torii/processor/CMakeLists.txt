@@ -7,11 +7,9 @@ add_library(processors
     )
 
 target_link_libraries(processors PUBLIC
-    rxcpp
     logger
     endpoint
     mst_processor
-    status_bus
     common
     verified_proposal_creator_common
     )

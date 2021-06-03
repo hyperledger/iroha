@@ -5,4 +5,6 @@
 
 addtest(port_guard_test port_guard_test.cpp)
 target_link_libraries(port_guard_test
-   integration_framework)
+   Boost::thread
+   integration_framework
+   )

@@ -6,7 +6,6 @@
 #ifndef TORII_STATUS_BUS
 #define TORII_STATUS_BUS
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "interfaces/transaction_responses/tx_response.hpp"
 
 namespace iroha {
@@ -28,11 +27,6 @@ namespace iroha {
        * note: guaranteed to be non-blocking call
        */
       virtual void publish(Objects) = 0;
-
-      /**
-       * @return observable over objects in bus
-       */
-      virtual rxcpp::observable<Objects> statuses() = 0;
     };
   }  // namespace torii
 }  // namespace iroha

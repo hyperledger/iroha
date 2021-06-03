@@ -20,12 +20,12 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
+#include "main/subscription.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/torii/torii_mocks.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "module/vendor/grpc_mocks.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
 using ::testing::_;
@@ -41,6 +41,79 @@ using namespace std::chrono_literals;
 
 // required for g_core_codegen_interface intialization
 static grpc::internal::GrpcLibraryInitializer g_gli_initializer;
+
+template <uint32_t kCount, uint32_t kPoolSize>
+class TestDispatcher final : public iroha::subscription::IDispatcher,
+                             iroha::utils::NoCopy,
+                             iroha::utils::NoMove {
+ private:
+  using Parent = iroha::subscription::IDispatcher;
+
+ public:
+  TestDispatcher() = default;
+
+  void dispose() override {}
+
+  void add(typename Parent::Tid /*tid*/,
+           typename Parent::Task &&task) override {
+    task();
+  }
+
+  void addDelayed(typename Parent::Tid /*tid*/,
+                  std::chrono::microseconds /*timeout*/,
+                  typename Parent::Task &&task) override {
+    task();
+  }
+
+  std::optional<Tid> bind(
+      std::shared_ptr<iroha::subscription::IScheduler> scheduler) override {
+    if (!scheduler)
+      return std::nullopt;
+
+    scheduler->dispose();
+    return kCount;
+  }
+
+  static std::vector<
+      std::shared_ptr<shared_model::interface::TransactionResponse>>
+      responses;
+
+  bool unbind(Tid tid) override {
+    for (auto response : responses)
+      iroha::getSubscription()->notify(
+          iroha::EventTypes::kOnTransactionResponse, response);
+    return tid == kCount;
+  }
+};
+
+template <uint32_t kCount, uint32_t kPoolSize>
+std::vector<std::shared_ptr<shared_model::interface::TransactionResponse>>
+    TestDispatcher<kCount, kPoolSize>::responses;
+
+namespace iroha {
+
+  std::shared_ptr<Dispatcher> getDispatcher() {
+    return std::make_shared<
+        TestDispatcher<SubscriptionEngineHandlers::kTotalCount,
+                       kThreadPoolSize>>();
+  }
+
+  std::shared_ptr<Subscription> getSubscription() {
+    static std::weak_ptr<Subscription> engine;
+    if (auto ptr = engine.lock())
+      return ptr;
+
+    static std::mutex engine_cs;
+    std::lock_guard<std::mutex> lock(engine_cs);
+    if (auto ptr = engine.lock())
+      return ptr;
+
+    auto ptr = std::make_shared<Subscription>(getDispatcher());
+    engine = ptr;
+    return ptr;
+  }
+
+}  // namespace iroha
 
 class CommandServiceTransportGrpcTest : public testing::Test {
  private:
@@ -78,8 +151,12 @@ class CommandServiceTransportGrpcTest : public testing::Test {
   void SetUp() override {
     init();
 
+    subscription = iroha::getSubscription();
     status_bus = std::make_shared<MockStatusBus>();
     command_service = std::make_shared<MockCommandService>();
+
+    TestDispatcher<iroha::SubscriptionEngineHandlers::kTotalCount,
+                   iroha::kThreadPoolSize>::responses.clear();
 
     transport_grpc = std::make_shared<CommandServiceTransportGrpc>(
         command_service,
@@ -88,11 +165,11 @@ class CommandServiceTransportGrpcTest : public testing::Test {
         transaction_factory,
         batch_parser,
         batch_factory,
-        rxcpp::observable<>::iterate(gate_objects),
         gate_objects.size(),
         getTestLogger("CommandServiceTransportGrpc"));
   }
 
+  std::shared_ptr<iroha::Subscription> subscription;
   std::shared_ptr<MockStatusBus> status_bus;
   const MockTxValidator *tx_validator;
   const MockProtoTxValidator *proto_tx_validator;
@@ -106,9 +183,6 @@ class CommandServiceTransportGrpcTest : public testing::Test {
   std::shared_ptr<MockCommandService> command_service;
   std::shared_ptr<CommandServiceTransportGrpc> transport_grpc;
 
-  rxcpp::subjects::subject<
-      iroha::torii::CommandServiceTransportGrpc::ConsensusGateEvent>
-      consensus_gate_objects;
   std::vector<iroha::torii::CommandServiceTransportGrpc::ConsensusGateEvent>
       gate_objects{2};
 
@@ -251,41 +325,53 @@ TEST_F(CommandServiceTransportGrpcTest, ListToriiPartialInvalid) {
  * @given torii service and command_service with empty status stream
  * @when calling StatusStream on transport
  * @then Ok status is eventually returned without any fault
- *       and nothing is written to the status stream
  */
 TEST_F(CommandServiceTransportGrpcTest, StatusStreamEmpty) {
   grpc::ServerContext context;
   iroha::protocol::TxStatusRequest request;
+  iroha::MockServerWriter<iroha::protocol::ToriiResponse> response_writer;
 
-  EXPECT_CALL(*command_service, getStatusStream(_))
-      .WillOnce(Return(rxcpp::observable<>::empty<std::shared_ptr<
-                           shared_model::interface::TransactionResponse>>()));
+  std::shared_ptr<shared_model::interface::TransactionResponse> response =
+      status_factory->makeNotReceived({}, {});
+  EXPECT_CALL(*command_service, getStatus(_)).WillOnce(Return(response));
+  EXPECT_CALL(response_writer, Write(_, _)).WillOnce(Return(true));
 
-  ASSERT_TRUE(transport_grpc->StatusStream(&context, &request, nullptr).ok());
+  ASSERT_TRUE(transport_grpc
+                  ->StatusStream(
+                      &context,
+                      &request,
+                      reinterpret_cast<
+                          grpc::ServerWriter<iroha::protocol::ToriiResponse> *>(
+                          &response_writer))
+                  .ok());
 }
 
 /**
  * @given torii service with changed timeout, a transaction
- *        and a status stream with one NotRecieved status
+ *        and a status stream with one StatelessValid status
  * @when calling StatusStream
  * @then ServerWriter calls Write method
  */
-TEST_F(CommandServiceTransportGrpcTest, StatusStreamOnNotReceived) {
+TEST_F(CommandServiceTransportGrpcTest, StatusStreamOnStatelessValid) {
   grpc::ServerContext context;
   iroha::protocol::TxStatusRequest request;
   iroha::MockServerWriter<iroha::protocol::ToriiResponse> response_writer;
 
-  std::vector<std::shared_ptr<shared_model::interface::TransactionResponse>>
-      responses;
   shared_model::crypto::Hash hash("1");
-  responses.emplace_back(status_factory->makeNotReceived(hash, {}));
-  EXPECT_CALL(*command_service, getStatusStream(_))
-      .WillOnce(Return(rxcpp::observable<>::iterate(responses)));
+  TestDispatcher<iroha::SubscriptionEngineHandlers::kTotalCount,
+                 iroha::kThreadPoolSize>::responses
+      .emplace_back(status_factory->makeStatelessValid(hash, {}));
+  EXPECT_CALL(*command_service, getStatus(_))
+      .WillOnce(
+          Return(std::shared_ptr<shared_model::interface::TransactionResponse>(
+              status_factory->makeNotReceived(hash, {}))));
+
   EXPECT_CALL(response_writer,
               Write(Property(&iroha::protocol::ToriiResponse::tx_hash,
                              StrEq(hash.hex())),
                     _))
-      .WillOnce(Return(true));
+      .Times(2)
+      .WillRepeatedly(Return(true));
 
   ASSERT_TRUE(transport_grpc
                   ->StatusStream(

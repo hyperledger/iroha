@@ -37,6 +37,8 @@ namespace iroha {
     kOnNewProposal,
     kOnNewBatchInCache,
     kOnProposalResponse,
+    kOnTransactionResponse,
+    kOnConsensusGateEvent,
 
     // MST
     kOnStateUpdate,

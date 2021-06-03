@@ -19,6 +19,7 @@ target_link_libraries(torii_fuzz
   GTest::gmock
   ametsuchi
   torii_service
+  sync_subscription
   ${fuzzing_engine}
   )
 
@@ -30,6 +31,7 @@ target_link_libraries(status_fuzz
   GTest::gmock
   ametsuchi
   torii_service
+  sync_subscription
   ${fuzzing_engine}
   )
 

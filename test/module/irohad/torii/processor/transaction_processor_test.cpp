@@ -25,7 +25,6 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 
 using namespace iroha;
 using namespace iroha::network;

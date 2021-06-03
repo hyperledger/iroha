@@ -20,7 +20,6 @@ add_library(model
 
 target_link_libraries(model
     common
-    rxcpp
     )
 
 add_library(model_crypto_provider

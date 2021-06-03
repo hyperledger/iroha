@@ -16,7 +16,6 @@
 #include <boost/range/algorithm/equal.hpp>
 #include <boost/range/algorithm/find.hpp>
 #include <boost/range/combine.hpp>
-#include "common/set.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 

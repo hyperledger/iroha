@@ -7,7 +7,6 @@
 
 #include <boost/filesystem.hpp>
 #include <optional>
-#include <rxcpp/operators/rx-map.hpp>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -62,7 +61,6 @@
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
 #include "torii/impl/command_service_transport_grpc.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 #include "torii/processor/query_processor_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
 #include "torii/query_service.hpp"
@@ -129,7 +127,6 @@ Irohad::Irohad(
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
           logger_manager->getLogger())),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
-      consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
@@ -155,7 +152,6 @@ Irohad::~Irohad() {
   if (ordering_gate) {
     ordering_gate->stop();
   }
-  consensus_gate_objects_lifetime.unsubscribe();
   subscription_engine_->dispose();
 }
 
@@ -741,7 +737,17 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
 }
 
 Irohad::RunResult Irohad::initStatusBus() {
-  status_bus_ = std::make_shared<StatusBusImpl>();
+  struct StatusBusImpl : public StatusBus {
+    Irohad *irohad;
+    StatusBusImpl(Irohad *irohad) : irohad(irohad) {}
+    void publish(StatusBus::Objects response) override {
+      iroha::getSubscription()->notify(EventTypes::kOnTransactionResponse,
+                                       response);
+      if (irohad->command_service)
+        irohad->command_service->processTransactionResponse(response);
+    }
+  };
+  status_bus_ = std::make_shared<StatusBusImpl>(this);
   log_->info("[Init] => Tx status bus");
   return {};
 }
@@ -840,7 +846,6 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       });
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
-      storage,
       status_bus_,
       status_factory,
       cs_cache,
@@ -854,9 +859,6 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
           transaction_factory,
           batch_parser,
           transaction_batch_factory_,
-          consensus_gate_objects.get_observable().map([](const auto &) {
-            return ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{};
-          }),
           config_.stale_stream_max_rounds.value_or(
               kStaleStreamMaxRoundsDefault),
           command_service_log_manager->getChild("Transport")->getLogger());
@@ -933,7 +935,6 @@ Irohad::RunResult Irohad::run() {
 
   yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
                        ordering_init(utils::make_weak(ordering_init)),
-                       consensus_gate_objects(consensus_gate_objects),
                        log(utils::make_weak(log_)),
                        subscription(utils::make_weak(getSubscription()))](
                           consensus::GateObject object) {
@@ -943,8 +944,10 @@ Irohad::RunResult Irohad::run() {
     auto maybe_subscription = subscription.lock();
     if (maybe_synchronizer and maybe_ordering_init and maybe_log
         and maybe_subscription) {
+      maybe_subscription->notify(
+          EventTypes::kOnConsensusGateEvent,
+          ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{});
       maybe_log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-      consensus_gate_objects.get_subscriber().on_next(object);
       auto event = maybe_synchronizer->processOutcome(std::move(object));
       maybe_subscription->notify(EventTypes::kOnSynchronization, event);
       printSynchronizationEvent(maybe_log, event);

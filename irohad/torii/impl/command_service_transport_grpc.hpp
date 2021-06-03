@@ -8,7 +8,6 @@
 
 #include "torii/command_service.hpp"
 
-#include <rxcpp/rx-lite.hpp>
 #include "endpoint.grpc.pb.h"
 #include "endpoint.pb.h"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
@@ -49,7 +48,6 @@ namespace iroha {
        * @param transaction_factory - factory of transactions
        * @param batch_parser - parses of batches
        * @param transaction_batch_factory - factory of batchesof transactions
-       * @param consensus_gate_objects - events from consensus gate
        * @param maximum_rounds_without_update - defines how long tx status
        * stream is kept alive when no new tx statuses appear
        * @param log to print progress
@@ -64,7 +62,6 @@ namespace iroha {
               batch_parser,
           std::shared_ptr<shared_model::interface::TransactionBatchFactory>
               transaction_batch_factory,
-          rxcpp::observable<ConsensusGateEvent> consensus_gate_objects,
           int maximum_rounds_without_update,
           logger::LoggerPtr log);
 
@@ -129,7 +126,6 @@ namespace iroha {
           batch_factory_;
       logger::LoggerPtr log_;
 
-      rxcpp::observable<ConsensusGateEvent> consensus_gate_objects_;
       const int maximum_rounds_without_update_;
     };
   }  // namespace torii

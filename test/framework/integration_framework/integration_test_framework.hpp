@@ -500,6 +500,10 @@ namespace integration_framework {
     std::shared_ptr<CheckerQueue<BlockType>> block_queue_;
     std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
         responses_queues_;
+    std::shared_ptr<iroha::BaseSubscriber<
+        bool,
+        std::shared_ptr<shared_model::interface::TransactionResponse>>>
+        responses_subscription_;
 
     std::unique_ptr<PortGuard> port_guard_;
     size_t torii_port_;

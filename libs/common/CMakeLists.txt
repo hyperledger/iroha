@@ -6,7 +6,6 @@ add_library(common INTERFACE
   # blob.hpp
   # byteutils.hpp
   # cloneable.hpp
-  # default_constructible_unary_fn.hpp
   # instanceof.hpp
   # is_any.hpp
   # obj_utils.hpp
@@ -25,14 +24,6 @@ target_link_libraries(libs_files
   logger
   common
   Boost::filesystem
-  )
-
-add_library(libs_timeout INTERFACE
-  # timeout.hpp
-  )
-target_link_libraries(libs_timeout INTERFACE
-  common
-  rxcpp
   )
 
 add_library(permutation_generator permutation_generator.cpp)

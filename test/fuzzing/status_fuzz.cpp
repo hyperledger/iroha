@@ -17,43 +17,35 @@
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/dummy_logger.hpp"
-#include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/ametsuchi/mock_tx_presence_cache.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "torii/impl/command_service_impl.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
+#include "module/irohad/torii/torii_mocks.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
 using testing::_;
+using testing::Matcher;
 using testing::Return;
 
 struct CommandFixture {
   std::shared_ptr<iroha::torii::CommandService> service_;
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc> service_transport_;
   std::shared_ptr<iroha::torii::TransactionProcessorImpl> tx_processor_;
-  std::shared_ptr<iroha::ametsuchi::MockStorage> storage_;
   std::shared_ptr<iroha::network::MockPeerCommunicationService> pcs_;
   std::shared_ptr<iroha::MockMstProcessor> mst_processor_;
-  std::shared_ptr<iroha::ametsuchi::MockBlockQuery> bq_;
-  std::vector<iroha::torii::CommandServiceTransportGrpc::ConsensusGateEvent>
-      consensus_gate_objects_{2};
   std::shared_ptr<iroha::torii::CommandServiceImpl::CacheType> cache_;
   std::shared_ptr<iroha::ametsuchi::MockTxPresenceCache> tx_presence_cache_;
 
-  rxcpp::subjects::subject<iroha::network::OrderingEvent> prop_notifier_;
   rxcpp::subjects::subject<iroha::DataType> mst_notifier_;
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
-  rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_notifier_;
 
   CommandFixture() {
     pcs_ = std::make_shared<iroha::network::MockPeerCommunicationService>();
-    EXPECT_CALL(*pcs_, onProposal())
-        .WillRepeatedly(Return(prop_notifier_.get_observable()));
 
     mst_processor_ =
         std::make_shared<iroha::MockMstProcessor>(logger::getDummyLoggerPtr());
@@ -64,7 +56,7 @@ struct CommandFixture {
     EXPECT_CALL(*mst_processor_, onExpiredBatchesImpl())
         .WillRepeatedly(Return(mst_notifier_.get_observable()));
 
-    auto status_bus = std::make_shared<iroha::torii::StatusBusImpl>();
+    auto status_bus = std::make_shared<iroha::torii::MockStatusBus>();
     auto status_factory =
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>();
     tx_processor_ = std::make_shared<iroha::torii::TransactionProcessorImpl>(
@@ -106,15 +98,11 @@ struct CommandFixture {
             shared_model::interface::TransactionBatchFactoryImpl>(
             batch_validator);
 
-    storage_ = std::make_shared<iroha::ametsuchi::MockStorage>();
-    bq_ = std::make_shared<iroha::ametsuchi::MockBlockQuery>();
-    EXPECT_CALL(*storage_, getBlockQuery()).WillRepeatedly(Return(bq_));
     tx_presence_cache_ =
         std::make_shared<iroha::ametsuchi::MockTxPresenceCache>();
     cache_ = std::make_shared<iroha::torii::CommandServiceImpl::CacheType>();
     service_ = std::make_shared<iroha::torii::CommandServiceImpl>(
         tx_processor_,
-        storage_,
         status_bus,
         status_factory,
         cache_,
@@ -128,7 +116,6 @@ struct CommandFixture {
             transaction_factory,
             batch_parser,
             transaction_batch_factory,
-            rxcpp::observable<>::iterate(consensus_gate_objects_),
             2,
             logger::getDummyLoggerPtr());
   }
@@ -139,23 +126,24 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   if (size < 1) {
     return 0;
   }
-  std::optional<iroha::ametsuchi::TxCacheStatusType> presense;
+  iroha::ametsuchi::TxCacheStatusType presense;
   using namespace iroha::ametsuchi::tx_cache_status_responses;
   switch (data[0] % 4) {
     case 0:
       presense = {};
       break;
     case 1:
-      presense = std::make_optional(Committed{});
+      presense = Committed{};
       break;
     case 2:
-      presense = std::make_optional(Rejected{});
+      presense = Rejected{};
       break;
     case 3:
-      presense = std::make_optional(Missing{});
+      presense = Missing{};
       break;
   }
-  EXPECT_CALL(*handler.bq_, checkTxPresence(_))
+  EXPECT_CALL(*handler.tx_presence_cache_,
+              check(Matcher<const shared_model::crypto::Hash &>(_)))
       .WillRepeatedly(Return(presense));
   iroha::protocol::TxStatusRequest tx;
   if (protobuf_mutator::libfuzzer::LoadProtoInput(
