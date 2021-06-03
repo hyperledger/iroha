@@ -1,7 +1,7 @@
 //! Iroha peer command line
 
 use clap::{App, Arg};
-use iroha::{config::Configuration, permissions::AllowAll, Iroha};
+use iroha::{config::Configuration, smartcontracts::permissions::AllowAll, Iroha};
 use iroha_error::Reporter;
 
 const CONFIGURATION_PATH: &str = "config.json";

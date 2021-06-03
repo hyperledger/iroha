@@ -15,9 +15,10 @@ use iroha_error::{Result, WrapErr};
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
+use crate::prelude::*;
 #[cfg(feature = "roles")]
-use crate::permissions;
-use crate::{expression::Evaluate, isi::Execute, permissions::PermissionsValidatorBox, prelude::*};
+use crate::smartcontracts::permissions;
+use crate::smartcontracts::{expression::Evaluate, permissions::PermissionsValidatorBox, Execute};
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 
@@ -488,25 +489,6 @@ impl From<RejectedTransaction> for AcceptedTransaction {
     }
 }
 
-/// Query module provides [`IrohaQuery`] Transaction related implementations.
-pub mod query {
-    use iroha_data_model::prelude::*;
-    use iroha_error::Result;
-
-    use super::*;
-
-    impl Query for FindTransactionsByAccountId {
-        #[iroha_logger::log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
-            let id = self
-                .account_id
-                .evaluate(world_state_view, &Context::default())
-                .wrap_err("Failed to get id")?;
-            Ok(world_state_view.transactions_values_by_account_id(&id))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::default_trait_access, clippy::restriction)]
@@ -520,7 +502,7 @@ mod tests {
     use iroha_error::{Error, MessageError, Result, WrappedError};
 
     use super::*;
-    use crate::{config::Configuration, init, permissions::AllowAll};
+    use crate::{config::Configuration, init, smartcontracts::permissions::AllowAll};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 

@@ -1,5 +1,14 @@
 //! This module contains enumeration of all possible Iroha Special Instructions `Instruction`,
 //! generic instruction types and related implementations.
+pub mod account;
+pub mod asset;
+pub mod domain;
+pub mod expression;
+pub mod permissions;
+pub mod query;
+pub mod tx;
+pub mod world;
+
 use std::error::Error as StdError;
 use std::fmt::{self, Display, Formatter};
 
@@ -7,7 +16,8 @@ use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::FromVariant;
 use iroha_error::{derive::Error, error, Result};
 
-use crate::{expression::Evaluate, prelude::*};
+use crate::prelude::*;
+use crate::smartcontracts::expression::Evaluate;
 
 /// Instruction execution error type
 #[allow(clippy::clippy::pub_enum_variant_names)]
@@ -394,8 +404,7 @@ impl Execute for GrantBox {
 
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
-    pub use super::{Error, Execute};
-    pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, world::isi::*};
+    pub use super::{account::isi::*, asset::isi::*, domain::isi::*, world::isi::*, *};
 }
 
 #[cfg(test)]
