@@ -6,11 +6,11 @@ use std::{collections::BTreeMap, convert::TryInto};
 
 use iroha::{
     prelude::*,
-    smartcontracts::expression::Evaluate,
     smartcontracts::permissions::{
         prelude::*, GrantedTokenValidator, PermissionsValidator, PermissionsValidatorBuilder,
         ValidatorApplyOr,
     },
+    smartcontracts::Evaluate,
 };
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
