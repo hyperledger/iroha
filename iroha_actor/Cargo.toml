@@ -22,3 +22,4 @@ petgraph = { version = "0.5", optional = true }
 
 [dev-dependencies]
 trybuild = "1"
+tokio = { version = "1.6.0", features = ["macros"]}
