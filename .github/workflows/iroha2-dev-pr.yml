@@ -169,11 +169,11 @@ jobs:
           TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
         run: |
           mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features || true
+          cargo test -p iroha_client --all-features --test unstable_network || true
       - name: Run release tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --release || true
+        run: cargo test -p iroha_client --all-features --test unstable_network --release || true
       - name: Install script dependencies
         run: |
           apt-get update
