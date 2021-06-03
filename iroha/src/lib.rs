@@ -84,7 +84,7 @@ pub struct Iroha {
     kura_blocks_receiver: CommittedBlockReceiver,
     sumeragi_message_receiver: SumeragiMessageReceiver,
     block_sync_message_receiver: BlockSyncMessageReceiver,
-    world_state_view: Arc<WorldStateView>,
+    wsv: Arc<WorldStateView>,
     block_sync: Arc<RwLock<BlockSynchronizer>>,
     genesis_network: Option<GenesisNetwork>,
     telemetry: Option<Receiver<Telemetry>>,
@@ -110,7 +110,7 @@ impl Iroha {
         let (sumeragi_message_sender, sumeragi_message_receiver) = mpsc::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = mpsc::channel(100);
         let (events_sender, events_receiver) = mpsc::channel(100);
-        let world_state_view = Arc::new(WorldStateView::from_config(
+        let wsv = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             World::with(
                 init::domains(config),
@@ -125,7 +125,7 @@ impl Iroha {
                 &config.sumeragi_configuration,
                 kura_blocks_sender,
                 events_sender.clone(),
-                Arc::clone(&world_state_view),
+                Arc::clone(&wsv),
                 transactions_sender.clone(),
                 permissions_validator,
             )
@@ -133,7 +133,7 @@ impl Iroha {
         ));
         let torii = Torii::from_configuration(
             config.torii_configuration.clone(),
-            Arc::clone(&world_state_view),
+            Arc::clone(&wsv),
             transactions_sender,
             sumeragi_message_sender,
             block_sync_message_sender,
@@ -146,7 +146,7 @@ impl Iroha {
         let kura = Arc::new(RwLock::new(kura));
         let block_sync = Arc::new(RwLock::new(BlockSynchronizer::from_configuration(
             &config.block_sync_configuration,
-            Arc::clone(&world_state_view),
+            Arc::clone(&wsv),
             Arc::clone(&sumeragi),
             PeerId::new(
                 &config.torii_configuration.torii_p2p_url,
@@ -166,7 +166,7 @@ impl Iroha {
             torii,
             sumeragi,
             kura,
-            world_state_view,
+            wsv,
             transactions_receiver,
             wsv_blocks_receiver,
             sumeragi_message_receiver,
@@ -200,12 +200,12 @@ impl Iroha {
         let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
         let blocks = kura.write().await.init().await?;
-        let world_state_view = Arc::clone(&self.world_state_view);
-        world_state_view.init(blocks).await;
-        sumeragi.write().await.init(
-            self.world_state_view.latest_block_hash(),
-            self.world_state_view.height(),
-        );
+        let wsv = Arc::clone(&self.wsv);
+        wsv.init(blocks).await;
+        sumeragi
+            .write()
+            .await
+            .init(self.wsv.latest_block_hash(), self.wsv.height());
         sumeragi.write().await.update_network_topology().await;
         let torii = self.torii;
         let torii_handle = task::spawn(
@@ -233,7 +233,7 @@ impl Iroha {
             .in_current_span(),
         );
         let queue = Arc::clone(&self.queue);
-        let world_state_view = Arc::clone(&self.world_state_view);
+        let wsv = Arc::clone(&self.wsv);
         let voting_handle = task::spawn(
             async move {
                 loop {
@@ -242,7 +242,7 @@ impl Iroha {
                         let transactions = queue
                             .write()
                             .await
-                            .get_pending_transactions(is_leader, &world_state_view);
+                            .get_pending_transactions(is_leader, &wsv);
                         if let Err(e) = sumeragi.write().await.round(transactions).await {
                             iroha_logger::error!("Round failed: {}", e);
                         }
@@ -253,13 +253,13 @@ impl Iroha {
             .in_current_span(),
         );
         let mut wsv_blocks_receiver = self.wsv_blocks_receiver;
-        let world_state_view = Arc::clone(&self.world_state_view);
+        let wsv = Arc::clone(&self.wsv);
         let sumeragi = Arc::clone(&self.sumeragi);
         let block_sync = Arc::clone(&self.block_sync);
         let wsv_handle = task::spawn(
             async move {
                 while let Some(block) = wsv_blocks_receiver.recv().await {
-                    world_state_view.apply(block).await;
+                    wsv.apply(block).await;
                     sumeragi.write().await.update_network_topology().await;
                     block_sync.write().await.continue_sync().await;
                 }
@@ -330,7 +330,7 @@ impl Iroha {
 /// Allow to check if an item is included in a blockchain.
 pub trait IsInBlockchain {
     /// Checks if this item has already been committed or rejected.
-    fn is_in_blockchain(&self, world_state_view: &WorldStateView) -> bool;
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool;
 }
 
 pub mod prelude {

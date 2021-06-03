@@ -16,10 +16,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let public_key = self.object.clone();
-            world_state_view.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&self.destination_id, |account| {
                 account.signatories.push(public_key);
                 Ok(())
             })?;
@@ -31,10 +31,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let id = self.destination_id.clone();
-            world_state_view.modify_account(&id, |account| {
+            wsv.modify_account(&id, |account| {
                 account.signature_check_condition = self.object;
                 Ok(())
             })?;
@@ -46,10 +46,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let public_key = self.object.clone();
-            world_state_view.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&self.destination_id, |account| {
                 if let Some(index) = account
                     .signatories
                     .iter()
@@ -67,11 +67,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
-            let account_metadata_limits = world_state_view.config.account_metadata_limits;
+            let account_metadata_limits = wsv.config.account_metadata_limits;
             let id = self.object_id.clone();
-            world_state_view.modify_account(&id, |account| {
+            wsv.modify_account(&id, |account| {
                 drop(account.metadata.insert_with_limits(
                     self.key.clone(),
                     self.value,
@@ -87,9 +87,9 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
-            world_state_view.modify_account(&self.object_id, |account| {
+            wsv.modify_account(&self.object_id, |account| {
                 drop(
                     account
                         .metadata
@@ -106,10 +106,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let id = self.destination_id.clone();
-            world_state_view.modify_account(&id, |account| {
+            wsv.modify_account(&id, |account| {
                 let _ = account.permission_tokens.insert(self.object);
                 Ok(())
             })?;
@@ -122,18 +122,17 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             drop(
-                world_state_view
-                    .world()
+                wsv.world()
                     .roles
                     .get(&self.object)
                     .ok_or_else(|| FindError::Role(self.object.clone()))?,
             );
 
             let id = self.destination_id.clone();
-            world_state_view.modify_account(&id, |account| {
+            wsv.modify_account(&id, |account| {
                 let _ = account.roles.insert(self.object);
                 Ok(())
             })?;
@@ -154,9 +153,9 @@ pub mod query {
     #[cfg(feature = "roles")]
     impl Query for FindRolesByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
-            let account_id = self.id.evaluate(world_state_view, &Context::new())?;
-            let roles = world_state_view.map_account(&account_id, |account| {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+            let account_id = self.id.evaluate(wsv, &Context::new())?;
+            let roles = wsv.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
             Ok(roles)
@@ -165,11 +164,11 @@ pub mod query {
 
     impl Query for FindPermissionTokensByAccountId {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
-            let account_id = self.id.evaluate(world_state_view, &Context::new())?;
-            let tokens = world_state_view.map_account(&account_id, |account| {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+            let account_id = self.id.evaluate(wsv, &Context::new())?;
+            let tokens = wsv.map_account(&account_id, |account| {
                 account
-                    .permission_tokens(&world_state_view.world)
+                    .permission_tokens(&wsv.world)
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>()
@@ -180,9 +179,9 @@ pub mod query {
 
     impl Query for FindAllAccounts {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
             let mut vec = Vec::new();
-            for domain in world_state_view.domains().iter() {
+            for domain in wsv.domains().iter() {
                 for account in domain.accounts.values() {
                     vec.push(account.clone())
                 }
@@ -193,24 +192,24 @@ pub mod query {
 
     impl Query for FindAccountById {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .id
-                .evaluate(world_state_view, &Context::default())
+                .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get id")?;
-            Ok(world_state_view.map_account(&id, Clone::clone)?)
+            Ok(wsv.map_account(&id, Clone::clone)?)
         }
     }
 
     impl Query for FindAccountsByName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .name
-                .evaluate(world_state_view, &Context::default())
+                .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get account name")?;
             let mut vec = Vec::new();
-            for domain in world_state_view.domains().iter() {
+            for domain in wsv.domains().iter() {
                 for (id, account) in &domain.accounts {
                     if id.name == name {
                         vec.push(account.clone())
@@ -223,12 +222,12 @@ pub mod query {
 
     impl Query for FindAccountsByDomainName {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .domain_name
-                .evaluate(world_state_view, &Context::default())
+                .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain name")?;
-            Ok(world_state_view
+            Ok(wsv
                 .domain(&name)?
                 .accounts
                 .values()
@@ -239,17 +238,16 @@ pub mod query {
 
     impl Query for FindAccountKeyValueByIdAndKey {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
             let id = self
                 .id
-                .evaluate(world_state_view, &Context::default())
+                .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get account id")?;
             let key = self
                 .key
-                .evaluate(world_state_view, &Context::default())
+                .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")?;
-            world_state_view
-                .map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
+            wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
                 .ok_or_else(|| error!("No metadata entry with this key."))
         }
     }

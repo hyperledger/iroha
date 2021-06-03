@@ -14,9 +14,9 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
-            if world_state_view.trusted_peers_ids().insert(self.object.id) {
+            if wsv.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
             } else {
                 Err(error!("Peer already presented in the list of trusted peers.",).into())
@@ -28,15 +28,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let domain = self.object;
-            domain.validate_len(world_state_view.config.length_limits)?;
-            drop(
-                world_state_view
-                    .domains()
-                    .insert(domain.name.clone(), domain),
-            );
+            domain.validate_len(wsv.config.length_limits)?;
+            drop(wsv.domains().insert(domain.name.clone(), domain));
             Ok(())
         }
     }
@@ -45,10 +41,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
-            drop(world_state_view.domains().remove(&self.object_id));
+            drop(wsv.domains().remove(&self.object_id));
             Ok(())
         }
     }
@@ -58,10 +54,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let role = self.object;
-            drop(world_state_view.world.roles.insert(role.id.clone(), role));
+            drop(wsv.world.roles.insert(role.id.clone(), role));
             Ok(())
         }
     }
@@ -71,10 +67,10 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
-            drop(world_state_view.world.roles.remove(&self.object_id));
-            for mut domain in world_state_view.domains().iter_mut() {
+            drop(wsv.world.roles.remove(&self.object_id));
+            for mut domain in wsv.domains().iter_mut() {
                 for account in domain.accounts.values_mut() {
                     let _ = account.roles.remove(&self.object_id);
                 }
@@ -95,8 +91,8 @@ pub mod query {
     #[cfg(feature = "roles")]
     impl Query for FindAllRoles {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
-            Ok(world_state_view
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+            Ok(wsv
                 .world
                 .roles
                 .iter()
@@ -107,8 +103,8 @@ pub mod query {
 
     impl Query for FindAllPeers {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
-            Ok(world_state_view.peers())
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+            Ok(wsv.peers())
         }
     }
 }

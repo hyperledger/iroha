@@ -34,7 +34,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Torii {
     config: ToriiConfiguration,
-    world_state_view: Arc<WorldStateView>,
+    wsv: Arc<WorldStateView>,
     transaction_sender: TransactionSender,
     sumeragi_message_sender: SumeragiMessageSender,
     block_sync_message_sender: BlockSyncMessageSender,
@@ -105,7 +105,7 @@ impl Torii {
     #[allow(clippy::clippy::too_many_arguments)]
     pub fn from_configuration(
         config: ToriiConfiguration,
-        world_state_view: Arc<WorldStateView>,
+        wsv: Arc<WorldStateView>,
         transaction_sender: TransactionSender,
         sumeragi_message_sender: SumeragiMessageSender,
         block_sync_message_sender: BlockSyncMessageSender,
@@ -116,7 +116,7 @@ impl Torii {
     ) -> Self {
         Torii {
             config,
-            world_state_view,
+            wsv,
             transaction_sender,
             sumeragi_message_sender,
             block_sync_message_sender,
@@ -129,7 +129,7 @@ impl Torii {
     }
 
     fn create_state(&self) -> ToriiState {
-        let world_state_view = Arc::clone(&self.world_state_view);
+        let wsv = Arc::clone(&self.wsv);
         let transactions_queue = Arc::clone(&self.transactions_queue);
         let sumeragi = Arc::clone(&self.sumeragi);
         let transaction_sender = self.transaction_sender.clone();
@@ -141,7 +141,7 @@ impl Torii {
 
         ToriiState {
             config,
-            world_state_view,
+            wsv,
             transaction_sender,
             sumeragi_message_sender,
             block_sync_message_sender,
@@ -195,7 +195,7 @@ impl Torii {
 #[derive(Debug)]
 struct ToriiState {
     config: ToriiConfiguration,
-    world_state_view: Arc<WorldStateView>,
+    wsv: Arc<WorldStateView>,
     transaction_sender: TransactionSender,
     sumeragi_message_sender: SumeragiMessageSender,
     block_sync_message_sender: BlockSyncMessageSender,
@@ -248,7 +248,7 @@ async fn handle_queries(
 ) -> Result<QueryResult> {
     let result = request
         .query
-        .execute(&*state.read().await.world_state_view)
+        .execute(&*state.read().await.wsv)
         .map_err(Error::ExecuteQuery)?;
     let result = QueryResult(if let Value::Vec(value) = result {
         Value::Vec(value.into_iter().paginate(pagination).collect())

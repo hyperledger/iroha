@@ -17,16 +17,12 @@ pub mod isi {
         fn execute(
             self,
             _authority: <NewAccount as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let account = self.object;
-            account.validate_len(world_state_view.config.length_limits)?;
+            account.validate_len(wsv.config.length_limits)?;
             let name = account.id.domain_name.clone();
-            match world_state_view
-                .domain_mut(&name)?
-                .accounts
-                .entry(account.id.clone())
-            {
+            match wsv.domain_mut(&name)?.accounts.entry(account.id.clone()) {
                 Entry::Occupied(_) => {
                     return Err(error!(
                         "Domain already contains an account with this Id: {:?}",
@@ -46,12 +42,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let account_id = self.object_id;
             drop(
-                world_state_view
-                    .domain_mut(&account_id.domain_name)?
+                wsv.domain_mut(&account_id.domain_name)?
                     .accounts
                     .remove(&account_id),
             );
@@ -63,12 +58,12 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let asset_definition = self.object;
-            asset_definition.validate_len(world_state_view.config.length_limits)?;
+            asset_definition.validate_len(wsv.config.length_limits)?;
             let name = asset_definition.id.domain_name.clone();
-            let mut domain = world_state_view.domain_mut(&name)?;
+            let mut domain = wsv.domain_mut(&name)?;
             match domain.asset_definitions.entry(asset_definition.id.clone()) {
                 Entry::Vacant(entry) => {
                     let _ = entry.insert(AssetDefinitionEntry {
@@ -92,16 +87,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            world_state_view: &WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
             drop(
-                world_state_view
-                    .domain_mut(&asset_definition_id.domain_name)?
+                wsv.domain_mut(&asset_definition_id.domain_name)?
                     .asset_definitions
                     .remove(&asset_definition_id),
             );
-            for mut domain in world_state_view.domains().iter_mut() {
+            for mut domain in wsv.domains().iter_mut() {
                 for account in domain.accounts.values_mut() {
                     let keys = account
                         .assets
@@ -129,8 +123,8 @@ pub mod query {
 
     impl Query for FindAllDomains {
         #[log]
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
-            Ok(world_state_view
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+            Ok(wsv
                 .domains()
                 .iter()
                 .map(|guard| guard.value().clone())
@@ -139,12 +133,12 @@ pub mod query {
     }
 
     impl Query for FindDomainByName {
-        fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
             let name = self
                 .name
-                .evaluate(world_state_view, &Context::default())
+                .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain name")?;
-            Ok(world_state_view.domain(&name)?.clone())
+            Ok(wsv.domain(&name)?.clone())
         }
     }
 }
