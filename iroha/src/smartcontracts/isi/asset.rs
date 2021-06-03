@@ -3,7 +3,8 @@
 
 use iroha_data_model::prelude::*;
 
-use crate::{isi::prelude::*, prelude::*};
+use super::prelude::*;
+use crate::prelude::*;
 
 /// Iroha Special Instructions module provides `AssetInstruction` enum with all possible types of
 /// Asset related instructions as variants, implementations of generic Iroha Special Instructions
@@ -220,8 +221,8 @@ pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
+    use super::super::expression::Evaluate;
     use super::*;
-    use crate::expression::Evaluate;
 
     impl Query for FindAllAssets {
         #[log]

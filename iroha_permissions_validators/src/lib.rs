@@ -5,12 +5,12 @@
 use std::{collections::BTreeMap, convert::TryInto};
 
 use iroha::{
-    expression::Evaluate,
-    permissions::{
+    prelude::*,
+    smartcontracts::expression::Evaluate,
+    smartcontracts::permissions::{
         prelude::*, GrantedTokenValidator, PermissionsValidator, PermissionsValidatorBuilder,
         ValidatorApplyOr,
     },
-    prelude::*,
 };
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;

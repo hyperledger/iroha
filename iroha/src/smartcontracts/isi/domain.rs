@@ -4,7 +4,8 @@ use std::collections::btree_map::Entry;
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result};
 
-use crate::{isi::prelude::*, prelude::*};
+use super::super::isi::prelude::*;
+use crate::prelude::*;
 
 /// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
@@ -123,8 +124,8 @@ pub mod query {
     use iroha_error::{Result, WrapErr};
     use iroha_logger::log;
 
+    use super::super::expression::Evaluate;
     use super::*;
-    use crate::expression::Evaluate;
 
     impl Query for FindAllDomains {
         #[log]

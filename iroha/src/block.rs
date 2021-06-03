@@ -20,8 +20,8 @@ use parity_scale_codec::{Decode, Encode};
 
 use crate::{
     merkle::MerkleTree,
-    permissions::PermissionsValidatorBox,
     prelude::*,
+    smartcontracts::permissions::PermissionsValidatorBox,
     sumeragi::InitializedNetworkTopology,
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
 };

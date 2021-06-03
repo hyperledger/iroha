@@ -25,8 +25,8 @@ use self::message::*;
 use crate::{
     block::{ChainedBlock, VersionedPendingBlock},
     event::EventsSender,
-    permissions::PermissionsValidatorBox,
     prelude::*,
+    smartcontracts::permissions::PermissionsValidatorBox,
     VersionedValidBlock,
 };
 

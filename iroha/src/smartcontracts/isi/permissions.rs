@@ -8,7 +8,7 @@ use iroha_data_model::prelude::*;
 use iroha_error::Result;
 
 #[cfg(feature = "roles")]
-use crate::expression::Evaluate;
+use super::expression::Evaluate;
 use crate::prelude::*;
 
 /// Reason for prohibiting the execution of the particular instruction.

@@ -9,8 +9,8 @@ use crate::prelude::*;
 /// Account related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
 pub mod isi {
+    use super::super::prelude::*;
     use super::*;
-    use crate::isi::prelude::*;
 
     impl Execute for Mint<Account, PublicKey> {
         fn execute(
@@ -148,8 +148,8 @@ pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
+    use super::super::expression::Evaluate;
     use super::*;
-    use crate::expression::Evaluate;
 
     #[cfg(feature = "roles")]
     impl Query for FindRolesByAccountId {
