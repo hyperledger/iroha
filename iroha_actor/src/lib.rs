@@ -15,12 +15,14 @@
 /// ```
 pub use actor_derive::Message;
 use envelope::{Envelope, SyncEnvelopeProxy, ToEnvelope};
+#[cfg(not(feature = "deadlock_detection"))]
+use tokio::task;
 use tokio::{
     sync::{
         mpsc::{self, Receiver},
         oneshot::{self, error::RecvError},
     },
-    task::{self, JoinHandle},
+    task::JoinHandle,
 };
 #[cfg(feature = "deadlock_detection")]
 use {deadlock::ActorId, std::any::type_name};
@@ -66,11 +68,7 @@ impl<A: Actor> Addr<A> {
     /// # Errors
     /// Fails if noone will send message
     #[allow(unused_variables, clippy::expect_used)]
-    pub async fn send<M, B: Actor>(
-        &self,
-        message: M,
-        from: Option<Addr<B>>,
-    ) -> Result<M::Result, RecvError>
+    pub async fn send<M>(&self, message: M) -> Result<M::Result, RecvError>
     where
         M: Message + Send + 'static,
         M::Result: Send,
@@ -79,16 +77,18 @@ impl<A: Actor> Addr<A> {
         let (sender, reciever) = oneshot::channel();
         let envelope = SyncEnvelopeProxy::pack(message, Some(sender));
         #[cfg(feature = "deadlock_detection")]
-        let from_actor_id = from
-            .expect("From param expected with deadlock detection feature.")
-            .actor_id;
+        let from_actor_id_option = deadlock::task_local_actor_id();
         #[cfg(feature = "deadlock_detection")]
-        deadlock::r#in(self.actor_id, from_actor_id).await;
+        if let Some(from_actor_id) = from_actor_id_option {
+            deadlock::r#in(self.actor_id, from_actor_id).await;
+        }
         // TODO: propagate the error.
         let _error = self.sender.send(envelope).await;
         let result = reciever.await;
         #[cfg(feature = "deadlock_detection")]
-        deadlock::out(self.actor_id, from_actor_id).await;
+        if let Some(from_actor_id) = from_actor_id_option {
+            deadlock::out(self.actor_id, from_actor_id).await;
+        }
         result
     }
 
@@ -195,11 +195,11 @@ impl<A: Actor> InitializedActor<A> {
 
     /// Start actor
     pub async fn start(self) {
-        let address = self.address;
+        let address = self.address.clone();
         let mut receiver = self.receiver;
         let mut actor = self.actor;
         let (handle_sender, handle_receiver) = oneshot::channel();
-        let join_handle = task::spawn(async move {
+        let actor_future = async move {
             #[allow(clippy::expect_used)]
             let join_handle = handle_receiver
                 .await
@@ -210,7 +210,11 @@ impl<A: Actor> InitializedActor<A> {
                 message.handle(&mut actor, &mut ctx).await;
             }
             actor.on_stop(&mut ctx).await;
-        });
+        };
+        #[cfg(not(feature = "deadlock_detection"))]
+        let join_handle = task::spawn(actor_future);
+        #[cfg(feature = "deadlock_detection")]
+        let join_handle = deadlock::spawn_task_with_actor_id(self.address.actor_id, actor_future);
         // TODO: propagate the error.
         let _error = handle_sender.send(join_handle);
     }

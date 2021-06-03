@@ -98,6 +98,28 @@ jobs:
         run: cargo test --features network-mock
         working-directory: iroha
 
+  test-deadlock_detection:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container: rust:1.52-buster
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
+      - name: Run iroha_actor deadlock detection tests
+        run: cargo test --features deadlock_detection
+        working-directory: iroha_actor
+
   test-docker:
     #runs-on: [ self-hosted, Linux ] #ubuntu-latest
     runs-on: ubuntu-latest

@@ -5,6 +5,7 @@
 use std::{
     cmp::{Eq, PartialEq},
     fmt::{self, Debug, Display},
+    future::Future,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
@@ -13,11 +14,32 @@ use std::{
 use once_cell::sync::Lazy;
 use petgraph::graph::Graph;
 use petgraph::{algo, graph::NodeIndex};
-use tokio::{task, time};
+use tokio::{
+    task::{self, JoinHandle},
+    time,
+};
 
 use super::*;
 
 static ACTOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+tokio::task_local! {
+    static ACTOR_ID: ActorId;
+}
+
+/// Spawns a task with task local [`ActorId`].
+pub fn spawn_task_with_actor_id<F>(actor_id: ActorId, future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    task::spawn(ACTOR_ID.scope(actor_id, future))
+}
+
+/// Gets task local [`ActorId`] if this task has it or None.
+pub fn task_local_actor_id() -> Option<ActorId> {
+    ACTOR_ID.try_with(|id| *id).ok()
+}
 
 #[derive(Clone, Copy)]
 pub struct ActorId {

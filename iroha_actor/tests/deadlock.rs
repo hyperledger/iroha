@@ -18,9 +18,9 @@ impl Actor for DeadlockActor {}
 #[async_trait::async_trait]
 impl Handler<Msg> for DeadlockActor {
     type Result = ();
-    async fn handle(&mut self, context: &mut Context<Self>, _: Msg) {
+    async fn handle(&mut self, _context: &mut Context<Self>, _: Msg) {
         if let Some(addr) = &self.0 {
-            let _ = addr.send(Msg, Some(context.addr().clone())).await;
+            let _ = addr.send(Msg).await;
         }
     }
 }
@@ -36,22 +36,22 @@ impl Handler<Address<Self>> for DeadlockActor {
 /// Basic deadlock test.
 #[cfg(feature = "deadlock_detection")]
 #[tokio::test(flavor = "multi_thread")]
-#[should_panic]
+#[allow(clippy::exit)]
 async fn async_test() {
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        // This test should panic.
+        std::process::exit(0);
+    }));
     let actor1 = DeadlockActor::init_default();
     let actor2 = DeadlockActor::init_default();
     let addr1 = actor1.address().clone();
     let addr2 = actor2.address().clone();
     actor1.start().await;
     actor2.start().await;
-    addr1
-        .send(Address(addr2.clone()), Some(addr1.clone()))
-        .await
-        .unwrap();
-    addr2
-        .send(Address(addr1.clone()), Some(addr2.clone()))
-        .await
-        .unwrap();
-    addr1.send(Msg, Some(addr2)).await.unwrap();
+    addr1.send(Address(addr2.clone())).await.unwrap();
+    addr2.send(Address(addr1.clone())).await.unwrap();
+    addr1.send(Msg).await.unwrap();
     unreachable!()
 }
