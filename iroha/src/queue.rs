@@ -72,7 +72,7 @@ impl Queue {
     pub fn get_pending_transactions(
         &mut self,
         is_leader: bool,
-        world_state_view: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Vec<VersionedAcceptedTransaction> {
         let mut output_transactions = Vec::new();
         let mut left_behind_transactions = VecDeque::new();
@@ -89,7 +89,7 @@ impl Queue {
                 .expect("Should always be present, as contained in queue");
 
             if transaction.is_expired(self.transaction_time_to_live)
-                || transaction.is_in_blockchain(world_state_view)
+                || transaction.is_in_blockchain(wsv)
             {
                 drop(
                     self.pending_tx_by_hash
@@ -100,7 +100,7 @@ impl Queue {
             }
 
             let signature_condition_passed = if let Ok(signature_condition_passed) =
-                transaction.check_signature_condition(world_state_view)
+                transaction.check_signature_condition(wsv)
             {
                 signature_condition_passed
             } else {
@@ -328,17 +328,12 @@ mod tests {
         });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let transaction = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
-        let world_state_view = WorldStateView::new(world_with_test_domains(alice_key.public_key));
-        let _ = world_state_view.transactions.insert(transaction.hash());
+        let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key));
+        let _ = wsv.transactions.insert(transaction.hash());
         queue
             .push_pending_transaction(transaction)
             .expect("Failed to push tx into queue");
-        assert_eq!(
-            queue
-                .get_pending_transactions(false, &world_state_view)
-                .len(),
-            0
-        );
+        assert_eq!(queue.get_pending_transactions(false, &wsv).len(), 0);
     }
 
     #[test]
@@ -421,9 +416,9 @@ mod tests {
         let _result = domain.accounts.insert(account_id, account);
         let mut domains = BTreeMap::new();
         let _result = domains.insert("wonderland".to_string(), domain);
-        let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let output_transactions: Vec<_> = queue
-            .get_pending_transactions(true, &world_state_view)
+            .get_pending_transactions(true, &wsv)
             .into_iter()
             .map(|tx| tx.hash())
             .collect();

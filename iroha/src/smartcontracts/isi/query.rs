@@ -36,11 +36,11 @@ pub trait Query: QueryOutput {
     /// Should not mutate `WorldStateView`!
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
-    fn execute(&self, world_state_view: &WorldStateView) -> Result<Self::Output>;
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output>;
 
     /// Executes query and maps it into value
-    fn execute_into_value(&self, world_state_view: &WorldStateView) -> Result<Value> {
-        self.execute(world_state_view).map(Into::into)
+    fn execute_into_value(&self, wsv: &WorldStateView) -> Result<Value> {
+        self.execute(wsv).map(Into::into)
     }
 }
 
