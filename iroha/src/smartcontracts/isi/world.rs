@@ -11,6 +11,8 @@ pub mod isi {
     use super::*;
 
     impl Execute for Register<Peer> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -25,6 +27,8 @@ pub mod isi {
     }
 
     impl Execute for Register<Domain> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -38,6 +42,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Domain> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -51,6 +57,8 @@ pub mod isi {
 
     #[cfg(feature = "roles")]
     impl Execute for Register<Role> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -64,6 +72,8 @@ pub mod isi {
 
     #[cfg(feature = "roles")]
     impl Execute for Unregister<Role> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,

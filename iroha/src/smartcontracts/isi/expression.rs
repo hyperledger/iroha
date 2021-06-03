@@ -8,17 +8,8 @@ use iroha_data_model::{
 };
 use iroha_error::{error, Error, Result};
 
+use super::Evaluate;
 use crate::prelude::*;
-
-/// Calculate the result of the expression without mutating the state.
-#[allow(clippy::missing_errors_doc)]
-pub trait Evaluate {
-    /// The resulting type of the expression.
-    type Value;
-
-    /// Calculates result.
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value>;
-}
 
 impl<E: Into<Error>, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
     type Value = V;

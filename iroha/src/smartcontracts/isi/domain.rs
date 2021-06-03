@@ -14,6 +14,8 @@ pub mod isi {
     use super::*;
 
     impl Execute for Register<NewAccount> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <NewAccount as Identifiable>::Id,
@@ -39,6 +41,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Account> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -55,6 +59,8 @@ pub mod isi {
     }
 
     impl Execute for Register<AssetDefinition> {
+        type Error = Error;
+
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
@@ -84,6 +90,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<AssetDefinition> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -118,7 +126,7 @@ pub mod query {
     use iroha_error::{Result, WrapErr};
     use iroha_logger::log;
 
-    use super::super::expression::Evaluate;
+    use super::super::Evaluate;
     use super::*;
 
     impl Query for FindAllDomains {

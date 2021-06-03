@@ -29,21 +29,6 @@ pub struct VerifiedQueryRequest {
     pub query: QueryBox,
 }
 
-/// This trait should be implemented for all Iroha Queries.
-#[allow(clippy::missing_errors_doc)]
-pub trait Query: QueryOutput {
-    /// Execute query on the `WorldStateView`.
-    /// Should not mutate `WorldStateView`!
-    ///
-    /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output>;
-
-    /// Executes query and maps it into value
-    fn execute_into_value(&self, wsv: &WorldStateView) -> Result<Value> {
-        self.execute(wsv).map(Into::into)
-    }
-}
-
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
     type Error = Error;
 
