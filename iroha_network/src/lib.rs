@@ -22,11 +22,9 @@ use tokio::{
     sync::RwLock,
 };
 
-const BUFFER_SIZE: usize = 2_usize.pow(12);
-#[cfg(feature = "test-no-timeout")]
-const REQUEST_TIMEOUT_MILLIS: u64 = 5000;
-#[cfg(not(feature = "test-no-timeout"))]
-const REQUEST_TIMEOUT_MILLIS: u64 = 500;
+mod consts {
+    //! Module with constants
+}
 
 /// State type alias
 pub type State<T> = Arc<RwLock<T>>;

@@ -8,7 +8,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
-use super::{AsyncStream, Request, Response, State, BUFFER_SIZE, REQUEST_TIMEOUT_MILLIS};
+use super::{AsyncStream, Request, Response, State};
+
+const BUFFER_SIZE: usize = 2_usize.pow(12);
+#[cfg(feature = "test-no-timeout")]
+const REQUEST_TIMEOUT_MILLIS: u64 = 5000;
+#[cfg(not(feature = "test-no-timeout"))]
+const REQUEST_TIMEOUT_MILLIS: u64 = 500;
 
 pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response> {
     timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
