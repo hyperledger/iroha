@@ -18,7 +18,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::prelude::*;
 #[cfg(feature = "roles")]
 use crate::smartcontracts::permissions;
-use crate::smartcontracts::{expression::Evaluate, permissions::PermissionsValidatorBox, Execute};
+use crate::smartcontracts::{permissions::PermissionsValidatorBox, Evaluate, Execute};
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 

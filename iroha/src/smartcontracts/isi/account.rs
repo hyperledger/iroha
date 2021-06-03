@@ -13,6 +13,8 @@ pub mod isi {
     use super::*;
 
     impl Execute for Mint<Account, PublicKey> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -28,6 +30,8 @@ pub mod isi {
     }
 
     impl Execute for Mint<Account, SignatureCheckCondition> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -43,6 +47,8 @@ pub mod isi {
     }
 
     impl Execute for Burn<Account, PublicKey> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -64,6 +70,8 @@ pub mod isi {
     }
 
     impl Execute for SetKeyValue<Account, String, Value> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -84,6 +92,8 @@ pub mod isi {
     }
 
     impl Execute for RemoveKeyValue<Account, String> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -103,6 +113,8 @@ pub mod isi {
     }
 
     impl Execute for Grant<Account, PermissionToken> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -119,6 +131,8 @@ pub mod isi {
 
     #[cfg(feature = "roles")]
     impl Execute for Grant<Account, RoleId> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -147,7 +161,7 @@ pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
-    use super::super::expression::Evaluate;
+    use super::super::Evaluate;
     use super::*;
 
     #[cfg(feature = "roles")]

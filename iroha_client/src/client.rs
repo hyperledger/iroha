@@ -7,7 +7,7 @@ use std::{
 };
 
 use http_client::WebSocketStream;
-use iroha::smartcontracts::query::Query;
+use iroha::smartcontracts::Query;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_dsl::prelude::*;
 use iroha_error::{error, Error, Result, WrapErr};

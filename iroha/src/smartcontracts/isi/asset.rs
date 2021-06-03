@@ -37,6 +37,8 @@ pub mod isi {
     }
 
     impl Execute for Mint<Asset, u32> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -60,6 +62,8 @@ pub mod isi {
     }
 
     impl Execute for Mint<Asset, u128> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -83,6 +87,8 @@ pub mod isi {
     }
 
     impl Execute for SetKeyValue<Asset, String, Value> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -105,6 +111,8 @@ pub mod isi {
     }
 
     impl Execute for Burn<Asset, u32> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -127,6 +135,8 @@ pub mod isi {
     }
 
     impl Execute for Burn<Asset, u128> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -149,6 +159,8 @@ pub mod isi {
     }
 
     impl Execute for RemoveKeyValue<Asset, String> {
+        type Error = Error;
+
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -169,6 +181,8 @@ pub mod isi {
     }
 
     impl Execute for Transfer<Asset, u32, Asset> {
+        type Error = Error;
+
         #[log(skip(_authority))]
         fn execute(
             self,
@@ -209,7 +223,7 @@ pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
-    use super::super::expression::Evaluate;
+    use super::super::Evaluate;
     use super::*;
 
     impl Query for FindAllAssets {

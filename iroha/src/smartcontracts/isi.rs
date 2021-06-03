@@ -16,8 +16,9 @@ use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::FromVariant;
 use iroha_error::{derive::Error, error, Result};
 
+use super::Evaluate;
+use super::Execute;
 use crate::prelude::*;
-use crate::smartcontracts::expression::Evaluate;
 
 /// Instruction execution error type
 #[allow(clippy::clippy::pub_enum_variant_names)]
@@ -106,18 +107,9 @@ pub enum MathError {
     OverflowError,
 }
 
-/// Trait implementations should provide actions to apply changes on `WorldStateView`.
-#[allow(clippy::missing_errors_doc)]
-pub trait Execute {
-    /// Apply actions to `wsv` on behalf of `authority`.
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Error>;
-}
-
 impl Execute for Instruction {
+    type Error = Error;
+
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -142,6 +134,8 @@ impl Execute for Instruction {
 }
 
 impl Execute for RegisterBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -166,6 +160,8 @@ impl Execute for RegisterBox {
 }
 
 impl Execute for UnregisterBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -189,6 +185,8 @@ impl Execute for UnregisterBox {
 }
 
 impl Execute for MintBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -216,6 +214,8 @@ impl Execute for MintBox {
 }
 
 impl Execute for BurnBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -239,6 +239,8 @@ impl Execute for BurnBox {
 }
 
 impl Execute for TransferBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -267,6 +269,8 @@ impl Execute for TransferBox {
 }
 
 impl Execute for SetKeyValueBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -291,6 +295,8 @@ impl Execute for SetKeyValueBox {
 }
 
 impl Execute for RemoveKeyValueBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -312,6 +318,8 @@ impl Execute for RemoveKeyValueBox {
 }
 
 impl Execute for If {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -329,6 +337,8 @@ impl Execute for If {
 }
 
 impl Execute for Pair {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -342,6 +352,8 @@ impl Execute for Pair {
 }
 
 impl Execute for SequenceBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
@@ -356,6 +368,8 @@ impl Execute for SequenceBox {
 }
 
 impl Execute for FailBox {
+    type Error = Error;
+
     #[iroha_logger::log(skip(_authority, _wsv))]
     fn execute(
         self,
@@ -367,6 +381,8 @@ impl Execute for FailBox {
 }
 
 impl Execute for GrantBox {
+    type Error = Error;
+
     #[iroha_logger::log]
     fn execute(
         self,
