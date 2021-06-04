@@ -929,7 +929,7 @@ jobs:
             type=edge,branch=support/1.2.x
           #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
 
-          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }} ## uses suffecs could be empty, -burrow, -ursa
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - name: Login to DockerHub
         uses: docker/login-action@v1

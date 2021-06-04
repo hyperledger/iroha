@@ -548,7 +548,7 @@ jobs:
       - <<: *step_docker_meta
         with:
           <<: *step_docker_meta_with
-          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}  ## uses suffecs could be empty, -burrow, -ursa
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - *step_docker_login
       - *step_docker_buildx
