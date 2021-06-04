@@ -27,6 +27,11 @@ done
 BINARYCACHE_PATH=$(realpath $vcpkg_path)/binarycache
 INSTALL_ROOT=$vcpkg_path/installed
 
+## Address error message "Environment variable VCPKG_FORCE_SYSTEM_BINARIES must be set on arm, s390x, and ppc64le platforms"
+case "$(uname -m)" in
+   arm*|s390*|ppc64*)  export VCPKG_FORCE_SYSTEM_BINARIES=1 ;;
+esac
+
 ## Every time clean build of vcpkgtool takes 43 seconds on MacBook 2016 i7 2.8GHz
 ##                                 and takes 3 minutes on default GitHub runner
 ## ToDo try reuse existing vcpkg_tool
