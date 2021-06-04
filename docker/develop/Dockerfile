@@ -46,6 +46,7 @@ RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 RUN go get github.com/golang/protobuf/protoc-gen-go
 
+## pip3 contains fresher versions of packages than apt
 RUN pip3 install --no-cache-dir cmake ninja
 
 # install dependencies
@@ -57,7 +58,7 @@ RUN set -xe; \
     chmod +x /opt/dependencies/installed/*/tools/protobuf/protoc*; \
     unset VCPKG_FORCE_SYSTEM_BINARIES; \
     rm -rf /tmp/vcpkg*
-    # export VCPKG_FORCE_SYSTEM_BINARIES=1; \
+    ##NOTE libpq still fails with export VCPKG_FORCE_SYSTEM_BINARIES=1; \
 
 # install sonar cli
 ENV SONAR_CLI_VERSION=3.3.0.1492
