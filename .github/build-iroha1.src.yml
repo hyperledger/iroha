@@ -78,6 +78,10 @@ jobs:
     # runs-on: ubuntu-latest
     runs-on: [ self-hosted, Linux ]
     # continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
+    env:
+      DOCKERHUB_ORG:      ${{ secrets.DOCKERHUB_ORG }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - *step_show_context
       - &step_cancel_previous_runs
@@ -131,27 +135,14 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-      ## TODO check if dockertag already pushed - may be no need to rebuild and repush
-      # - &step_docker_creds
-      #   name: Check Dockerhub creds
-      #   run: |
-      #     set -x
-      #     test -n "${{ secrets.DOCKERHUB_ORG }}"
-      #     test -n "${{ secrets.DOCKERHUB_USERNAME }}"
-      #     test -n "${{ secrets.DOCKERHUB_TOKEN }}"
       - &step_docker_login
         name: Login to DockerHub
-        if: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
+        if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
         id: docker_login
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      # - &step_docker_login_failure
-      #   name: When Login to DockerHub imposible
-      #   id: login_failed
-      #   if: failure()
-      #   run: echo ::set-output name=result::"true"
       - &step_warn_docker_no_push
         name: Possible WARNING
         if: ${{ steps.docker_login.outcome == 'skipped' }}
