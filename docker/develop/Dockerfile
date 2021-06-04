@@ -51,13 +51,13 @@ RUN pip3 install --no-cache-dir cmake ninja
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -xe; \
-    export VCPKG_FORCE_SYSTEM_BINARIES=1; \
     /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
     chmod +x /opt/dependencies/installed/*/tools/protobuf/protoc*; \
     unset VCPKG_FORCE_SYSTEM_BINARIES; \
     rm -rf /tmp/vcpkg*
+    # export VCPKG_FORCE_SYSTEM_BINARIES=1; \
 
 # install sonar cli
 ENV SONAR_CLI_VERSION=3.3.0.1492
