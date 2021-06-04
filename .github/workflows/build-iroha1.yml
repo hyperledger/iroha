@@ -150,13 +150,15 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=schedule
             type=edge,branch=support/1.2.x
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - git ref: branch and pr-NUMBER, when branch is pushed
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
+        ## Docker image will be pushed with tags:
+        ##  - hash of file Dockerfile.builder
+        ##  - branchname, when branch is pushed
+        ##  - pr-NUMBER, when pushed to PR
+        ##  - git tag when tag is pushed
+        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+        ##  - tag 'edge' when branch support/1.2.x is pushed
+        ##  - schedule, see the docs
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
       - name: Cache Docker layers
@@ -186,7 +188,7 @@ jobs:
       dockertag: ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       login_failed: ${{steps.login_failed.outputs.result}}
-      DOCKERHUB_ORG: ${{secrets.DOCKERHUB_ORG}}
+      DOCKERHUB_ORG: ${{secrets.DOCKERHUB_ORG}} ## WARN secret dropped from output!, and secret cannot be used in job:container, and there is no github non-secret variables...
       status: job.status
   ## Build in a docker container
   build-iroha-ubuntu-debug:
@@ -195,8 +197,8 @@ jobs:
     ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
     if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
-    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+    ## Container tag is taken from previous job or [default]'edge'; default=iroha1/iroha-builder:edge
+    container: ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy:
       fail-fast: false
       matrix:
@@ -206,6 +208,8 @@ jobs:
         # include:
         #   - { build_type: Release, cc: gcc-9 }
         #   - { build_type: Release, cc: gcc-9, CMAKE_USE: -DUSE_BURROW=ON }
+    # env:
+    #   VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
     steps:
       - name: Show context
         run: |
@@ -220,7 +224,7 @@ jobs:
       - if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') && needs.Docker-iroha-builder.outputs._dockertag == '' }}
         name: Possible WARNING
         env:
-          container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+          container: ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
@@ -388,8 +392,10 @@ jobs:
     ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
     if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    ## Container tag is taken from previous job or [default]'edge'; default=ikyb/iroha-builder:edge
-    container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+    ## Container tag is taken from previous job or [default]'edge'; default=iroha1/iroha-builder:edge
+    container: ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+    # env:
+    #   VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
     steps:
       - name: Show context
         run: |
@@ -404,7 +410,7 @@ jobs:
       - if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') && needs.Docker-iroha-builder.outputs._dockertag == '' }}
         name: Possible WARNING
         env:
-          container: ${{ fromJSON( format('["ikyb", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+          container: ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG) )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{ fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag) )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
@@ -826,7 +832,7 @@ jobs:
   release-iroha-docker-image:
     needs: build-iroha-ubuntu-release
     runs-on: [self-hosted, Linux] ## or ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    # if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -894,7 +900,7 @@ jobs:
       - name: Rename artifact debs
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
-          mv *irohad.deb          docker/release/iroha.deb
+          mv *irohad.deb         docker/release/iroha.deb
       - name: Determine dockertag
         id: dockertag
         run: |
@@ -921,15 +927,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=schedule
             type=edge,branch=support/1.2.x
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - git ref: branch and pr-NUMBER, when branch is pushed
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
 
           images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}
+          #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
