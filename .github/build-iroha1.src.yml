@@ -77,7 +77,7 @@ jobs:
     # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
     # runs-on: ubuntu-latest
     runs-on: [ self-hosted, Linux ]
-    continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
+    # continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
     steps:
       - *step_show_context
       - &step_cancel_previous_runs
@@ -131,24 +131,31 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-      - &step_docker_creds
-        name: Check Dockerhub creds
-        run: |
-          set -x
-          test -n "${{ secrets.DOCKERHUB_ORG }}"
-          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
-          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
+      ## TODO check if dockertag already pushed - may be no need to rebuild and repush
+      # - &step_docker_creds
+      #   name: Check Dockerhub creds
+      #   run: |
+      #     set -x
+      #     test -n "${{ secrets.DOCKERHUB_ORG }}"
+      #     test -n "${{ secrets.DOCKERHUB_USERNAME }}"
+      #     test -n "${{ secrets.DOCKERHUB_TOKEN }}"
       - &step_docker_login
         name: Login to DockerHub
+        if: ${{ secrets.DOCKERHUB_TOKEN && secrets.DOCKERHUB_USERNAME }}
+        id: docker_login
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - &step_docker_login_failure
-        name: When Login to DockerHub imposible
-        id: login_failed
-        if: failure()
-        run: echo ::set-output name=result::"true"
+      # - &step_docker_login_failure
+      #   name: When Login to DockerHub imposible
+      #   id: login_failed
+      #   if: failure()
+      #   run: echo ::set-output name=result::"true"
+      - &step_warn_docker_no_push
+        name: Possible WARNING
+        if: ${{ steps.docker_login.outcome == 'skipped' }}
+        run: echo "::warning::DOCKERHUB_TOKEN and DOCKERHUB_USERNAME are empty. Will build but NOT push."
       - &step_docker_meta
         name: Docker meta
         id: meta
@@ -184,6 +191,7 @@ jobs:
           key:           ${{ runner.os }}-buildx-${{env.dockertag}}
           restore-keys:  ${{ runner.os }}-buildx-
       - &step_docker_build_and_push
+        id: build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
         with: &step_docker_build_and_push_with
@@ -191,7 +199,7 @@ jobs:
           # context: .
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
-          push: true  #${{ github.event_name != 'pull_request' }}
+          push: ${{ steps.docker_login.outcome == 'success' }}
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - &step_docker_move_cache
@@ -202,26 +210,49 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      -
+        name: Check if dockertaghash is already pushed
+        id: dockertag_already
+        run: |
+          org=${{secrets.DOCKERHUB_ORG}}
+          org=${org:-iroha1}
+          exists=$( curl -fL https://hub.docker.com/v2/repositories/$org/iroha-builder/tags |
+            jq 'any( .results[]|.name == "${{env.dockertag}}" ; .)' )
+          echo "::set-output name=exists::$exists"
+
+          if test $exists = true ;then
+            tag=$dockertag
+          else
+            tag=edge
+          fi
+          container="$org/iroha-builder:$tag"
+          echo "::set-output name=container::$container"
+          echo "::set-output name=container_tag::$tag"
     outputs:
-      dockertag: ${{steps.dockertag.outputs.dockertag}}
+      # DOCKERHUB_ORG: ${{secrets.DOCKERHUB_ORG}}  ## WARN secret dropped from output!, and secret cannot be used in job:container directly, and there is no github non-secret variables...
+      ## if dockertag is already pushed then use it. But let it empty when tag does not exist remotely.
+      dockertag:   ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
-      login_failed: ${{steps.login_failed.outputs.result}}
-      DOCKERHUB_ORG: ${{secrets.DOCKERHUB_ORG}}  ## WARN secret dropped from output!, and secret cannot be used in job:container, and there is no github non-secret variables...
-      status: job.status
+      # login_failed: ${{steps.login_failed.outputs.result}}
+      pushed: ${{ steps.docker_login.outcome == 'success' && steps.build_and_push.outcome == 'success' }}
+      dockertag_already_exists: ${{steps.dockertag_already.outputs.exists}}
+      container:                ${{steps.dockertag_already.outputs.container}}
+      container_tag:            ${{steps.dockertag_already.outputs.container_tag}}
 
   ## Build in a docker container
   build-iroha-ubuntu-debug: &job_ubuntu
     # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
     ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
-    if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
+    # if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=iroha1/iroha-builder:edge
-    container: &container
-      ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
-                            )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
-                            fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
-                            )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
+    container: &container needs.Docker-iroha-builder.outputs.container
+    # container: &container
+    #   ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
+    #                         )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
+    #                         fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
+    #                         )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy:
       fail-fast: false
       matrix:
@@ -242,8 +273,9 @@ jobs:
             ${{ toJson(needs) }}
           END
       -
-        if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
-                 needs.Docker-iroha-builder.outputs._dockertag == '' }}
+        # if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
+        #          needs.Docker-iroha-builder.outputs._dockertag == '' }}
+        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag }}
         name: Possible WARNING
         env:
           container: *container
@@ -544,13 +576,15 @@ jobs:
       - <<: *step_docker_tag
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
-      - *step_docker_creds
       - <<: *step_docker_meta
         with:
           <<: *step_docker_meta_with
           images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}  ## uses suffecs could be empty, -burrow, -ursa
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
-      - *step_docker_login
+      - <<: *step_docker_login
+        if: ${{ secrets.DOCKERHUB_TOKEN && secrets.DOCKERHUB_USERNAME }}
+        id: docker_login
+      - *step_warn_docker_no_push
       - *step_docker_buildx
       - <<: *step_docker_cache
         with:
@@ -561,9 +595,5 @@ jobs:
         with:
           <<: *step_docker_build_and_push_with
           context: docker/release/
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to:   type=local,dest=/tmp/.buildx-cache-new
-          push: true  #${{ github.event_name != 'pull_request' }}
-          tags:   ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: ${{ steps.docker_login.outcome == 'success' }}
       - *step_docker_move_cache
