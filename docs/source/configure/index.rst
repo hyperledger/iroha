@@ -18,7 +18,7 @@ at ``example/config.sample``
 We will start with looking at config file and then look at how Iroha can be configured with
 `environment parameters <#environment-variables>`_.
 
-.. remoteliteralinclude:: https://raw.githubusercontent.com/hyperledger/iroha/main/example/config.sample
+.. literalinclude:: ../../../example/config.sample
    :language: json
 
 As you can see, configuration file is a valid ``json`` structure.
