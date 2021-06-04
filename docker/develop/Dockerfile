@@ -46,6 +46,8 @@ RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 RUN go get github.com/golang/protobuf/protoc-gen-go
 
+RUN pip3 install --no-cache-dir cmake ninja
+
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -xe; \
