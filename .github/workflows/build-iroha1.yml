@@ -130,7 +130,7 @@ jobs:
         #     test -n "${{ secrets.DOCKERHUB_USERNAME }}"
         #     test -n "${{ secrets.DOCKERHUB_TOKEN }}"
         name: Login to DockerHub
-        if: ${{ secrets.DOCKERHUB_TOKEN && secrets.DOCKERHUB_USERNAME }}
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
         id: docker_login
         uses: docker/login-action@v1
         with:
@@ -973,12 +973,12 @@ jobs:
         #     test -n "${{ secrets.DOCKERHUB_USERNAME }}"
         #     test -n "${{ secrets.DOCKERHUB_TOKEN }}"
         name: Login to DockerHub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
+        id: docker_login
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-        if: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
-        id: docker_login
       - # - &step_docker_login_failure
         #   name: When Login to DockerHub imposible
         #   id: login_failed
