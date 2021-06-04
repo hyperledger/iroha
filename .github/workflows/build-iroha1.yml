@@ -219,7 +219,7 @@ jobs:
     # if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=iroha1/iroha-builder:edge
-    container: needs.Docker-iroha-builder.outputs.container
+    container: ${{needs.Docker-iroha-builder.outputs.container}}
     # container: &container
     #   ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
     #                         )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
@@ -252,7 +252,7 @@ jobs:
         if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag }}
         name: Possible WARNING
         env:
-          container: needs.Docker-iroha-builder.outputs.container
+          container: ${{needs.Docker-iroha-builder.outputs.container}}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
@@ -421,7 +421,7 @@ jobs:
     # if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [self-hosted, Linux] #ubuntu-latest
     ## Container tag is taken from previous job or [default]'edge'; default=iroha1/iroha-builder:edge
-    container: needs.Docker-iroha-builder.outputs.container
+    container: ${{needs.Docker-iroha-builder.outputs.container}}
     # env:
     #   VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
     steps:
@@ -440,7 +440,7 @@ jobs:
         if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag }}
         name: Possible WARNING
         env:
-          container: needs.Docker-iroha-builder.outputs.container
+          container: ${{needs.Docker-iroha-builder.outputs.container}}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
