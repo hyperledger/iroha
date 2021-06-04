@@ -582,7 +582,7 @@ jobs:
           images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}  ## uses suffecs could be empty, -burrow, -ursa
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - <<: *step_docker_login
-        if: ${{ secrets.DOCKERHUB_TOKEN && secrets.DOCKERHUB_USERNAME }}
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
         id: docker_login
       - *step_warn_docker_no_push
       - *step_docker_buildx
