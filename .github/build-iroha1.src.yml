@@ -135,6 +135,9 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
+          if test "x$DOCKERHUB_ORG" = "x" ;then
+            echo >>$GITHUB_ENV  DOCKERHUB_ORG=hyperledger
+          fi
       - &step_docker_login
         name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
@@ -152,7 +155,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with: &step_docker_meta_with
-          images: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder
+          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
             type=ref,event=branch
