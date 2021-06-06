@@ -33,56 +33,57 @@ Full description and list of commands detailed in `iroha_cli --help`.
 
 ```
 $: ./iroha_client_cli --help
-Iroha CLI Client 0.1.0
-Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
+iroha_client_cli 0.1.0
+Soramitsu Iroha2 team (https, //github.com/orgs/soramitsu/teams/iroha2)
+Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage
 
 USAGE:
-    iroha_client_cli [OPTIONS] [SUBCOMMAND]
+    iroha_client_cli [OPTIONS] <SUBCOMMAND>
 
 FLAGS:
     -h, --help       Prints help information
     -V, --version    Prints version information
 
 OPTIONS:
-    -c, --config <FILE>    Sets a config file path. [default: config.json]
+    -c, --config <config>    Sets a config file path [default: config.json]
 
 SUBCOMMANDS:
-    account    Use this command to work with Account Entities in Iroha Peer.
-    asset      Use this command to work with Asset and Asset Definition Entities in Iroha Peer.
-    domain     Use this command to work with Domain Entities in Iroha Peer.
+    account    Use this command to work with Account Entities in Iroha Peer
+    asset      Use this command to work with Assets in Iroha Peer
+    domain     Use this command to work with Domain Entities in Iroha Peer
+    events     Use this command to listen to Iroha events over the streaming API
     help       Prints this message or the help of the given subcommand(s)
 ```
 
 ### TL;DR
 
 ```bash
-./iroha_client_cli domain add --name="Soramitsu"
-./iroha_client_cli account register --domain="Soramitsu" --name="White Rabbit" --key=""
-./iroha_client_cli asset register --domain="Soramitsu" --name="XOR" 
-./iroha_client_cli asset mint --account_id="White Rabbit@Soramitsu" --id="XOR#Soramitsu" --quantity=1010 
-./iroha_client_cli asset get --account_id="White Rabbit@Soramitsu" --id="XOR#Soramitsu" 
+./iroha_client_cli domain register --id="Soramitsu"
+./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
+./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
+./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010 
+./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
 ```
 
 ### Create new Domain
 
-Let's start with domain creation. We need to provide `create` command first, 
-following by entity type (`domain` in our case) and list of required parameters.
-For domain entity we only need `name` parameter which is stringly typed.
+Let's start with domain creation. We need to provide `register` command first, 
+following by entity type (domain in our case) and list of required parameters.
+For domain entity we only need `id` parameter which is stringly typed.
 
 ```bash
-./iroha_client_cli domain add --name="Soramitsu"
+./iroha_client_cli domain register --id="Soramitsu"
 ```
 
 ### Create new Account
 
 Right now we have the only domain without any accounts, let's fix it.
-Like in the previous example, we need to define domain name, this time as 
-`domain` argument, because `name` argument should be filled with account's name.
+Like in the previous example, we need to define account name, it is done using `id` flag.
 We also give a `key` argument with account's public key as a double-quoted
 string value.
 
 ```bash
-./iroha_client_cli account register --domain="Soramitsu" --name="White Rabbit" --key=""
+./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
 ```
 
 ### Mint Asset to Account
@@ -90,10 +91,11 @@ string value.
 Okay, it's time to give something to our Account. We will add some Assets quantity to it.
 This time we need to register an Asset Definition first and then add some Assets to the account.
 As you can see, we use new command `asset` and it's subcommands `register` and `mint`. 
+Every asset has its own value type, here we define domain as quantity (integer/number).
 
 ```bash
-./iroha_client_cli asset register --domain="Soramitsu" --name="XOR" 
-./iroha_client_cli asset mint --account_id="White Rabbit@Soramitsu" --id="XOR#Soramitsu" --quantity=1010 
+./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
+./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010 
 ```
 
 ### Query Account Assets Quantity
@@ -107,7 +109,7 @@ Let's use Get Account Assets Query as an example. Command will look familar beca
 We need to know quantity so we skipp this argument and replace `update asset add` part with `get asset`.
 
 ```bash
-./iroha_client_cli asset get --account_id="White Rabbit@Soramitsu" --id="XOR#Soramitsu" 
+./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
 ```
 
 ### Want to help us develop Iroha?
