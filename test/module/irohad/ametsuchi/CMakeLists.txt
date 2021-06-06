@@ -95,6 +95,18 @@ target_link_libraries(postgres_executor_test
     common_test_constants
     )
 
+addtest(rocksdb_executor_test rocksdb_executor_test.cpp)
+target_link_libraries(rocksdb_executor_test
+    integration_framework_config_helper
+    shared_model_proto_backend
+    ametsuchi
+    ametsuchi_rocksdb
+    framework_sql_query
+    commands_mocks_factory
+    test_logger
+    common_test_constants
+    )
+
 addtest(postgres_query_executor_test postgres_query_executor_test.cpp)
 target_link_libraries(postgres_query_executor_test
     shared_model_plain_backend
