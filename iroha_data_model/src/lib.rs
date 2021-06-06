@@ -1050,7 +1050,7 @@ pub mod asset {
     };
 
     use iroha_derive::{FromVariant, Io};
-    use iroha_error::{error, Error, Result};
+    use iroha_error::{error, Error, Result, WrapErr};
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1161,6 +1161,14 @@ pub mod asset {
         BigQuantity,
         /// Asset's key-value structured data.
         Store,
+    }
+
+    impl FromStr for AssetValueType {
+        type Err = Error;
+        fn from_str(value_type: &str) -> Result<AssetValueType> {
+            serde_json::from_value(serde_json::json!(value_type))
+                .wrap_err("Failed to deserialize value type")
+        }
     }
 
     /// Asset's inner value.
@@ -1529,7 +1537,8 @@ pub mod domain {
     //! This module contains `Domain` structure and related implementations and trait implementations.
 
     use std::{
-        cmp::Ordering, collections::BTreeMap, iter, iter::FromIterator, ops::RangeInclusive,
+        cmp::Ordering, collections::BTreeMap, convert::Infallible, iter, iter::FromIterator,
+        ops::RangeInclusive, str::FromStr,
     };
 
     use dashmap::DashMap;
@@ -1593,6 +1602,13 @@ pub mod domain {
         pub accounts: AccountsMap,
         /// Assets of the domain.
         pub asset_definitions: AssetDefinitionsMap,
+    }
+
+    impl FromStr for Domain {
+        type Err = Infallible;
+        fn from_str(name: &str) -> Result<Self, Self::Err> {
+            Ok(Self::new(name))
+        }
     }
 
     impl PartialOrd for Domain {

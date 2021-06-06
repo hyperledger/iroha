@@ -15,7 +15,7 @@ use std::{
     str::FromStr,
 };
 
-use iroha_error::{error, Error, Result};
+use iroha_error::{error, Error, Result, WrapErr};
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
@@ -259,6 +259,14 @@ pub struct PublicKey {
     pub digest_function: String,
     /// payload of key
     pub payload: Vec<u8>,
+}
+
+impl FromStr for PublicKey {
+    type Err = Error;
+    fn from_str(key: &str) -> Result<Self> {
+        serde_json::from_value(serde_json::json!(key))
+            .wrap_err("Failed to deserialize supplied public key argument.")
+    }
 }
 
 impl Default for PublicKey {

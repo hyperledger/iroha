@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 ursa = "=0.3.5"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
 parity-scale-codec = { version = "2", features = ["derive"] }
 hex = "0.4.0"
 iroha_error = { path = "../iroha_error" }

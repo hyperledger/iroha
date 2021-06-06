@@ -41,7 +41,7 @@ TL;DR - after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/
 run this command:
 
 ```bash
-./iroha_client_cli account register --domain="my_domain" --name="my_account" --key="{account_public_key}"
+./iroha_client_cli account register --id="my_account@my_domain" --key="{account_public_key}"
 ```
 
 ### 4. Construct Iroha Special Instruction

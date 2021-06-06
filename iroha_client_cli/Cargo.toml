@@ -21,7 +21,7 @@ iroha_client = { version = "=0.1.0", path = "../iroha_client" }
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_error = { version = "=0.1.0", path = "../iroha_error" }
 iroha_dsl = { path = "../iroha_dsl" }
-clap = "2.33.0"
+structopt = "0.3"
 futures = "0.3.4"
 dialoguer = "0.8"
 serde_json = "1.0"
