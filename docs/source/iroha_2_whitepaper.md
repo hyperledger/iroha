@@ -213,7 +213,7 @@ for a commit message because the next round cannot continue nor can a new leader
 until after the current round is committed or leader election takes place)
 
 - every time there is a problem, such as a block not being committed in time, both the leader and the proxy tail are changed;
-this is becaues we want to just move on and not worry about assigning blame, which would come with considerable overhead
+this is because we want to just move on and not worry about assigning blame, which would come with considerable overhead
 
 - 2*f*+1 signatures are needed to commit, *f*+1 are needed to change the leader and proxy tail
 
