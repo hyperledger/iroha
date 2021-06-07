@@ -44,7 +44,7 @@ Build and copy Iroha binary into the directory.
 
 ```bash
 cargo build
-cp ./target/debug/iroha iroha_deploy
+cp ./target/debug/iroha_cli iroha_deploy
 ```
 
 #### Copy configs
@@ -68,7 +68,7 @@ Start Iroha peer. It can be done either with `--genesis` param to specify `genes
 
 ```bash
 cd iroha_deploy
-./iroha --genesis="genesis.json"
+./iroha_cli --genesis="genesis.json"
 ```
 
 ### Docker Compose Deployment

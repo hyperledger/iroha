@@ -53,7 +53,7 @@ RUN set -ex; \
 COPY iroha/config.json .
 COPY iroha/trusted_peers.json .
 COPY iroha/genesis.json .
-ARG BIN=iroha
+ARG BIN=iroha_cli
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
 ENV IROHA_TARGET_BIN=$BIN
