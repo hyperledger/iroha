@@ -189,7 +189,7 @@ mod events {
 }
 
 mod domain {
-    use iroha_client::config::Configuration;
+    use iroha_client::{client, config::Configuration};
 
     use super::*;
 
@@ -198,11 +198,13 @@ mod domain {
     pub enum Args {
         /// Register domain
         Register(Register),
+        /// List domains
+        List(List),
     }
 
     impl RunArgs for Args {
         fn run(self, cfg: &Configuration) -> Result<()> {
-            match_run_all!((self, cfg), { Args::Register })
+            match_run_all!((self, cfg), { Args::Register, Args::List })
         }
     }
 
@@ -227,10 +229,33 @@ mod domain {
             submit(create_domain, cfg, metadata).wrap_err("Failed to create domain")
         }
     }
+
+    /// List domains with this command
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub enum List {
+        /// All domains
+        All,
+    }
+
+    impl RunArgs for List {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let mut client = Client::new(cfg);
+
+            let vec = match self {
+                Self::All => client
+                    .request(client::domain::all())
+                    .wrap_err("Failed to get all accounts"),
+            }?;
+            println!("{:#?}", vec);
+            Ok(())
+        }
+    }
 }
 
 mod account {
     use std::{fmt::Debug, fs::File};
+
+    use iroha_client::client;
 
     use super::*;
 
@@ -242,11 +267,13 @@ mod account {
         Register(Register),
         /// Set something in account
         Set(Set),
+        /// List accounts
+        List(List),
     }
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            match_run_all!((self, cfg), { Args::Register, Args::Set })
+            match_run_all!((self, cfg), { Args::Register, Args::Set, Args::List })
         }
     }
 
@@ -324,10 +351,31 @@ mod account {
                 .wrap_err("Failed to set signature condition")
         }
     }
+
+    /// List accounts with this command
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub enum List {
+        /// All accounts
+        All,
+    }
+
+    impl RunArgs for List {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let mut client = Client::new(cfg);
+
+            let vec = match self {
+                Self::All => client
+                    .request(client::account::all())
+                    .wrap_err("Failed to get all accounts"),
+            }?;
+            println!("{:#?}", vec);
+            Ok(())
+        }
+    }
 }
 
 mod asset {
-    use iroha_client::client::{asset, Client};
+    use iroha_client::client::{self, asset, Client};
 
     use super::*;
 
@@ -342,13 +390,15 @@ mod asset {
         Transfer(Transfer),
         /// Get info of asset
         Get(Get),
+        /// List assets
+        List(List),
     }
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             match_run_all!(
                 (self, cfg),
-                { Args::Register, Args::Mint, Args::Transfer, Args::Get }
+                { Args::Register, Args::Mint, Args::Transfer, Args::Get, Args::List }
             )
         }
     }
@@ -475,6 +525,27 @@ mod asset {
                 .request(asset::by_account_id_and_definition_id(account, asset))
                 .wrap_err("Failed to get asset.")?;
             println!("Get Asset result: {:?}", value);
+            Ok(())
+        }
+    }
+
+    /// List assets with this command
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub enum List {
+        /// All assets
+        All,
+    }
+
+    impl RunArgs for List {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let mut client = Client::new(cfg);
+
+            let vec = match self {
+                Self::All => client
+                    .request(client::asset::all())
+                    .wrap_err("Failed to get all accounts"),
+            }?;
+            println!("{:#?}", vec);
             Ok(())
         }
     }
