@@ -137,7 +137,7 @@ maintainers team, community or simply assign this issue to yourself.
 ### Rust Style Guide
 
 - Use `cargo fmt --all`
-- Do not place code inside `mod.rs` files
+- Prefer using `mod.rs` inside the module directory to the `.rs` file named the same as the module in the top level directory.
 - Use domain-first modules structure. For example `domain::isi::*`. Such a way 
 complex uses will be easier to incude in dependent modules.
 - Do not use whitespaces or empty lines inside function bodies.

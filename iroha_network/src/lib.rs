@@ -22,10 +22,6 @@ use tokio::{
     sync::RwLock,
 };
 
-mod consts {
-    //! Module with constants
-}
-
 /// State type alias
 pub type State<T> = Arc<RwLock<T>>;
 
