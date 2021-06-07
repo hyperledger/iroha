@@ -1,0 +1,36 @@
+[package]
+name = "iroha_cli"
+version = "0.1.0"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2018"
+description = "Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri). Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger"]
+categories = ["cryptography::cryptocurrencies"]
+
+[features]
+bridge = ["iroha/bridge"]
+dex = ["iroha/dex"]
+roles = ["iroha/roles"]
+network-mock = ["iroha/network-mock"]
+telemetry = ["iroha/telemetry"]
+dev-telemetry = ["iroha/dev-telemetry"]
+default = ["bridge"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+iroha = { path = "../iroha" }
+iroha_permissions_validators = { path = "../iroha_permissions_validators" }
+iroha_error = { version = "=0.1.0", path = "../iroha_error" }
+iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
+
+clap = "2.33.0"
+tracing = "0.1"
+tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"]}

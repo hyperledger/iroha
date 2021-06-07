@@ -15,4 +15,4 @@ services:
     ports:
       - "1337:1337"
       - "8080:8080"
-    command: ./iroha --genesis genesis.json
+    command: ./iroha_cli --genesis genesis.json

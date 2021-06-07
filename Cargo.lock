@@ -1515,6 +1515,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "iroha",
+ "iroha_error",
+ "iroha_logger",
+ "iroha_permissions_validators",
+ "tokio 1.6.1",
+ "tracing",
+]
+
+[[package]]
 name = "iroha_client"
 version = "0.1.0"
 dependencies = [

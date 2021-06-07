@@ -1,8 +1,9 @@
 //! Iroha peer command line
 
 use clap::{App, Arg};
-use iroha::{config::Configuration, smartcontracts::permissions::AllowAll, Iroha};
+use iroha::{config::Configuration, Iroha};
 use iroha_error::Reporter;
+use iroha_permissions_validators::public_blockchain::default_permissions;
 
 const CONFIGURATION_PATH: &str = "config.json";
 const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
@@ -36,6 +37,8 @@ async fn main() -> Result<(), Reporter> {
         configuration.add_genesis_block_path(genesis_path);
     }
 
-    Iroha::new(&configuration, AllowAll.into())?.start().await?;
+    Iroha::new(&configuration, default_permissions())?
+        .start()
+        .await?;
     Ok(())
 }
