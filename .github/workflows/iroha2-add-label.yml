@@ -1,14 +1,13 @@
-name: Add Iroha2 label 
-  
+name: Add Iroha2 label
+
 on:
   pull_request_target:
-    branches: [ iroha2-dev, iroha2 ]
+    branches: [iroha2-dev, iroha2]
 
 jobs:
   add_label:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
       - uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.github_token }}

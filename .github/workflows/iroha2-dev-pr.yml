@@ -239,3 +239,61 @@ jobs:
         run: |
           rm -f ~/.gradle/caches/modules-2/modules-2.lock
           rm -f ~/.gradle/caches/modules-2/gc.properties
+
+  coverage:
+    runs-on: [self-hosted, Linux]
+    container: rust:1.52-buster
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2021-02-20
+          override: true
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
+      - name: Cargo clean
+        uses: actions-rs/cargo@v1
+        with:
+          command: clean
+      - name: Run tests
+        run: cargo test --workspace -- --test-threads=1
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests"
+          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+      - name: Generate coverage report
+        id: coverage
+        uses: actions-rs/grcov@v0.1
+      - name: Upload coverage to codecov.io
+        uses: codecov/codecov-action@v1
+        with:
+          file: ${{ steps.coverage.outputs.report }}
+
+  bench:
+    runs-on: [self-hosted, Linux]
+    container: rust:1.52-buster
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
+      - name: Run benchmarks
+        run: cargo bench --workspace --verbose
