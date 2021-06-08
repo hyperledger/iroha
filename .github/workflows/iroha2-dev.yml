@@ -12,72 +12,8 @@ env:
     iroha/target
     iroha_client/target
 jobs:
-  coverage:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: ubuntu:20.04
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly-2021-02-20
-          override: true
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev \
-            libssl-dev
-      - name: Cargo clean
-        uses: actions-rs/cargo@v1
-        with:
-          command: clean
-      - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
-        env:
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests"
-          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
-      - name: Generate coverage report
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-      - name: Archive code coverage results
-        uses: actions/upload-artifact@v1
-        with:
-          name: code-coverage-report
-          path: ${{ steps.coverage.outputs.report }}
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
-        with:
-          file: ${{ steps.coverage.outputs.report }}
-
-  bench:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev \
-            libssl-dev
-      - name: Run benchmarks
-        run: cargo bench --workspace --verbose
-
-  publish-artifacts:
-    needs: [coverage, bench]
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+  archive-artifacts:
+    runs-on: [self-hosted, Linux]
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
@@ -100,7 +36,7 @@ jobs:
         uses: actions/upload-artifact@v1
         with:
           name: cargo-build-release
-          path: target/release/iroha
+          path: target/release/iroha_cli
       - name: Archive Client CLI build
         uses: actions/upload-artifact@v1
         with:
@@ -113,15 +49,16 @@ jobs:
           path: target/release/iroha_crypto_cli
 
   deploy:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: [self-hosted, Linux]
+    container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
       - name: Build and push Iroha Docker image
         uses: docker/build-push-action@v1.1.0
         with:
-          username: humb1t
-          password: ${{ secrets.DOCKERHUB }}
-          repository: hyperledger/iroha
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_ORG }}
           tags: iroha2-dev
           build-args: |
             TARGET_DIR=release
@@ -129,10 +66,10 @@ jobs:
       - name: Build and push Iroha CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
-          username: humb1t
-          password: ${{ secrets.DOCKERHUB }}
-          repository: hyperledger/iroha
-          tags: iroha2-cli-dev
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_ORG }}
+          tags: iroha2-client-cli-dev
           build-args: |
             BIN=iroha_client_cli
             TARGET_DIR=release
@@ -140,9 +77,9 @@ jobs:
       - name: Build and push Iroha Crypto CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
-          username: humb1t
-          password: ${{ secrets.DOCKERHUB }}
-          repository: hyperledger/iroha
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_ORG }}
           tags: iroha2-crypto-cli-dev
           build-args: |
             BIN=iroha_crypto_cli
