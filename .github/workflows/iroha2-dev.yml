@@ -53,10 +53,16 @@ jobs:
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
+      - name: Check Dockerhub credentials
+        run: |
+          set -x
+          test -n "${{ secrets.DOCKERHUB_ORG }}"
+          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
       - name: Build and push Iroha Docker image
         uses: docker/build-push-action@v1.1.0
         with:
-          username: ${{ secrets.DOCKERHUB_USER }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}
           tags: iroha2-dev
@@ -66,7 +72,7 @@ jobs:
       - name: Build and push Iroha CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
-          username: ${{ secrets.DOCKERHUB_USER }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}
           tags: iroha2-client-cli-dev
