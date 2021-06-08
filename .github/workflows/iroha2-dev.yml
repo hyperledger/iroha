@@ -59,22 +59,22 @@ jobs:
           test -n "${{ secrets.DOCKERHUB_ORG }}"
           test -n "${{ secrets.DOCKERHUB_USERNAME }}"
           test -n "${{ secrets.DOCKERHUB_TOKEN }}"
-      - name: Build and push Iroha Docker image
-        uses: docker/build-push-action@v1.1.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}
-          tags: iroha2-dev
-          build-args: |
-            TARGET_DIR=release
-            PROFILE=--release
       - name: Build and push Iroha CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}
+          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
+          tags: iroha2-dev
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+      - name: Build and push Iroha Client SCLI Docker image
+        uses: docker/build-push-action@v1.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-client-cli-dev
           build-args: |
             BIN=iroha_client_cli
@@ -83,11 +83,51 @@ jobs:
       - name: Build and push Iroha Crypto CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
-          username: ${{ secrets.DOCKERHUB_USER }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}
+          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-crypto-cli-dev
           build-args: |
             BIN=iroha_crypto_cli
             TARGET_DIR=release
             PROFILE=--release
+
+  # Coverage is both in PR and in push pipelines so that:
+  # 1. PR can get coverage report from bot.
+  # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
+  coverage:
+    runs-on: [self-hosted, Linux]
+    container: rust:1.52-buster
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2021-02-20
+          override: true
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            libssl-dev
+      - name: Cargo clean
+        uses: actions-rs/cargo@v1
+        with:
+          command: clean
+      - name: Run tests
+        run: cargo test --workspace -- --test-threads=1
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests"
+          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+      - name: Generate coverage report
+        id: coverage
+        uses: actions-rs/grcov@v0.1
+      - name: Upload coverage to codecov.io
+        uses: codecov/codecov-action@v1
+        with:
+          file: ${{ steps.coverage.outputs.report }}

@@ -240,6 +240,9 @@ jobs:
           rm -f ~/.gradle/caches/modules-2/modules-2.lock
           rm -f ~/.gradle/caches/modules-2/gc.properties
 
+  # Coverage is both in PR and in push pipelines so that:
+  # 1. PR can get coverage report from bot.
+  # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
     container: rust:1.52-buster
