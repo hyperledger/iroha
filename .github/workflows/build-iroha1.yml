@@ -121,10 +121,13 @@ jobs:
       - name: Determine dockertag
         id: dockertag
         env:
-          dockertag: ${{ hashFiles('docker/develop/Dockerfile.builder') }}
+          dockertag: ${{ hashFiles('docker/iroha-builder/**') }}
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
+          if test "x$DOCKERHUB_ORG" = "x" ;then
+            echo >>$GITHUB_ENV  DOCKERHUB_ORG=hyperledger
+          fi
       - name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
         id: docker_login
@@ -139,7 +142,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: ${{ secrets.DOCKERHUB_ORG }}/iroha-builder
+          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
             type=ref,event=branch
@@ -170,8 +173,7 @@ jobs:
         name: Build and push
         uses: docker/build-push-action@v2
         with:
-          file: docker/develop/Dockerfile.builder
-          # context: .
+          context: docker/iroha-builder/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           push: ${{ steps.docker_login.outcome == 'success' }}
@@ -936,6 +938,9 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
+          if test "x$DOCKERHUB_ORG" = "x" ;then
+            echo >>$GITHUB_ENV  DOCKERHUB_ORG=hyperledger
+          fi
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
       - name: Docker meta
@@ -977,8 +982,6 @@ jobs:
         name: Build and push
         uses: docker/build-push-action@v2
         with:
-          file: docker/develop/Dockerfile.builder
-          # context: .
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           tags: ${{ steps.meta.outputs.tags }}
