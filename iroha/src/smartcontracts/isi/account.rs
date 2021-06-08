@@ -1,13 +1,15 @@
-//! This module contains `Account` structure, it's implementation and related traits and
-//! instructions implementations.
+//! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
+//! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
 use iroha_data_model::prelude::*;
 
 use crate::prelude::*;
 
-/// Iroha Special Instructions module provides `AccountInstruction` enum with all possible types of
-/// Account related instructions as variants, implementations of generic Iroha Special Instructions
-/// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
+/// ISI module contains all instructions related to accounts:
+/// - minting/burning public key into account signatories
+/// - minting/burning signature condition check
+/// - update metadata
+/// - grant permissions and roles
 pub mod isi {
     use super::super::prelude::*;
     use super::*;
@@ -155,7 +157,7 @@ pub mod isi {
     }
 }
 
-/// Query module provides `IrohaQuery` Account related implementations.
+/// Query module provides [`Query`] Account related implementations.
 pub mod query {
 
     use iroha_error::{error, Result, WrapErr};

@@ -11,7 +11,7 @@ pub use isi::*;
 
 use super::wsv::WorldStateView;
 
-/// Trait implementations should provide actions to apply changes on `WorldStateView`.
+/// Trait implementations should provide actions to apply changes on [`WorldStateView`].
 #[allow(clippy::missing_errors_doc)]
 pub trait Execute {
     /// Error type returned by execute function
@@ -39,8 +39,8 @@ pub trait Evaluate {
 /// This trait should be implemented for all Iroha Queries.
 #[allow(clippy::missing_errors_doc)]
 pub trait Query: QueryOutput {
-    /// Execute query on the `WorldStateView`.
-    /// Should not mutate `WorldStateView`!
+    /// Execute query on the [`WorldStateView`].
+    /// Should not mutate [`WorldStateView`]!
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
     fn execute(&self, wsv: &WorldStateView) -> iroha_error::Result<Self::Output>;

@@ -1,4 +1,4 @@
-//! This module contains `Domain` structure and related implementations and trait implementations.
+//! This module contains [`Domain`] structure and related implementations and trait implementations.
 use std::collections::btree_map::Entry;
 
 use iroha_data_model::prelude::*;
@@ -7,9 +7,10 @@ use iroha_error::{error, Result};
 use super::super::isi::prelude::*;
 use crate::prelude::*;
 
-/// Iroha Special Instructions module provides `DomainInstruction` enum with all possible types of
-/// Domain related instructions as variants, implementations of generic Iroha Special Instructions
-/// and the `From/Into` implementations to convert `DomainInstruction` variants into generic ISI.
+/// ISI module contains all instructions related to domains:
+/// - creating/changing assets
+/// - registering/unregistering accounts
+/// - transfer, etc.
 pub mod isi {
     use super::*;
 
@@ -121,7 +122,7 @@ pub mod isi {
     }
 }
 
-/// Query module provides `IrohaQuery` Domain related implementations.
+/// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use iroha_error::{Result, WrapErr};
     use iroha_logger::log;

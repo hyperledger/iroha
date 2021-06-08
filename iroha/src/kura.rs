@@ -1,5 +1,5 @@
 //! This module contains persistence related Iroha logic.
-//! `Kura` is the main entity which should be used to store new `Block`s on the blockchain.
+//! [`Kura`] is the main entity which should be used to store new [`Block`](`crate::block::VersionedCommittedBlock`)s on the blockchain.
 
 use std::{
     fs,
@@ -28,8 +28,8 @@ pub struct Kura {
 
 #[allow(dead_code)]
 impl Kura {
-    /// Default `Kura` constructor.
-    /// Kura will not be ready to work with before `init` method invocation.
+    /// Default [`Kura`] constructor.
+    /// Kura will not be ready to work with before [`init`] method invocation.
     pub fn new(
         mode: Mode,
         block_store_path: &Path,
@@ -54,7 +54,7 @@ impl Kura {
         )
     }
 
-    /// After constructing `Kura` it should be initialized to be ready to work with it.
+    /// After constructing [`Kura`] it should be initialized to be ready to work with it.
     #[iroha_futures::telemetry_future]
     pub async fn init(&mut self) -> Result<Vec<VersionedCommittedBlock>> {
         let blocks = self.block_store.read_all().await;

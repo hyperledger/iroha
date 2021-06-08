@@ -1,4 +1,4 @@
-//! This module contains `Configuration` structure and related implementation.
+//! This module contains [`Configuration`] structure and related implementation.
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use iroha_config::derive::Configurable;

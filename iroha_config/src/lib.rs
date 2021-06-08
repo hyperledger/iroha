@@ -9,7 +9,7 @@ pub mod derive {
     use std::error::Error as StdError;
     use std::fmt;
 
-    /// Derive macro for implementing [`iroha_config::Configurable`] for config structures.
+    /// Derive macro for implementing [`iroha_config::Configurable`](`crate::Configurable`) for config structures.
     ///
     /// Has several attributes:
     ///

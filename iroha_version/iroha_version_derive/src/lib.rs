@@ -29,14 +29,14 @@ const DERIVE_FIELD_NAME: &str = "derive";
 
 /// Used to declare that this struct represents a particular version as a part of the versioned container.
 ///
-/// Adds support for both scale codec and json serialization. To declare only with json support use [`version_with_json`], for scale - [`version_with_scale`].
+/// Adds support for both scale codec and json serialization. To declare only with json support use [`version_with_json()`], for scale - [`version_with_scale()`].
 ///
 /// ### Arguments:
 /// - named `n: u8` - what version this particular struct represents.
-/// - named `versioned: String` - to which versioned container to link this struct. Versioned containers are created with [`declare_versioned`].
+/// - named `versioned: String` - to which versioned container to link this struct. Versioned containers are created with [`declare_versioned`](`declare_versioned()`).
 ///
 /// ### Examples
-/// See [`declare_versioned`].
+/// See [`declare_versioned`](`declare_versioned()`).
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn version(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -44,7 +44,7 @@ pub fn version(attr: TokenStream, item: TokenStream) -> TokenStream {
     impl_version(args, item, true, true).into()
 }
 
-/// See [`version`] for more information.
+/// See [`version()`] for more information.
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn version_with_scale(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -52,7 +52,7 @@ pub fn version_with_scale(attr: TokenStream, item: TokenStream) -> TokenStream {
     impl_version(args, item, false, true).into()
 }
 
-/// See [`version`] for more information.
+/// See [`version()`] for more information.
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -62,7 +62,7 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Used to generate a versioned container with the given name and given range of supported versions.
 ///
-/// Adds support for both scale codec and json serialization. To declare only with json support use [`declare_versioned_with_json`], for scale - [`declare_versioned_with_scale`].
+/// Adds support for both scale codec and json serialization. To declare only with json support use [`declare_versioned_with_json`](`declare_versioned_with_json()`), for scale - [`declare_versioned_with_scale`](`declare_versioned_with_json()`).
 ///
 /// ### Arguments
 /// 1. positional `versioned_enum_name`
@@ -98,14 +98,14 @@ pub fn declare_versioned(input: TokenStream) -> TokenStream {
     impl_declare_versioned(&args, true, true).into()
 }
 
-/// See [`declare_versioned`] for more information.
+/// See [`declare_versioned`](`declare_versioned()`) for more information.
 #[proc_macro]
 pub fn declare_versioned_with_scale(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);
     impl_declare_versioned(&args, true, false).into()
 }
 
-/// See [`declare_versioned`] for more information.
+/// See [`declare_versioned`](`declare_versioned()`) for more information.
 #[proc_macro]
 pub fn declare_versioned_with_json(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as DeclareVersionedArgs);

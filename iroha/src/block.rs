@@ -251,21 +251,21 @@ declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_deri
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedValidBlock {
-    /// Same as [`as_v1`] but also does conversion
+    /// Same as [`as_v1`](`VersionedValidBlock::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &ValidBlock {
         match self {
             Self::V1(v1) => &v1.0,
         }
     }
 
-    /// Same as [`as_inner_v1`] but returns mutable reference
+    /// Same as [`as_inner_v1`](`VersionedValidBlock::as_inner_v1()`) but returns mutable reference
     pub fn as_mut_inner_v1(&mut self) -> &mut ValidBlock {
         match self {
             Self::V1(v1) => &mut v1.0,
         }
     }
 
-    /// Same as [`into_v1`] but also does conversion
+    /// Same as [`into_v1`](`VersionedValidBlock::into_v1()`) but also does conversion
     #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> ValidBlock {
         match self {
@@ -299,7 +299,7 @@ impl VersionedValidBlock {
         self.as_inner_v1().header.hash()
     }
 
-    /// Sign this block and get `VersionedValidBlock`.
+    /// Sign this block and get [`VersionedValidBlock`](`Self`).
     pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedValidBlock> {
         self.into_inner_v1().sign(key_pair).map(Into::into)
     }
@@ -495,21 +495,21 @@ impl From<&ValidBlock> for Vec<Event> {
 declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
 
 impl VersionedCommittedBlock {
-    /// Same as [`as_v1`] but also does conversion
+    /// Same as [`as_v1`](`VersionedCommittedBlock::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &CommittedBlock {
         match self {
             Self::V1(v1) => &v1.0,
         }
     }
 
-    /// Same as [`as_inner_v1`] but returns mutable reference
+    /// Same as [`as_inner_v1`](`VersionedCommittedBlock::as_inner_v1()`) but returns mutable reference
     pub fn as_mut_inner_v1(&mut self) -> &mut CommittedBlock {
         match self {
             Self::V1(v1) => &mut v1.0,
         }
     }
 
-    /// Same as [`into_v1`] but also does conversion
+    /// Same as [`into_v1`](`VersionedCommittedBlock::into_v1()`) but also does conversion
     pub fn into_inner_v1(self) -> CommittedBlock {
         match self {
             Self::V1(v1) => v1.into(),
