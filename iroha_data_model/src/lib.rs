@@ -24,7 +24,7 @@ pub mod expression;
 pub mod isi;
 pub mod query;
 
-/// `Name` struct represents type for Iroha Entities names, like `Domain`'s name or `Account`'s
+/// `Name` struct represents type for Iroha Entities names, like [`Domain`](`domain::Domain`)'s name or [`Account`](`account::Account`)'s
 /// name.
 pub type Name = String;
 
@@ -94,17 +94,17 @@ pub enum Parameter {
     IntoSchema,
 )]
 pub enum IdBox {
-    /// `AccountId` variant.
+    /// [`AccountId`](`account::Id`) variant.
     AccountId(account::Id),
-    /// `AssetId` variant.
+    /// [`AssetId`](`asset::Id`) variant.
     AssetId(asset::Id),
-    /// `AssetDefinitionId` variant.
+    /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
     AssetDefinitionId(asset::DefinitionId),
-    /// `DomainName` variant.
+    /// [`DomainName`](`Name`) variant.
     DomainName(Name),
-    /// `PeerId` variant.
+    /// [`PeerId`](`peer::Id`) variant.
     PeerId(peer::Id),
-    /// `RoleId` variant.
+    /// [`RoleId`](`role::Id`) variant.
     #[cfg(feature = "roles")]
     RoleId(role::Id),
     /// `World`.
@@ -127,26 +127,26 @@ pub enum IdBox {
     IntoSchema,
 )]
 pub enum IdentifiableBox {
-    /// `Account` variant.
+    /// [`Account`](`account::Account`) variant.
     Account(Box<account::Account>),
-    /// `NewAccount` variant.
+    /// [`NewAccount`](`account::NewAccount`) variant.
     NewAccount(Box<account::NewAccount>),
-    /// `Asset` variant.
+    /// [`Asset`](`asset::Asset`) variant.
     Asset(Box<asset::Asset>),
-    /// `AssetDefinition` variant.
+    /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
     AssetDefinition(Box<asset::AssetDefinition>),
-    /// `Domain` variant.
+    /// [`Domain`](`domain::Domain`) variant.
     Domain(Box<domain::Domain>),
-    /// `Peer` variant.
+    /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
-    /// `Role` variant.
+    /// [`Role`](`role::Role`) variant.
     #[cfg(feature = "roles")]
     Role(Box<role::Role>),
-    /// `World`.
+    /// [`World`](`world::World`).
     World,
 }
 
-/// Boxed `Value`.
+/// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
@@ -355,7 +355,7 @@ pub trait Identifiable: Debug + Clone {
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
 }
 
-/// Limits of length of the identifiers (e.g. in [`Domain`], [`NewAccount`], [`AssetDefinition`]) in bytes
+/// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::NewAccount`], [`asset::AssetDefinition`]) in bytes
 #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
 pub struct LengthLimits {
     /// Minimal length in bytes (inclusive).
@@ -836,11 +836,11 @@ pub mod account {
         Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
     pub struct Account {
-        /// An Identification of the `Account`.
+        /// An Identification of the [`Account`].
         pub id: Id,
-        /// Asset's in this `Account`.
+        /// Asset's in this [`Account`].
         pub assets: AssetsMap,
-        /// `Account`'s signatories.
+        /// [`Account`]'s signatories.
         pub signatories: Signatories,
         /// Permissions tokens of this account
         pub permission_tokens: Permissions,
@@ -891,14 +891,14 @@ pub mod account {
         IntoSchema,
     )]
     pub struct Id {
-        /// `Account`'s name.
+        /// [`Account`]'s name.
         pub name: Name,
-        /// `Account`'s `Domain`'s name.
+        /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s name.
         pub domain_name: Name,
     }
 
     impl Account {
-        /// Default `Account` constructor.
+        /// Default [`Account`] constructor.
         pub fn new(id: Id) -> Self {
             Account {
                 id,
@@ -1037,7 +1037,7 @@ pub mod account {
 }
 
 pub mod asset {
-    //! This module contains `Asset` structure, it's implementation and related traits and
+    //! This module contains [`Asset`] structure, it's implementation and related traits and
     //! instructions implementations.
 
     use std::ops::RangeInclusive;
@@ -1061,14 +1061,14 @@ pub mod asset {
         Identifiable, Name, TryAsMut, TryAsRef, Value,
     };
 
-    /// `AssetsMap` provides an API to work with collection of key (`Id`) - value
-    /// (`Asset`) pairs.
+    /// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
+    /// ([`Asset`]) pairs.
     pub type AssetsMap = BTreeMap<Id, Asset>;
-    /// `AssetDefinitionsMap` provides an API to work with collection of key (`DefinitionId`) - value
+    /// [`AssetDefinitionsMap`] provides an API to work with collection of key ([`DefinitionId`]) - value
     /// (`AssetDefinition`) pairs.
     pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinitionEntry>;
 
-    /// An entry in `AssetDefinitionsMap`.
+    /// An entry in [`AssetDefinitionsMap`].
     #[derive(
         Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
@@ -1120,14 +1120,14 @@ pub mod asset {
         IntoSchema,
     )]
     pub struct AssetDefinition {
-        /// Type of `AssetValue`
+        /// Type of [`AssetValue`]
         pub value_type: AssetValueType,
-        /// An Identification of the `AssetDefinition`.
+        /// An Identification of the [`AssetDefinition`].
         pub id: DefinitionId,
     }
 
     /// Asset represents some sort of commodity or value.
-    /// All possible variants of `Asset` entity's components.
+    /// All possible variants of [`Asset`] entity's components.
     #[derive(
         Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
@@ -1296,7 +1296,7 @@ pub mod asset {
         pub domain_name: Name,
     }
 
-    /// Identification of an Asset's components include Entity Id (`Asset::Id`) and `Account::Id`.
+    /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
     #[derive(
         Clone,
         Debug,
@@ -1320,7 +1320,7 @@ pub mod asset {
     }
 
     impl AssetDefinition {
-        /// Default `AssetDefinition` constructor.
+        /// Default [`AssetDefinition`] constructor.
         pub const fn new(id: DefinitionId, value_type: AssetValueType) -> Self {
             AssetDefinition { value_type, id }
         }
@@ -1430,7 +1430,7 @@ pub mod asset {
     }
 
     impl DefinitionId {
-        /// `Id` constructor used to easily create an `Id` from three string slices - one for the
+        /// [`Id`] constructor used to easily create an [`Id`] from three string slices - one for the
         /// asset definition's name, another one for the domain's name.
         pub fn new(name: &str, domain_name: &str) -> Self {
             DefinitionId {
@@ -1441,7 +1441,7 @@ pub mod asset {
     }
 
     impl Id {
-        /// `Id` constructor used to easily create an `Id` from an names of asset definition and
+        /// [`Id`] constructor used to easily create an [`Id`] from an names of asset definition and
         /// account.
         pub fn from_names(
             asset_definition_name: &str,
@@ -1458,8 +1458,8 @@ pub mod asset {
             }
         }
 
-        /// `Id` constructor used to easily create an `Id` from an `AssetDefinitionId` and
-        /// an `AccountId`.
+        /// [`Id`] constructor used to easily create an [`Id`] from an [`DefinitionId`](`crate::asset::DefinitionId`) and
+        /// an [`AccountId`].
         pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
             Id {
                 definition_id,
@@ -1534,7 +1534,7 @@ pub mod asset {
 }
 
 pub mod domain {
-    //! This module contains `Domain` structure and related implementations and trait implementations.
+    //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
     use std::{
         cmp::Ordering, collections::BTreeMap, convert::Infallible, iter, iter::FromIterator,
@@ -1591,7 +1591,7 @@ pub mod domain {
         }
     }
 
-    /// Named group of `Account` and `Asset` entities.
+    /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
     #[derive(
         Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
@@ -1671,7 +1671,7 @@ pub mod domain {
 }
 
 pub mod peer {
-    //! This module contains `Peer` structure and related implementations and traits implementations.
+    //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
     #![allow(clippy::missing_inline_in_public_items)]
 
@@ -1743,7 +1743,7 @@ pub mod peer {
     }
 
     impl Id {
-        /// Default `PeerId` constructor.
+        /// Default peer `Id` constructor.
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
             Id {
                 address: address.to_owned(),
@@ -1768,7 +1768,7 @@ pub mod peer {
 }
 
 pub mod transaction {
-    //! This module contains `Transaction` structures and related implementations
+    //! This module contains [`Transaction`] structures and related implementations
     //! and traits implementations.
     // TODO remove `allow` when the task https://jira.hyperledger.org/browse/IR-1048 will be closed
     #![allow(unused_results, clippy::missing_inline_in_public_items)]
@@ -1808,7 +1808,7 @@ pub mod transaction {
 
     /// This structure represents transaction in non-trusted form.
     ///
-    /// `Iroha` and its' clients use `Transaction` to send transactions via network.
+    /// `Iroha` and its' clients use [`Transaction`] to send transactions via network.
     /// Direct usage in business logic is strongly prohibited. Before any interactions
     /// `accept`.
     #[version(
@@ -1820,13 +1820,13 @@ pub mod transaction {
         Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
     )]
     pub struct Transaction {
-        /// `Transaction` payload.
+        /// [`Transaction`] payload.
         pub payload: Payload,
-        /// `Transaction`'s `Signature`s.
+        /// [`Transaction`]'s [`Signature`]s.
         pub signatures: Vec<Signature>,
     }
 
-    /// Iroha `Transaction` payload.
+    /// Iroha [`Transaction`] payload.
     #[derive(
         Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
     )]
@@ -1844,21 +1844,21 @@ pub mod transaction {
     }
 
     impl VersionedTransaction {
-        /// Same as [`as_v1`] but also does conversion
+        /// Same as [`as_v1`](`VersionedTransaction::as_v1()`) but also does conversion
         pub const fn as_inner_v1(&self) -> &Transaction {
             match self {
                 Self::V1(v1) => &v1.0,
             }
         }
 
-        /// Same as [`as_inner_v1`] but returns mutable reference
+        /// Same as [`as_inner_v1`](`VersionedTransaction::as_inner_v1()`) but returns mutable reference
         pub fn as_mut_inner_v1(&mut self) -> &mut Transaction {
             match self {
                 Self::V1(v1) => &mut v1.0,
             }
         }
 
-        /// Same as [`into_v1`] but also does conversion
+        /// Same as [`into_v1`](`VersionedTransaction::into_v1()`) but also does conversion
         #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> Transaction {
             match self {
@@ -1866,7 +1866,7 @@ pub mod transaction {
             }
         }
 
-        /// Default `Transaction` constructor.
+        /// Default [`Transaction`] constructor.
         pub fn new(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
@@ -1875,7 +1875,7 @@ pub mod transaction {
             Transaction::new(instructions, account_id, proposed_ttl_ms).into()
         }
 
-        /// Calculate transaction `Hash`.
+        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
         pub fn hash(&self) -> Hash {
             self.as_inner_v1().hash()
         }
@@ -1906,7 +1906,7 @@ pub mod transaction {
     }
 
     impl Transaction {
-        /// Default `Transaction` constructor.
+        /// Default [`Transaction`] constructor.
         pub fn new(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
@@ -1920,7 +1920,7 @@ pub mod transaction {
             )
         }
 
-        /// [`Transactions`] constructor with metadata.
+        /// [`Transaction`] constructor with metadata.
         pub fn with_metadata(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
@@ -1943,7 +1943,7 @@ pub mod transaction {
             }
         }
 
-        /// Calculate transaction `Hash`.
+        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
         pub fn hash(&self) -> Hash {
             let bytes: Vec<u8> = self.payload.clone().into();
             Hash::new(&bytes)
@@ -2008,21 +2008,21 @@ pub mod transaction {
     }
 
     impl VersionedPendingTransactions {
-        /// Same as [`as_v1`] but also does conversion
+        /// Same as [`as_v1`](`VersionedPendingTransactions::as_v1()`) but also does conversion
         pub const fn as_inner_v1(&self) -> &PendingTransactions {
             match self {
                 Self::V1(v1) => &v1.0,
             }
         }
 
-        /// Same as [`as_inner_v1`] but returns mutable reference
+        /// Same as [`as_inner_v1`](`VersionedPendingTransactions::as_inner_v1()`) but returns mutable reference
         pub fn as_mut_inner_v1(&mut self) -> &mut PendingTransactions {
             match self {
                 Self::V1(v1) => &mut v1.0,
             }
         }
 
-        /// Same as [`into_v1`] but also does conversion
+        /// Same as [`into_v1`](`VersionedPendingTransactions::into_v1()`) but also does conversion
         #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> PendingTransactions {
             match self {
@@ -2098,21 +2098,21 @@ pub mod transaction {
 
     #[allow(clippy::missing_errors_doc)]
     impl VersionedRejectedTransaction {
-        /// The same as `as_v1` but also runs into on it
+        /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
         pub const fn as_inner_v1(&self) -> &RejectedTransaction {
             match self {
                 Self::V1(v1) => &v1.0,
             }
         }
 
-        /// The same as `as_v1` but also runs into on it
+        /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
         pub fn as_mut_inner_v1(&mut self) -> &mut RejectedTransaction {
             match self {
                 Self::V1(v1) => &mut v1.0,
             }
         }
 
-        /// The same as `as_v1` but also runs into on it
+        /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
         #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> RejectedTransaction {
             match self {
@@ -2120,7 +2120,7 @@ pub mod transaction {
             }
         }
 
-        /// Calculate transaction `Hash`.
+        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
         pub fn hash(&self) -> Hash {
             self.as_inner_v1().hash()
         }
@@ -2177,9 +2177,9 @@ pub mod transaction {
         Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
     )]
     pub struct RejectedTransaction {
-        /// `Transaction` payload.
+        /// [`Transaction`] payload.
         pub payload: Payload,
-        /// `Transaction`'s `Signature`s.
+        /// [`Transaction`]'s [`Signature`]s.
         pub signatures: Vec<Signature>,
         /// The reason for rejecting this transaction during the validation pipeline.
         pub rejection_reason: TransactionRejectionReason,
@@ -2192,7 +2192,7 @@ pub mod transaction {
             self.payload.check_instruction_len(max_instruction_len)
         }
 
-        /// Calculate transaction [`Hash`].
+        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
         pub fn hash(&self) -> Hash {
             let bytes: Vec<u8> = self.payload.clone().into();
             Hash::new(&bytes)

@@ -34,7 +34,7 @@ pub fn into_query_derive(input: TokenStream) -> TokenStream {
     impl_into_query(&ast)
 }
 
-/// `FromVariant` is used for implementing `From<Variant> for Enum` and `TryFrom<Enum> for Variant`.
+/// [`FromVariant`] is used for implementing `From<Variant> for Enum` and `TryFrom<Enum> for Variant`.
 ///
 /// ```rust
 /// use iroha_derive::FromVariant;

@@ -129,7 +129,7 @@ pub mod scale {
     use super::error::Result;
     use super::Version;
 
-    /// `Decode` versioned analog.
+    /// [`Decode`] versioned analog.
     pub trait DecodeVersioned: Decode + Version {
         /// Use this function for versioned objects instead of `decode`.
         ///
@@ -138,7 +138,7 @@ pub mod scale {
         fn decode_versioned(input: &[u8]) -> Result<Self>;
     }
 
-    /// `Encode` versioned analog.
+    /// [`Encode`] versioned analog.
     pub trait EncodeVersioned: Encode + Version {
         #[allow(clippy::missing_errors_doc)]
         /// Use this function for versioned objects instead of `encode`.
@@ -154,9 +154,9 @@ pub mod json {
     use super::error::Result;
     use super::Version;
 
-    /// `Serialize` versioned analog, specifically for JSON.
+    /// [`Serialize`] versioned analog, specifically for JSON.
     pub trait DeserializeVersioned<'a>: Deserialize<'a> + Version {
-        /// Use this function for versioned objects instead of `serde_json::from_str`.
+        /// Use this function for versioned objects instead of [`serde_json::from_str`].
         ///
         /// # Errors
         /// Return error if:
@@ -166,9 +166,9 @@ pub mod json {
         fn from_versioned_json_str(input: &str) -> Result<Self>;
     }
 
-    /// `Deserialize` versioned analog, specifically for JSON.
+    /// [`Deserialize`] versioned analog, specifically for JSON.
     pub trait SerializeVersioned: Serialize + Version {
-        /// Use this function for versioned objects instead of `serde_json::to_string`.
+        /// Use this function for versioned objects instead of [`serde_json::to_string`].
         ///
         /// # Errors
         /// Return error if serde fails to decode json

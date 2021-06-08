@@ -213,7 +213,7 @@ pub struct KeyPair {
 }
 
 impl KeyPair {
-    /// Generates a pair of Public and Private key with `Algorithm::default()` selected as generation algorithm.
+    /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
     ///
     /// # Errors
     /// Fails if decoding fails
@@ -221,7 +221,7 @@ impl KeyPair {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
 
-    /// Generates a pair of Public and Private key with the corresponding `KeyGenConfiguration`.
+    /// Generates a pair of Public and Private key with the corresponding [`KeyGenConfiguration`].
     ///
     /// # Errors
     /// Fails if decoding fails
@@ -406,7 +406,7 @@ pub struct Signature {
 }
 
 impl Signature {
-    /// Creates new `Signature` by signing payload via `private_key`.
+    /// Creates new [`Signature`] by signing payload via [`KeyPair::private_key`].
     ///
     /// # Errors
     /// Fails if decoding digest of key pair fails
@@ -426,7 +426,7 @@ impl Signature {
         })
     }
 
-    /// Verify `message` using signed data and `public_key`.
+    /// Verify `message` using signed data and [`KeyPair::public_key`].
     ///
     /// # Errors
     /// Fails if decoding digest of key pair fails or if message didn't pass verification

@@ -1,6 +1,6 @@
 //! Iroha Error crate contains error type similar to anyhow and eyre crates.
 //!
-//! It has general `Error` type which can wrap any type implementing `std::error::Error`.
+//! It has general [`Error`] type which can wrap any type implementing [`std::error::Error`].
 //! Also it contains alias `iroha_error::Result<T> = Result<T, iroha_error::Error>`.
 //!
 //! Example:

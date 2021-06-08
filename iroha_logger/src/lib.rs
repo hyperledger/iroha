@@ -18,7 +18,7 @@ pub mod telemetry;
 
 static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
-/// Initializes `Logger` with given `LoggerConfiguration`.
+/// Initializes `Logger` with given [`LoggerConfiguration`](`config::LoggerConfiguration`).
 /// After the initialization `log` macros will print with the use of this `Logger`.
 pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telemetry>> {
     if LOGGER_SET

@@ -1,4 +1,4 @@
-//! This module contains `Asset` structure, it's implementation and related traits and
+//! This module contains [`Asset`] structure, it's implementation and related traits and
 //! instructions implementations.
 
 use iroha_data_model::prelude::*;
@@ -6,16 +6,17 @@ use iroha_data_model::prelude::*;
 use super::prelude::*;
 use crate::prelude::*;
 
-/// Iroha Special Instructions module provides `AssetInstruction` enum with all possible types of
-/// Asset related instructions as variants, implementations of generic Iroha Special Instructions
-/// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
+/// ISI module contains all instructions related to assets:
+/// - minting/burning assets
+/// - update metadata
+/// - transfer, etc.
 pub mod isi {
     use iroha_error::error;
     use iroha_logger::log;
 
     use super::*;
 
-    /// Asserts that asset definition with `deifintion_id` has asset type `expected_value_type`.
+    /// Asserts that asset definition with [`definition_id`] has asset type [`expected_value_type`].
     fn assert_asset_type(
         definition_id: &AssetDefinitionId,
         wsv: &WorldStateView,
@@ -218,7 +219,7 @@ pub mod isi {
     }
 }
 
-/// Query module provides `IrohaQuery` Asset related implementations.
+/// Query module provides [`Query`] Asset related implementations.
 pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;

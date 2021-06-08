@@ -24,21 +24,21 @@ declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, i
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedAcceptedTransaction {
-    /// Same as [`as_v1`] but also does conversion
+    /// Same as [`as_v1`](`VersionedAcceptedTransaction::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => &v1.0,
         }
     }
 
-    /// Same as [`as_inner_v1`] but returns mutable reference
+    /// Same as [`as_inner_v1`](`VersionedAcceptedTransaction::as_inner_v1()`) but returns mutable reference
     pub fn as_mut_inner_v1(&mut self) -> &mut AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => &mut v1.0,
         }
     }
 
-    /// Same as [`into_v1`] but also does conversion
+    /// Same as [`into_v1`](`VersionedAcceptedTransaction::into_v1()`) but also does conversion
     #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> AcceptedTransaction {
         match self {
@@ -361,21 +361,21 @@ declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroh
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedValidTransaction {
-    /// Same as [`as_v1`] but also does conversion
+    /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &ValidTransaction {
         match self {
             Self::V1(v1) => &v1.0,
         }
     }
 
-    /// Same as [`as_inner_v1`] but returns mutable reference
+    /// Same as [`as_inner_v1`](`VersionedValidTransaction::as_inner_v1()`) but returns mutable reference
     pub fn as_mut_inner_v1(&mut self) -> &mut ValidTransaction {
         match self {
             Self::V1(v1) => &mut v1.0,
         }
     }
 
-    /// Same as [`into_v1`] but also does conversion
+    /// Same as [`into_v1`](`VersionedValidTransaction::into_v1()`) but also does conversion
     #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> ValidTransaction {
         match self {

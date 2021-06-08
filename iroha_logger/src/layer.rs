@@ -25,7 +25,7 @@ pub trait EventInspectorTrait: 'static {
     fn inner_subscriber(&self) -> &Self::Subscriber;
 }
 
-/// Wrapper which implements `Subscriber` trait for any implementator of `EventfilterTrait`
+/// Wrapper which implements [`Subscriber`] trait for any implementor of [`EventInspectorTrait`]
 #[derive(Debug, Clone)]
 pub struct EventSubscriber<E>(pub E);
 

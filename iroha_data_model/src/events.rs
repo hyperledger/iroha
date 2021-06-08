@@ -37,21 +37,21 @@ pub struct EventReceived;
 declare_versioned_with_json!(VersionedEvent 1..2, Debug, Clone, FromVariant, IntoSchema);
 
 impl VersionedEvent {
-    /// The same as `as_v1` but also runs into on it
+    /// The same as [`as_v1`](`VersionedEvent::as_v1()`) but also runs into on it
     pub const fn as_inner_v1(&self) -> &Event {
         match self {
             Self::V1(v1) => &v1.0,
         }
     }
 
-    /// The same as `as_v1` but also runs into on it
+    /// The same as [`as_v1`](`VersionedEvent::as_v1()`) but also runs into on it
     pub fn as_mut_inner_v1(&mut self) -> &mut Event {
         match self {
             Self::V1(v1) => &mut v1.0,
         }
     }
 
-    /// The same as `as_v1` but also runs into on it
+    /// The same as [`as_v1`](`VersionedEvent::as_v1()`) but also runs into on it
     #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> Event {
         match self {
@@ -126,7 +126,7 @@ pub mod data {
         /// Entity's state was changed, any parameter updated it's value.
         Updated,
         /// Entity was archived or by any other way was put into state that guarantees absense of
-        /// `Updated` events for this entity.
+        /// [`Updated`](`Status::Updated`) events for this entity.
         Deleted,
     }
 

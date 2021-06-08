@@ -1,4 +1,4 @@
-//! Query module provides [`IrohaQuery`] Transaction related implementations.
+//! Query module provides [`Query`] Transaction related implementations.
 
 use iroha_data_model::prelude::*;
 use iroha_error::{Result, WrapErr};
