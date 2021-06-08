@@ -1811,7 +1811,8 @@ pub mod config {
         /// # Errors
         /// Fails if there is no file or if file is not valid json
         pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<TrustedPeers> {
-            let file = File::open(path).wrap_err("Failed to open a file")?;
+            let file = File::open(&path)
+                .wrap_err_with(|| format!("Failed to open trusted peers file {:?}", &path))?;
             let reader = BufReader::new(file);
             let trusted_peers: HashSet<PeerId> = serde_json::from_reader(reader)
                 .wrap_err("Failed to deserialize json from reader")?;
