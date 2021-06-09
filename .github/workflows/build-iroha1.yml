@@ -125,7 +125,6 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          false
           if test "x$DOCKERHUB_ORG" = "x" ;then
             echo >>$GITHUB_ENV  DOCKERHUB_ORG=hyperledger
           fi
@@ -939,7 +938,6 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          false
           if test "x$DOCKERHUB_ORG" = "x" ;then
             echo >>$GITHUB_ENV  DOCKERHUB_ORG=hyperledger
           fi
