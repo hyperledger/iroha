@@ -17,4 +17,4 @@ tracing-subscriber = { version = "0.2", default-features = false, features = ["f
 tokio = { version = "1.6.0", features = ["sync"] }
 
 [dev-dependencies]
-tokio = { version = "1.6.0", features = ["macros"] }
+tokio = { version = "1.6.0", features = ["macros", "time", "rt"] }

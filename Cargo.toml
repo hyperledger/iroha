@@ -30,4 +30,5 @@ members = [
   "iroha_schema",
   "iroha_schema/iroha_schema_derive",
   "iroha_schema/iroha_schema_bin",
+  "iroha_logger",
 ]
