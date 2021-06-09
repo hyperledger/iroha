@@ -874,6 +874,10 @@ jobs:
         # cc:         [ gcc-9 ] #, gcc-10, clang-10 ]
         # CMAKE_USE:  [ '', -DUSE_BURROW=ON ]
         # build_type: [ Release ]
+    env:
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Show context
         run: |
@@ -958,7 +962,7 @@ jobs:
             type=edge,branch=support/1.2.x
           #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
 
-          images: ${{ secrets.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }} ## uses suffecs could be empty, -burrow, -ursa
+          images: ${{ env.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }} ## uses suffecs could be empty, -burrow, -ursa
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
