@@ -28,8 +28,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Build
         run: cargo build --release --verbose
       - name: Archive build
@@ -112,8 +111,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Cargo clean
         uses: actions-rs/cargo@v1
         with:

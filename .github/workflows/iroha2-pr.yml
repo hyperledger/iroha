@@ -27,8 +27,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Run long tests
         run: cargo test --workspace --verbose -- --ignored --test-threads=1 long
   test-docker:
@@ -46,8 +45,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:

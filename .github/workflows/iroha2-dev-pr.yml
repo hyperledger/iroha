@@ -28,8 +28,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Install clippy
         run: rustup component add clippy
       - name: Print all info
@@ -68,8 +67,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Run tests
         run: cargo test --workspace
 
@@ -89,8 +87,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Run iroha_network mock tests
         run: cargo test --features mock
         working-directory: iroha_network
@@ -114,8 +111,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Run iroha_actor deadlock detection tests
         run: cargo test --features deadlock_detection
         working-directory: iroha_actor
@@ -141,8 +137,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Build Client CLI
         run: cargo build
         working-directory: iroha_client_cli
@@ -260,8 +255,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Cargo clean
         uses: actions-rs/cargo@v1
         with:
@@ -296,7 +290,6 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-            libssl-dev
+            llvm-dev
       - name: Run benchmarks
         run: cargo bench --workspace --verbose
