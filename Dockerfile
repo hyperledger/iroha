@@ -8,13 +8,12 @@ ENV PATH="$CARGO_HOME/bin:$PATH"
 
 RUN set -ex; \
     apt-get update  -yq; \
-    apt-get install -y --no-install-recommends curl pkg-config apt-utils; \
+    apt-get install -y --no-install-recommends curl apt-utils; \
     apt-get install -y --no-install-recommends \
        build-essential \
        ca-certificates \
        clang \
-       llvm-dev \
-       libssl-dev; \
+       llvm-dev; \
     rm -rf /var/lib/apt/lists/*
 
 ARG TOOLCHAIN=stable
@@ -47,8 +46,8 @@ RUN cargo build $PROFILE --all
 FROM $BASE_IMAGE
 RUN set -ex; \
     apt-get update  -yq; \
-    apt-get install -y --no-install-recommends pkg-config apt-utils; \
-    apt-get install -y --no-install-recommends ca-certificates libssl1.1; \
+    apt-get install -y --no-install-recommends apt-utils; \
+    apt-get install -y --no-install-recommends ca-certificates; \
     rm -rf /var/lib/apt/lists/*
 COPY iroha/config.json .
 COPY iroha/trusted_peers.json .

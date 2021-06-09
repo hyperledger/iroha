@@ -1603,6 +1603,7 @@ dependencies = [
  "hex-literal",
  "iroha_error",
  "iroha_schema",
+ "openssl-sys",
  "parity-scale-codec",
  "serde",
  "serde_json",
@@ -2286,6 +2287,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28988d872ab76095a6e6ac88d99b54fd267702734fd7ffe610ca27f533ddb95a"
 
 [[package]]
+name = "openssl-src"
+version = "111.15.0+1.1.1k"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1a5f6ae2ac04393b217ea9f700cd04fa9bf3d93fae2872069f3d15d908af70a"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "openssl-sys"
 version = "0.9.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2294,6 +2304,7 @@ dependencies = [
  "autocfg 1.0.1",
  "cc",
  "libc",
+ "openssl-src",
  "pkg-config",
  "vcpkg",
 ]
