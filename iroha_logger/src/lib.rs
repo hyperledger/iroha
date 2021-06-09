@@ -27,12 +27,12 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
     {
         return None;
     }
-
+    let level = configuration.max_log_level.into();
+    let subscriber_builder = tracing_subscriber::fmt().with_test_writer();
     if configuration.compact_mode {
-        let fmt = tracing_subscriber::fmt().compact().finish();
-        let level = configuration.max_log_level.into();
+        let subscriber = subscriber_builder.compact().finish();
         let (subscriber, receiver) = TelemetryLayer::from_capacity(
-            LevelFilter::new(level, fmt),
+            LevelFilter::new(level, subscriber),
             configuration.telemetry_capacity,
         );
 
@@ -40,10 +40,9 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
         set_global_default(subscriber).expect("Failed to init logger");
         Some(receiver)
     } else {
-        let fmt = tracing_subscriber::fmt().finish();
-        let level = configuration.max_log_level.into();
+        let subscriber = subscriber_builder.finish();
         let (subscriber, receiver) = TelemetryLayer::from_capacity(
-            LevelFilter::new(level, fmt),
+            LevelFilter::new(level, subscriber),
             configuration.telemetry_capacity,
         );
 
