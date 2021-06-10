@@ -198,32 +198,42 @@ impl Client {
         instructions: Vec<Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<Hash> {
+        struct EventListenerInitialized;
+
         let mut client = self.clone();
-        let (sender, receiver) = mpsc::channel();
+        let (event_sender, event_receiver) = mpsc::channel();
+        let (init_sender, init_receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions, metadata)?;
         let hash = transaction.hash();
         let _handle = thread::spawn(move || -> iroha_error::Result<()> {
-            for event in client
+            let event_iterator = client
                 .listen_for_events(PipelineEventFilter::by_hash(hash).into())
-                .wrap_err("Failed to initialize iterator.")?
-                .flatten()
-            {
+                .wrap_err("Failed to establish event listener connection.")?;
+            init_sender
+                .send(EventListenerInitialized)
+                .wrap_err("Failed to send through init channel.")?;
+            for event in event_iterator.flatten() {
                 if let Event::Pipeline(event) = event {
                     match event.status {
                         PipelineStatus::Validating => {}
-                        PipelineStatus::Rejected(reason) => sender
+                        PipelineStatus::Rejected(reason) => event_sender
                             .send(Err(reason))
-                            .wrap_err("Failed to send through channel.")?,
-                        PipelineStatus::Committed => sender
+                            .wrap_err("Failed to send through event channel.")?,
+                        PipelineStatus::Committed => event_sender
                             .send(Ok(hash))
-                            .wrap_err("Failed to send through channel.")?,
+                            .wrap_err("Failed to send through event channel.")?,
                     }
                 }
             }
             Ok(())
         });
+        drop(
+            init_receiver
+                .recv()
+                .wrap_err("Failed to receive init message.")?,
+        );
         let _ = self.submit_transaction(transaction)?;
-        receiver
+        event_receiver
             .recv_timeout(self.transaction_status_timout)
             .map_or_else(
                 |err| Err(err).wrap_err("Timeout waiting for transaction status"),
@@ -375,9 +385,29 @@ impl EventIterator {
     pub fn new(url: &str, event_filter: EventFilter) -> Result<EventIterator> {
         let mut stream = http_client::web_socket_connect(url)?;
         stream.write_message(WebSocketMessage::Text(
-            VersionedSubscriptionRequest::from(SubscriptionRequest(event_filter))
-                .to_versioned_json_str()?,
+            VersionedEventSocketMessage::from(EventSocketMessage::from(SubscriptionRequest(
+                event_filter,
+            )))
+            .to_versioned_json_str()?,
         ))?;
+        loop {
+            match stream.read_message() {
+                Ok(WebSocketMessage::Text(message)) => {
+                    if let EventSocketMessage::SubscriptionAccepted =
+                        VersionedEventSocketMessage::from_versioned_json_str(&message)?
+                            .into_inner_v1()
+                    {
+                        break;
+                    }
+                    return Err(error!("Expected `SubscriptionAccepted` got: {}", message));
+                }
+                Ok(_) => continue,
+                Err(WebSocketError::ConnectionClosed) | Err(WebSocketError::AlreadyClosed) => {
+                    return Err(error!("WebSocket connection closed."))
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
         Ok(EventIterator { stream })
     }
 }
@@ -389,24 +419,29 @@ impl Iterator for EventIterator {
         loop {
             match self.stream.read_message() {
                 Ok(WebSocketMessage::Text(message)) => {
-                    match VersionedEvent::from_versioned_json_str(&message) {
-                        Ok(event) => {
-                            let event = event.into_inner_v1();
-                            let message = match VersionedEventReceived::from(EventReceived)
-                                .to_versioned_json_str()
-                                .wrap_err("Failed to serialize receipt.")
-                            {
-                                Ok(message) => message,
-                                Err(e) => return Some(Err(e)),
-                            };
-                            return match self.stream.write_message(WebSocketMessage::Text(message))
-                            {
-                                Ok(_) => Some(Ok(event)),
-                                Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
-                            };
+                    let event_socket_message =
+                        match VersionedEventSocketMessage::from_versioned_json_str(&message) {
+                            Ok(event_socket_message) => event_socket_message.into_inner_v1(),
+                            Err(err) => return Some(Err(err.into())),
+                        };
+                    let event = match event_socket_message {
+                        EventSocketMessage::Event(event) => event,
+                        message => {
+                            return Some(Err(error!("Expected Event but got {:?}", message)))
                         }
-                        Err(err) => return Some(Err(err.into())),
-                    }
+                    };
+                    let message =
+                        match VersionedEventSocketMessage::from(EventSocketMessage::EventReceived)
+                            .to_versioned_json_str()
+                            .wrap_err("Failed to serialize receipt.")
+                        {
+                            Ok(message) => message,
+                            Err(e) => return Some(Err(e)),
+                        };
+                    return match self.stream.write_message(WebSocketMessage::Text(message)) {
+                        Ok(_) => Some(Ok(event)),
+                        Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
+                    };
                 }
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed) | Err(WebSocketError::AlreadyClosed) => {

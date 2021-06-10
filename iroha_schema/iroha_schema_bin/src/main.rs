@@ -26,7 +26,7 @@ fn main() {
             Instruction,
             Domain,
             QueryBox,
-            VersionedEvent,
+            VersionedEventSocketMessage,
             VersionedTransaction,
             VersionedQueryResult,
         )

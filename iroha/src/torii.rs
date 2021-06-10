@@ -396,8 +396,13 @@ async fn handle_subscription(
     _query_params: QueryParams,
     stream: WebSocketStream,
 ) -> iroha_error::Result<()> {
+    let state = state.read().await;
+
+    // The lock is kept on `consumers` for the whole function so that a consumer can tell the client that it is ready,
+    // before sending events.
+    let mut consumers = state.consumers.write().await;
     let consumer = Consumer::new(stream).await?;
-    state.read().await.consumers.write().await.push(consumer);
+    consumers.push(consumer);
     Ok(())
 }
 

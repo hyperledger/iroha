@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
-const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 3000;
+const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
