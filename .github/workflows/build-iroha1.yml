@@ -310,13 +310,9 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
-        run: |
-          if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
-          echo CC=$CC                                                >>$GITHUB_ENV
-          echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-          echo >>$GITHUB_PATH $CCACHE_PATH
-          echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+        run: "set -uo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
         env:
+          CC: ${{matrix.cc}}
           CCACHE_PATH: /usr/lib/ccache
       - name: Restore cache ccache
         uses: actions/cache@v2
@@ -498,13 +494,9 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
-        run: |
-          if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
-          echo CC=$CC                                                >>$GITHUB_ENV
-          echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-          echo >>$GITHUB_PATH $CCACHE_PATH
-          echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+        run: "set -uo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
         env:
+          CC: ${{matrix.cc}}
           CCACHE_PATH: /usr/lib/ccache
       - name: Restore cache ccache
         uses: actions/cache@v2
@@ -683,12 +675,7 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
-        run: |
-          if test ${{matrix.cc}} = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
-          echo CC=$CC                                                >>$GITHUB_ENV
-          echo CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,) >>$GITHUB_ENV
-          echo >>$GITHUB_PATH $CCACHE_PATH
-          echo >>$GITHUB_ENV _CCACHE_DIR=$(ccache --show-config | sed -nE 's,.*cache_dir = ,,p')
+        run: "set -uo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
         env:
           CCACHE_PATH: /usr/local/opt/ccache/libexec
       - name: Restore cache ccache
