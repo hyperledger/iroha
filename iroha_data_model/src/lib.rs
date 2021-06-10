@@ -1203,6 +1203,14 @@ pub mod asset {
                 AssetValue::Store(_) => AssetValueType::Store,
             }
         }
+        /// Returns true if this value is zero, false if it contains [`Metadata`] or positive value
+        pub const fn is_zero_value(&self) -> bool {
+            match *self {
+                AssetValue::Quantity(q) => q == 0_u32,
+                AssetValue::BigQuantity(q) => q == 0_u128,
+                AssetValue::Store(_) => false,
+            }
+        }
     }
 
     macro_rules! impl_try_as_for_asset_value {
