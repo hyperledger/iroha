@@ -60,9 +60,9 @@ pub enum FindError {
     #[cfg(feature = "roles")]
     #[error("Failed to find role by id")]
     Role(RoleId),
-    /// Block with supplied hash not found.
-    #[error("Failed to find block with this hash")]
-    Block(Hash),
+    /// Block with supplied parent hash not found. More description in a string.
+    #[error("Block not found")]
+    Block(#[source] ParentHashNotFound),
 }
 
 /// Type assertion error
@@ -106,6 +106,18 @@ pub enum MathError {
     #[error("Overflow occured.")]
     OverflowError,
 }
+
+/// Block with parent hash not found struct
+#[derive(Debug, Clone, Copy)]
+pub struct ParentHashNotFound(pub Hash);
+
+impl Display for ParentHashNotFound {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Block with parent hash {} not found", self.0)
+    }
+}
+
+impl StdError for ParentHashNotFound {}
 
 impl Execute for Instruction {
     type Error = Error;
