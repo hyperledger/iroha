@@ -12,6 +12,7 @@ use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_error::Result;
 use tokio::task;
 
+use crate::smartcontracts::ParentHashNotFound;
 use crate::{block::Chain, prelude::*, smartcontracts::FindError};
 
 /// Current state of the blockchain alligned with `Iroha` module.
@@ -104,7 +105,7 @@ impl WorldStateView {
             .blocks
             .iter()
             .position(|block_entry| block_entry.value().header().previous_block_hash == hash)
-            .ok_or(FindError::Block(hash))?;
+            .ok_or(FindError::Block(ParentHashNotFound(hash)))?;
         Ok(self
             .blocks
             .iter()
