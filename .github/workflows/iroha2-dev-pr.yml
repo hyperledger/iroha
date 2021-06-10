@@ -11,285 +11,34 @@ env:
     iroha/target
     iroha_client/target
 
+
 jobs:
-  check:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+  deploy:
+    runs-on: [ self-hosted, Linux ]
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v1.1.0
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Install clippy
-        run: rustup component add clippy
-      - name: Print all info
-        run: |
-          cargo version
-          lscpu
-          free -h
-      - name: Install cargo-lints
-        run: cargo install cargo-lints
-      - name: Install nightly for rustfmt
-        run: rustup install --profile default nightly-2021-03-24
-      - name: Format check
-        run: cargo +nightly-2021-03-24 fmt --all -- --check
-      - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests
-      - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --all-features
-      - name: Documentation check
-        run: |
-          cargo doc --no-deps
-          ./scripts/check_docs.sh
-
-  test:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+          username: "rkharisov"
+          password: "Kf#=*-3e&cuT@Raf"
+          repository: "rkharisov/iroha"
+          tags: iroha2-dev
+          build_args: TARGET_DIR=release,PROFILE=--release
+      - name: Build and push Iroha Client CLI Docker image
+        uses: docker/build-push-action@v1.1.0
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run tests
-        run: cargo test --workspace
-
-  test-iroha_network-mock:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+          username: "rkharisov"
+          password: "Kf#=*-3e&cuT@Raf"
+          repository: "rkharisov/iroha"
+          tags: iroha2-client-cli-dev
+          build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
+      - name: Build and push Iroha Crypto CLI Docker image
+        uses: docker/build-push-action@v1.1.0
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run iroha_network mock tests
-        run: cargo test --features mock
-        working-directory: iroha_network
-      - name: Run iroha tests with network mock
-        run: cargo test --features network-mock
-        working-directory: iroha
-
-  test-deadlock_detection:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run iroha_actor deadlock detection tests
-        run: cargo test --features deadlock_detection
-        working-directory: iroha_actor
-
-  test-docker:
-    #runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install latest rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Install dependencies
-        if: ${{ false }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Build Client CLI
-        run: cargo build
-        working-directory: iroha_client_cli
-      - name: Setup docker test environment
-        run: ./scripts/setup_docker_test_env.sh
-      - name: Docker compose genesis test
-        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Docker compose test
-        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Cleanup docker test environment
-        run: ./scripts/cleanup_docker_test_env.sh
-
-  print-telemetry:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Run debug tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
-        run: |
-          mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features --test unstable_network || true
-      - name: Run release tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --test unstable_network --release || true
-      - name: Install script dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends lz4 jq
-      - name: Print debug telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
-      - name: Print debug telemetry info
-        run: |
-          echo '## Debug build'
-          cat target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: |
-          echo '## Release build'
-          cat target/telemetry/release.md
-      - name: Create telemetry comment
-        uses: actions-ecosystem/action-create-comment@v1
-        if: ${{ false }}
-        with:
-          body: |
-            \# Telemetry info
-            \## Debug build
-            ${{ steps.debug-telemetry.outputs.body }}
-            \## Release build
-            ${{ steps.release-telemetry.outputs.body }}
-          github_token: ${{ secrets.github_token }}
-      - name: Archive telemetry
-        uses: actions/upload-artifact@v2
-        with:
-          name: telemetry
-          path: target/telemetry
-
-  test-api:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    if: ${{ false }}
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up JDK 11
-        uses: actions/setup-java@v1
-        with:
-          java-version: 1.11
-      - name: Cache Gradle packages
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-      - name: Setup docker test environment
-        run: ./scripts/setup_docker_test_env.sh
-      - name: Test iroha2-java api
-        run: ./scripts/test_iroha2_java_api.sh
-      - name: Cleanup test iroha2-java api
-        run: ./scripts/cleanup_iroha2_java_api.sh
-      - name: Cleanup docker test environment
-        run: ./scripts/cleanup_docker_test_env.sh
-      - name: Cleanup Gradle Cache
-        # Remove some files from the Gradle cache, so they aren't cached by GitHub Actions.
-        # Restoring these files from a GitHub Actions cache might cause problems for future builds.
-        run: |
-          rm -f ~/.gradle/caches/modules-2/modules-2.lock
-          rm -f ~/.gradle/caches/modules-2/gc.properties
-
-  # Coverage is both in PR and in push pipelines so that:
-  # 1. PR can get coverage report from bot.
-  # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
-  coverage:
-    runs-on: [self-hosted, Linux]
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly-2021-02-20
-          override: true
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Cargo clean
-        uses: actions-rs/cargo@v1
-        with:
-          command: clean
-      - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
-        env:
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests"
-          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
-      - name: Generate coverage report
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
-        with:
-          file: ${{ steps.coverage.outputs.report }}
-
-  bench:
-    runs-on: [self-hosted, Linux]
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run benchmarks
-        run: cargo bench --workspace --verbose
+          username: "rkharisov"
+          password: "Kf#=*-3e&cuT@Raf"
+          repository: "rkharisov/iroha"
+          tags: iroha2-crypto-cli-dev
+          build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release
