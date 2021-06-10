@@ -301,13 +301,14 @@ jobs:
       - &step_export_cxx
         name: export CC and CXX
         run: |
-          set -uo pipefail
+          set -xeuo pipefail
           if test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
           echo >>$GITHUB_ENV CC=$CC                                               
           echo >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)
           echo >>$GITHUB_PATH $CCACHE_PATH
+          $(realpath $CCACHE_PATH/cc) --show-config
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')
-        env:
+        env: &step_export_cxx_env
           CC: ${{matrix.cc}}
           CCACHE_PATH: /usr/lib/ccache
       - &step_restore_ccache
@@ -471,7 +472,8 @@ jobs:
       - *step_detect_commented_pr
       - *step_checkout
       - <<: *step_export_cxx
-        env:
+        env: 
+          <<: *step_export_cxx_env
           CCACHE_PATH: /usr/local/opt/ccache/libexec
       - *step_restore_ccache
       - *step_vcpkg_cache
