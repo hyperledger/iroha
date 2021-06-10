@@ -37,6 +37,7 @@ COPY --from=planner /iroha/recipe.json recipe.json
 RUN cargo chef cook $PROFILE --recipe-path recipe.json
 
 FROM rust-base as builder
+ARG PROFILE
 WORKDIR /iroha
 COPY . .
 COPY --from=cacher /iroha/target .

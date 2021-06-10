@@ -65,9 +65,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-dev
-          build_args: |
-            TARGET_DIR=release
-            PROFILE=--release
+          build_args: TARGET_DIR=release,PROFILE=--release
       - name: Build and push Iroha Client CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
@@ -75,10 +73,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-client-cli-dev
-          build_args: |
-            BIN=iroha_client_cli
-            TARGET_DIR=release
-            PROFILE=--release
+          build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
       - name: Build and push Iroha Crypto CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
@@ -86,10 +81,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-crypto-cli-dev
-          build_args: |
-            BIN=iroha_crypto_cli
-            TARGET_DIR=release
-            PROFILE=--release
+          build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.

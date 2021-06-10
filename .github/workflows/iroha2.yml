@@ -96,9 +96,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB }}
           repository: hyperledger/iroha
           tags: iroha2
-          build_args: |
-            TARGET_DIR=release
-            PROFILE=--release
+          build_args: TARGET_DIR=release,PROFILE=--release
       - name: Build and push Iroha CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
@@ -106,10 +104,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB }}
           repository: hyperledger/iroha
           tags: iroha2-cli
-          build_args: |
-            BIN=iroha_client_cli
-            TARGET_DIR=release
-            PROFILE=--release
+          build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
       - name: Build and push Iroha Crypto CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
@@ -117,7 +112,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB }}
           repository: hyperledger/iroha
           tags: iroha2-crypto-cli
-          build_args: |
-            BIN=iroha_crypto_cli
-            TARGET_DIR=release
-            PROFILE=--release
+          build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release
