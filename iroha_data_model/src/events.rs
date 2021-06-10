@@ -10,42 +10,18 @@ use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use serde::{Deserialize, Serialize};
 
-declare_versioned_with_json!(VersionedSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
+declare_versioned_with_json!(VersionedEventSocketMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-//TODO: Sign request?
-/// Subscription Request to listen to events
-#[version_with_json(
-    n = 1,
-    versioned = "VersionedSubscriptionRequest",
-    derive = "Debug, Clone, IntoSchema"
-)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, IntoSchema)]
-pub struct SubscriptionRequest(pub EventFilter);
-
-declare_versioned_with_json!(VersionedEventReceived 1..2, Debug, Clone, FromVariant, IntoSchema);
-
-// TODO: Sign receipt?
-/// Event receipt.
-#[version_with_json(
-    n = 1,
-    versioned = "VersionedEventReceived",
-    derive = "Debug, Clone, IntoSchema"
-)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, IntoSchema)]
-pub struct EventReceived;
-
-declare_versioned_with_json!(VersionedEvent 1..2, Debug, Clone, FromVariant, IntoSchema);
-
-impl VersionedEvent {
+impl VersionedEventSocketMessage {
     /// The same as [`as_v1`](`VersionedEvent::as_v1()`) but also runs into on it
-    pub const fn as_inner_v1(&self) -> &Event {
+    pub const fn as_inner_v1(&self) -> &EventSocketMessage {
         match self {
             Self::V1(v1) => &v1.0,
         }
     }
 
     /// The same as [`as_v1`](`VersionedEvent::as_v1()`) but also runs into on it
-    pub fn as_mut_inner_v1(&mut self) -> &mut Event {
+    pub fn as_mut_inner_v1(&mut self) -> &mut EventSocketMessage {
         match self {
             Self::V1(v1) => &mut v1.0,
         }
@@ -53,19 +29,40 @@ impl VersionedEvent {
 
     /// The same as [`as_v1`](`VersionedEvent::as_v1()`) but also runs into on it
     #[allow(clippy::missing_const_for_fn)]
-    pub fn into_inner_v1(self) -> Event {
+    pub fn into_inner_v1(self) -> EventSocketMessage {
         match self {
             Self::V1(v1) => v1.into(),
         }
     }
 }
 
-/// Event.
+/// Message type used for communication over web socket event stream.
+#[allow(variant_size_differences)]
 #[version_with_json(
     n = 1,
-    versioned = "VersionedEvent",
+    versioned = "VersionedEventSocketMessage",
     derive = "Debug, Clone, IntoSchema"
 )]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, FromVariant)]
+pub enum EventSocketMessage {
+    /// Request sent by client to subscribe to events.
+    SubscriptionRequest(SubscriptionRequest),
+    /// Answer sent by peer.
+    /// The message means that all event connection is initialized and will be supplying
+    /// events starting from the next one.
+    SubscriptionAccepted,
+    /// Event, sent by peer.
+    Event(Event),
+    /// Acknowledgment of receiving event sent from client.
+    EventReceived,
+}
+
+//TODO: Sign request?
+/// Subscription Request to listen to events
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, IntoSchema)]
+pub struct SubscriptionRequest(pub EventFilter);
+
+/// Event.
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, FromVariant, IntoSchema)]
 pub enum Event {
     /// Pipeline event.
@@ -570,7 +567,7 @@ pub mod pipeline {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        data::prelude::*, pipeline::prelude::*, Event, EventFilter, EventReceived,
-        SubscriptionRequest, VersionedEvent, VersionedEventReceived, VersionedSubscriptionRequest,
+        data::prelude::*, pipeline::prelude::*, Event, EventFilter, EventSocketMessage,
+        SubscriptionRequest, VersionedEventSocketMessage,
     };
 }

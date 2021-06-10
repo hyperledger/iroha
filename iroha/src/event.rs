@@ -2,7 +2,7 @@
 //! This module contains descriptions of such an events and
 //! utilitary Iroha Special Instructions to work with them.
 
-use std::{fmt::Debug, time::Duration};
+use std::{convert::TryInto, fmt::Debug, time::Duration};
 
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};
@@ -46,10 +46,19 @@ impl Consumer {
             .wrap_err("Web Socket failure")?
         {
             let request: SubscriptionRequest =
-                VersionedSubscriptionRequest::from_versioned_json_str(&message)?
-                    .into_v1()
-                    .ok_or_else(|| error!("Expected subscription request version 1."))?
-                    .into();
+                VersionedEventSocketMessage::from_versioned_json_str(&message)?
+                    .into_inner_v1()
+                    .try_into()?;
+            time::timeout(
+                TIMEOUT,
+                stream.send(WebSocketMessage::Text(
+                    VersionedEventSocketMessage::from(EventSocketMessage::SubscriptionAccepted)
+                        .to_versioned_json_str()?,
+                )),
+            )
+            .await
+            .wrap_err("Send message timeout")?
+            .wrap_err("Failed to send message")?;
             let SubscriptionRequest(filter) = request;
             Ok(Consumer { stream, filter })
         } else {
@@ -64,23 +73,25 @@ impl Consumer {
     #[iroha_futures::telemetry_future]
     pub async fn consume(mut self, event: &Event) -> Result<Self> {
         if self.filter.apply(event) {
-            let event = VersionedEvent::from(event.clone())
+            let event = VersionedEventSocketMessage::from(EventSocketMessage::from(event.clone()))
                 .to_versioned_json_str()
                 .wrap_err("Failed to serialize event")?;
             time::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Text(event)))
                 .await
-                .wrap_err("Read message timeout")?
-                .wrap_err("Failed to write message")?;
+                .wrap_err("Send message timeout")?
+                .wrap_err("Failed to send message")?;
             if let WebSocketMessage::Text(receipt) = time::timeout(TIMEOUT, self.stream.next())
                 .await
                 .wrap_err("Failed to read receipt")?
                 .ok_or_else(|| error!("Failed to read receipt: no receipt"))?
                 .wrap_err("Web Socket failure")?
             {
-                let _receipt = VersionedEventReceived::from_versioned_json_str(&receipt)
-                    .wrap_err_with(|| {
-                        format!("Unexpected message, waited for receipt got: {}", receipt)
-                    })?;
+                if let EventSocketMessage::EventReceived =
+                    VersionedEventSocketMessage::from_versioned_json_str(&receipt)?.into_inner_v1()
+                {
+                } else {
+                    return Err(error!("Expected `EventReceived` got {}", receipt));
+                }
             } else {
                 return Err(error!("Unexpected message type"));
             }
