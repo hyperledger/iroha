@@ -241,7 +241,11 @@ impl WorldStateView {
                 .assets
                 .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
-            f(&mut asset)
+            f(&mut asset)?;
+            if asset.value.is_zero_value() {
+                drop(account.assets.remove(id));
+            }
+            Ok(())
         })
     }
 
