@@ -58,24 +58,24 @@ jobs:
           test -n "${{ secrets.DOCKERHUB_ORG }}"
           test -n "${{ secrets.DOCKERHUB_USERNAME }}"
           test -n "${{ secrets.DOCKERHUB_TOKEN }}"
-      - name: Build and push Iroha CLI Docker image
+      - name: Build and push Iroha Docker image
         uses: docker/build-push-action@v1.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-dev
-          build-args: |
+          build_args: |
             TARGET_DIR=release
             PROFILE=--release
-      - name: Build and push Iroha Client SCLI Docker image
+      - name: Build and push Iroha Client CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-client-cli-dev
-          build-args: |
+          build_args: |
             BIN=iroha_client_cli
             TARGET_DIR=release
             PROFILE=--release
@@ -86,7 +86,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
           tags: iroha2-crypto-cli-dev
-          build-args: |
+          build_args: |
             BIN=iroha_crypto_cli
             TARGET_DIR=release
             PROFILE=--release

@@ -96,7 +96,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB }}
           repository: hyperledger/iroha
           tags: iroha2
-          build-args: |
+          build_args: |
             TARGET_DIR=release
             PROFILE=--release
       - name: Build and push Iroha CLI Docker image
@@ -106,7 +106,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB }}
           repository: hyperledger/iroha
           tags: iroha2-cli
-          build-args: |
+          build_args: |
             BIN=iroha_client_cli
             TARGET_DIR=release
             PROFILE=--release
@@ -117,7 +117,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB }}
           repository: hyperledger/iroha
           tags: iroha2-crypto-cli
-          build-args: |
+          build_args: |
             BIN=iroha_crypto_cli
             TARGET_DIR=release
             PROFILE=--release
