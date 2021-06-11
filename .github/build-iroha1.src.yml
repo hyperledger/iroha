@@ -306,6 +306,7 @@ jobs:
           echo >>$GITHUB_ENV CC=$CC                                               
           echo >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)
           echo >>$GITHUB_PATH $CCACHE_PATH
+          ls -lA $CCACHE_PATH
           $(realpath $CCACHE_PATH/cc) --show-config
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')
         env: &step_export_cxx_env

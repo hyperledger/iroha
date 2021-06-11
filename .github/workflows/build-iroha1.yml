@@ -310,7 +310,7 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
-        run: "set -xeuo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\n$(realpath $CCACHE_PATH/cc) --show-config\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
+        run: "set -xeuo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\nls -lA $CCACHE_PATH\n$(realpath $CCACHE_PATH/cc) --show-config\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
         env:
           CC: ${{matrix.cc}}
           CCACHE_PATH: /usr/lib/ccache
@@ -494,7 +494,7 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
-        run: "set -xeuo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\n$(realpath $CCACHE_PATH/cc) --show-config\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
+        run: "set -xeuo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\nls -lA $CCACHE_PATH\n$(realpath $CCACHE_PATH/cc) --show-config\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
         env:
           CC: ${{matrix.cc}}
           CCACHE_PATH: /usr/lib/ccache
@@ -675,7 +675,7 @@ jobs:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
-        run: "set -xeuo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\n$(realpath $CCACHE_PATH/cc) --show-config\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
+        run: "set -xeuo pipefail\nif test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi\necho >>$GITHUB_ENV CC=$CC                                               \necho >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)\necho >>$GITHUB_PATH $CCACHE_PATH\nls -lA $CCACHE_PATH\n$(realpath $CCACHE_PATH/cc) --show-config\necho >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')\n"
         env:
           CC: ${{matrix.cc}}
           CCACHE_PATH: /usr/local/opt/ccache/libexec
