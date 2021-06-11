@@ -265,7 +265,10 @@ jobs:
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
           END
-          test -n "$container"
+      -
+        run: test -n "$container"
+        env:
+          container: *container
       -
         # if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
         #          needs.Docker-iroha-builder.outputs._dockertag == '' }}
