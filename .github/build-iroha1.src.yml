@@ -305,7 +305,7 @@ jobs:
       - &step_export_cxx
         name: export CC and CXX
         run: |
-          set -xeuo pipefail
+          set -xeu   #o pipefail
           if test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
           echo >>$GITHUB_ENV CC=$CC                                               
           echo >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)
