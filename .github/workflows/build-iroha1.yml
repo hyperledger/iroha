@@ -251,7 +251,7 @@ jobs:
           END
       - # if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
         #          needs.Docker-iroha-builder.outputs._dockertag == '' }}
-        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag }}
+        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag || needs.Docker-iroha-builder.outputs.container == '' }}
         name: Possible WARNING
         env:
           container: ${{needs.Docker-iroha-builder.outputs.container}}
@@ -435,7 +435,7 @@ jobs:
           END
       - # if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
         #          needs.Docker-iroha-builder.outputs._dockertag == '' }}
-        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag }}
+        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag || needs.Docker-iroha-builder.outputs.container == '' }}
         name: Possible WARNING
         env:
           container: ${{needs.Docker-iroha-builder.outputs.container}}
