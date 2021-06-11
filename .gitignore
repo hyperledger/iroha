@@ -3,10 +3,11 @@
 **/*.rs.bk
 **/rusty-tags.vi
 
-config/__pycahe__
+config/__pycaсhe__
 **/__pycache__/*
 __pycache__/*
 build/*
+*.profraw
 *.DS_Store
 *.vscode/
 *.swp

@@ -91,11 +91,6 @@ jobs:
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - name: Set nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly-2021-02-20
-          override: true
       - name: Install dependencies
         run: |
           apt-get update
@@ -104,20 +99,26 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
+      - name: Install grcov
+        run: cargo install grcov
       - name: Cargo clean
-        uses: actions-rs/cargo@v1
-        with:
-          command: clean
+        run: cargo clean
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
+      - name: Cargo build
+        run: cargo build
+        env:
+          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTC_BOOTSTRAP: 1
       - name: Run tests
         run: cargo test --workspace -- --test-threads=1
         env:
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests"
-          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTC_BOOTSTRAP: 1
+          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate coverage report
-        id: coverage
-        uses: actions-rs/grcov@v0.1
+        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
-          file: ${{ steps.coverage.outputs.report }}
+          file: lcov.info
