@@ -79,7 +79,7 @@ jobs:
     runs-on: [ self-hosted, Linux ]
     # continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
     env: &env_dockerhub
-      DOCKERHUB_ORG:      ${{ secrets.DOCKERHUB_ORG }}
+      DOCKERHUB_ORG:      iroha1 ##ToDo hypeledger   #cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
@@ -135,9 +135,10 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          if test "x$DOCKERHUB_ORG" = "x" ;then
-            echo >>$GITHUB_ENV  DOCKERHUB_ORG=hyperledger
-          fi
+          test -n "$DOCKERHUB_ORG" || {
+            echo ::error::"DOCKERHUB_ORG must contain value"
+            false
+          }
       - &step_docker_login
         name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
@@ -204,12 +205,10 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       -
-        name: Check if dockertaghash is already pushed
+        name: Check if dockertaghash exists in remote registry
         id: dockertag_already
         run: |
-          org=${{secrets.DOCKERHUB_ORG}}
-          org=${org:-iroha1}
-          exists=$( curl -fL https://hub.docker.com/v2/repositories/$org/iroha-builder/tags |
+          exists=$( curl -fL https://hub.docker.com/v2/repositories/$DOCKERHUB_ORG/iroha-builder/tags |
             jq 'any( .results[]|.name == "${{env.dockertag}}" ; .)' )
           echo "::set-output name=exists::$exists"
 
@@ -218,12 +217,13 @@ jobs:
           else
             tag=edge
           fi
-          container="$org/iroha-builder:$tag"
+          container="$DOCKERHUB_ORG/iroha-builder:$tag"
           echo "::set-output name=container::$container"
           echo "::set-output name=container_tag::$tag"
     outputs:
-      # DOCKERHUB_ORG: ${{secrets.DOCKERHUB_ORG}}  ## WARN secret dropped from output!, and secret cannot be used in job:container directly, and there is no github non-secret variables...
-      ## if dockertag is already pushed then use it. But let it empty when tag does not exist remotely.
+      ## WARN secret dropped from output!, output may not contain secret,
+      ## and secret cannot be used in job:container directly, and there is no github non-secret variables...
+      ## if dockertag is already pushed then use it. But let it be empty when tag does not exist remotely.
       dockertag:   ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
       # login_failed: ${{steps.login_failed.outputs.result}}
@@ -265,6 +265,7 @@ jobs:
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
           END
+          test -n "$container"
       -
         # if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
         #          needs.Docker-iroha-builder.outputs._dockertag == '' }}
@@ -273,14 +274,13 @@ jobs:
         name: Possible WARNING
         env:
           container: *container
+          dockertag: ${{needs.Docker-iroha-builder.outputs.dockertag}}
         run: |
           cat <<END
             ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
-            The most possible reason you see this message is that docker image
-            '${{needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG}}/iroha-builder${{needs.Docker-iroha-builder.outputs._dockertag}}'
-            was not pushed to Dockerhub. Because credentials are wrong or empty or inaccessable.
-            GitHub secrets are inaccessable to PRs from public forks.
+            It seems container with tag '$dockertag' was not push to registry and does not exist remotely.
+            The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
 
             $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
               && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
