@@ -1,6 +1,5 @@
 protobuf
 grpc
-tbb
 gtest
 benchmark
 gflags
@@ -9,6 +8,7 @@ rapidjson
 fmt
 spdlog
 boost-filesystem
+boost-iostreams
 boost-system
 boost-thread
 boost-variant
@@ -23,3 +23,5 @@ boost-property-tree
 boost-process
 iroha-ed25519
 rocksdb
+rxcpp
+prometheus-cpp

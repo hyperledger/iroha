@@ -96,11 +96,6 @@ find_package(gflags 2.2.2 REQUIRED CONFIG)
 find_package(rxcpp)
 
 ##########################
-#          TBB           #
-##########################
-find_package(TBB REQUIRED CONFIG)
-
-##########################
 #         boost          #
 ##########################
 find_package(Boost 1.65.0 REQUIRED
