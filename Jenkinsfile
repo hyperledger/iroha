@@ -393,7 +393,7 @@ node ('master') {
 
   def s390xLinuxBuildSteps
   def s390xLinuxPostSteps = new Builder.PostSteps()
-  if(!s390xlinux_compiler_list.isEmpty()){
+  if(false && !s390xlinux_compiler_list.isEmpty()){
     s390xLinuxAlwaysPostSteps = new Builder.PostSteps(
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}])
     s390xLinuxPostSteps = new Builder.PostSteps(
