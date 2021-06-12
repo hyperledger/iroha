@@ -1,0 +1,26 @@
+From 6afefd3224c2ab3da80564ef2be2259a4b0c620c Mon Sep 17 00:00:00 2001
+From: Andrei Lebedev <lebdron@gmail.com>
+Date: Wed, 11 Mar 2020 10:18:14 +0300
+Subject: [PATCH] Add check for amd64-64-24k-pic target
+
+Signed-off-by: Andrei Lebedev <lebdron@gmail.com>
+---
+ cmake/ed25519_merge_libraries.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/ed25519_merge_libraries.cmake b/cmake/ed25519_merge_libraries.cmake
+index f6ad14b..f2a61cd 100644
+--- a/cmake/ed25519_merge_libraries.cmake
++++ b/cmake/ed25519_merge_libraries.cmake
+@@ -46,7 +46,7 @@ function(ed25519_merge_libraries TARGET LIBTYPE)
+ 
+       else()
+         # it is shared library
+-        if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
++        if (${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND TARGET amd64-64-24k-pic)
+           ed25519_target_link_libraries(amd64-64-24k-pic
+             "-Wl,--version-script=${CMAKE_SOURCE_DIR}/linker_exportmap"
+             )
+-- 
+2.25.1
+

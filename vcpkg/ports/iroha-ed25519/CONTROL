@@ -1,0 +1,3 @@
+Source: iroha-ed25519
+Version: 2.0.1
+Description: RFC8032 compatible Ed25519 implementation with pluggable hash (sha2-512, sha3-512).
