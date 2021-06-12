@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.comment &&
           github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/buildme') }}
+          startsWith(github.event.comment.body, '/build') }}
     steps:
       - &step_show_context
         name: Show context
@@ -234,12 +234,9 @@ jobs:
 
   ## Build in a docker container
   build-iroha-ubuntu-debug: &job_ubuntu
-    # if: ${{ event_name == 'workflow_dispatch' and }}
     needs: Docker-iroha-builder
-    ## Allow if: 1. Docker-iroha-builder was skipped (temp fix); 2. for pull_request only gcc-9
-    # if: ${{ success() || needs.Docker-iroha-builder.outputs.login_failed == 'true' || needs.Docker-iroha-builder.result == 'skipped' }}
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    ## Container tag is taken from previous job or [default]'edge'; default=iroha1/iroha-builder:edge
+    ## Container is taken from previous job
     container: &container ${{needs.Docker-iroha-builder.outputs.container}}
     # container: &container
     #   ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
@@ -554,10 +551,10 @@ jobs:
   release-iroha-docker-image:
     needs: build-iroha-ubuntu-release
     runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
-    # if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix: *matrix_release
+    #if: matrix.dockerpush == '' || matrix.dockerpush == 'yes'
     env: *env_dockerhub
     steps:
       - *step_show_context
