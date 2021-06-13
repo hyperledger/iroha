@@ -8,7 +8,6 @@
 #include <numeric>
 
 #include <fmt/core.h>
-#include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -264,7 +263,7 @@ namespace iroha::ametsuchi {
           auto const &domain_id = names.at(1);
 
           common.valueBuffer().assign(asset.balance().toStringRepr());
-          RDB_ERROR_CHECK(forAccountAssets<kDbOperation::kPut>(
+          RDB_ERROR_CHECK(forAccountAsset<kDbOperation::kPut>(
               common, account_name, domain_id, asset.assetId()));
           return {};
         },

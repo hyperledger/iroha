@@ -33,7 +33,9 @@
  *                |           |         |           +-<peer_2_pubkey, value:address>
  *                |           |         |
  *                |           |         +-|TLS|-+-<peer_1, value:tls>
- *                |           |                 +-<peer_2, value:tls>
+ *                |           |         |       +-<peer_2, value:tls>
+ *                |           |         |
+ *                |           |         +-<count, value>
  *                |           |
  *                |           +-|STORE|-+-<top_block, value: store height#top block hash>
  *                |                     +-<total transactions count>
@@ -125,6 +127,7 @@
  * ### F_QUORUM      ##       q       ###
  * ### F_ASSET SIZE  ##       I       ###
  * ### F_TOP BLOCK   ##       Q       ###
+ * ### F_PEERS COUNT ##       Z       ###
  * ######################################
  *
  * ######################################
@@ -163,6 +166,7 @@
 #define RDB_F_QUORUM "q"
 #define RDB_F_ASSET_SIZE "I"
 #define RDB_F_TOP_BLOCK "Q"
+#define RDB_F_PEERS_COUNT "Z"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -172,6 +176,8 @@ namespace iroha::ametsuchi::fmtstrings {
       sizeof(RDB_DELIMITER) / sizeof(RDB_DELIMITER[0]) - 1ull;
 
   static constexpr size_t kDelimiterCountForAField = 2ull;
+
+  static const std::string kDelimiter{RDB_DELIMITER};
 
   /**
    * ######################################
@@ -206,6 +212,10 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kPathTransactionByPosition{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_POSITION)};
+
+  // domain_id/account_name ➡️ value
+  static auto constexpr kPathAccountDetail{
+      FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_DETAILS)};
 
   /**
    * ######################################
@@ -248,11 +258,10 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kAccountAsset{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ASSETS /**/ RDB_XXX)};
 
-  // domain_id/account_name/writer_domain_id/writer_account_name/key ➡️
+  // domain_id/account_name/writer_id/key ➡️
   // value
   static auto constexpr kAccountDetail{
-      FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_DETAILS /**/ RDB_XXX /**/
-                     RDB_XXX /**/ RDB_XXX)};
+      FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_DETAILS /**/ RDB_XXX /**/ RDB_XXX)};
 
   // pubkey ➡️ address
   static auto constexpr kPeerAddress{
@@ -293,6 +302,11 @@ namespace iroha::ametsuchi::fmtstrings {
   // account_domain_id/account_name ➡️ size
   static auto constexpr kAccountAssetSize{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_OPTIONS /**/ RDB_F_ASSET_SIZE)};
+
+  static auto constexpr kPeersCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
+                     RDB_F_PEERS_COUNT)};
+
 }  // namespace iroha::ametsuchi::fmtstrings
 
 #undef RDB_ADDRESS
@@ -322,6 +336,7 @@ namespace iroha::ametsuchi::fmtstrings {
 #undef RDB_SIGNATORIES
 #undef RDB_ITEM
 #undef RDB_F_TOP_BLOCK
+#undef RDB_F_PEERS_COUNT
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -329,7 +344,10 @@ namespace {
 
 namespace iroha::ametsuchi {
 
-  static constexpr uint32_t kErrorNoPermissions = 7;
+  static constexpr uint32_t kErrorNoPermissions = 2;
+
+  struct RocksDBPort;
+  class RocksDbCommon;
 
   struct RocksDBPort;
   class RocksDbCommon;
@@ -623,7 +641,7 @@ namespace iroha::ametsuchi {
                              status.ToString());
 
     return makeError<void>(
-        13, "{}. Must not exist.", std::forward<F>(op_formatter)());
+        4, "{}. Must not exist.", std::forward<F>(op_formatter)());
   }
 
   template <typename F>
@@ -631,7 +649,7 @@ namespace iroha::ametsuchi {
       rocksdb::Status const &status, F &&op_formatter) {
     if (status.IsNotFound())
       return makeError<void>(
-          14, "{}. Was not found.", std::forward<F>(op_formatter)());
+          3, "{}. Was not found.", std::forward<F>(op_formatter)());
 
     if (!status.ok())
       return makeError<void>(15,
@@ -775,6 +793,34 @@ namespace iroha::ametsuchi {
         perm = shared_model::interface::RolePermissionSet{common.valueBuffer()};
 
     return perm;
+  }
+
+  /**
+   * Access to peers count file
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forPeersCount(
+      RocksDbCommon &common) {
+    auto status =
+        executeOperation<kOp, kSc>(common,
+                                   [&] { return fmt::format("Peers count"); },
+                                   fmtstrings::kPeersCount);
+    RDB_ERROR_CHECK(status);
+
+    std::optional<uint64_t> count;
+    if constexpr (kOp == kDbOperation::kGet)
+      if (status.assumeValue().ok()) {
+        uint64_t _;
+        common.decode(_);
+        count = _;
+      }
+
+    return count;
   }
 
   /**
@@ -984,7 +1030,7 @@ namespace iroha::ametsuchi {
 
     auto status = executeOperation<kOp, kSc>(
         common,
-        [&] { return fmt::format("Asset {}@{}", asset, domain); },
+        [&] { return fmt::format("Asset {}#{}", asset, domain); },
         fmtstrings::kAsset,
         domain,
         asset);
@@ -1082,30 +1128,26 @@ namespace iroha::ametsuchi {
   forAccountDetail(RocksDbCommon &common,
                    std::string_view account,
                    std::string_view domain,
-                   std::string_view creator_account,
-                   std::string_view creator_domain,
+                   std::string_view creator_id,
                    std::string_view key) {
     assert(!domain.empty());
     assert(!account.empty());
-    assert(!creator_domain.empty());
-    assert(!creator_account.empty());
+    assert(!creator_id.empty());
     assert(!key.empty());
 
     auto status = executeOperation<kOp, kSc>(
         common,
         [&] {
-          return fmt::format("Account {}@{} detail for {}@{} with key {}",
+          return fmt::format("Account {} detail for {}@{} with key {}",
+                             creator_id,
                              account,
                              domain,
-                             creator_account,
-                             creator_domain,
                              key);
         },
         fmtstrings::kAccountDetail,
         domain,
         account,
-        creator_domain,
-        creator_account,
+        creator_id,
         key);
     RDB_ERROR_CHECK(status);
 
@@ -1233,10 +1275,10 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kCanExist>
   inline expected::Result<std::optional<shared_model::interface::Amount>,
                           DbError>
-  forAccountAssets(RocksDbCommon &common,
-                   std::string_view account,
-                   std::string_view domain,
-                   std::string_view asset) {
+  forAccountAsset(RocksDbCommon &common,
+                  std::string_view account,
+                  std::string_view domain,
+                  std::string_view asset) {
     assert(!domain.empty());
     assert(!account.empty());
     assert(!asset.empty());

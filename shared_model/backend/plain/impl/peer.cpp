@@ -29,6 +29,6 @@ const std::optional<shared_model::interface::types::TLSCertificateType>
   return tls_certificate_;
 }
 
-void Peer::setTlsCertificate(interface::types::TLSCertificateType cert) {
-  tls_certificate_ = std::move(cert);
+void Peer::setTlsCertificate(interface::types::TLSCertificateTypeView cert) {
+  tls_certificate_ = cert;
 }

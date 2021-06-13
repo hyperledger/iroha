@@ -27,7 +27,7 @@ namespace shared_model {
       const std::optional<interface::types::TLSCertificateType>
           &tlsCertificate() const override;
 
-      void setTlsCertificate(interface::types::TLSCertificateType cert);
+      void setTlsCertificate(interface::types::TLSCertificateTypeView cert);
 
      private:
       const interface::types::AddressType address_;
