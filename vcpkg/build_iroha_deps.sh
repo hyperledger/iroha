@@ -9,7 +9,7 @@ VCPKG_REF=${VCPKG_REF:-2021.05.12}
 git -C $vcpkg_path fetch origin ||
    git clone https://github.com/microsoft/vcpkg $vcpkg_path
 
-git -C $vcpkg_path checkout -f $VCPKG_REF
+git -C $vcpkg_path -c advice.detachedHead=false checkout -f $VCPKG_REF
 git -C $vcpkg_path/ports clean -fdx
 
 ## Apply patches, bypass if already applied, stop on fail
@@ -57,7 +57,7 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
          git -C $vcpkg_tool_path fetch origin ||
             git clone https://github.com/microsoft/vcpkg-tool.git $vcpkg_tool_path
          cd $vcpkg_tool_path
-         git checkout $VCPKG_TOOL_REF
+         git -c advice.detachedHead=false checkout $VCPKG_TOOL_REF
          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_TESTING=OFF -DVCPKG_DEVELOPMENT_WARNINGS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
          cmake --build build
          cp build/vcpkg $vcpkg_path/vcpkg

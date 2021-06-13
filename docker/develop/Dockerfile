@@ -52,13 +52,15 @@ RUN pip3 install --no-cache-dir cmake ninja
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -xe; \
+    case "$(uname -m)" in  arm*|s390*|ppc64*)  export VCPKG_FORCE_SYSTEM_BINARIES=1 ;; esac; \
     /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
     chmod +x /opt/dependencies/installed/*/tools/protobuf/protoc*; \
     unset VCPKG_FORCE_SYSTEM_BINARIES; \
     rm -rf /tmp/vcpkg*
-    ##NOTE libpq still fails with export VCPKG_FORCE_SYSTEM_BINARIES=1; \
+    ##NOTE Newer packages like libpq may require newer cmake version, and will fail with no sanity error message when VCPKG_FORCE_SYSTEM_BINARIES=1;
+    ##NOTE But vcpkg on platforms arm,s390,ppc64 require VCPKG_FORCE_SYSTEM_BINARIES=1
 
 # install sonar cli
 ENV SONAR_CLI_VERSION=3.3.0.1492
