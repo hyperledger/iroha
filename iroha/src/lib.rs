@@ -46,7 +46,7 @@ use crate::{
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
-/// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
+/// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
 #[derive(Debug)]
 pub struct Iroha<
     W = World,
@@ -96,10 +96,10 @@ where
     /// - Initialization of sumeragi
     pub async fn new(
         config: &Configuration,
-        validiator: IsInstructionAllowedBoxed<K::World>,
+        validator: IsInstructionAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
-        Self::with_broker(config, validiator, broker).await
+        Self::with_broker(config, validator, broker).await
     }
 
     /// Creates Iroha with specified broker
@@ -110,7 +110,7 @@ where
     /// - Initialization of sumeragi
     pub async fn with_broker(
         config: &Configuration,
-        validiator: IsInstructionAllowedBoxed<K::World>,
+        validator: IsInstructionAllowedBoxed<K::World>,
         broker: Broker,
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
@@ -155,7 +155,7 @@ where
             &config.sumeragi_configuration,
             events_sender.clone(),
             Arc::clone(&wsv),
-            validiator,
+            validator,
             genesis_network,
             queue.clone(),
             broker.clone(),

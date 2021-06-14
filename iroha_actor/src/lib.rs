@@ -129,7 +129,7 @@ impl<A: Actor> Addr<A> {
         Recipient(Box::new(self.clone()))
     }
 
-    /// Contstructs address which will never panic on sending.
+    /// Constructs address which will never panic on sending.
     ///
     /// Beware: You need to make sure that this actor will be always alive
     pub fn expect_running(self) -> AlwaysAddr<A> {
@@ -237,7 +237,7 @@ pub trait Actor: Send + Sized + 'static {
     /// At stop hook of actor
     async fn on_stop(&mut self, _ctx: &mut Context<Self>) {}
 
-    /// Initilize actor with its address.
+    /// Initialize actor with its address.
     fn preinit(self) -> InitializedActor<Self> {
         let mailbox_capacity = self.mailbox_capacity();
         InitializedActor::new(self, mailbox_capacity)
@@ -444,15 +444,35 @@ impl<A: Actor> Context<A> {
     }
 
     /// Notifies actor with items from stream
-    pub fn notify_with<M, S>(&self, mut stream: S)
+    pub fn notify_with<M, S>(&self, stream: S)
     where
         M: Message<Result = ()> + Send + 'static,
-        S: Stream<Item = M> + Unpin + Send + 'static,
+        S: Stream<Item = M> + Send + 'static,
         A: Handler<M>,
     {
         let addr = self.addr();
         drop(task::spawn(
             async move {
+                futures::pin_mut!(stream);
+                while let Some(item) = stream.next().await {
+                    addr.do_send(item).await;
+                }
+            }
+            .in_current_span(),
+        ));
+    }
+
+    /// Notifies actor with items from stream
+    pub fn notify_with_context<M, S>(&self, stream: S)
+    where
+        M: Message<Result = ()> + Send + 'static,
+        S: Stream<Item = M> + Send + 'static,
+        A: ContextHandler<M>,
+    {
+        let addr = self.addr();
+        drop(task::spawn(
+            async move {
+                futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
                     addr.do_send(item).await;
                 }
