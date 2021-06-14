@@ -1,0 +1,31 @@
+[package]
+name = "iroha_p2p"
+version = "0.1.0"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2018"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha"]
+categories = ["cryptography::cryptocurrencies", "network-programming"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iroha_logger = { path = "../iroha_logger" }
+iroha_crypto = { path = "../iroha_crypto" }
+iroha_actor = { path = "../iroha_actor" }
+iroha_error = { path = "../iroha_error" }
+iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
+iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
+iroha_data_model = { path = "../iroha_data_model" }
+
+rand = "0.7.3"
+tokio = { version = "1.6.0", features = ["net",  "sync", "time", "rt", "io-util"]}
+async-stream = "0.3"
+futures = { version = "0.3.4" }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+parity-scale-codec = { version = "2", features = ["derive"] }
+ursa = "=0.3.5"
+aead = "0.3.2"

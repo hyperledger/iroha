@@ -52,6 +52,7 @@ tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-mu
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 iroha_futures = { path = "../iroha_futures" }
 iroha_telemetry = { path = "../iroha_telemetry", optional = true }
+iroha_p2p = { version = "=0.1.0", path = "../iroha_p2p" }
 async-trait = "0.1"
 
 [dev-dependencies]
