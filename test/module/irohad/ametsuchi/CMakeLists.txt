@@ -115,6 +115,7 @@ target_link_libraries(rocksdb_executor_test
     commands_mocks_factory
     test_logger
     common_test_constants
+    sync_subscription
     )
 
 addtest(postgres_query_executor_test postgres_query_executor_test.cpp)
