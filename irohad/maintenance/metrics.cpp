@@ -94,16 +94,6 @@ Metrics::Metrics(std::string const &listen_addr,
   total_number_of_transactions.Set(
       storage_->getWsvQuery()->countTransactions().assumeValue());
 
-  auto &total_number_of_transactions_from_db_gauge =
-      BuildGauge()
-          .Name("total_number_of_transactions_from_db")
-          .Help("Total number of transactions in blockchain taken from DB")
-          .Register(*registry_);
-  auto &total_number_of_transactions_from_db =
-      total_number_of_transactions_from_db_gauge.Add({});
-  total_number_of_transactions_from_db.Set(
-      storage_->getWsvQuery()->countTransactions().assumeValue());
-
   auto &number_of_signatures_in_last_block_gauge =
       BuildGauge()
           .Name("number_of_signatures_in_last_block")
@@ -131,12 +121,8 @@ Metrics::Metrics(std::string const &listen_addr,
                 boost::size(pblock->signatures()));
             total_number_of_transactions.Increment(
                 boost::size(pblock->transactions()));
-            total_number_of_transactions_from_db.Set(
-                storage_->getWsvQuery()->countTransactions().assumeValue());
             logger_->info("total_number_of_transactions {}",
                        total_number_of_transactions.Value());
-            logger_->info("total_number_of_transactions_from_db {}",
-                          total_number_of_transactions_from_db.Value());
             int domains_diff = 0, peers_diff = 0;
             using namespace shared_model::interface;
             for (Transaction const &trx : pblock->transactions()) {
