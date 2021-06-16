@@ -59,7 +59,6 @@ class YacGateTest : public ::testing::Test {
             A<shared_model::interface::types::PublicKeyHexStringView>()))
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(round.block_round));
-    EXPECT_CALL(*block, txsNumber()).WillRepeatedly(Return(0));
     EXPECT_CALL(*block, createdTime()).WillRepeatedly(Return(1));
     EXPECT_CALL(*block, transactions())
         .WillRepeatedly(

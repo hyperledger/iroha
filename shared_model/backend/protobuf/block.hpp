@@ -41,8 +41,6 @@ namespace shared_model {
 
       interface::types::TimestampType createdTime() const override;
 
-      interface::types::TransactionsNumberType txsNumber() const override;
-
       interface::types::HashCollectionType rejected_transactions_hashes()
           const override;
 
