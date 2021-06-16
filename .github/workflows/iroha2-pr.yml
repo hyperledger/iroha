@@ -49,7 +49,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.52
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: iroha_client_cli
