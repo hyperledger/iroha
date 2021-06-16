@@ -115,7 +115,8 @@ Irohad::Irohad(
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
-    : config_(config),
+    : se_(getSubscription()),
+      config_(config),
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),

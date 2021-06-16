@@ -8,4 +8,5 @@ target_link_libraries(chain_validator_storage_test
     yac
     chain_validator
     test_logger
+    sync_subscription
     )

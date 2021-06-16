@@ -13,6 +13,7 @@ namespace iroha {
     kYac = 0,
     kRequestProposal,
     kVoteProcess,
+    kMetrics,
     //---------------
     kTotalCount
   };
