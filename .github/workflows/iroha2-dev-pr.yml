@@ -128,7 +128,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.52
       - name: Install dependencies
         if: ${{ false }}
         run: |
