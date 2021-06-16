@@ -829,6 +829,15 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
                     forAsset<kDbOperation::kCheck, kDbEntry::kMustExist>(
                         common, asset_name, domain_id));
 
+  if (*opt_result < command.amount().precision())
+    return makeError<void>(
+        3,
+        "Invalid precision of asset: {} from: {}. Expected: {}, but got: {}",
+        command.assetId(),
+        creator_account_id,
+        *opt_result,
+        command.amount().precision());
+
   shared_model::interface::Amount result(*opt_result);
   RDB_TRY_GET_VALUE(
       opt_amount,
@@ -836,13 +845,6 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
           common, creator_account_name, creator_domain_id, command.assetId()));
   if (opt_amount)
     result = std::move(*opt_amount);
-
-  RDB_TRY_GET_VALUE(
-      opt_account_asset_size,
-      forAccountAssetSize<kDbOperation::kGet, kDbEntry::kCanExist>(
-          common, creator_account_name, creator_domain_id));
-  uint64_t account_asset_size =
-      opt_account_asset_size ? *opt_account_asset_size : 0ull;
 
   result -= amount;
   common.valueBuffer().assign(result.toStringRepr());
@@ -855,14 +857,6 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   RDB_ERROR_CHECK(forAccountAsset<kDbOperation::kPut>(
       common, creator_account_name, creator_domain_id, command.assetId()));
-
-  if (result == shared_model::interface::Amount("0")) {
-    --account_asset_size;
-
-    common.encode(account_asset_size);
-    RDB_ERROR_CHECK(forAccountAssetSize<kDbOperation::kPut>(
-        common, creator_account_name, creator_domain_id));
-  }
 
   return {};
 }
