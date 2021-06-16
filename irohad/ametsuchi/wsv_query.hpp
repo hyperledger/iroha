@@ -6,9 +6,9 @@
 #ifndef IROHA_WSV_QUERY_HPP
 #define IROHA_WSV_QUERY_HPP
 
+#include <boost/optional.hpp>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
@@ -39,6 +39,35 @@ namespace iroha {
       virtual boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() = 0;
+
+      // ToDo?(kuvaldini,iceseer) #997
+      // /**
+      //  * @brief Fetch domains stored in ledger
+      //  * @return list of domains in insertion to ledger order
+      //  */
+      // virtual iroha::expected::Result<
+      //   std::vector<std::shared_ptr<shared_model::interface::Domain>>,
+      //   std::string>
+      // getDomains() = 0;
+
+      /**
+       * @brief Fetch number of domains in ledger
+       * @return number of domains in ledger
+       */
+      virtual iroha::expected::Result<size_t, std::string> countPeers() = 0;
+
+      /**
+       * @brief Fetch number of domains in ledger
+       * @return number of domains in ledger
+       */
+      virtual iroha::expected::Result<size_t, std::string> countDomains() = 0;
+
+      /**
+       * @brief Fetch number of valid transactions in ledger
+       * @return number of transactions in ledger
+       */
+      virtual iroha::expected::Result<size_t, std::string>
+      countTransactions() = 0;
 
       /**
        * Fetch peer with given public key from ledger

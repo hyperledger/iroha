@@ -259,12 +259,6 @@ int main(int argc, char *argv[]) {
           log_manager);
     }
 
-    if (FLAGS_metrics_port.size()) {
-      maintenance_metrics_init(FLAGS_metrics_addr + ":" + FLAGS_metrics_port);
-    } else if (config.metrics_addr_port.size()) {
-      maintenance_metrics_init(config.metrics_addr_port);
-    }
-
     daemon_status_notifier->notify(
         ::iroha::utility_service::Status::kInitialization);
 
@@ -374,10 +368,18 @@ int main(int argc, char *argv[]) {
 
         // clear previous storage if any
         irohad->dropStorage();
+        // Check if iroha daemon storage was successfully re-initialized
+        if (not irohad->storage) {
+          // Abort execution if not
+          log->error("Failed to re-initialize storage");
+          daemon_status_notifier->notify(
+              ::iroha::utility_service::Status::kFailed);
+          return EXIT_FAILURE;
+        }
 
         const auto txs_num = block->transactions().size();
-        if (auto e = iroha::expected::resultToOptionalError(
-                irohad->storage->insertBlock(std::move(block)))) {
+        auto inserted = irohad->storage->insertBlock(std::move(block));
+        if (auto e = iroha::expected::resultToOptionalError(inserted)) {
           log->critical("Could not apply genesis block: {}", e.value());
           return EXIT_FAILURE;
         }
@@ -391,19 +393,17 @@ int main(int argc, char *argv[]) {
             "genesis block is provided. Please pecify new genesis block using "
             "--genesis_block parameter.");
         return EXIT_FAILURE;
-      } else {
-        if (overwrite) {
-          // no genesis, blockstore present, overwrite specified -> new block
-          // store, world state should be reset
-          irohad->resetWsv();
-          if (not FLAGS_reuse_state) {
-            log->warn(
-                "No new genesis block is specified - blockstore will not be "
-                "overwritten. If you want overwrite ledger state, please "
-                "specify new genesis block using --genesis_block parameter. "
-                "If you want to reuse existing state data (WSV), consider the "
-                "--reuse_state flag.");
-          }
+      } else if (overwrite) {
+        // no genesis, blockstore present, overwrite specified -> new block
+        // store, world state should be reset
+        irohad->resetWsv();
+        if (not FLAGS_reuse_state) {
+          log->warn(
+              "No new genesis block is specified - blockstore will not be "
+              "overwritten. If you want overwrite ledger state, please "
+              "specify new genesis block using --genesis_block parameter. "
+              "If you want to reuse existing state data (WSV), consider the "
+              "--reuse_state flag.");
         }
       }
     }
@@ -445,6 +445,29 @@ int main(int argc, char *argv[]) {
 #ifdef SIGQUIT
     std::signal(SIGQUIT, handler);
 #endif
+
+    // start metrics
+    std::shared_ptr<Metrics> metrics;  // Must be a pointer because 'this' is
+                                       // captured to lambdas in constructor.
+    std::string metrics_addr;
+    if (FLAGS_metrics_port.size()) {
+      metrics_addr = FLAGS_metrics_addr + ":" + FLAGS_metrics_port;
+    } else if (config.metrics_addr_port.size()) {
+      metrics_addr = config.metrics_addr_port;
+    }
+    if (metrics_addr.empty()) {
+      log->info("Skiping Metrics initialization.");
+    } else {
+      try {
+        metrics =
+            Metrics::create(metrics_addr,
+                            irohad->storage,
+                            log_manager->getChild("Metrics")->getLogger());
+        log->info("Metrics listens on {}", metrics->getListenAddress());
+      } catch (std::exception const &ex) {
+        log->warn("Failed to initialize Metrics: {}", ex.what());
+      }
+    }
 
     // runs iroha
     log->info("Running iroha");
