@@ -4,6 +4,7 @@
  */
 
 #include <boost/variant.hpp>
+
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "backend/protobuf/query_responses/proto_error_query_response.hpp"
@@ -17,7 +18,6 @@
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_query_executor.hpp"
 #include "module/irohad/ametsuchi/mock_storage.hpp"
-#include "module/irohad/ametsuchi/mock_wsv_query.hpp"
 #include "module/irohad/validation/validation_mocks.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"

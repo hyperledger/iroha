@@ -5,10 +5,9 @@
 
 #include "ametsuchi/impl/storage_impl.hpp"
 
-#include <utility>
-
 #include <soci/callbacks.h>
 #include <soci/postgresql/soci-postgresql.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/range/algorithm/replace_if.hpp>
@@ -36,6 +35,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -307,7 +307,12 @@ namespace iroha {
           if (not maybe_block) {
             return fmt::format("Failed to fetch block {}", height);
           }
-          notifier_.get_subscriber().on_next(*std::move(maybe_block));
+
+          std::shared_ptr<const shared_model::interface::Block> block_ptr =
+              std::move(maybe_block.get());
+          notifier_.get_subscriber().on_next(block_ptr);
+          log_->info("StorageImpl::commit()  notify(EventTypes::kOnBlock)");
+          getSubscription()->notify(EventTypes::kOnBlock, block_ptr);
         }
         return expected::makeValue(std::move(commit_result.ledger_state));
       };
@@ -356,7 +361,11 @@ namespace iroha {
           throw std::runtime_error(e.value());
         }
 
+        log_->info("StorageImpl::commitPrepared()  notify(EventTypes::kOnBlock)");
         notifier_.get_subscriber().on_next(block);
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(block));
 
         decltype(std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
         {
@@ -455,6 +464,10 @@ namespace iroha {
         std::shared_ptr<const shared_model::interface::Block> block) {
       if (block_store_->insert(block)) {
         notifier_.get_subscriber().on_next(block);
+        log_->info("StorageImpl::storeBlock()  notify(EventTypes::kOnBlock)");
+        getSubscription()->notify(
+            EventTypes::kOnBlock,
+            std::shared_ptr<const shared_model::interface::Block>(block));
         return {};
       }
       return expected::makeError("Block insertion to storage failed");
