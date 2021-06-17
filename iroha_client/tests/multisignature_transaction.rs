@@ -14,13 +14,10 @@ mod tests {
     use iroha_data_model::prelude::*;
     use test_network::*;
 
-    const N_PEERS: u32 = 4;
-
     #[allow(clippy::too_many_lines)]
     #[test]
-    //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn multisignature_transactions_should_wait_for_all_signatures() {
-        let (network, _) = Network::start_test(N_PEERS, 1);
+        let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time * 3);

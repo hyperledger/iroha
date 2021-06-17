@@ -88,12 +88,12 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
+      - name: Run iroha tests with network mock
+        run: cargo test --features mock -- --ignored --test-threads=1
+        working-directory: iroha/test_network
       - name: Run iroha_network mock tests
         run: cargo test --features mock
         working-directory: iroha_network
-      - name: Run iroha tests with network mock
-        run: cargo test --features network-mock
-        working-directory: iroha
 
   test-deadlock_detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest
@@ -278,6 +278,7 @@ jobs:
   bench:
     runs-on: [self-hosted, Linux]
     container: rust:1.52-buster
+    if: ${{ false }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2

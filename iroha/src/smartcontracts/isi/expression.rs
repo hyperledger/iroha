@@ -10,11 +10,12 @@ use iroha_error::{error, Error, Result};
 
 use super::Evaluate;
 use crate::prelude::*;
+use crate::wsv::WorldTrait;
 
-impl<E: Into<Error>, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
+impl<E: Into<Error>, V: TryFrom<Value, Error = E>, W: WorldTrait> Evaluate<W> for EvaluatesTo<V> {
     type Value = V;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         match V::try_from(self.expression.evaluate(wsv, context)?) {
             Ok(value) => Ok(value),
             Err(err) => Err(err.into()),
@@ -22,10 +23,10 @@ impl<E: Into<Error>, V: TryFrom<Value, Error = E>> Evaluate for EvaluatesTo<V> {
     }
 }
 
-impl Evaluate for Expression {
+impl<W: WorldTrait> Evaluate<W> for Expression {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         use Expression::*;
         match self {
             Add(add) => add.evaluate(wsv, context),
@@ -52,10 +53,10 @@ impl Evaluate for Expression {
     }
 }
 
-impl Evaluate for ContextValue {
+impl<W: WorldTrait> Evaluate<W> for ContextValue {
     type Value = Value;
 
-    fn evaluate(&self, _wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, _wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         context
             .get(&self.value_name)
             .ok_or_else(|| error!("Value with name {} not found in context", self.value_name))
@@ -63,79 +64,79 @@ impl Evaluate for ContextValue {
     }
 }
 
-impl Evaluate for Add {
+impl<W: WorldTrait> Evaluate<W> for Add {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left + right).into())
     }
 }
 
-impl Evaluate for Subtract {
+impl<W: WorldTrait> Evaluate<W> for Subtract {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left - right).into())
     }
 }
 
-impl Evaluate for Greater {
+impl<W: WorldTrait> Evaluate<W> for Greater {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left > right).into())
     }
 }
 
-impl Evaluate for Less {
+impl<W: WorldTrait> Evaluate<W> for Less {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left < right).into())
     }
 }
 
-impl Evaluate for Not {
+impl<W: WorldTrait> Evaluate<W> for Not {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let expression = self.expression.evaluate(wsv, context)?;
         Ok((!expression).into())
     }
 }
 
-impl Evaluate for And {
+impl<W: WorldTrait> Evaluate<W> for And {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left && right).into())
     }
 }
 
-impl Evaluate for Or {
+impl<W: WorldTrait> Evaluate<W> for Or {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left || right).into())
     }
 }
 
-impl Evaluate for IfExpression {
+impl<W: WorldTrait> Evaluate<W> for IfExpression {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let condition = self.condition.evaluate(wsv, context)?;
         if condition {
             self.then_expression.evaluate(wsv, context)
@@ -145,20 +146,20 @@ impl Evaluate for IfExpression {
     }
 }
 
-impl Evaluate for Contains {
+impl<W: WorldTrait> Evaluate<W> for Contains {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let collection = self.collection.evaluate(wsv, context)?;
         let element = self.element.evaluate(wsv, context)?;
         Ok(collection.contains(&element).into())
     }
 }
 
-impl Evaluate for ContainsAll {
+impl<W: WorldTrait> Evaluate<W> for ContainsAll {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let collection = self.collection.evaluate(wsv, context)?;
         let elements = self.elements.evaluate(wsv, context)?;
         Ok(elements
@@ -168,10 +169,10 @@ impl Evaluate for ContainsAll {
     }
 }
 
-impl Evaluate for ContainsAny {
+impl<W: WorldTrait> Evaluate<W> for ContainsAny {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let collection = self.collection.evaluate(wsv, context)?;
         let elements = self.elements.evaluate(wsv, context)?;
         Ok(elements
@@ -181,20 +182,20 @@ impl Evaluate for ContainsAny {
     }
 }
 
-impl Evaluate for Equal {
+impl<W: WorldTrait> Evaluate<W> for Equal {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left == right).into())
     }
 }
 
-impl Evaluate for Where {
+impl<W: WorldTrait> Evaluate<W> for Where {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let additional_context: Result<Context> = self
             .values
             .clone()
@@ -216,30 +217,30 @@ impl Evaluate for Where {
     }
 }
 
-impl Evaluate for Multiply {
+impl<W: WorldTrait> Evaluate<W> for Multiply {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left * right).into())
     }
 }
 
-impl Evaluate for RaiseTo {
+impl<W: WorldTrait> Evaluate<W> for RaiseTo {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok(left.pow(right).into())
     }
 }
 
-impl Evaluate for Divide {
+impl<W: WorldTrait> Evaluate<W> for Divide {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         #[allow(clippy::integer_division)]
@@ -251,10 +252,10 @@ impl Evaluate for Divide {
     }
 }
 
-impl Evaluate for Mod {
+impl<W: WorldTrait> Evaluate<W> for Mod {
     type Value = Value;
 
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context) -> Result<Self::Value> {
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         Ok((left % right).into())
@@ -273,6 +274,7 @@ mod tests {
     use parity_scale_codec::{Decode, Encode};
 
     use super::*;
+    use crate::wsv::World;
 
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
@@ -312,7 +314,7 @@ mod tests {
             )
             .with_value("signatories".to_owned(), teller_signatory_set)
             .build();
-        let wsv = WorldStateView::new(World::new());
+        let wsv = WorldStateView::<World>::new(World::new());
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
@@ -353,7 +355,7 @@ mod tests {
             WhereBuilder::evaluate(ContextValue::new("test_value"))
                 .with_value("test_value".to_owned(), Add::new(2_u32, 3_u32))
                 .build()
-                .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
+                .evaluate(&WorldStateView::<World>::new(World::new()), &Context::new())?,
             Value::U32(5)
         );
         Ok(())
@@ -370,7 +372,8 @@ mod tests {
                 .build()
                 .into();
         assert_eq!(
-            outer_expression.evaluate(&WorldStateView::new(World::new()), &Context::new())?,
+            outer_expression
+                .evaluate(&WorldStateView::<World>::new(World::new()), &Context::new())?,
             Value::U32(6)
         );
         Ok(())
@@ -395,7 +398,7 @@ mod tests {
 
     #[test]
     fn if_condition_branches_correctly() -> Result<()> {
-        let wsv = WorldStateView::new(World::new());
+        let wsv = WorldStateView::<World>::new(World::new());
         assert_eq!(
             IfExpression::new(true, 1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(1)
@@ -411,11 +414,11 @@ mod tests {
     fn wrong_operand_types_are_caught() {
         fn assert_eval<I, E>(inst: &I, err_msg: &str)
         where
-            I: Evaluate + Debug,
+            I: Evaluate<World> + Debug,
             I::Value: Debug,
             E: StdError + Eq + Default + 'static,
         {
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::new(World::default());
             let result: Result<_> = inst.evaluate(&wsv, &Context::new());
             let err = result.expect_err(err_msg);
             let err = err.downcast_ref::<E>().unwrap();
@@ -454,7 +457,7 @@ mod tests {
 
     #[test]
     fn operations_are_correctly_calculated() -> Result<()> {
-        let wsv = WorldStateView::new(World::new());
+        let wsv = WorldStateView::<World>::new(World::new());
         assert_eq!(
             Add::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(3)
@@ -516,7 +519,7 @@ mod tests {
             serde_json::to_string(&expression).expect("Failed to serialize.");
         let deserialized_expression: ExpressionBox =
             serde_json::from_str(&serialized_expression).expect("Failed to deserialize.");
-        let wsv = WorldStateView::new(World::new());
+        let wsv = WorldStateView::<World>::new(World::new());
         assert_eq!(
             expression
                 .evaluate(&wsv, &Context::new())
@@ -533,7 +536,7 @@ mod tests {
         let serialized_expression: Vec<u8> = expression.encode();
         let deserialized_expression = ExpressionBox::decode(&mut serialized_expression.as_slice())
             .expect("Failed to decode.");
-        let wsv = WorldStateView::new(World::new());
+        let wsv = WorldStateView::<World>::new(World::new());
         assert_eq!(
             expression
                 .evaluate(&wsv, &Context::new())

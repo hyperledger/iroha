@@ -13,7 +13,7 @@ use test_network::*;
 
 #[test]
 fn transaction_event_should_be_sent_after_it_is_committed() -> Result<()> {
-    let (_, mut iroha_client) = TestPeer::start_test();
+    let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given

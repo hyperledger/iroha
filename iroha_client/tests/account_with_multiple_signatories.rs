@@ -14,7 +14,7 @@ mod tests {
 
     #[test]
     fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
-        let (peer, mut iroha_client) = TestPeer::start_test();
+        let (_rt, peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
         let pipeline_time = Configuration::pipeline_time();
         thread::sleep(pipeline_time);
 

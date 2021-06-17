@@ -2,8 +2,11 @@
 //! Iroha simple actor framework.
 //!
 
-use std::{fmt::Debug, time::Duration};
-use std::future::Future;
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+    time::Duration,
+};
 
 /// Derive macro for message:
 /// ```rust
@@ -18,6 +21,7 @@ use std::future::Future;
 /// ```
 pub use actor_derive::Message;
 use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
+use futures::{Stream, StreamExt};
 use iroha_logger::InstrumentFutures;
 use tokio::{
     sync::{
@@ -37,7 +41,9 @@ mod envelope;
 
 pub mod prelude {
     //! Module with most used items
-    pub use super::{broker, Actor, Addr, Context, Handler, Message, Recipient};
+    pub use super::{
+        broker, Actor, Addr, AlwaysAddr, Context, ContextHandler, Handler, Message, Recipient,
+    };
 }
 
 /// Address of actor. Can be used to send messages to it.
@@ -77,7 +83,7 @@ impl<A: Actor> Addr<A> {
     where
         M: Message + Send + 'static,
         M::Result: Send,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let (sender, reciever) = oneshot::channel();
         let envelope = SyncEnvelopeProxy::pack(message, Some(sender));
@@ -107,7 +113,7 @@ impl<A: Actor> Addr<A> {
     where
         M: Message + Send + 'static,
         M::Result: Send,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let envelope = SyncEnvelopeProxy::pack(message, None);
         // TODO: propagate the error.
@@ -118,9 +124,55 @@ impl<A: Actor> Addr<A> {
     pub fn recipient<M>(&self) -> Recipient<M>
     where
         M: Message<Result = ()> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         Recipient(Box::new(self.clone()))
+    }
+
+    /// Contstructs address which will never panic on sending.
+    ///
+    /// Beware: You need to make sure that this actor will be always alive
+    pub fn expect_running(self) -> AlwaysAddr<A> {
+        AlwaysAddr(self)
+    }
+}
+
+/// Address of an actor which is always alive.
+#[derive(Debug)]
+pub struct AlwaysAddr<A: Actor>(Addr<A>);
+
+impl<A: Actor> Clone for AlwaysAddr<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<A: Actor> Deref for AlwaysAddr<A> {
+    type Target = Addr<A>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<A: Actor> DerefMut for AlwaysAddr<A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<A: Actor> AlwaysAddr<A> {
+    /// Send a message and wait for an answer.
+    pub async fn send<M>(&self, message: M) -> M::Result
+    where
+        M: Message + Send + 'static,
+        M::Result: Send,
+        A: ContextHandler<M>,
+    {
+        #[allow(clippy::expect_used)]
+        self.deref()
+            .send(message)
+            .await
+            .expect("Failed to get response from actor. It should have never failed!")
     }
 }
 
@@ -154,7 +206,7 @@ trait Sender<M: Message<Result = ()>> {
 impl<A, M> Sender<M> for Addr<A>
 where
     M: Message<Result = ()> + Send + 'static,
-    A: Handler<M>,
+    A: ContextHandler<M>,
 {
     async fn send(&self, m: M) {
         self.do_send(m).await
@@ -167,9 +219,7 @@ where
     M: Message<Result = ()> + Send + 'static + Debug,
 {
     async fn send(&self, m: M) {
-        self.send(m)
-            .await
-            .expect("Failed to send message. Queue full");
+        let _result = self.send(m).await;
     }
 }
 
@@ -275,7 +325,7 @@ pub trait Message {
 
 /// Trait for actor for handling specific message type
 #[async_trait::async_trait]
-pub trait Handler<M: Message>: Actor {
+pub trait ContextHandler<M: Message>: Actor {
     /// Result of handler
     type Result: MessageResponse<M>;
 
@@ -285,7 +335,7 @@ pub trait Handler<M: Message>: Actor {
 
 /// Trait for actor for handling specific message type without context
 #[async_trait::async_trait]
-pub trait SimpleHandler<M: Message>: Actor {
+pub trait Handler<M: Message>: Actor {
     /// Result of handler
     type Result: MessageResponse<M>;
 
@@ -294,11 +344,11 @@ pub trait SimpleHandler<M: Message>: Actor {
 }
 
 #[async_trait::async_trait]
-impl<M: Message + Send + 'static, S: SimpleHandler<M>> Handler<M> for S {
+impl<M: Message + Send + 'static, S: Handler<M>> ContextHandler<M> for S {
     type Result = S::Result;
 
     async fn handle(&mut self, _: &mut Context<Self>, msg: M) -> Self::Result {
-        SimpleHandler::handle(self, msg).await
+        Handler::handle(self, msg).await
     }
 }
 
@@ -342,7 +392,7 @@ impl<A: Actor> Context<A> {
     pub fn recipient<M>(&self) -> Recipient<M>
     where
         M: Message<Result = ()> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         self.addr().recipient()
     }
@@ -351,7 +401,7 @@ impl<A: Actor> Context<A> {
     pub fn notify<M>(&self, message: M)
     where
         M: Message<Result = ()> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         drop(task::spawn(
@@ -393,18 +443,19 @@ impl<A: Actor> Context<A> {
         ));
     }
 
-    /// Sends actor specified message in a loop with specified duration
-    pub fn notify_future<M, F>(&self, future: F)
+    /// Notifies actor with items from stream
+    pub fn notify_with<M, S>(&self, mut stream: S)
     where
-        M: Message<Result = ()> + Default + Send + 'static,
+        M: Message<Result = ()> + Send + 'static,
+        S: Stream<Item = M> + Unpin + Send + 'static,
         A: Handler<M>,
-        F: Future<Output = ()> + Send + 'static,
     {
         let addr = self.addr();
         drop(task::spawn(
             async move {
-                future.await;
-                addr.do_send(M::default()).await;
+                while let Some(item) = stream.next().await {
+                    addr.do_send(item).await;
+                }
             }
             .in_current_span(),
         ));

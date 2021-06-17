@@ -10,7 +10,7 @@ use test_network::*;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
-    let (_, mut iroha_client) = TestPeer::start_test();
+    let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     let register = ('a'..'z')

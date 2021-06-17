@@ -27,7 +27,7 @@
 /// #[async_trait::async_trait]
 /// impl Handler<Message1> for Actor1 {
 ///     type Result = ();
-///     async fn handle(&mut self, ctx: &mut Context<Self>, msg: Message1) {
+///     async fn handle(&mut self, msg: Message1) {
 ///         println!("Actor1: {}", msg.0);
 ///     }
 /// }
@@ -42,7 +42,7 @@
 /// #[async_trait::async_trait]
 /// impl Handler<Message2> for Actor2 {
 ///     type Result = ();
-///     async fn handle(&mut self, ctx: &mut Context<Self>, msg: Message2) {
+///     async fn handle(&mut self, msg: Message2) {
 ///         println!("Actor2: {}", msg.0);
 ///         self.0.issue_send(Message1(msg.0.clone() + " world")).await;
 ///     }
@@ -66,6 +66,8 @@ type TypeMap<V> = DashMap<TypeId, V>;
 type BrokerRecipient = Box<dyn Any + Sync + Send + 'static>;
 
 /// Broker type. Can be cloned and shared between many actors.
+///
+/// TODO: There might be several actors of one type. We should handle this case!
 #[derive(Debug)]
 pub struct Broker(Arc<TypeMap<Vec<(TypeId, BrokerRecipient)>>>);
 
@@ -120,19 +122,22 @@ impl Broker {
     }
 
     /// Subscribe actor to specific message type
-    pub fn subscribe<M: BrokerMessage, A: Actor + Handler<M>>(&self, ctx: &mut Context<A>) {
+    pub fn subscribe<M: BrokerMessage, A: Actor + ContextHandler<M>>(&self, ctx: &mut Context<A>) {
         self.subscribe_recipient(ctx.recipient::<M>())
     }
 
     /// Subscribe with channel to specific message type
-    pub fn subscribe_also<M: BrokerMessage + Debug>(&self) -> mpsc::Receiver<M> {
+    pub fn subscribe_with_channel<M: BrokerMessage + Debug>(&self) -> mpsc::Receiver<M> {
         let (sender, receiver) = mpsc::channel(100);
         self.subscribe_recipient(sender.into());
         receiver
     }
 
     /// Unsubscribe actor to this specific message type
-    pub fn unsubscribe<M: BrokerMessage, A: Actor + Handler<M>>(&self, _ctx: &mut Context<A>) {
+    pub fn unsubscribe<M: BrokerMessage, A: Actor + ContextHandler<M>>(
+        &self,
+        _ctx: &mut Context<A>,
+    ) {
         let mut entry = if let Entry::Occupied(entry) = self.message_entry(TypeId::of::<M>()) {
             entry
         } else {

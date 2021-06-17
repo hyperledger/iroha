@@ -8,11 +8,13 @@ mod tests {
     use iroha_client::client;
     use iroha_data_model::prelude::*;
     use test_network::*;
+    use tokio::runtime::Runtime;
 
     #[test]
     fn genesis_block_is_commited_with_some_offline_peers() {
         // Given
-        let (_, mut iroha_client) = Network::start_test_with_offline(4, 1, 1);
+        let rt = Runtime::test();
+        let (_network, mut iroha_client) = rt.block_on(<Network>::start_test_with_offline(4, 1, 1));
         let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time * 8);

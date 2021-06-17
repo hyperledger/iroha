@@ -25,3 +25,4 @@ iroha_client = { version = "=0.1.0", path = "../iroha_client" }
 test_network = { path = "../iroha/test_network" }
 port_check = "0.1.5"
 tempfile = "3"
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}

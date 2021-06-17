@@ -35,6 +35,7 @@ iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_http_server = { version = "=0.1.0", path = "../iroha_http_server" }
 iroha_version = { version = "=0.1.0", path = "../iroha_version", features = ["http_error"] }
+iroha_actor = { version = "=0.1.0", path = "../iroha_actor" }
 iroha_config = { version = "=0.1.0", path = "../iroha_config" }
 chrono = "0.4"
 clap = "2.33.0"
@@ -51,6 +52,7 @@ tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-mu
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 iroha_futures = { path = "../iroha_futures" }
 iroha_telemetry = { path = "../iroha_telemetry", optional = true }
+async-trait = "0.1"
 
 [dev-dependencies]
 hex-literal = "0.2.1"

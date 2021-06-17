@@ -1,6 +1,5 @@
 #![allow(clippy::module_inception, unused_results, clippy::restriction)]
 
-use std::ops::Not;
 use std::thread;
 
 use iroha::config::Configuration;
@@ -12,7 +11,7 @@ use test_network::*;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    let (_, mut test_client) = TestPeer::start_test();
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -47,7 +46,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 
 #[test]
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
-    let (_, mut test_client) = TestPeer::start_test();
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -58,14 +57,17 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
         normal_asset_definition_id.clone(),
     )));
     test_client.submit(create_asset)?;
+    iroha_logger::info!("Creating asset");
 
     let too_long_asset_name = "0".repeat(2_usize.pow(14));
     let incorrect_asset_definition_id = AssetDefinitionId::new(&too_long_asset_name, "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         incorrect_asset_definition_id.clone(),
     )));
+
     test_client.submit(create_asset)?;
-    thread::sleep(pipeline_time * 2);
+    iroha_logger::info!("Creating another asset");
+    thread::sleep(pipeline_time * 4);
 
     let asset_definition_ids = test_client
         .request(client::asset::all_definitions())
@@ -73,11 +75,10 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
         .into_iter()
         .map(|asset| asset.id)
         .collect::<Vec<_>>();
+    dbg!(&asset_definition_ids);
 
     assert!(asset_definition_ids.contains(&normal_asset_definition_id));
-    assert!(asset_definition_ids
-        .contains(&incorrect_asset_definition_id)
-        .not());
+    assert!(!asset_definition_ids.contains(&incorrect_asset_definition_id));
 
     Ok(())
 }

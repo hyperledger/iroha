@@ -15,6 +15,7 @@ use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::prelude::*;
+use crate::WorldTrait;
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Io, Encode, Decode)]
@@ -122,8 +123,8 @@ impl TryFrom<RawHttpRequest> for VerifiedQueryRequest {
     }
 }
 
-impl Query for QueryBox {
-    fn execute(&self, wsv: &WorldStateView) -> Result<Value> {
+impl<W: WorldTrait> Query<W> for QueryBox {
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value> {
         use QueryBox::*;
 
         match self {
@@ -165,6 +166,7 @@ mod tests {
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
+    use crate::wsv::World;
 
     fn world_with_test_domains() -> Result<World> {
         let domains = DomainsMap::new();

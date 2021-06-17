@@ -26,8 +26,8 @@ deny = [
 allow = [
     'clippy::as_conversions',
     'clippy::cognitive_complexity',
-    'clippy::default-numeric-fallback',
-    'clippy::else-if-without-else',
+    'clippy::default_numeric_fallback',
+    'clippy::else_if_without_else',
     'clippy::enum_glob_use',
     'clippy::exhaustive_enums',
     'clippy::exhaustive_structs',
@@ -39,6 +39,7 @@ allow = [
     'clippy::match_wildcard_for_single_variants',
     'clippy::missing_docs_in_private_items',
     'clippy::missing_inline_in_public_items',
+    'clippy::module_name_repetitions',
     'clippy::must_use_candidate',
     'clippy::pattern_type_mismatch',
     'clippy::semicolon_if_nothing_returned',
@@ -46,7 +47,7 @@ allow = [
     'clippy::shadow_same',
     'clippy::unreachable',
     'clippy::use_self',
-    'clippy::wildcard-enum-match-arm',
+    'clippy::wildcard_enum_match_arm',
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
 ]

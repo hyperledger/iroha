@@ -4,8 +4,10 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
+use iroha_actor::{broker::*, prelude::*};
 use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::{Deserialize, Serialize};
@@ -14,46 +16,121 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 
-use crate::{block::VersionedCommittedBlock, merkle::MerkleTree, prelude::*};
+use crate::{
+    block::VersionedCommittedBlock,
+    block_sync::ContinueSync,
+    merkle::MerkleTree,
+    prelude::*,
+    sumeragi::{self, UpdateNetworkTopology},
+    wsv::WorldTrait,
+};
+
+/// Message for storing committed block
+#[derive(Clone, Debug, Message)]
+pub struct StoreBlock(pub VersionedCommittedBlock);
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
-pub struct Kura {
+pub struct Kura<W: WorldTrait> {
     mode: Mode,
     block_store: BlockStore,
-    block_sender: CommittedBlockSender,
     merkle_tree: MerkleTree,
+    wsv: Arc<WorldStateView<W>>,
+    broker: Broker,
+}
+
+/// Generic kura trait for mocks
+pub trait KuraTrait: Actor + Handler<StoreBlock> {
+    /// World for applying blocks which have been stored on disk
+    type World: WorldTrait;
+
+    /// Default [`Kura`] constructor.
+    /// Kura will not be ready to work with before [`init`] method invocation.
+    /// # Errors
+    /// Fails if reading from disk while initing fails
+    fn new(
+        mode: Mode,
+        block_store_path: &Path,
+        wsv: Arc<WorldStateView<Self::World>>,
+        broker: Broker,
+    ) -> Result<Self>;
+
+    /// Loads kura from configuration
+    /// # Errors
+    /// Fails if call to new fails
+    fn from_configuration(
+        configuration: &config::KuraConfiguration,
+        wsv: Arc<WorldStateView<Self::World>>,
+        broker: Broker,
+    ) -> Result<Self> {
+        Self::new(
+            configuration.kura_init_mode,
+            Path::new(&configuration.kura_block_store_path),
+            wsv,
+            broker,
+        )
+    }
+}
+
+impl<W: WorldTrait> KuraTrait for Kura<W> {
+    type World = W;
+
+    fn new(
+        mode: Mode,
+        block_store_path: &Path,
+        wsv: Arc<WorldStateView<W>>,
+        broker: Broker,
+    ) -> Result<Self> {
+        Ok(Self {
+            mode,
+            block_store: BlockStore::new(block_store_path)?,
+            merkle_tree: MerkleTree::new(),
+            wsv,
+            broker,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl<W: WorldTrait> Actor for Kura<W> {
+    async fn on_start(&mut self, ctx: &mut Context<Self>) {
+        self.broker.subscribe::<StoreBlock, _>(ctx);
+
+        #[allow(clippy::panic)]
+        match self.init().await {
+            Ok(blocks) => {
+                self.wsv.init(blocks).await;
+                let latest_block_hash = self.wsv.latest_block_hash();
+                let height = self.wsv.height();
+                self.broker
+                    .issue_send(sumeragi::Init {
+                        latest_block_hash,
+                        height,
+                    })
+                    .await;
+            }
+            Err(error) => {
+                iroha_logger::error!(%error, "Initialization of kura failed");
+                panic!("Init failed");
+            }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
+    type Result = ();
+
+    async fn handle(&mut self, StoreBlock(block): StoreBlock) -> Self::Result {
+        if let Err(error) = self.store(block).await {
+            iroha_logger::error!(%error, "Failed to write block")
+        }
+    }
 }
 
 #[allow(dead_code)]
-impl Kura {
-    /// Default [`Kura`] constructor.
-    /// Kura will not be ready to work with before [`init`] method invocation.
-    pub fn new(
-        mode: Mode,
-        block_store_path: &Path,
-        block_sender: CommittedBlockSender,
-    ) -> Result<Self> {
-        Ok(Kura {
-            mode,
-            block_store: BlockStore::new(block_store_path)?,
-            block_sender,
-            merkle_tree: MerkleTree::new(),
-        })
-    }
-
-    pub fn from_configuration(
-        configuration: &config::KuraConfiguration,
-        block_sender: CommittedBlockSender,
-    ) -> Result<Self> {
-        Kura::new(
-            configuration.kura_init_mode,
-            Path::new(&configuration.kura_block_store_path),
-            block_sender,
-        )
-    }
-
+impl<W: WorldTrait> Kura<W> {
     /// After constructing [`Kura`] it should be initialized to be ready to work with it.
     #[iroha_futures::telemetry_future]
     pub async fn init(&mut self) -> Result<Vec<VersionedCommittedBlock>> {
@@ -64,12 +141,14 @@ impl Kura {
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[iroha_futures::telemetry_future]
-    #[iroha_logger::log]
+    #[iroha_logger::log("INFO", skip(self, block))]
     pub async fn store(&mut self, block: VersionedCommittedBlock) -> Result<Hash> {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 //TODO: shouldn't we add block hash to merkle tree here?
-                self.block_sender.send(block).await?;
+                self.wsv.apply(block).await;
+                self.broker.issue_send(UpdateNetworkTopology).await;
+                self.broker.issue_send(ContinueSync).await;
                 Ok(hash)
             }
             Err(error) => {
@@ -175,6 +254,7 @@ pub mod config {
 
     const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
 
+    /// Configuration of kura
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
     pub struct KuraConfiguration {
@@ -218,22 +298,23 @@ pub mod config {
 mod tests {
     #![allow(clippy::cast_possible_truncation, clippy::restriction)]
 
+    use iroha_actor::broker::Broker;
     use iroha_crypto::KeyPair;
-    use iroha_data_model::prelude::*;
     use tempfile::TempDir;
-    use tokio::sync::mpsc;
 
     use super::*;
+    use crate::wsv::World;
 
     #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let (tx, _rx) = mpsc::channel(100);
-        assert!(Kura::new(Mode::Strict, temp_dir.path(), tx)
-            .unwrap()
-            .init()
-            .await
-            .is_ok());
+        assert!(
+            Kura::<World>::new(Mode::Strict, temp_dir.path(), Arc::default(), Broker::new())
+                .unwrap()
+                .init()
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -315,8 +396,8 @@ mod tests {
             .expect("Failed to sign blocks.")
             .commit();
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = mpsc::channel(100);
-        let mut kura = Kura::new(Mode::Strict, dir.path(), tx).unwrap();
+        let mut kura =
+            Kura::<World>::new(Mode::Strict, dir.path(), Arc::default(), Broker::new()).unwrap();
         drop(kura.init().await.expect("Failed to init Kura."));
         let _ = kura
             .store(block)

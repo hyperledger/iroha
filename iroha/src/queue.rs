@@ -1,24 +1,126 @@
+//! Module with queue actor
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fmt::Debug;
+use std::sync::Arc;
 use std::time::Duration;
 
+use iroha_actor::{broker::*, prelude::*, Context as ActorContext};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result};
 
 use self::config::QueueConfiguration;
 use crate::prelude::*;
+use crate::wsv::WorldTrait;
 
+/// Transaction queue
 #[derive(Debug)]
-pub struct Queue {
+pub struct Queue<W: WorldTrait> {
     pending_tx_hash_queue: VecDeque<Hash>,
     pending_tx_by_hash: BTreeMap<Hash, VersionedAcceptedTransaction>,
-    maximum_transactions_in_block: usize,
-    maximum_transactions_in_queue: usize,
-    transaction_time_to_live: Duration,
+    max_txs_in_block: usize,
+    max_txs_in_queue: usize,
+    tx_time_to_live: Duration,
+    wsv: Arc<WorldStateView<W>>,
+    broker: Broker,
 }
 
-impl Queue {
-    /// Get cloned transactions that are currently in a queue.
-    pub fn pending_transactions(&self) -> PendingTransactions {
+/// Queue trait
+pub trait QueueTrait:
+    Actor
+    + Handler<PopPendingTransactions, Result = Vec<VersionedAcceptedTransaction>>
+    + Handler<VersionedAcceptedTransaction, Result = ()>
+    + Handler<GetPendingTransactions, Result = PendingTransactions>
+    + Debug
+{
+    /// World for checking if tx is in blockchain and for checking signatures
+    type World: WorldTrait;
+
+    /// Makes queue from configuration and WSV
+    fn from_configuration(
+        cfg: &QueueConfiguration,
+        wsv: Arc<WorldStateView<Self::World>>,
+        broker: Broker,
+    ) -> Self;
+}
+
+impl<W: WorldTrait> QueueTrait for Queue<W> {
+    type World = W;
+
+    fn from_configuration(
+        cfg: &QueueConfiguration,
+        wsv: Arc<WorldStateView<W>>,
+        broker: Broker,
+    ) -> Self {
+        Self {
+            pending_tx_hash_queue: VecDeque::new(),
+            pending_tx_by_hash: BTreeMap::new(),
+            max_txs_in_block: cfg.maximum_transactions_in_block as usize,
+            max_txs_in_queue: cfg.maximum_transactions_in_queue as usize,
+            tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
+            wsv,
+            broker,
+        }
+    }
+}
+
+/// Pops pending transactions from queue
+#[derive(Debug, Clone, Copy, Message)]
+#[message(result = "Vec<VersionedAcceptedTransaction>")]
+pub struct PopPendingTransactions {
+    /// Is peer leader?
+    pub is_leader: bool,
+}
+
+/// Gets pending txs without modifying a queue
+#[derive(Debug, Clone, Copy, Default, Message)]
+#[message(result = "PendingTransactions")]
+pub struct GetPendingTransactions;
+
+#[async_trait::async_trait]
+impl<W: WorldTrait> Actor for Queue<W> {
+    async fn on_start(&mut self, ctx: &mut ActorContext<Self>) {
+        self.broker
+            .subscribe::<VersionedAcceptedTransaction, _>(ctx);
+    }
+}
+
+#[async_trait::async_trait]
+impl<W: WorldTrait> Handler<PopPendingTransactions> for Queue<W> {
+    type Result = Vec<VersionedAcceptedTransaction>;
+    async fn handle(
+        &mut self,
+        PopPendingTransactions { is_leader }: PopPendingTransactions,
+    ) -> Self::Result {
+        self.get_pending_txs(is_leader)
+    }
+}
+
+#[async_trait::async_trait]
+impl<W: WorldTrait> Handler<VersionedAcceptedTransaction> for Queue<W> {
+    type Result = ();
+    #[iroha_logger::log(skip(self, tx))]
+    async fn handle(&mut self, tx: VersionedAcceptedTransaction) {
+        if let Err(error) = self.push_pending_tx(tx) {
+            iroha_logger::error!(%error, "Failed to put tx into queue of pending tx")
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<W: WorldTrait> Handler<GetPendingTransactions> for Queue<W> {
+    type Result = PendingTransactions;
+    async fn handle(
+        &mut self,
+        GetPendingTransactions: GetPendingTransactions,
+    ) -> PendingTransactions {
+        self.pending_txs()
+    }
+}
+
+impl<W: WorldTrait> Queue<W> {
+    /// Get cloned txs that are currently in a queue.
+    pub fn pending_txs(&self) -> PendingTransactions {
         self.pending_tx_by_hash
             .values()
             .cloned()
@@ -27,19 +129,10 @@ impl Queue {
             .collect()
     }
 
-    /// Constructs [`Queue`] from configuration.
-    pub fn from_configuration(config: &QueueConfiguration) -> Queue {
-        Queue {
-            pending_tx_hash_queue: VecDeque::new(),
-            pending_tx_by_hash: BTreeMap::new(),
-            maximum_transactions_in_block: config.maximum_transactions_in_block as usize,
-            maximum_transactions_in_queue: config.maximum_transactions_in_queue as usize,
-            transaction_time_to_live: Duration::from_millis(config.transaction_time_to_live_ms),
-        }
-    }
-
-    /// Puts new transaction into queue. Returns error if queue is full.
-    pub fn push_pending_transaction(&mut self, tx: VersionedAcceptedTransaction) -> Result<()> {
+    /// Puts new tx into queue.
+    /// # Errors
+    /// Returns error if queue is full.
+    pub fn push_pending_tx(&mut self, tx: VersionedAcceptedTransaction) -> Result<()> {
         if let Some(transaction) = self.pending_tx_by_hash.get_mut(&tx.hash()) {
             let mut signatures: BTreeSet<_> = transaction
                 .as_inner_v1()
@@ -52,7 +145,7 @@ impl Queue {
             signatures.append(&mut new_signatures);
             transaction.as_mut_inner_v1().signatures = signatures.into_iter().collect();
             Ok(())
-        } else if self.pending_tx_hash_queue.len() < self.maximum_transactions_in_queue {
+        } else if self.pending_tx_hash_queue.len() < self.max_txs_in_queue {
             self.pending_tx_hash_queue.push_back(tx.hash());
             let _result = self.pending_tx_by_hash.insert(tx.hash(), tx);
             Ok(())
@@ -61,72 +154,60 @@ impl Queue {
         }
     }
 
-    /// Gets at most `maximum_transactions_in_block` number of transaction, but does not drop them out of the queue.
+    /// Gets at most `max_txs_in_block` number of transactions, but does not drop them out of the queue.
     /// Drops only the transactions that have reached their TTL or are already in blockchain.
     /// For MST transactions if on leader, waits for them to gather enough signatures before, showing them as output of this function.
     ///
     /// The reason for not dropping transaction when getting them, is that in the case of a view change this peer might become a leader,
-    /// or might need to froward tx to the leader to check if the leader is not faulty.
+    /// or might need to froward transaction to the leader to check if the leader is not faulty.
     /// If there is no view change and the block is commited then the transactions will simply drop because they are in a blockchain already.
     #[allow(clippy::expect_used)]
-    pub fn get_pending_transactions(
-        &mut self,
-        is_leader: bool,
-        wsv: &WorldStateView,
-    ) -> Vec<VersionedAcceptedTransaction> {
-        let mut output_transactions = Vec::new();
-        let mut left_behind_transactions = VecDeque::new();
-        let mut counter = self.maximum_transactions_in_block;
+    pub fn get_pending_txs(&mut self, is_leader: bool) -> Vec<VersionedAcceptedTransaction> {
+        let mut output_txs = Vec::new();
+        let mut left_behind_txs = VecDeque::new();
+        let mut counter = self.max_txs_in_block;
 
         while counter > 0 && !self.pending_tx_hash_queue.is_empty() {
-            let transaction_hash = self
+            let tx_hash = self
                 .pending_tx_hash_queue
                 .pop_front()
                 .expect("Unreachable, as queue not empty");
-            let transaction = self
-                .pending_tx_by_hash
-                .get(&transaction_hash)
-                .expect("Should always be present, as contained in queue");
+            let tx = &self.pending_tx_by_hash[&tx_hash];
 
-            if transaction.is_expired(self.transaction_time_to_live)
-                || transaction.is_in_blockchain(wsv)
-            {
+            if tx.is_expired(self.tx_time_to_live) || tx.is_in_blockchain(&*self.wsv) {
                 drop(
                     self.pending_tx_by_hash
-                        .remove(&transaction_hash)
+                        .remove(&tx_hash)
                         .expect("Should always be present, as contained in queue"),
                 );
                 continue;
             }
 
-            let signature_condition_passed = if let Ok(signature_condition_passed) =
-                transaction.check_signature_condition(wsv)
-            {
-                signature_condition_passed
-            } else {
-                drop(
-                    self.pending_tx_by_hash
-                        .remove(&transaction_hash)
-                        .expect("Should always be present, as contained in queue"),
-                );
-                continue;
+            let signature_condition_passed = match tx.check_signature_condition(&*self.wsv) {
+                Ok(passed) => passed,
+                Err(e) => {
+                    iroha_logger::error!(%e, "Not passed signature");
+                    drop(
+                        self.pending_tx_by_hash
+                            .remove(&tx_hash)
+                            .expect("Should always be present, as contained in queue"),
+                    );
+                    continue;
+                }
             };
 
             if !is_leader || signature_condition_passed {
-                output_transactions.push(
-                    self.pending_tx_by_hash
-                        .get(&transaction_hash)
-                        .expect("Should always be present, as contained in queue")
-                        .clone(),
-                );
+                output_txs.push(self.pending_tx_by_hash[&tx_hash].clone());
                 counter -= 1;
             }
 
-            left_behind_transactions.push_back(transaction_hash);
+            left_behind_txs.push_back(tx_hash);
         }
-        left_behind_transactions.append(&mut self.pending_tx_hash_queue);
-        self.pending_tx_hash_queue = left_behind_transactions;
-        output_transactions
+
+        left_behind_txs.append(&mut self.pending_tx_hash_queue);
+        self.pending_tx_hash_queue = left_behind_txs;
+
+        output_txs
     }
 }
 
@@ -174,6 +255,7 @@ mod tests {
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
+    use crate::wsv::World;
 
     fn accepted_tx(
         account: &str,
@@ -208,54 +290,65 @@ mod tests {
     }
 
     #[test]
-    fn push_pending_transaction() {
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-        });
+    fn push_pending_tx() {
+        let mut queue = Queue::<World>::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: 2,
+                transaction_time_to_live_ms: 100_000,
+                maximum_transactions_in_queue: 100,
+            },
+            Arc::default(),
+            Broker::new(),
+        );
 
         queue
-            .push_pending_transaction(accepted_tx("account", "domain", 100_000, None))
+            .push_pending_tx(accepted_tx("account", "domain", 100_000, None))
             .expect("Failed to push tx into queue");
     }
 
     #[test]
-    fn push_pending_transaction_overflow() {
-        let maximum_transactions_in_queue = 10;
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue,
-        });
-        for _ in 0..maximum_transactions_in_queue {
+    fn push_pending_tx_overflow() {
+        let max_txs_in_queue = 10;
+        let mut queue = Queue::<World>::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: 2,
+                transaction_time_to_live_ms: 100_000,
+                maximum_transactions_in_queue: max_txs_in_queue,
+            },
+            Arc::default(),
+            Broker::new(),
+        );
+        for _ in 0..max_txs_in_queue {
             queue
-                .push_pending_transaction(accepted_tx("account", "domain", 100_000, None))
+                .push_pending_tx(accepted_tx("account", "domain", 100_000, None))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(queue
-            .push_pending_transaction(accepted_tx("account", "domain", 100_000, None))
+            .push_pending_tx(accepted_tx("account", "domain", 100_000, None))
             .is_err());
     }
 
     #[test]
-    fn push_multisignature_transaction() {
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-        });
-        let transaction = Transaction::new(
+    fn push_multisignature_tx() {
+        let mut queue = Queue::<World>::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: 2,
+                transaction_time_to_live_ms: 100_000,
+                maximum_transactions_in_queue: 100,
+            },
+            Arc::default(),
+            Broker::new(),
+        );
+        let tx = Transaction::new(
             Vec::new(),
             <Account as Identifiable>::Id::new("account", "domain"),
             100_000,
         );
         let get_tx = || {
             VersionedAcceptedTransaction::from_transaction(
-                transaction
-                    .clone()
+                tx.clone()
                     .sign(&KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign."),
                 4096,
@@ -264,11 +357,11 @@ mod tests {
         };
 
         queue
-            .push_pending_transaction(get_tx())
+            .push_pending_tx(get_tx())
             .expect("Failed to push tx into queue");
 
         queue
-            .push_pending_transaction(get_tx())
+            .push_pending_tx(get_tx())
             .expect("Failed to push tx into queue");
 
         assert_eq!(queue.pending_tx_hash_queue.len(), 1);
@@ -278,7 +371,7 @@ mod tests {
                 queue
                     .pending_tx_hash_queue
                     .front()
-                    .expect("Failed to get first transaction."),
+                    .expect("Failed to get first tx."),
             )
             .expect("Failed to get tx by hash.")
             .as_inner_v1()
@@ -288,17 +381,23 @@ mod tests {
     }
 
     #[test]
-    fn get_pending_transactions() {
+    fn get_pending_txs() {
         let max_block_tx = 2;
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-        });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let mut queue = Queue::<World>::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: max_block_tx,
+                transaction_time_to_live_ms: 100_000,
+                maximum_transactions_in_queue: 100,
+            },
+            Arc::new(WorldStateView::new(world_with_test_domains(
+                alice_key.public_key.clone(),
+            ))),
+            Broker::new(),
+        );
         for _ in 0..5 {
             queue
-                .push_pending_transaction(accepted_tx(
+                .push_pending_tx(accepted_tx(
                     "alice",
                     "wonderland",
                     100_000,
@@ -307,125 +406,121 @@ mod tests {
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(
-            queue
-                .get_pending_transactions(
-                    false,
-                    &WorldStateView::new(world_with_test_domains(alice_key.public_key))
-                )
-                .len(),
-            max_block_tx as usize
-        )
+        assert_eq!(queue.get_pending_txs(false).len(), max_block_tx as usize)
     }
 
     #[test]
-    fn drop_transaction_if_in_blockchain() {
+    fn drop_tx_if_in_blockchain() {
         let max_block_tx = 2;
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-        });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let transaction = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
-        let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key));
-        let _ = wsv.transactions.insert(transaction.hash());
+        let world_state_view =
+            WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()));
+        let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+        let _ = world_state_view.transactions.insert(tx.hash());
+        let mut queue = Queue::<World>::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: max_block_tx,
+                transaction_time_to_live_ms: 100_000,
+                maximum_transactions_in_queue: 100,
+            },
+            Arc::new(world_state_view),
+            Broker::new(),
+        );
         queue
-            .push_pending_transaction(transaction)
+            .push_pending_tx(tx)
             .expect("Failed to push tx into queue");
-        assert_eq!(queue.get_pending_transactions(false, &wsv).len(), 0);
+        assert_eq!(queue.get_pending_txs(false).len(), 0);
     }
 
     #[test]
-    fn get_pending_transactions_with_timeout() {
+    fn get_pending_txs_with_timeout() {
         let max_block_tx = 6;
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 200,
-            maximum_transactions_in_queue: 100,
-        });
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let mut queue = Queue::<World>::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: max_block_tx,
+                transaction_time_to_live_ms: 200,
+                maximum_transactions_in_queue: 100,
+            },
+            Arc::new(WorldStateView::new(world_with_test_domains(
+                alice_key.public_key.clone(),
+            ))),
+            Broker::new(),
+        );
         for _ in 0..(max_block_tx - 1) {
             queue
-                .push_pending_transaction(accepted_tx("alice", "wonderland", 100, Some(&alice_key)))
+                .push_pending_tx(accepted_tx("alice", "wonderland", 100, Some(&alice_key)))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         queue
-            .push_pending_transaction(accepted_tx("alice", "wonderland", 200, Some(&alice_key)))
+            .push_pending_tx(accepted_tx("alice", "wonderland", 200, Some(&alice_key)))
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
-        assert_eq!(
-            queue
-                .get_pending_transactions(
-                    false,
-                    &WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()))
-                )
-                .len(),
-            1
-        );
+        assert_eq!(queue.get_pending_txs(false).len(), 1);
+
+        queue.wsv = Arc::new(WorldStateView::new(World::new()));
 
         queue
-            .push_pending_transaction(accepted_tx("alice", "wonderland", 300, Some(&alice_key)))
+            .push_pending_tx(accepted_tx("alice", "wonderland", 300, Some(&alice_key)))
             .expect("Failed to push tx into queue");
-        std::thread::sleep(Duration::from_millis(201));
-        assert_eq!(
-            queue
-                .get_pending_transactions(false, &WorldStateView::new(World::new()))
-                .len(),
-            0
-        );
+        std::thread::sleep(Duration::from_millis(101));
+        assert_eq!(queue.get_pending_txs(false).len(), 0);
     }
 
     #[test]
-    fn get_pending_transactions_on_leader() {
+    fn get_pending_txs_on_leader() {
         let max_block_tx = 2;
-        let mut queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-        });
+
         let alice_key_1 = KeyPair::generate().expect("Failed to generate keypair.");
         let alice_key_2 = KeyPair::generate().expect("Failed to generate keypair.");
-        let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_transaction_1 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
-        thread::sleep(Duration::from_millis(10));
-        let alice_transaction_2 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_2));
-        thread::sleep(Duration::from_millis(10));
-        let alice_transaction_3 = accepted_tx("alice", "wonderland", 100_000, Some(&bob_key));
-        thread::sleep(Duration::from_millis(10));
-        let alice_transaction_4 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
-        queue
-            .push_pending_transaction(alice_transaction_1.clone())
-            .expect("Failed to push tx into queue");
-        queue
-            .push_pending_transaction(alice_transaction_2.clone())
-            .expect("Failed to push tx into queue");
-        queue
-            .push_pending_transaction(alice_transaction_3)
-            .expect("Failed to push tx into queue");
-        queue
-            .push_pending_transaction(alice_transaction_4)
-            .expect("Failed to push tx into queue");
         let mut domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
-        account.signatories.push(alice_key_1.public_key);
-        account.signatories.push(alice_key_2.public_key);
+        account.signatories.push(alice_key_1.public_key.clone());
+        account.signatories.push(alice_key_2.public_key.clone());
         let _result = domain.accounts.insert(account_id, account);
         let mut domains = BTreeMap::new();
         let _result = domains.insert("wonderland".to_string(), domain);
-        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
-        let output_transactions: Vec<_> = queue
-            .get_pending_transactions(true, &wsv)
+
+        let world_state_view = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let mut queue = Queue::from_configuration(
+            &QueueConfiguration {
+                maximum_transactions_in_block: max_block_tx,
+                transaction_time_to_live_ms: 100_000,
+                maximum_transactions_in_queue: 100,
+            },
+            Arc::new(world_state_view),
+            Broker::new(),
+        );
+
+        let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let alice_tx_1 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
+        thread::sleep(Duration::from_millis(10));
+        let alice_tx_2 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_2));
+        thread::sleep(Duration::from_millis(10));
+        let alice_tx_3 = accepted_tx("alice", "wonderland", 100_000, Some(&bob_key));
+        thread::sleep(Duration::from_millis(10));
+        let alice_tx_4 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
+        queue
+            .push_pending_tx(alice_tx_1.clone())
+            .expect("Failed to push tx into queue");
+        queue
+            .push_pending_tx(alice_tx_2.clone())
+            .expect("Failed to push tx into queue");
+        queue
+            .push_pending_tx(alice_tx_3)
+            .expect("Failed to push tx into queue");
+        queue
+            .push_pending_tx(alice_tx_4)
+            .expect("Failed to push tx into queue");
+        let output_txs: Vec<_> = queue
+            .get_pending_txs(true)
             .into_iter()
             .map(|tx| tx.hash())
             .collect();
-        assert_eq!(
-            output_transactions,
-            vec![alice_transaction_1.hash(), alice_transaction_2.hash()]
-        );
+        assert_eq!(output_txs, vec![alice_tx_1.hash(), alice_tx_2.hash()]);
         assert_eq!(queue.pending_tx_hash_queue.len(), 4);
     }
 }

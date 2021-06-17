@@ -156,7 +156,7 @@ impl Actor for DeadlockActor {
 #[async_trait::async_trait]
 impl Handler<Reminder> for DeadlockActor {
     type Result = ();
-    async fn handle(&mut self, _: &mut Context<Self>, _: Reminder) {
+    async fn handle(&mut self, _: Reminder) {
         if self.has_cycle() {
             panic!("Detected deadlock. Aborting. Cycle:\n{:#?}", self.0);
         }
@@ -166,7 +166,7 @@ impl Handler<Reminder> for DeadlockActor {
 #[async_trait::async_trait]
 impl Handler<AddEdge> for DeadlockActor {
     type Result = ();
-    async fn handle(&mut self, _: &mut Context<Self>, AddEdge { from, to }: AddEdge) {
+    async fn handle(&mut self, AddEdge { from, to }: AddEdge) {
         let (from, to) = self.find_or_create_from_to(from, to);
         let _ = self.add_edge(from, to, ());
     }
@@ -175,7 +175,7 @@ impl Handler<AddEdge> for DeadlockActor {
 #[async_trait::async_trait]
 impl Handler<RemoveEdge> for DeadlockActor {
     type Result = ();
-    async fn handle(&mut self, _: &mut Context<Self>, RemoveEdge { from, to }: RemoveEdge) {
+    async fn handle(&mut self, RemoveEdge { from, to }: RemoveEdge) {
         let (from, to) = self.find_or_create_from_to(from, to);
         let edge = self.find_edge(from, to).expect("Should be always present");
         let _ = self.remove_edge(edge);
