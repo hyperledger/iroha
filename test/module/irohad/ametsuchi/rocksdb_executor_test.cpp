@@ -56,8 +56,7 @@ namespace iroha {
             std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
       }
 
-      void SetUp() override {
-        AmetsuchiTest::SetUp();
+      void initExecutors() {
         db_name_ = (fs::temp_directory_path() / fs::unique_path()).string();
         auto db_port = std::make_shared<RocksDBPort>();
         db_port->initialize(db_name_);
@@ -71,10 +70,22 @@ namespace iroha {
             db_port, perm_converter, std::nullopt);
       }
 
+      void SetUp() override {
+        AmetsuchiTest::SetUp();
+        initExecutors();
+      }
+
       void TearDown() override {
         AmetsuchiTest::TearDown();
         tx_context_.reset();
-        fs::remove_all(db_name_);
+        wsv_query.reset();
+        pending_txs_storage.reset();
+        executor.reset();
+
+        try {
+          fs::remove_all(db_name_);
+        } catch (std::exception &) {
+        }
       }
 
       std::vector<std::string> getRoles(std::string_view account_id) {
