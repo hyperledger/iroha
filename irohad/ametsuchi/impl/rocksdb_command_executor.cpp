@@ -826,7 +826,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   // check if asset exists
   RDB_TRY_GET_VALUE(opt_result,
-                    forAsset<kDbOperation::kCheck, kDbEntry::kMustExist>(
+                    forAsset<kDbOperation::kGet, kDbEntry::kMustExist>(
                         common, asset_name, domain_id));
 
   if (*opt_result < command.amount().precision())
