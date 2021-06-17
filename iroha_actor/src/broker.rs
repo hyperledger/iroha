@@ -1,49 +1,9 @@
-//! Module with message broker for `iroha_actor`
-
 #![allow(clippy::module_name_repetitions)]
 
-use std::any::{Any, TypeId};
-
-use dashmap::mapref::entry::Entry;
-use dashmap::DashMap;
-use futures::future;
-use once_cell::sync::Lazy;
-
-use super::*;
-
-type TypeMap<V> = DashMap<TypeId, V>;
-type BrokerRecipient = Box<dyn Any + Sync + Send + 'static>;
-
-static BROKER: Lazy<TypeMap<Vec<(TypeId, BrokerRecipient)>>> = Lazy::new(DashMap::new);
-
-/// Trait alias for messages which can be broked
-pub trait BrokerMessage: Message<Result = ()> + Clone + 'static + Send {}
-
-impl<M: Message<Result = ()> + Clone + 'static + Send> BrokerMessage for M {}
-
-fn message_entry<'a>(id: TypeId) -> Entry<'a, TypeId, Vec<(TypeId, BrokerRecipient)>> {
-    BROKER.entry(id)
-}
-
-/// Send message via broker
-pub async fn issue_send<M: BrokerMessage + Send + Sync>(m: M) {
-    let entry = if let Entry::Occupied(entry) = message_entry(TypeId::of::<M>()) {
-        entry
-    } else {
-        return;
-    };
-    let send = entry.get().iter().filter_map(|(_, recipient)| {
-        recipient
-            .downcast_ref::<Recipient<M>>()
-            .map(|recipient| recipient.send(m.clone()))
-    });
-
-    drop(future::join_all(send).await);
-}
-
-/// Trait for using broker
+//! Module with message broker for `iroha_actor`
+///
 /// ```rust
-/// use iroha_actor::{prelude::*, broker::{self, *}};
+/// use iroha_actor::{prelude::*, broker::*};
 ///
 /// #[derive(Clone)]
 /// struct Message1(String);
@@ -53,14 +13,14 @@ pub async fn issue_send<M: BrokerMessage + Send + Sync>(m: M) {
 /// struct Message2(String);
 /// impl Message for Message2 { type Result = (); }
 ///
-/// struct Actor1;
-/// struct Actor2;
+/// struct Actor1(Broker);
+/// struct Actor2(Broker);
 ///
 /// #[async_trait::async_trait]
 /// impl Actor for Actor1 {
 ///     async fn on_start(&mut self, ctx: &mut Context<Self>) {
-///         self.subscribe::<Message1>(ctx);
-///         broker::issue_send(Message2("Hello".to_string())).await;
+///         self.0.subscribe::<Message1, _>(ctx);
+///         self.0.issue_send(Message2("Hello".to_string())).await;
 ///     }
 /// }
 ///
@@ -75,7 +35,7 @@ pub async fn issue_send<M: BrokerMessage + Send + Sync>(m: M) {
 /// #[async_trait::async_trait]
 /// impl Actor for Actor2 {
 ///     async fn on_start(&mut self, ctx: &mut Context<Self>) {
-///         self.subscribe::<Message2>(ctx);
+///         self.0.subscribe::<Message2, _>(ctx);
 ///     }
 /// }
 ///
@@ -84,34 +44,96 @@ pub async fn issue_send<M: BrokerMessage + Send + Sync>(m: M) {
 ///     type Result = ();
 ///     async fn handle(&mut self, ctx: &mut Context<Self>, msg: Message2) {
 ///         println!("Actor2: {}", msg.0);
-///         broker::issue_send(Message1(msg.0.clone() + " world")).await;
+///         self.0.issue_send(Message1(msg.0.clone() + " world")).await;
 ///     }
 /// }
 /// tokio::runtime::Runtime::new().unwrap().block_on(async {
-///     Actor2.init().start().await;
-///     Actor1.init().start().await;
+///     let broker = Broker::new();
+///     Actor2(broker.clone()).start().await;
+///     Actor1(broker).start().await;
 /// })
 /// ```
-#[async_trait::async_trait]
-pub trait BrokerActor: Actor {
-    /// Subscribe actor to specific message type
-    fn subscribe<M: BrokerMessage>(&self, ctx: &mut Context<Self>)
-    where
-        Self: Handler<M>,
-    {
-        let mut entry = message_entry(TypeId::of::<M>()).or_insert_with(|| Vec::with_capacity(1));
+use std::any::{Any, TypeId};
+use std::sync::Arc;
+
+use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
+use futures::future;
+
+use super::*;
+
+type TypeMap<V> = DashMap<TypeId, V>;
+type BrokerRecipient = Box<dyn Any + Sync + Send + 'static>;
+
+/// Broker type. Can be cloned and shared between many actors.
+#[derive(Debug)]
+pub struct Broker(Arc<TypeMap<Vec<(TypeId, BrokerRecipient)>>>);
+
+impl Clone for Broker {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl Default for Broker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Broker {
+    /// Default constructor for broker
+    pub fn new() -> Self {
+        Self(Arc::new(DashMap::new()))
+    }
+
+    fn message_entry(&'_ self, id: TypeId) -> Entry<'_, TypeId, Vec<(TypeId, BrokerRecipient)>> {
+        self.0.entry(id)
+    }
+
+    /// Send message via broker
+    pub async fn issue_send<M: BrokerMessage + Send + Sync>(&self, m: M) {
+        let entry = if let Entry::Occupied(entry) = self.message_entry(TypeId::of::<M>()) {
+            entry
+        } else {
+            return;
+        };
+        let send = entry.get().iter().filter_map(|(_, recipient)| {
+            recipient
+                .downcast_ref::<Recipient<M>>()
+                .map(|recipient| recipient.send(m.clone()))
+        });
+        drop(future::join_all(send).await);
+    }
+
+    fn subscribe_recipient<M: BrokerMessage>(&self, recipient: Recipient<M>) {
+        let mut entry = self
+            .message_entry(TypeId::of::<M>())
+            .or_insert_with(|| Vec::with_capacity(1));
         if entry
             .iter()
-            .any(|(actor_id, _)| actor_id == &TypeId::of::<Self>())
+            .any(|(actor_id, _)| *actor_id == TypeId::of::<Self>())
         {
             return;
         }
-        entry.push((TypeId::of::<Self>(), Box::new(ctx.recipient::<M>())));
+        entry.push((TypeId::of::<Self>(), Box::new(recipient)));
+    }
+
+    /// Subscribe actor to specific message type
+    pub fn subscribe<M: BrokerMessage, A: Actor + Handler<M>>(&self, ctx: &mut Context<A>) {
+        self.subscribe_recipient(ctx.recipient::<M>())
+    }
+
+    /// Subscribe with channel to specific message type
+    pub fn subscribe_also<M: BrokerMessage + Debug>(&self) -> mpsc::Receiver<M> {
+        let (sender, receiver) = mpsc::channel(100);
+        self.subscribe_recipient(sender.into());
+        receiver
     }
 
     /// Unsubscribe actor to this specific message type
-    fn unsubscribe<M: BrokerMessage>(&self, _ctx: &mut Context<Self>) {
-        let mut entry = if let Entry::Occupied(entry) = message_entry(TypeId::of::<M>()) {
+    pub fn unsubscribe<M: BrokerMessage, A: Actor + Handler<M>>(&self, _ctx: &mut Context<A>) {
+        let mut entry = if let Entry::Occupied(entry) = self.message_entry(TypeId::of::<M>()) {
             entry
         } else {
             return;
@@ -127,4 +149,7 @@ pub trait BrokerActor: Actor {
     }
 }
 
-impl<A: Actor> BrokerActor for A {}
+/// Trait alias for messages which can be broked
+pub trait BrokerMessage: Message<Result = ()> + Clone + 'static + Send {}
+
+impl<M: Message<Result = ()> + Clone + 'static + Send> BrokerMessage for M {}

@@ -185,9 +185,9 @@ impl Handler<RemoveEdge> for DeadlockActor {
 /// TODO: After switching to tokio move to using once cell and
 /// force initing of actor beforehand in async api.
 static DEADLOCK_ACTOR: Lazy<Addr<DeadlockActor>> = Lazy::new(|| {
-    let actor = DeadlockActor::init_default();
-    let address = actor.address().clone();
-    let _result = task::spawn(async move { actor.start().await });
+    let actor = DeadlockActor::preinit_default();
+    let address = actor.address.clone();
+    let _result = task::spawn(actor.start());
     address
 });
 
