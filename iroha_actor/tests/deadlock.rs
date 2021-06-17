@@ -44,12 +44,8 @@ async fn async_test() {
         // This test should panic.
         std::process::exit(0);
     }));
-    let actor1 = DeadlockActor::init_default();
-    let actor2 = DeadlockActor::init_default();
-    let addr1 = actor1.address().clone();
-    let addr2 = actor2.address().clone();
-    actor1.start().await;
-    actor2.start().await;
+    let addr1 = DeadlockActor::start_default().await;
+    let addr2 = DeadlockActor::start_default().await;
     addr1.send(Address(addr2.clone())).await.unwrap();
     addr2.send(Address(addr1.clone())).await.unwrap();
     addr1.send(Msg).await.unwrap();

@@ -2,6 +2,9 @@
 //! Iroha simple actor framework.
 //!
 
+use std::{fmt::Debug, time::Duration};
+use std::future::Future;
+
 /// Derive macro for message:
 /// ```rust
 /// use iroha_actor::Message;
@@ -14,15 +17,15 @@
 /// struct MessageResponse(i32);
 /// ```
 pub use actor_derive::Message;
-use envelope::{Envelope, SyncEnvelopeProxy, ToEnvelope};
-#[cfg(not(feature = "deadlock_detection"))]
-use tokio::task;
+use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
+use iroha_logger::InstrumentFutures;
 use tokio::{
     sync::{
         mpsc::{self, Receiver},
         oneshot::{self, error::RecvError},
     },
-    task::JoinHandle,
+    task::{self, JoinHandle},
+    time,
 };
 #[cfg(feature = "deadlock_detection")]
 use {deadlock::ActorId, std::any::type_name};
@@ -60,13 +63,15 @@ impl<A: Actor> Addr<A> {
         Self {
             sender,
             #[cfg(feature = "deadlock_detection")]
-            actor_id: ActorId::new(Some(type_name::<Self>())),
+            actor_id: ActorId::new(Some(type_name::<A>())),
         }
     }
 
     /// Send a message and wait for an answer.
     /// # Errors
     /// Fails if noone will send message
+    /// # Panics
+    /// If queue is full
     #[allow(unused_variables, clippy::expect_used)]
     pub async fn send<M>(&self, message: M) -> Result<M::Result, RecvError>
     where
@@ -82,8 +87,10 @@ impl<A: Actor> Addr<A> {
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::r#in(self.actor_id, from_actor_id).await;
         }
-        // TODO: propagate the error.
-        let _error = self.sender.send(envelope).await;
+        #[allow(clippy::todo)]
+        if self.sender.send(envelope).await.is_err() {
+            todo!("Queue is full. Handle this case");
+        }
         let result = reciever.await;
         #[cfg(feature = "deadlock_detection")]
         if let Some(from_actor_id) = from_actor_id_option {
@@ -117,6 +124,16 @@ impl<A: Actor> Addr<A> {
     }
 }
 
+impl<M> From<mpsc::Sender<M>> for Recipient<M>
+where
+    M: Message<Result = ()> + Send + 'static + Debug,
+    M::Result: Send,
+{
+    fn from(sender: mpsc::Sender<M>) -> Self {
+        Self(Box::new(sender))
+    }
+}
+
 #[allow(missing_debug_implementations)]
 /// Address of actor. Can be used to send messages to it.
 pub struct Recipient<M: Message<Result = ()>>(Box<dyn Sender<M> + Sync + Send + 'static>);
@@ -137,11 +154,22 @@ trait Sender<M: Message<Result = ()>> {
 impl<A, M> Sender<M> for Addr<A>
 where
     M: Message<Result = ()> + Send + 'static,
-    M::Result: Send,
     A: Handler<M>,
 {
     async fn send(&self, m: M) {
         self.do_send(m).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<M> Sender<M> for mpsc::Sender<M>
+where
+    M: Message<Result = ()> + Send + 'static + Debug,
+{
+    async fn send(&self, m: M) {
+        self.send(m)
+            .await
+            .expect("Failed to send message. Queue full");
     }
 }
 
@@ -160,25 +188,40 @@ pub trait Actor: Send + Sized + 'static {
     async fn on_stop(&mut self, _ctx: &mut Context<Self>) {}
 
     /// Initilize actor with its address.
-    fn init(self) -> InitializedActor<Self> {
+    fn preinit(self) -> InitializedActor<Self> {
         let mailbox_capacity = self.mailbox_capacity();
         InitializedActor::new(self, mailbox_capacity)
     }
 
     /// Initialize actor with default values
-    fn init_default() -> InitializedActor<Self>
+    fn preinit_default() -> InitializedActor<Self>
     where
         Self: Default,
     {
-        Self::default().init()
+        Self::default().preinit()
+    }
+
+    /// Starts an actor and returns its address
+    async fn start(self) -> Addr<Self> {
+        self.preinit().start().await
+    }
+
+    /// Starts an actor with default values and returns its address
+    async fn start_default() -> Addr<Self>
+    where
+        Self: Default,
+    {
+        Self::default().start().await
     }
 }
 
 /// Initialized actor. Mainly used to take address before starting it.
 #[derive(Debug)]
 pub struct InitializedActor<A: Actor> {
-    actor: A,
-    address: Addr<A>,
+    /// Address of actor
+    pub address: Addr<A>,
+    /// Actor itself
+    pub actor: A,
     receiver: Receiver<Envelope<A>>,
 }
 
@@ -194,34 +237,33 @@ impl<A: Actor> InitializedActor<A> {
     }
 
     /// Start actor
-    pub async fn start(self) {
-        let address = self.address.clone();
+    pub async fn start(self) -> Addr<A> {
+        let address = self.address;
         let mut receiver = self.receiver;
         let mut actor = self.actor;
         let (handle_sender, handle_receiver) = oneshot::channel();
+        let move_addr = address.clone();
         let actor_future = async move {
             #[allow(clippy::expect_used)]
             let join_handle = handle_receiver
                 .await
                 .expect("Unreachable as the message is always sent.");
-            let mut ctx = Context::new(address.clone(), join_handle);
+            let mut ctx = Context::new(move_addr.clone(), join_handle);
             actor.on_start(&mut ctx).await;
             while let Some(Envelope(mut message)) = receiver.recv().await {
-                message.handle(&mut actor, &mut ctx).await;
+                EnvelopeProxy::handle(&mut *message, &mut actor, &mut ctx).await;
             }
+            iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
             actor.on_stop(&mut ctx).await;
-        };
+        }
+        .in_current_span();
         #[cfg(not(feature = "deadlock_detection"))]
         let join_handle = task::spawn(actor_future);
         #[cfg(feature = "deadlock_detection")]
-        let join_handle = deadlock::spawn_task_with_actor_id(self.address.actor_id, actor_future);
+        let join_handle = deadlock::spawn_task_with_actor_id(address.actor_id, actor_future);
         // TODO: propagate the error.
         let _error = handle_sender.send(join_handle);
-    }
-
-    /// Address.
-    pub fn address(&self) -> &Addr<A> {
-        &self.address
+        address
     }
 }
 
@@ -241,6 +283,25 @@ pub trait Handler<M: Message>: Actor {
     async fn handle(&mut self, ctx: &mut Context<Self>, msg: M) -> Self::Result;
 }
 
+/// Trait for actor for handling specific message type without context
+#[async_trait::async_trait]
+pub trait SimpleHandler<M: Message>: Actor {
+    /// Result of handler
+    type Result: MessageResponse<M>;
+
+    /// Message handler
+    async fn handle(&mut self, msg: M) -> Self::Result;
+}
+
+#[async_trait::async_trait]
+impl<M: Message + Send + 'static, S: SimpleHandler<M>> Handler<M> for S {
+    type Result = S::Result;
+
+    async fn handle(&mut self, _: &mut Context<Self>, msg: M) -> Self::Result {
+        SimpleHandler::handle(self, msg).await
+    }
+}
+
 /// Dev trait for Message responding
 #[async_trait::async_trait]
 pub trait MessageResponse<M: Message>: Send {
@@ -249,9 +310,13 @@ pub trait MessageResponse<M: Message>: Send {
 }
 
 #[async_trait::async_trait]
-impl<M: Message<Result = ()>> MessageResponse<M> for () {
+impl<M> MessageResponse<M> for M::Result
+where
+    M: Message,
+    M::Result: Send,
+{
     async fn handle(self, sender: oneshot::Sender<M::Result>) {
-        let _ = sender.send(());
+        drop(sender.send(self));
     }
 }
 
@@ -280,5 +345,68 @@ impl<A: Actor> Context<A> {
         A: Handler<M>,
     {
         self.addr().recipient()
+    }
+
+    /// Sends actor specified message
+    pub fn notify<M>(&self, message: M)
+    where
+        M: Message<Result = ()> + Send + 'static,
+        A: Handler<M>,
+    {
+        let addr = self.addr();
+        drop(task::spawn(
+            async move { addr.do_send(message).await }.in_current_span(),
+        ));
+    }
+
+    /// Sends actor specified message in some time
+    pub fn notify_later<M>(&self, message: M, later: Duration)
+    where
+        M: Message<Result = ()> + Send + 'static,
+        A: Handler<M>,
+    {
+        let addr = self.addr();
+        drop(task::spawn(
+            async move {
+                time::sleep(later).await;
+                addr.do_send(message).await
+            }
+            .in_current_span(),
+        ));
+    }
+
+    /// Sends actor specified message in a loop with specified duration
+    pub fn notify_every<M>(&self, every: Duration)
+    where
+        M: Message<Result = ()> + Default + Send + 'static,
+        A: Handler<M>,
+    {
+        let addr = self.addr();
+        drop(task::spawn(
+            async move {
+                loop {
+                    time::sleep(every).await;
+                    addr.do_send(M::default()).await
+                }
+            }
+            .in_current_span(),
+        ));
+    }
+
+    /// Sends actor specified message in a loop with specified duration
+    pub fn notify_future<M, F>(&self, future: F)
+    where
+        M: Message<Result = ()> + Default + Send + 'static,
+        A: Handler<M>,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let addr = self.addr();
+        drop(task::spawn(
+            async move {
+                future.await;
+                addr.do_send(M::default()).await;
+            }
+            .in_current_span(),
+        ));
     }
 }
