@@ -3,7 +3,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha::{prelude::*, tx::AcceptedTransaction};
+use iroha::{
+    prelude::*,
+    tx::AcceptedTransaction,
+    wsv::{World, WorldTrait},
+};
 use iroha_data_model::prelude::*;
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
@@ -41,7 +45,7 @@ fn build_test_transaction(keys: &KeyPair) -> Transaction {
     .expect("Failed to sign.")
 }
 
-fn build_test_wsv(keys: &KeyPair) -> WorldStateView {
+fn build_test_wsv(keys: &KeyPair) -> WorldStateView<World> {
     WorldStateView::new({
         let mut domains = BTreeMap::new();
         let mut domain = Domain::new(START_DOMAIN);

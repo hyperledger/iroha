@@ -18,6 +18,7 @@ use iroha_error::Result;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
+use crate::wsv::WorldTrait;
 use crate::{
     merkle::MerkleTree,
     prelude::*,
@@ -204,10 +205,10 @@ impl BlockHeader {
 
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
-    pub fn validate(
+    pub fn validate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
+        wsv: &WorldStateView<W>,
+        permissions_validator: &PermissionsValidatorBox<W>,
     ) -> VersionedValidBlock {
         let mut transactions = Vec::new();
         let mut rejected_transactions = Vec::new();
@@ -284,10 +285,10 @@ impl VersionedValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
-    pub fn revalidate(
+    pub fn revalidate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
+        wsv: &WorldStateView<W>,
+        permissions_validator: &PermissionsValidatorBox<W>,
     ) -> VersionedValidBlock {
         self.into_inner_v1()
             .revalidate(wsv, permissions_validator)
@@ -315,7 +316,7 @@ impl VersionedValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
+    pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         self.as_inner_v1().has_committed_transactions(wsv)
     }
 
@@ -327,9 +328,9 @@ impl VersionedValidBlock {
     }
 
     /// Returns true if block can be send for discussion
-    pub fn validation_check(
+    pub fn validation_check<W: WorldTrait>(
         &self,
-        wsv: &WorldStateView,
+        wsv: &WorldStateView<W>,
         latest_block_hash: Hash,
         number_of_view_changes: u32,
         block_height: u64,
@@ -388,10 +389,10 @@ impl ValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
-    pub fn revalidate(
+    pub fn revalidate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
+        wsv: &WorldStateView<W>,
+        permissions_validator: &PermissionsValidatorBox<W>,
     ) -> ValidBlock {
         ValidBlock {
             signatures: self.signatures,
@@ -435,7 +436,7 @@ impl ValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
+    pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         self.transactions
             .iter()
             .any(|transaction| transaction.is_in_blockchain(wsv))

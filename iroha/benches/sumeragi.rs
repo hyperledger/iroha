@@ -21,7 +21,7 @@ fn get_n_peers(n: usize) -> HashSet<PeerId> {
 }
 
 fn sort_peers(criterion: &mut Criterion) {
-    let mut network_topology = NetworkTopology::new(&get_n_peers(N_PEERS), None, 1)
+    let mut network_topology = NetworkTopology::new(get_n_peers(N_PEERS), None, 1)
         .init()
         .expect("Failed to initialize topology.");
     let _ = criterion.bench_function("sort_peers", |b| {

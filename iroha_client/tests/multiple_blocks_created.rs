@@ -16,7 +16,7 @@ mod tests {
     #[test]
     fn long_multiple_blocks_created() {
         // Given
-        let (network, mut iroha_client) = Network::start_test(4, 1);
+        let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time);
@@ -68,7 +68,7 @@ mod tests {
         thread::sleep(pipeline_time);
 
         //Then
-        Client::test(&network.ids().last().unwrap().address).poll_request(
+        Client::test(&network.peers().last().unwrap().id.address).poll_request(
             client::asset::by_account_id(account_id),
             |result| {
                 result.iter().any(|asset| {

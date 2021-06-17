@@ -5,9 +5,9 @@ use iroha_error::{Result, WrapErr};
 
 use super::*;
 
-impl Query for FindTransactionsByAccountId {
+impl<W: WorldTrait> Query<W> for FindTransactionsByAccountId {
     #[iroha_logger::log]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let id = self
             .account_id
             .evaluate(wsv, &Context::default())

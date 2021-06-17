@@ -7,7 +7,7 @@ use std::{
 };
 
 use http_client::WebSocketStream;
-use iroha::smartcontracts::Query;
+use iroha::{smartcontracts::Query, wsv::World};
 use iroha_crypto::{Hash, KeyPair};
 use iroha_dsl::prelude::*;
 use iroha_error::{error, Error, Result, WrapErr};
@@ -252,7 +252,7 @@ impl Client {
         pagination: Pagination,
     ) -> Result<R::Output>
     where
-        R: Query + Into<QueryRequest> + Debug,
+        R: Query<World> + Into<QueryRequest> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
     {
         let pagination: Vec<_> = pagination.into();
@@ -282,7 +282,7 @@ impl Client {
     #[log]
     pub fn request<R>(&mut self, request: R) -> Result<R::Output>
     where
-        R: Query + Into<QueryRequest> + Debug,
+        R: Query<World> + Into<QueryRequest> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
     {
         self.request_with_pagination(request, Pagination::default())

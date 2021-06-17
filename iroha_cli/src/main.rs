@@ -37,7 +37,8 @@ async fn main() -> Result<(), Reporter> {
         configuration.add_genesis_block_path(genesis_path);
     }
 
-    Iroha::new(&configuration, default_permissions())?
+    <Iroha>::new(&configuration, default_permissions())
+        .await?
         .start()
         .await?;
     Ok(())

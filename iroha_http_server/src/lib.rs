@@ -4,7 +4,7 @@
 
 //TODO: do we need TLS/SSL?
 use std::{
-    convert::{TryFrom, TryInto},
+    convert::{Infallible, TryFrom, TryInto},
     future::Future,
     sync::Arc,
 };
@@ -100,7 +100,7 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
     /// # Errors
     /// Fails if accepting one of client fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(&self, address: &str) -> iroha_error::Result<()> {
+    pub async fn start(&self, address: &str) -> iroha_error::Result<Infallible> {
         let listener = TcpListener::bind(address).await?;
         loop {
             let (stream, _) = match listener.accept().await {

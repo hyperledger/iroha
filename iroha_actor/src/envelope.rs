@@ -4,7 +4,7 @@ use tokio::sync::oneshot;
 
 use super::*;
 
-pub trait ToEnvelope<A: Actor + Handler<M>, M: Message> {
+pub trait ToEnvelope<A: Actor + ContextHandler<M>, M: Message> {
     fn pack(msg: M, channel: Option<oneshot::Sender<M::Result>>) -> Envelope<A>;
 }
 
@@ -12,7 +12,7 @@ pub struct Envelope<A: Actor>(pub Box<dyn EnvelopeProxy<A> + Send>);
 
 impl<A, M> ToEnvelope<A, M> for SyncEnvelopeProxy<M>
 where
-    A: Actor + Handler<M>,
+    A: Actor + ContextHandler<M>,
     M: Message + Send + 'static,
     M::Result: Send,
 {
@@ -41,7 +41,7 @@ where
 #[async_trait::async_trait]
 impl<A, M> EnvelopeProxy<A> for SyncEnvelopeProxy<M>
 where
-    A: Actor + Handler<M> + Send,
+    A: Actor + ContextHandler<M> + Send,
     M: Message + Send,
     M::Result: Send,
 {

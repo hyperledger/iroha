@@ -9,10 +9,11 @@
 )]
 
 use std::{
-    convert::TryFrom,
+    convert::{Infallible, TryFrom},
     future::Future,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 use std::{io, sync::Arc};
 
@@ -23,18 +24,27 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
     runtime::Handle,
     sync::mpsc::{self, Sender},
-    task,
+    task, time,
 };
 
 use super::{AsyncStream, Request, Response, State};
 
 static ENDPOINTS: Lazy<DashMap<String, Sender<RequestStream>>> = Lazy::new(DashMap::new);
 
-fn find_sender(server_url: &str) -> Sender<RequestStream> {
-    if let Some(entry) = ENDPOINTS.get(server_url) {
-        return entry.value().clone();
+async fn find_sender(server_url: &str) -> Sender<RequestStream> {
+    // Polling for 10 seconds
+    for _ in 0..100 {
+        if let Some(entry) = ENDPOINTS.get(server_url) {
+            return entry.value().clone();
+        }
+        time::sleep(Duration::from_millis(100)).await;
     }
-    panic!("Can't find ENDPOINT: {}", server_url);
+
+    let endpoints = ENDPOINTS
+        .iter()
+        .map(|e| e.key().clone())
+        .collect::<Vec<_>>();
+    panic!("Can't find ENDPOINT `{}' in {:?}", server_url, endpoints);
 }
 
 struct RequestStream {
@@ -95,6 +105,7 @@ pub async fn send_request_to(server_url: &str, request: Request) -> Result<Respo
     let payload: Vec<u8> = request.into();
     stream.write_all(&payload).await?;
     find_sender(server_url)
+        .await
         .send(stream)
         .await
         .map_err(|_err| error!("Receiver dropped."))?;
@@ -102,7 +113,11 @@ pub async fn send_request_to(server_url: &str, request: Request) -> Result<Respo
     Response::try_from(rx.recv().await.unwrap())
 }
 
-pub async fn listen<H, F, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<()>
+pub async fn listen<H, F, S>(
+    state: State<S>,
+    server_url: &str,
+    mut handler: H,
+) -> Result<Infallible>
 where
     H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
     F: Send + Future<Output = Result<()>>,
@@ -113,5 +128,5 @@ where
     while let Some(stream) = rx.recv().await {
         handler(Arc::clone(&state), Box::new(stream)).await?;
     }
-    Ok(())
+    Err(error!("Connections are closed"))
 }

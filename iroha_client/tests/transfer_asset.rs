@@ -16,7 +16,7 @@ mod tests {
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.
     fn client_can_transfer_asset_to_another_account() {
-        let (_, mut iroha_client) = TestPeer::start_test();
+        let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
         let pipeline_time = Configuration::pipeline_time();
 
         // Given

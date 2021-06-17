@@ -6,6 +6,7 @@ use iroha::config::Configuration;
 use iroha_client::client;
 use iroha_data_model::prelude::*;
 use test_network::*;
+use tokio::runtime::Runtime;
 
 const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
 
@@ -32,13 +33,15 @@ fn unstable_network(
     polling_max_attempts: u32,
 ) {
     iroha_error::install_panic_reporter();
+    let rt = Runtime::test();
     // Given
-    let (_, mut iroha_client) = Network::start_test_with_offline_and_set_max_faults(
-        n_peers,
-        MAXIMUM_TRANSACTIONS_IN_BLOCK,
-        n_offline_peers,
-        n_offline_peers,
-    );
+    let (_network, mut iroha_client) =
+        rt.block_on(<Network>::start_test_with_offline_and_set_max_faults(
+            n_peers,
+            MAXIMUM_TRANSACTIONS_IN_BLOCK,
+            n_offline_peers,
+            n_offline_peers,
+        ));
 
     let pipeline_time = Configuration::pipeline_time();
 
@@ -48,7 +51,7 @@ fn unstable_network(
     let mut account_has_quantity = 13;
 
     //When
-    for _ in 0..n_transactions {
+    for _i in 0..n_transactions {
         let quantity = 1;
         let mint_asset = MintBox::new(
             Value::U32(quantity),

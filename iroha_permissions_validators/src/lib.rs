@@ -11,13 +11,14 @@ use iroha::{
         ValidatorApplyOr,
     },
     smartcontracts::Evaluate,
+    wsv::WorldTrait,
 };
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
 
 macro_rules! impl_from_item_for_validator_box {
     ( $ty:ty ) => {
-        impl From<$ty> for PermissionsValidatorBox {
+        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W> {
             fn from(validator: $ty) -> Self {
                 Box::new(validator)
             }
@@ -27,15 +28,15 @@ macro_rules! impl_from_item_for_validator_box {
 
 macro_rules! impl_from_item_for_granted_token_validator_box {
     ( $ty:ty ) => {
-        impl From<$ty> for GrantedTokenValidatorBox {
+        impl<W: WorldTrait> From<$ty> for GrantedTokenValidatorBox<W> {
             fn from(validator: $ty) -> Self {
                 Box::new(validator)
             }
         }
 
-        impl From<$ty> for PermissionsValidatorBox {
+        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W> {
             fn from(validator: $ty) -> Self {
-                let validator: GrantedTokenValidatorBox = validator.into();
+                let validator: GrantedTokenValidatorBox<W> = validator.into();
                 Box::new(validator)
             }
         }
@@ -44,15 +45,15 @@ macro_rules! impl_from_item_for_granted_token_validator_box {
 
 macro_rules! impl_from_item_for_grant_instruction_validator_box {
     ( $ty:ty ) => {
-        impl From<$ty> for GrantInstructionValidatorBox {
+        impl<W: WorldTrait> From<$ty> for GrantInstructionValidatorBox<W> {
             fn from(validator: $ty) -> Self {
                 Box::new(validator)
             }
         }
 
-        impl From<$ty> for PermissionsValidatorBox {
+        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W> {
             fn from(validator: $ty) -> Self {
-                let validator: GrantInstructionValidatorBox = validator.into();
+                let validator: GrantInstructionValidatorBox<W> = validator.into();
                 Box::new(validator)
             }
         }
@@ -75,7 +76,7 @@ pub mod private_blockchain {
     use super::*;
 
     /// A preconfigured set of permissions for simple use cases.
-    pub fn default_permissions() -> PermissionsValidatorBox {
+    pub fn default_permissions<W: WorldTrait>() -> PermissionsValidatorBox<W> {
         PermissionsValidatorBuilder::new()
             .with_recursive_validator(
                 register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
@@ -90,12 +91,12 @@ pub mod private_blockchain {
 
     impl_from_item_for_grant_instruction_validator_box!(ProhibitGrant);
 
-    impl GrantInstructionValidator for ProhibitGrant {
+    impl<W: WorldTrait> GrantInstructionValidator<W> for ProhibitGrant {
         fn check_grant(
             &self,
             _authority: &AccountId,
             _instruction: &GrantBox,
-            _wsv: &WorldStateView,
+            _wsv: &WorldStateView<W>,
         ) -> Result<(), DenialReason> {
             Err("Granting at runtime is prohibited.".to_owned())
         }
@@ -117,12 +118,12 @@ pub mod private_blockchain {
 
         impl_from_item_for_validator_box!(ProhibitRegisterDomains);
 
-        impl PermissionsValidator for ProhibitRegisterDomains {
+        impl<W: WorldTrait> PermissionsValidator<W> for ProhibitRegisterDomains {
             fn check_instruction(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                _wsv: &WorldStateView,
+                _wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let _register_box = if let Instruction::Register(instruction) = instruction {
                     instruction
@@ -139,12 +140,12 @@ pub mod private_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(GrantedAllowedRegisterDomains);
 
-        impl GrantedTokenValidator for GrantedAllowedRegisterDomains {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedAllowedRegisterDomains {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 _instruction: &Instruction,
-                _wsv: &WorldStateView,
+                _wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 Ok(PermissionToken::new(
                     CAN_REGISTER_DOMAINS_TOKEN,
@@ -167,7 +168,7 @@ pub mod public_blockchain {
     pub const ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: &str = "asset_definition_id";
 
     /// A preconfigured set of permissions for simple use cases.
-    pub fn default_permissions() -> PermissionsValidatorBox {
+    pub fn default_permissions<W: WorldTrait>() -> PermissionsValidatorBox<W> {
         // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
         let grant_instruction_validator = PermissionsValidatorBuilder::new()
             .with_validator(transfer::GrantMyAssetAccess)
@@ -272,10 +273,10 @@ pub mod public_blockchain {
     /// # Errors
     /// - The `permission_token` is of improper format.
     /// - Asset creator is not `authority`
-    pub fn check_asset_creator_for_token(
+    pub fn check_asset_creator_for_token<W: WorldTrait>(
         permission_token: &PermissionToken,
         authority: &AccountId,
-        wsv: &WorldStateView,
+        wsv: &WorldStateView<W>,
     ) -> Result<(), String> {
         let definition_id = if let Value::Id(IdBox::AssetDefinitionId(definition_id)) =
             permission_token
@@ -319,12 +320,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(OnlyOwnedAssets);
 
-        impl PermissionsValidator for OnlyOwnedAssets {
+        impl<W: WorldTrait> PermissionsValidator<W> for OnlyOwnedAssets {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let transfer_box = if let Instruction::Transfer(instruction) = instruction {
                     instruction
@@ -350,12 +351,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
-        impl GrantedTokenValidator for GrantedByAssetOwner {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedByAssetOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
                     transfer_box
@@ -384,12 +385,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
 
-        impl GrantInstructionValidator for GrantMyAssetAccess {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantMyAssetAccess {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -420,12 +421,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-        impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::Unregister(instruction) = instruction {
                     instruction
@@ -457,12 +458,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
-        impl GrantedTokenValidator for GrantedByAssetCreator {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedByAssetCreator {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let unregister_box = if let Instruction::Unregister(instruction) = instruction {
                     instruction
@@ -497,12 +498,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
 
-        impl GrantInstructionValidator for GrantRegisteredByMeAccess {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantRegisteredByMeAccess {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -532,12 +533,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-        impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::Mint(instruction) = instruction {
                     instruction
@@ -569,12 +570,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
-        impl GrantedTokenValidator for GrantedByAssetCreator {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedByAssetCreator {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let mint_box = if let Instruction::Mint(instruction) = instruction {
                     instruction
@@ -609,12 +610,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
 
-        impl GrantInstructionValidator for GrantRegisteredByMeAccess {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantRegisteredByMeAccess {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -646,12 +647,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-        impl PermissionsValidator for OnlyAssetsCreatedByThisAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for OnlyAssetsCreatedByThisAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::Burn(instruction) = instruction {
                     instruction
@@ -683,12 +684,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
-        impl GrantedTokenValidator for GrantedByAssetCreator {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedByAssetCreator {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let burn_box = if let Instruction::Burn(instruction) = instruction {
                     instruction
@@ -720,12 +721,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
 
-        impl GrantInstructionValidator for GrantRegisteredByMeAccess {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantRegisteredByMeAccess {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -746,12 +747,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(OnlyOwnedAssets);
 
-        impl PermissionsValidator for OnlyOwnedAssets {
+        impl<W: WorldTrait> PermissionsValidator<W> for OnlyOwnedAssets {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::Burn(instruction) = instruction {
                     instruction
@@ -776,12 +777,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
-        impl GrantedTokenValidator for GrantedByAssetOwner {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedByAssetOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let burn_box = if let Instruction::Burn(burn_box) = instruction {
                     burn_box
@@ -811,12 +812,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
 
-        impl GrantInstructionValidator for GrantMyAssetAccess {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantMyAssetAccess {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -856,12 +857,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(AssetSetOnlyForSignerAccount);
 
-        impl PermissionsValidator for AssetSetOnlyForSignerAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for AssetSetOnlyForSignerAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
                     instruction
@@ -888,12 +889,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetOwner);
 
-        impl GrantedTokenValidator for SetGrantedByAssetOwner {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for SetGrantedByAssetOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
                     instruction
@@ -925,12 +926,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessSet);
 
-        impl GrantInstructionValidator for GrantMyAssetAccessSet {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantMyAssetAccessSet {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -952,12 +953,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(AccountSetOnlyForSignerAccount);
 
-        impl PermissionsValidator for AccountSetOnlyForSignerAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for AccountSetOnlyForSignerAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
                     instruction
@@ -984,12 +985,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(SetGrantedByAccountOwner);
 
-        impl GrantedTokenValidator for SetGrantedByAccountOwner {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for SetGrantedByAccountOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
                     instruction
@@ -1021,12 +1022,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessSet);
 
-        impl GrantInstructionValidator for GrantMyMetadataAccessSet {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantMyMetadataAccessSet {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -1048,12 +1049,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(AssetRemoveOnlyForSignerAccount);
 
-        impl PermissionsValidator for AssetRemoveOnlyForSignerAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for AssetRemoveOnlyForSignerAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
                     instruction
@@ -1079,12 +1080,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetOwner);
 
-        impl GrantedTokenValidator for RemoveGrantedByAssetOwner {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for RemoveGrantedByAssetOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
                     instruction
@@ -1116,12 +1117,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessRemove);
 
-        impl GrantInstructionValidator for GrantMyAssetAccessRemove {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantMyAssetAccessRemove {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -1143,12 +1144,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_validator_box!(AccountRemoveOnlyForSignerAccount);
 
-        impl PermissionsValidator for AccountRemoveOnlyForSignerAccount {
+        impl<W: WorldTrait> PermissionsValidator<W> for AccountRemoveOnlyForSignerAccount {
             fn check_instruction(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
                     instruction
@@ -1175,12 +1176,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAccountOwner);
 
-        impl GrantedTokenValidator for RemoveGrantedByAccountOwner {
+        impl<W: WorldTrait> GrantedTokenValidator<W> for RemoveGrantedByAccountOwner {
             fn should_have_token(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
                     instruction
@@ -1212,12 +1213,12 @@ pub mod public_blockchain {
 
         impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessRemove);
 
-        impl GrantInstructionValidator for GrantMyMetadataAccessRemove {
+        impl<W: WorldTrait> GrantInstructionValidator<W> for GrantMyMetadataAccessRemove {
             fn check_grant(
                 &self,
                 authority: &AccountId,
                 instruction: &GrantBox,
-                wsv: &WorldStateView,
+                wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
                 let permission_token: PermissionToken = instruction
                     .object
@@ -1240,6 +1241,7 @@ pub mod public_blockchain {
 
         use std::collections::{BTreeMap, BTreeSet};
 
+        use iroha::wsv::World;
         use maplit::{btreemap, btreeset};
 
         use super::*;
@@ -1251,7 +1253,7 @@ pub mod public_blockchain {
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let transfer = Instruction::Transfer(TransferBox {
                 source_id: IdBox::AssetId(alice_xor_id).into(),
                 object: Value::U32(10).into(),
@@ -1282,13 +1284,13 @@ pub mod public_blockchain {
             ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             let domains = vec![("test".to_string(), domain)];
-            let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
+            let wsv = WorldStateView::<World>::new(World::with(domains, BTreeSet::new()));
             let transfer = Instruction::Transfer(TransferBox {
                 source_id: IdBox::AssetId(alice_xor_id).into(),
                 object: Value::U32(10).into(),
                 destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox = transfer::OnlyOwnedAssets
+            let validator: PermissionsValidatorBox<World> = transfer::OnlyOwnedAssets
                 .or(transfer::GrantedByAssetOwner)
                 .into();
             assert!(validator
@@ -1311,12 +1313,12 @@ pub mod public_blockchain {
                     ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.into(),
                 },
             );
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox = transfer::GrantMyAssetAccess.into();
+            let validator: PermissionsValidatorBox<World> = transfer::GrantMyAssetAccess.into();
             assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
             assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
@@ -1327,7 +1329,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
-            let wsv = WorldStateView::new(World::with(
+            let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
                     accounts: BTreeMap::new(),
@@ -1374,11 +1376,12 @@ pub mod public_blockchain {
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
-            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let wsv = WorldStateView::<World>::new(World::with(domains, btreeset! {}));
             let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
-            let validator: PermissionsValidatorBox = unregister::OnlyAssetsCreatedByThisAccount
-                .or(unregister::GrantedByAssetCreator)
-                .into();
+            let validator: PermissionsValidatorBox<World> =
+                unregister::OnlyAssetsCreatedByThisAccount
+                    .or(unregister::GrantedByAssetCreator)
+                    .into();
             assert!(validator
                 .check_instruction(&alice_id, &instruction, &wsv)
                 .is_ok());
@@ -1407,12 +1410,13 @@ pub mod public_blockchain {
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
-            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let wsv = WorldStateView::<World>::new(World::with(domains, btreeset! {}));
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox = unregister::GrantRegisteredByMeAccess.into();
+            let validator: PermissionsValidatorBox<World> =
+                unregister::GrantRegisteredByMeAccess.into();
             assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
             assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
@@ -1425,7 +1429,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
-            let wsv = WorldStateView::new(World::with(
+            let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
                     accounts: BTreeMap::new(),
@@ -1478,12 +1482,12 @@ pub mod public_blockchain {
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
-            let wsv = WorldStateView::new(World::with(domains, btreeset! {}));
+            let wsv = WorldStateView::<World>::new(World::with(domains, btreeset! {}));
             let instruction = Instruction::Mint(MintBox {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox = mint::OnlyAssetsCreatedByThisAccount
+            let validator: PermissionsValidatorBox<World> = mint::OnlyAssetsCreatedByThisAccount
                 .or(mint::GrantedByAssetCreator)
                 .into();
             assert!(validator
@@ -1514,12 +1518,12 @@ pub mod public_blockchain {
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
-            let wsv = WorldStateView::new(World::with(domains, vec![]));
+            let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox = mint::GrantRegisteredByMeAccess.into();
+            let validator: PermissionsValidatorBox<World> = mint::GrantRegisteredByMeAccess.into();
             assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
             assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
@@ -1532,7 +1536,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
-            let wsv = WorldStateView::new(World::with(
+            let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
                     accounts: BTreeMap::new(),
@@ -1586,12 +1590,12 @@ pub mod public_blockchain {
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
-            let wsv = WorldStateView::new(World::with(domains, vec![]));
+            let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let instruction = Instruction::Burn(BurnBox {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox = burn::OnlyAssetsCreatedByThisAccount
+            let validator: PermissionsValidatorBox<World> = burn::OnlyAssetsCreatedByThisAccount
                 .or(burn::GrantedByAssetCreator)
                 .into();
             assert!(validator
@@ -1622,12 +1626,12 @@ pub mod public_blockchain {
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
-            let wsv = WorldStateView::new(World::with(domains, vec![]));
+            let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox = burn::GrantRegisteredByMeAccess.into();
+            let validator: PermissionsValidatorBox<World> = burn::GrantRegisteredByMeAccess.into();
             assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
             assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
@@ -1638,7 +1642,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let burn = Instruction::Burn(BurnBox {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -1667,12 +1671,12 @@ pub mod public_blockchain {
             ));
             drop(domain.accounts.insert(bob_id.clone(), bob_account));
             let domains = vec![("test".to_string(), domain)];
-            let wsv = WorldStateView::new(World::with(domains, vec![]));
+            let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let transfer = Instruction::Burn(BurnBox {
                 object: Value::U32(10).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox =
+            let validator: PermissionsValidatorBox<World> =
                 burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner).into();
             validator.check_instruction(&alice_id, &transfer, &wsv)?;
             assert!(validator
@@ -1693,12 +1697,12 @@ pub mod public_blockchain {
                     ASSET_ID_TOKEN_PARAM_NAME.to_owned() => alice_xor_id.into(),
                 },
             );
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox = burn::GrantMyAssetAccess.into();
+            let validator: PermissionsValidatorBox<World> = burn::GrantMyAssetAccess.into();
             assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
             assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
         }
@@ -1709,7 +1713,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let set = Instruction::SetKeyValue(SetKeyValueBox::new(
                 IdBox::AssetId(alice_xor_id),
                 Value::from("key".to_owned()),
@@ -1729,7 +1733,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
                 IdBox::AssetId(alice_xor_id),
                 Value::from("key".to_owned()),
@@ -1746,7 +1750,7 @@ pub mod public_blockchain {
         fn set_to_only_owned_account() {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let set = Instruction::SetKeyValue(SetKeyValueBox::new(
                 IdBox::AccountId(alice_id.clone()),
                 Value::from("key".to_owned()),
@@ -1764,7 +1768,7 @@ pub mod public_blockchain {
         fn remove_to_only_owned_account() {
             let alice_id = <Account as Identifiable>::Id::new("alice", "test");
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
-            let wsv = WorldStateView::new(World::new());
+            let wsv = WorldStateView::<World>::new(World::new());
             let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
                 IdBox::AccountId(alice_id.clone()),
                 Value::from("key".to_owned()),

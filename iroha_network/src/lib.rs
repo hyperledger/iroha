@@ -7,7 +7,7 @@ mod mock;
 #[cfg(not(feature = "mock"))]
 mod network;
 
-use std::{future::Future, sync::Arc};
+use std::{convert::Infallible, future::Future, sync::Arc};
 
 use iroha_derive::Io;
 use iroha_error::{error, Result, WrapErr};
@@ -85,7 +85,11 @@ impl Network {
     /// # Errors
     /// Can fail during accepting connection or handling incoming message
     #[iroha_futures::telemetry_future]
-    pub async fn listen<H, F, S>(state: State<S>, server_url: &str, handler: H) -> Result<()>
+    pub async fn listen<H, F, S>(
+        state: State<S>,
+        server_url: &str,
+        handler: H,
+    ) -> Result<Infallible>
     where
         H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<()>> + Send + 'static,

@@ -10,13 +10,13 @@ pub mod isi {
 
     use super::*;
 
-    impl Execute for Register<Peer> {
+    impl<W: WorldTrait> Execute<W> for Register<Peer> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             if wsv.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
@@ -26,13 +26,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Register<Domain> {
+    impl<W: WorldTrait> Execute<W> for Register<Domain> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let domain = self.object;
             domain.validate_len(wsv.config.length_limits)?;
@@ -41,13 +41,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Domain> {
+    impl<W: WorldTrait> Execute<W> for Unregister<Domain> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
             drop(wsv.domains().remove(&self.object_id));
@@ -56,13 +56,13 @@ pub mod isi {
     }
 
     #[cfg(feature = "roles")]
-    impl Execute for Register<Role> {
+    impl<W: WorldTrait> Execute<W> for Register<Role> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let role = self.object;
             drop(wsv.world.roles.insert(role.id.clone(), role));
@@ -71,13 +71,13 @@ pub mod isi {
     }
 
     #[cfg(feature = "roles")]
-    impl Execute for Unregister<Role> {
+    impl<W: WorldTrait> Execute<W> for Unregister<Role> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             drop(wsv.world.roles.remove(&self.object_id));
             for mut domain in wsv.domains().iter_mut() {
@@ -99,9 +99,9 @@ pub mod query {
     use super::*;
 
     #[cfg(feature = "roles")]
-    impl Query for FindAllRoles {
+    impl<W: WorldTrait> Query<W> for FindAllRoles {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             Ok(wsv
                 .world
                 .roles
@@ -111,9 +111,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAllPeers {
+    impl<W: WorldTrait> Query<W> for FindAllPeers {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             Ok(wsv.peers())
         }
     }

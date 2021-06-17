@@ -8,6 +8,7 @@ use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain;
 use test_network::Peer as TestPeer;
 use test_network::*;
+use tokio::runtime::Runtime;
 
 const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
     and second check with Account does not have the needed permission token: \
@@ -27,8 +28,10 @@ fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
 
 #[test]
 fn permissions_disallow_asset_transfer() {
-    let (_, mut iroha_client) =
-        TestPeer::start_test_with_permissions(public_blockchain::default_permissions());
+    let rt = Runtime::test();
+    let (_peer, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+        public_blockchain::default_permissions(),
+    ));
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -83,8 +86,10 @@ fn permissions_disallow_asset_transfer() {
 
 #[test]
 fn permissions_disallow_asset_burn() {
-    let (_, mut iroha_client) =
-        TestPeer::start_test_with_permissions(public_blockchain::default_permissions());
+    let rt = Runtime::test();
+    let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+        public_blockchain::default_permissions(),
+    ));
     let pipeline_time = Configuration::pipeline_time();
 
     // Given

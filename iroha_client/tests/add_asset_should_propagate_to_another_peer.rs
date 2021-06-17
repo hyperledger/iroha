@@ -16,7 +16,7 @@ mod tests {
     fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
     ) -> Result<()> {
         // Given
-        let (network, mut iroha_client) = Network::start_test(4, 1);
+        let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time * 3);

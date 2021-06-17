@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
-        let (_, mut iroha_client) = TestPeer::start_test();
+        let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
         let pipeline_time = Configuration::pipeline_time();
 
         // Given

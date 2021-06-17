@@ -14,7 +14,7 @@ mod tests {
     #[test]
     fn asset_amount_should_be_the_same_on_a_recently_added_peer() -> Result<()> {
         // Given
-        let (network, mut iroha_client) = Network::start_test(4, 1);
+        let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time * 3);
@@ -46,7 +46,7 @@ mod tests {
         iroha_client.submit(mint_asset)?;
         thread::sleep(pipeline_time * 2);
 
-        let (_, mut iroha_client) = network.add_peer();
+        let (_peer, mut iroha_client) = rt.block_on(network.add_peer());
 
         //Then
         iroha_client.poll_request_with_period(

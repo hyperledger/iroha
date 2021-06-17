@@ -1,5 +1,5 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
-//! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
+//! and implementations of [`Query`]'s to [`WorldStateView<W>`] about [`Account`].
 
 use iroha_data_model::prelude::*;
 
@@ -14,13 +14,13 @@ pub mod isi {
     use super::super::prelude::*;
     use super::*;
 
-    impl Execute for Mint<Account, PublicKey> {
+    impl<W: WorldTrait> Execute<W> for Mint<Account, PublicKey> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let public_key = self.object.clone();
             wsv.modify_account(&self.destination_id, |account| {
@@ -31,13 +31,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Account, SignatureCheckCondition> {
+    impl<W: WorldTrait> Execute<W> for Mint<Account, SignatureCheckCondition> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let id = self.destination_id.clone();
             wsv.modify_account(&id, |account| {
@@ -48,13 +48,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<Account, PublicKey> {
+    impl<W: WorldTrait> Execute<W> for Burn<Account, PublicKey> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let public_key = self.object.clone();
             wsv.modify_account(&self.destination_id, |account| {
@@ -71,13 +71,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<Account, String, Value> {
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<Account, String, Value> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let account_metadata_limits = wsv.config.account_metadata_limits;
             let id = self.object_id.clone();
@@ -93,13 +93,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Account, String> {
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Account, String> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             wsv.modify_account(&self.object_id, |account| {
                 drop(
@@ -114,13 +114,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Grant<Account, PermissionToken> {
+    impl<W: WorldTrait> Execute<W> for Grant<Account, PermissionToken> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let id = self.destination_id.clone();
             wsv.modify_account(&id, |account| {
@@ -132,13 +132,13 @@ pub mod isi {
     }
 
     #[cfg(feature = "roles")]
-    impl Execute for Grant<Account, RoleId> {
+    impl<W: WorldTrait> Execute<W> for Grant<Account, RoleId> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             drop(
                 wsv.world()
@@ -165,11 +165,12 @@ pub mod query {
 
     use super::super::Evaluate;
     use super::*;
+    use crate::smartcontracts::isi::prelude::WorldTrait;
 
     #[cfg(feature = "roles")]
-    impl Query for FindRolesByAccountId {
+    impl<W: WorldTrait> Query<W> for FindRolesByAccountId {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let account_id = self.id.evaluate(wsv, &Context::new())?;
             let roles = wsv.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
@@ -178,9 +179,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindPermissionTokensByAccountId {
+    impl<W: WorldTrait> Query<W> for FindPermissionTokensByAccountId {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let account_id = self.id.evaluate(wsv, &Context::new())?;
             let tokens = wsv.map_account(&account_id, |account| {
                 account
@@ -193,9 +194,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAllAccounts {
+    impl<W: WorldTrait> Query<W> for FindAllAccounts {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts.values() {
@@ -206,9 +207,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAccountById {
+    impl<W: WorldTrait> Query<W> for FindAccountById {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
@@ -217,9 +218,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAccountsByName {
+    impl<W: WorldTrait> Query<W> for FindAccountsByName {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
                 .evaluate(wsv, &Context::default())
@@ -236,9 +237,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAccountsByDomainName {
+    impl<W: WorldTrait> Query<W> for FindAccountsByDomainName {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .domain_name
                 .evaluate(wsv, &Context::default())
@@ -252,9 +253,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAccountKeyValueByIdAndKey {
+    impl<W: WorldTrait> Query<W> for FindAccountKeyValueByIdAndKey {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())

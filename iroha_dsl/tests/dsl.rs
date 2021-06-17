@@ -6,6 +6,8 @@ use iroha::config::Configuration;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_dsl::prelude::*;
 use test_network::Peer as TestPeer;
+use test_network::TestRuntime;
+use tokio::runtime::Runtime;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
@@ -104,7 +106,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
         .expect("Failed to load trusted peers.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-    let peer = TestPeer::new().expect("Failed to create peer");
+    let mut peer = <TestPeer>::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
@@ -112,12 +114,13 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
-    drop(peer.start_with_config(configuration));
+    let rt = Runtime::test();
+    rt.block_on(peer.start_with_config(configuration));
     thread::sleep(pipeline_time);
 
     let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
-    configuration.torii_api_url = peer.api_address;
+    configuration.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&configuration);
     let _ = iroha_client
         .submit_all(vec![

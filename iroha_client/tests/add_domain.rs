@@ -12,7 +12,7 @@ use test_network::*;
 #[test]
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
 {
-    let (_, mut test_client) = TestPeer::start_test();
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given

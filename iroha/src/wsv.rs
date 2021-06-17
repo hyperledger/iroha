@@ -1,7 +1,11 @@
 //! This module provides `WorldStateView` - in-memory representations of the current blockchain
 //! state.
 
-use std::sync::Arc;
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use config::Configuration;
 use dashmap::{
@@ -15,12 +19,67 @@ use tokio::task;
 use crate::smartcontracts::ParentHashNotFound;
 use crate::{block::Chain, prelude::*, smartcontracts::FindError};
 
+/// World proxy for using with `WorldTrait`
+#[derive(Debug, Default, Clone)]
+pub struct World(iroha_data_model::world::World);
+
+impl Deref for World {
+    type Target = iroha_data_model::world::World;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for World {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl WorldTrait for World {
+    /// Creates `World` with these `domains` and `trusted_peers_ids`
+    fn with(
+        domains: impl IntoIterator<Item = (Name, Domain)>,
+        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
+    ) -> Self {
+        Self(iroha_data_model::world::World::with(
+            domains,
+            trusted_peers_ids,
+        ))
+    }
+}
+
+impl World {
+    /// Creates an empty `World`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// World trait for mocking
+pub trait WorldTrait:
+    Deref<Target = iroha_data_model::world::World>
+    + DerefMut
+    + Send
+    + Sync
+    + 'static
+    + Debug
+    + Default
+    + Sized
+    + Clone
+{
+    /// Creates `World` with these `domains` and `trusted_peers_ids`
+    fn with(
+        domains: impl IntoIterator<Item = (Name, Domain)>,
+        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
+    ) -> Self;
+}
+
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct WorldStateView {
+pub struct WorldStateView<W: WorldTrait> {
     /// The world - contains `domains`, `triggers`, etc..
-    pub world: World,
+    pub world: W,
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
@@ -29,10 +88,16 @@ pub struct WorldStateView {
     pub transactions: DashSet<Hash>,
 }
 
+impl<W: WorldTrait + Default> Default for WorldStateView<W> {
+    fn default() -> Self {
+        Self::new(W::default())
+    }
+}
+
 /// WARNING!!! INTERNAL USE ONLY!!!
-impl WorldStateView {
+impl<W: WorldTrait> WorldStateView<W> {
     /// Default `WorldStateView` constructor.
-    pub fn new(world: World) -> Self {
+    pub fn new(world: W) -> Self {
         WorldStateView {
             world,
             config: Configuration::default(),
@@ -42,7 +107,7 @@ impl WorldStateView {
     }
 
     /// [`WorldStateView`] constructor with configuration.
-    pub fn from_config(config: Configuration, world: World) -> Self {
+    pub fn from_config(config: Configuration, world: W) -> Self {
         WorldStateView {
             world,
             blocks: Arc::new(Chain::new()),
@@ -64,8 +129,8 @@ impl WorldStateView {
     #[iroha_logger::log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) {
         for transaction in &block.as_inner_v1().transactions {
-            if let Err(e) = transaction.proceed(self) {
-                iroha_logger::warn!("Failed to proceed transaction on WSV: {}", e);
+            if let Err(error) = transaction.proceed(self) {
+                iroha_logger::warn!(%error, "Failed to proceed transaction on WSV");
             }
             let _ = self.transactions.insert(transaction.hash());
             // Yeild control cooperatively to the task scheduler.
@@ -116,7 +181,7 @@ impl WorldStateView {
     }
 
     /// Get `World` without an ability to modify it.
-    pub const fn world(&self) -> &World {
+    pub fn world(&self) -> &W {
         &self.world
     }
 
@@ -126,12 +191,12 @@ impl WorldStateView {
     }
 
     /// Returns reference for domains map
-    pub const fn domains(&self) -> &DomainsMap {
+    pub fn domains(&self) -> &DomainsMap {
         &self.world.domains
     }
 
     /// Returns reference for trusted peer ids
-    pub const fn trusted_peers_ids(&self) -> &PeersIds {
+    pub fn trusted_peers_ids(&self) -> &PeersIds {
         &self.world.trusted_peers_ids
     }
 

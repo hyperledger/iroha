@@ -1,7 +1,7 @@
 //! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
 #![allow(clippy::module_name_repetitions)]
 
-use std::{fmt::Debug, fs::File, io::BufReader, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path, time::Duration};
 
 use futures::future;
 use iroha_crypto::KeyPair;
@@ -9,13 +9,15 @@ use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_error::{error, Result, WrapErr};
 use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
-use tokio::{sync::RwLock, time};
+use tokio::time;
 
 use self::config::GenesisConfiguration;
 use crate::{
+    queue::QueueTrait,
     sumeragi::{InitializedNetworkTopology, Sumeragi},
     torii::uri,
     tx::VersionedAcceptedTransaction,
+    wsv::WorldTrait,
     Identifiable,
 };
 
@@ -25,112 +27,53 @@ type Offline = Vec<PeerId>;
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 
-/// `GenesisNetwork` contains initial transactions and genesis setup related parameters.
-#[derive(Clone, Debug)]
-pub struct GenesisNetwork {
-    /// transactions from `GenesisBlock`, any transaction is accepted
-    pub transactions: Vec<VersionedAcceptedTransaction>,
-    /// Number of attempts to connect to peers, while waiting for them to submit genesis.
-    pub wait_for_peers_retry_count: u64,
-    /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
-    pub wait_for_peers_retry_period_ms: u64,
-}
-
-#[derive(Clone, Deserialize, Debug)]
-struct RawGenesisBlock {
-    pub transactions: Vec<GenesisTransaction>,
-}
-
-/// `GenesisTransaction` is a transaction for inisialize settings.
-#[derive(Clone, Deserialize, Debug)]
-struct GenesisTransaction {
-    isi: Vec<Instruction>,
-}
-
-impl GenesisTransaction {
-    /// Convert `GenesisTransaction` into `AcceptedTransaction` with signature
-    pub fn sign_and_accept(
-        &self,
-        genesis_key_pair: &KeyPair,
-        max_instruction_number: usize,
-    ) -> Result<VersionedAcceptedTransaction> {
-        let transaction = Transaction::new(
-            self.isi.clone(),
-            <Account as Identifiable>::Id::genesis_account(),
-            GENESIS_TRANSACTIONS_TTL_MS,
-        )
-        .sign(genesis_key_pair)?;
-        VersionedAcceptedTransaction::from_transaction(transaction, max_instruction_number)
-    }
-}
-
-impl GenesisNetwork {
+/// Genesis network trait for mocking
+#[async_trait::async_trait]
+pub trait GenesisNetworkTrait:
+    Deref<Target = Vec<VersionedAcceptedTransaction>> + Sync + Send + 'static + Sized + Debug
+{
     /// Construct `GenesisNetwork` from configuration.
     ///
     /// # Errors
     /// Fail if genesis block loading fails
-    pub fn from_configuration(
+    fn from_configuration(
         genesis_config: &GenesisConfiguration,
         max_instructions_number: usize,
-    ) -> Result<Option<GenesisNetwork>> {
-        if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
-            let file = File::open(Path::new(&genesis_block_path))
-                .wrap_err("Failed to open a genesis block file")?;
-            let reader = BufReader::new(file);
-            let raw_block: RawGenesisBlock = serde_json::from_reader(reader)
-                .wrap_err("Failed to deserialize json from reader")?;
-            let genesis_key_pair = KeyPair {
-                public_key: genesis_config.genesis_account_public_key.clone(),
-                private_key: genesis_config
-                    .genesis_account_private_key
-                    .clone()
-                    .ok_or_else(|| error!("genesis account private key is empty"))?,
-            };
-            Ok(Some(GenesisNetwork {
-                transactions: raw_block
-                    .transactions
-                    .iter()
-                    .map(|raw_transaction| {
-                        raw_transaction.sign_and_accept(&genesis_key_pair, max_instructions_number)
-                    })
-                    .filter_map(Result::ok)
-                    .collect(),
-                wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
-                wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
+    ) -> Result<Option<Self>>;
+
+    /// Waits for a minimum number of `peers` needed for consensus to be online.
+    /// Returns [`InitializedNetworkTopology`] with the set A consisting of online peers.
+    async fn wait_for_peers(
+        &self,
+        this_peer_id: PeerId,
+        network_topology: InitializedNetworkTopology,
+    ) -> Result<InitializedNetworkTopology>;
 
     /// Submits genesis transactions.
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
-    #[iroha_futures::telemetry_future]
-    pub async fn submit_transactions(&self, sumeragi: Arc<RwLock<Sumeragi>>) -> Result<()> {
-        let genesis_topology = {
-            let sumeragi = sumeragi.read().await;
-            self.wait_for_peers(sumeragi.peer_id.clone(), sumeragi.network_topology.clone())
-                .await?
-        };
+    async fn submit_transactions<Q: QueueTrait, W: WorldTrait>(
+        &self,
+        sumeragi: &mut Sumeragi<Q, Self, W>,
+    ) -> Result<()> {
+        let genesis_topology = self
+            .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.network_topology.clone())
+            .await?;
         iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
-            .write()
-            .await
-            .start_genesis_round(self.transactions.clone(), genesis_topology)
+            .start_genesis_round(self.deref().clone(), genesis_topology)
             .await
     }
 
     /// Checks which peers are online and which are offline
     /// Returns (online, offline) peers respectively
-    #[iroha_futures::telemetry_future]
     async fn check_peers(
         this_peer_id: &PeerId,
         network_topology: &InitializedNetworkTopology,
     ) -> (Online, Offline) {
         let futures = network_topology
-            .sorted_peers()
+            .sorted_peers
             .iter()
             .cloned()
             .map(|peer| async {
@@ -168,7 +111,7 @@ impl GenesisNetwork {
         (online, offline)
     }
 
-    #[iroha_futures::telemetry_future]
+    /// Tries to wait for peers
     #[allow(clippy::expect_used)]
     async fn try_wait_for_peers(
         this_peer_id: &PeerId,
@@ -182,7 +125,7 @@ impl GenesisNetwork {
             return Err(error!("Not enough online peers for consensus"));
         }
 
-        let genesis_topology = if network_topology.sorted_peers().len() == 1 {
+        let genesis_topology = if network_topology.sorted_peers.len() == 1 {
             network_topology.clone()
         } else {
             let online_peers: Vec<_> = online_peers
@@ -204,17 +147,69 @@ impl GenesisNetwork {
                 validating_peers,
                 proxy_tail,
                 observing_peers,
-                network_topology.max_faults(),
+                network_topology.max_faults,
             )?
         };
 
         iroha_logger::info!("Waiting for active peers finished.");
         Ok(genesis_topology)
     }
+}
 
-    /// Waits for a minimum number of `peers` needed for consensus to be online.
-    /// Returns [`InitializedNetworkTopology`] with the set A consisting of online peers.
-    #[iroha_futures::telemetry_future]
+/// `GenesisNetwork` contains initial transactions and genesis setup related parameters.
+#[derive(Clone, Debug)]
+pub struct GenesisNetwork {
+    /// transactions from `GenesisBlock`, any transaction is accepted
+    pub transactions: Vec<VersionedAcceptedTransaction>,
+    /// Number of attempts to connect to peers, while waiting for them to submit genesis.
+    pub wait_for_peers_retry_count: u64,
+    /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
+    pub wait_for_peers_retry_period_ms: u64,
+}
+
+impl Deref for GenesisNetwork {
+    type Target = Vec<VersionedAcceptedTransaction>;
+    fn deref(&self) -> &Self::Target {
+        &self.transactions
+    }
+}
+
+#[async_trait::async_trait]
+impl GenesisNetworkTrait for GenesisNetwork {
+    fn from_configuration(
+        genesis_config: &GenesisConfiguration,
+        max_instructions_number: usize,
+    ) -> Result<Option<GenesisNetwork>> {
+        if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
+            let file = File::open(Path::new(&genesis_block_path))
+                .wrap_err("Failed to open a genesis block file")?;
+            let reader = BufReader::new(file);
+            let raw_block: RawGenesisBlock = serde_json::from_reader(reader)
+                .wrap_err("Failed to deserialize json from reader")?;
+            let genesis_key_pair = KeyPair {
+                public_key: genesis_config.genesis_account_public_key.clone(),
+                private_key: genesis_config
+                    .genesis_account_private_key
+                    .clone()
+                    .ok_or_else(|| error!("genesis account private key is empty"))?,
+            };
+            Ok(Some(GenesisNetwork {
+                transactions: raw_block
+                    .transactions
+                    .iter()
+                    .map(|raw_transaction| {
+                        raw_transaction.sign_and_accept(&genesis_key_pair, max_instructions_number)
+                    })
+                    .filter_map(Result::ok)
+                    .collect(),
+                wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
+                wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn wait_for_peers(
         &self,
         this_peer_id: PeerId,
@@ -231,6 +226,37 @@ impl GenesisNetwork {
             time::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
         Err(error!("Waiting for peers failed."))
+    }
+}
+
+#[derive(Clone, Deserialize, Debug)]
+struct RawGenesisBlock {
+    pub transactions: Vec<GenesisTransaction>,
+}
+
+/// `GenesisTransaction` is a transaction for inisialize settings.
+#[derive(Clone, Deserialize, Debug)]
+pub struct GenesisTransaction {
+    /// Instructions
+    pub isi: Vec<Instruction>,
+}
+
+impl GenesisTransaction {
+    /// Convert `GenesisTransaction` into `AcceptedTransaction` with signature
+    /// # Errors
+    /// Fails if signing fails
+    pub fn sign_and_accept(
+        &self,
+        genesis_key_pair: &KeyPair,
+        max_instruction_number: usize,
+    ) -> Result<VersionedAcceptedTransaction> {
+        let transaction = Transaction::new(
+            self.isi.clone(),
+            <Account as Identifiable>::Id::genesis_account(),
+            GENESIS_TRANSACTIONS_TTL_MS,
+        )
+        .sign(genesis_key_pair)?;
+        VersionedAcceptedTransaction::from_transaction(transaction, max_instruction_number)
     }
 }
 

@@ -9,7 +9,8 @@ use iroha_client::{
     config::Configuration as ClientConfiguration,
 };
 use iroha_data_model::prelude::*;
-use test_network::Peer as TestPeer;
+use test_network::{Peer as TestPeer, TestRuntime};
+use tokio::runtime::Runtime;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
@@ -20,11 +21,12 @@ fn query_requests(criterion: &mut Criterion) {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-    let peer = TestPeer::new().expect("Failed to create peer");
+    let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let rt = Runtime::test();
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    drop(peer.start_with_config(configuration));
+    rt.block_on(peer.start_with_config(configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("query-reqeuests");
@@ -52,7 +54,7 @@ fn query_requests(criterion: &mut Criterion) {
     );
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
-    client_config.torii_api_url = peer.api_address;
+    client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);
     let _ = iroha_client
         .submit_all(vec![
@@ -96,11 +98,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-    let peer = TestPeer::new().expect("Failed to create peer");
+    let rt = Runtime::test();
+    let mut peer = <TestPeer>::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    drop(peer.start_with_config(configuration));
+    rt.block_on(peer.start_with_config(configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("instruction-requests");
@@ -120,7 +123,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
-    client_config.torii_api_url = peer.api_address;
+    client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);
     let _ = iroha_client
         .submit_all(vec![create_domain.into(), create_account.into()])

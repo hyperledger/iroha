@@ -14,13 +14,13 @@ use crate::prelude::*;
 pub mod isi {
     use super::*;
 
-    impl Execute for Register<NewAccount> {
+    impl<W: WorldTrait> Execute<W> for Register<NewAccount> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <NewAccount as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let account = self.object;
             account.validate_len(wsv.config.length_limits)?;
@@ -41,13 +41,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Account> {
+    impl<W: WorldTrait> Execute<W> for Unregister<Account> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let account_id = self.object_id;
             drop(
@@ -59,13 +59,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Register<AssetDefinition> {
+    impl<W: WorldTrait> Execute<W> for Register<AssetDefinition> {
         type Error = Error;
 
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let asset_definition = self.object;
             asset_definition.validate_len(wsv.config.length_limits)?;
@@ -90,13 +90,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<AssetDefinition> {
+    impl<W: WorldTrait> Execute<W> for Unregister<AssetDefinition> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
             drop(
@@ -127,12 +127,11 @@ pub mod query {
     use iroha_error::{Result, WrapErr};
     use iroha_logger::log;
 
-    use super::super::Evaluate;
     use super::*;
 
-    impl Query for FindAllDomains {
+    impl<W: WorldTrait> Query<W> for FindAllDomains {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             Ok(wsv
                 .domains()
                 .iter()
@@ -141,8 +140,8 @@ pub mod query {
         }
     }
 
-    impl Query for FindDomainByName {
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+    impl<W: WorldTrait> Query<W> for FindDomainByName {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
                 .evaluate(wsv, &Context::default())

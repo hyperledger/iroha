@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
-        let (_, mut iroha_client) = TestPeer::start_test();
+        let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
         let pipeline_time = Configuration::pipeline_time();
 
         // Given

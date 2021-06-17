@@ -18,7 +18,7 @@ impl Actor for DeadlockActor {}
 #[async_trait::async_trait]
 impl Handler<Msg> for DeadlockActor {
     type Result = ();
-    async fn handle(&mut self, _context: &mut Context<Self>, _: Msg) {
+    async fn handle(&mut self, _: Msg) {
         if let Some(addr) = &self.0 {
             let _ = addr.send(Msg).await;
         }
@@ -28,7 +28,7 @@ impl Handler<Msg> for DeadlockActor {
 #[async_trait::async_trait]
 impl Handler<Address<Self>> for DeadlockActor {
     type Result = ();
-    async fn handle(&mut self, _: &mut Context<Self>, Address(addr): Address<Self>) {
+    async fn handle(&mut self, Address(addr): Address<Self>) {
         self.0 = Some(addr);
     }
 }

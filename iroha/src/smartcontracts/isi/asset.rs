@@ -17,9 +17,9 @@ pub mod isi {
     use super::*;
 
     /// Asserts that asset definition with [`definition_id`] has asset type [`expected_value_type`].
-    fn assert_asset_type(
+    fn assert_asset_type<W: WorldTrait>(
         definition_id: &AssetDefinitionId,
-        wsv: &WorldStateView,
+        wsv: &WorldStateView<W>,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let value_type = wsv
@@ -37,13 +37,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Asset, u32> {
+    impl<W: WorldTrait> Execute<W> for Mint<Asset, u32> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
@@ -62,13 +62,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Asset, u128> {
+    impl<W: WorldTrait> Execute<W> for Mint<Asset, u128> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
@@ -87,13 +87,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<Asset, String, Value> {
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<Asset, String, Value> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
@@ -111,13 +111,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<Asset, u32> {
+    impl<W: WorldTrait> Execute<W> for Burn<Asset, u32> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
@@ -135,13 +135,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<Asset, u128> {
+    impl<W: WorldTrait> Execute<W> for Burn<Asset, u128> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
@@ -159,13 +159,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Asset, String> {
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Asset, String> {
         type Error = Error;
 
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             wsv.modify_asset(&self.object_id, |asset| {
@@ -181,14 +181,14 @@ pub mod isi {
         }
     }
 
-    impl Execute for Transfer<Asset, u32, Asset> {
+    impl<W: WorldTrait> Execute<W> for Transfer<Asset, u32, Asset> {
         type Error = Error;
 
         #[log(skip(_authority))]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             if self.destination_id.definition_id != self.source_id.definition_id {
                 return Err(error!("Can not transfer asset between different asset types.").into());
@@ -224,12 +224,11 @@ pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
-    use super::super::Evaluate;
     use super::*;
 
-    impl Query for FindAllAssets {
+    impl<W: WorldTrait> Query<W> for FindAllAssets {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts.values() {
@@ -242,9 +241,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAllAssetsDefinitions {
+    impl<W: WorldTrait> Query<W> for FindAllAssetsDefinitions {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for asset_definition_entry in domain.asset_definitions.values() {
@@ -255,9 +254,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetById {
+    impl<W: WorldTrait> Query<W> for FindAssetById {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
@@ -266,8 +265,8 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetsByName {
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+    impl<W: WorldTrait> Query<W> for FindAssetsByName {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
                 .evaluate(wsv, &Context::default())
@@ -286,9 +285,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetsByAccountId {
+    impl<W: WorldTrait> Query<W> for FindAssetsByAccountId {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .account_id
                 .evaluate(wsv, &Context::default())
@@ -297,9 +296,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetsByAssetDefinitionId {
+    impl<W: WorldTrait> Query<W> for FindAssetsByAssetDefinitionId {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .asset_definition_id
                 .evaluate(wsv, &Context::default())
@@ -318,9 +317,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetsByDomainName {
+    impl<W: WorldTrait> Query<W> for FindAssetsByDomainName {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .domain_name
                 .evaluate(wsv, &Context::default())
@@ -335,9 +334,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetsByAccountIdAndAssetDefinitionId {
+    impl<W: WorldTrait> Query<W> for FindAssetsByAccountIdAndAssetDefinitionId {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .account_id
                 .evaluate(wsv, &Context::default())
@@ -354,9 +353,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetsByDomainNameAndAssetDefinitionId {
+    impl<W: WorldTrait> Query<W> for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .domain_name
                 .evaluate(wsv, &Context::default())
@@ -384,9 +383,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetQuantityById {
+    impl<W: WorldTrait> Query<W> for FindAssetQuantityById {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<u32> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<u32> {
             let asset_id = self
                 .id
                 .evaluate(wsv, &Context::default())
@@ -395,9 +394,9 @@ pub mod query {
         }
     }
 
-    impl Query for FindAssetKeyValueByIdAndKey {
+    impl<W: WorldTrait> Query<W> for FindAssetKeyValueByIdAndKey {
         #[log]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Value> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())

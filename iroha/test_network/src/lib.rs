@@ -7,46 +7,84 @@
     missing_docs,
     clippy::cast_possible_truncation,
     clippy::missing_panics_doc,
-    clippy::restriction
+    clippy::restriction,
+    clippy::future_not_send
 )]
 
-use std::{
-    convert::TryFrom,
-    fmt::Debug,
-    sync::mpsc::{self, Sender},
-    thread,
-    time::Duration,
-};
+use std::{convert::TryFrom, fmt::Debug, thread, time::Duration};
 
+use futures::future;
 use iroha::{
-    config::Configuration, prelude::*, smartcontracts::permissions::PermissionsValidatorBox,
-    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
+    block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
+    config::Configuration,
+    genesis::{GenesisNetwork, GenesisNetworkTrait},
+    kura::{Kura, KuraTrait},
+    prelude::*,
+    queue::{Queue, QueueTrait},
+    smartcontracts::permissions::PermissionsValidatorBox,
+    sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
+    torii::config::ToriiConfiguration,
+    wsv::{World, WorldTrait},
+    Iroha,
 };
+use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_data_model::peer::Peer as DataModelPeer;
 use iroha_data_model::prelude::*;
 use iroha_error::{Error, Result};
 use iroha_logger::config::{LevelEnv, LoggerConfiguration};
 use iroha_logger::InstrumentFutures;
-use rand::seq::SliceRandom;
+use rand::seq::IteratorRandom;
 use tempfile::TempDir;
-use tokio::runtime::Runtime;
+use tokio::{
+    runtime::{self, Runtime},
+    task::{self, JoinHandle},
+    time,
+};
 
 #[derive(Debug, Clone, Copy)]
-pub struct ShutdownRuntime;
+struct ShutdownRuntime;
 
 /// Network of peers
-#[derive(Clone, Debug)]
-pub struct Network {
+#[derive(Debug)]
+pub struct Network<
+    W = World,
+    G = GenesisNetwork,
+    Q = Queue<W>,
+    S = Sumeragi<Q, G, W>,
+    K = Kura<W>,
+    B = BlockSynchronizer<S, W>,
+> where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    Q: QueueTrait<World = W>,
+    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    K: KuraTrait<World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
     /// Genesis peer which sends genesis block to everyone
-    pub genesis: Peer,
+    pub genesis: Peer<W, G, Q, S, K, B>,
     /// peers
-    pub peers: Vec<Peer>,
+    pub peers: Vec<Peer<W, G, Q, S, K, B>>,
 }
 
 /// Peer structure
-#[derive(Clone, Debug)]
-pub struct Peer {
+#[derive(Debug)]
+pub struct Peer<
+    W = World,
+    G = GenesisNetwork,
+    Q = Queue<W>,
+    S = Sumeragi<Q, G, W>,
+    K = Kura<W>,
+    B = BlockSynchronizer<S, W>,
+> where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    Q: QueueTrait<World = W>,
+    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    K: KuraTrait<World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
     /// id of peer
     pub id: PeerId,
     /// api address
@@ -55,6 +93,14 @@ pub struct Peer {
     pub p2p_address: String,
     /// Key pair of peer
     pub key_pair: KeyPair,
+    /// Broker
+    pub broker: Broker,
+
+    /// Shutdown handle
+    shutdown: Option<JoinHandle<()>>,
+
+    /// Iroha itself
+    pub iroha: Option<Iroha<W, G, Q, S, K, B>>,
 }
 
 impl std::cmp::PartialEq for Peer {
@@ -69,27 +115,67 @@ pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
 pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 pub const GENESIS_PATH: &str = "tests/genesis.json";
 
-impl Network {
-    /// Starts network with peers with default configuration and specified options.
-    /// Returns its info and client for connecting to it.
-    pub fn start_test(n_peers: u32, maximum_transactions_in_block: u32) -> (Self, Client) {
-        Self::start_test_with_offline(n_peers, maximum_transactions_in_block, 0)
+impl<W, G, Q, S, K, B> Network<W, G, Q, S, K, B>
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    Q: QueueTrait<World = W>,
+    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    K: KuraTrait<World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
+    pub async fn send<M, A>(
+        &self,
+        lense: impl Fn(&Iroha<W, G, Q, S, K, B>) -> &Addr<A>,
+        msg: M,
+    ) -> Vec<M::Result>
+    where
+        M: Message + Clone + Send + 'static,
+        M::Result: Send,
+        A: Actor + ContextHandler<M>,
+    {
+        let fut = self
+            .peers()
+            .map(|p| p.iroha.as_ref().unwrap())
+            .map(lense)
+            .map(|actor| actor.send(msg.clone()));
+        time::timeout(Duration::from_secs(60), future::join_all(fut))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(Result::unwrap)
+            .collect()
     }
 
     /// Starts network with peers with default configuration and specified options.
     /// Returns its info and client for connecting to it.
-    pub fn start_test_with_offline_and_set_max_faults(
+    pub fn start_test_with_runtime(n_peers: u32, max_txs_in_block: u32) -> (Runtime, Self, Client) {
+        let rt = Runtime::test();
+        let (network, client) = rt.block_on(Self::start_test(n_peers, max_txs_in_block));
+        (rt, network, client)
+    }
+
+    /// Starts network with peers with default configuration and specified options.
+    /// Returns its info and client for connecting to it.
+    pub async fn start_test(n_peers: u32, max_txs_in_block: u32) -> (Self, Client) {
+        Self::start_test_with_offline(n_peers, max_txs_in_block, 0).await
+    }
+
+    /// Starts network with peers with default configuration and specified options.
+    /// Returns its info and client for connecting to it.
+    pub async fn start_test_with_offline_and_set_max_faults(
         n_peers: u32,
-        maximum_transactions_in_block: u32,
+        max_txs_in_block: u32,
         offline_peers: u32,
         max_faulty_peers: u32,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration
             .queue_configuration
-            .maximum_transactions_in_block = maximum_transactions_in_block;
+            .maximum_transactions_in_block = max_txs_in_block;
         configuration.sumeragi_configuration.max_faulty_peers = max_faulty_peers;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
+            .await
             .expect("Failed to init peers");
         let client = Client::test(&network.genesis.api_address);
         (network, client)
@@ -97,7 +183,7 @@ impl Network {
 
     /// Starts network with peers with default configuration and specified options.
     /// Returns its info and client for connecting to it.
-    pub fn start_test_with_offline(
+    pub async fn start_test_with_offline(
         n_peers: u32,
         maximum_transactions_in_block: u32,
         offline_peers: u32,
@@ -110,17 +196,19 @@ impl Network {
             offline_peers,
             max_faulty_peers,
         )
+        .await
     }
 
     /// Adds peer to network
-    pub fn add_peer(&self) -> (Peer, Client) {
+    pub async fn add_peer(&self) -> (Peer, Client) {
         let mut client = Client::test(&self.genesis.api_address);
-        let peer = Peer::new().expect("Failed to create new peer");
+        let mut peer = Peer::new().expect("Failed to create new peer");
         let mut config = Configuration::test();
-        config.sumeragi_configuration.trusted_peers.peers = self.ids().collect();
+        config.sumeragi_configuration.trusted_peers.peers =
+            self.peers().map(|peer| &peer.id).cloned().collect();
         config.sumeragi_configuration.max_faulty_peers = (self.peers.len() / 3) as u32;
-        peer.start_with_config(config);
-        thread::sleep(Configuration::pipeline_time() * 2);
+        peer.start_with_config(config).await;
+        time::sleep(Configuration::pipeline_time() * 2).await;
         let add_peer = RegisterBox::new(IdentifiableBox::Peer(
             DataModelPeer::new(peer.id.clone()).into(),
         ));
@@ -132,14 +220,14 @@ impl Network {
     /// Creates new network with some ofline peers
     /// # Panics
     /// Panics if fails to find or decode default configuration
-    pub fn new_with_offline_peers(
+    pub async fn new_with_offline_peers(
         default_configuration: Option<Configuration>,
         n_peers: u32,
         offline_peers: u32,
     ) -> Result<Self> {
         let n_peers = n_peers - 1;
-        let genesis = Peer::new()?;
-        let peers = (0..n_peers)
+        let mut genesis = Peer::new()?;
+        let mut peers = (0..n_peers)
             .map(|_| Peer::new())
             .collect::<Result<Vec<_>>>()?;
 
@@ -154,37 +242,89 @@ impl Network {
         {
             let mut configuration = configuration.clone();
             configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-            drop(genesis.start_with_config(configuration));
+            genesis.start_with_config(configuration).await;
         }
 
         let rng = &mut rand::thread_rng();
         let online_peers = n_peers - offline_peers;
 
-        peers
-            .choose_multiple(rng, online_peers as usize)
-            .zip(std::iter::repeat_with(|| configuration.clone()))
-            .for_each(|(peer, configuration)| {
-                drop(peer.start_with_config(configuration));
-            });
+        for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
+            peer.start_with_config(configuration.clone()).await;
+        }
 
-        thread::sleep(Duration::from_millis(3000) * (n_peers + 1));
+        time::sleep(Duration::from_millis(500) * (n_peers + 1)).await;
 
         Ok(Self { genesis, peers })
     }
 
-    /// Returns ids of all peers
-    pub fn ids(&self) -> impl Iterator<Item = PeerId> + '_ {
-        std::iter::once(self.genesis.id.clone())
-            .chain(self.peers.iter().map(|peer| peer.id.clone()))
+    /// Returns peers
+    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, Q, S, K, B>> + '_ {
+        std::iter::once(&self.genesis).chain(self.peers.iter())
     }
 
     /// Creates new network from configuration and with that number of peers
-    pub fn new(default_configuration: Option<Configuration>, n_peers: u32) -> Result<Self> {
-        Self::new_with_offline_peers(default_configuration, n_peers, 0)
+    pub async fn new(default_configuration: Option<Configuration>, n_peers: u32) -> Result<Self> {
+        Self::new_with_offline_peers(default_configuration, n_peers, 0).await
+    }
+
+    pub async fn send_all<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
+        for p in self.peers() {
+            iroha_logger::info!("Sending {:?}", p.id);
+            p.send(m.clone()).await
+        }
+    }
+
+    pub async fn send_all_default<M: iroha_actor::broker::BrokerMessage + Sync + Default>(&self) {
+        for p in self.peers() {
+            iroha_logger::info!("Sending {:?}", p.id);
+            p.send_default::<M>().await
+        }
     }
 }
 
-impl Peer {
+impl<W, G, Q, S, K, B> Drop for Peer<W, G, Q, S, K, B>
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    Q: QueueTrait<World = W>,
+    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    K: KuraTrait<World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
+    fn drop(&mut self) {
+        iroha_logger::error!(
+            "Stoping peer (p2p = {}, api = {})",
+            self.p2p_address,
+            self.api_address
+        );
+        self.stop()
+    }
+}
+
+impl<W, G, Q, S, K, B> Peer<W, G, Q, S, K, B>
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    Q: QueueTrait<World = W>,
+    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    K: KuraTrait<World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
+    pub async fn send<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
+        self.broker.issue_send(m).await
+    }
+
+    pub async fn send_default<M: iroha_actor::broker::BrokerMessage + Sync + Default>(&self) {
+        self.send(M::default()).await
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.abort();
+            iroha_logger::error!("Stoping down peer...");
+        }
+    }
+
     /// Returns per peer config with all addresses, keys, and id setted up
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
@@ -213,12 +353,12 @@ impl Peer {
     }
 
     /// Starts peer with config, permissions and temporary directory
-    pub fn start_with_config_permissions_dir(
-        &self,
+    pub async fn start_with_config_permissions_dir(
+        &mut self,
         configuration: Configuration,
-        permissions: impl Into<PermissionsValidatorBox> + Send + 'static,
+        permissions: impl Into<PermissionsValidatorBox<W>> + Send + 'static,
         temp_dir: &TempDir,
-    ) -> Sender<ShutdownRuntime> {
+    ) {
         let mut configuration = self.get_config(configuration);
         configuration
             .kura_configuration
@@ -230,34 +370,34 @@ impl Peer {
             &self.p2p_address,
             &self.api_address
         );
-        let (shutdown_runtime_sender, shutdown_runtime_receiver) = mpsc::channel();
-        let _join_handle = thread::spawn(move || {
-            let rt = Runtime::new().unwrap();
-            rt.spawn(
-                async move {
-                    let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
-                    iroha.start().await.expect("Failed to start Iroha.");
-                }
-                .instrument(info_span),
-            );
-            if shutdown_runtime_receiver.recv().is_err() {
-                // If shutdown sender was dropped - continue running until tests shutdown.
-                loop {
-                    thread::yield_now();
-                }
+        let broker = self.broker.clone();
+        let (sender, reciever) = std::sync::mpsc::sync_channel(1);
+        let handle = task::spawn(
+            async move {
+                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
+                    &configuration,
+                    permissions.into(),
+                    broker,
+                )
+                .await
+                .expect("Failed to start iroha");
+                let jh = iroha.start_as_task().unwrap();
+                sender.send(iroha).unwrap();
+                jh.await.unwrap().unwrap();
             }
-        });
+            .instrument(info_span),
+        );
 
-        thread::sleep(Duration::from_millis(1000));
-        shutdown_runtime_sender
+        self.iroha = Some(reciever.recv().unwrap());
+        self.shutdown = Some(handle);
     }
 
     /// Starts peer with config and permissions
-    pub fn start_with_config_permissions(
-        &self,
+    pub async fn start_with_config_permissions(
+        &mut self,
         configuration: Configuration,
-        permissions: impl Into<PermissionsValidatorBox> + Send + 'static,
-    ) -> Sender<ShutdownRuntime> {
+        permissions: impl Into<PermissionsValidatorBox<W>> + Send + 'static,
+    ) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let mut configuration = self.get_config(configuration);
         configuration
@@ -270,37 +410,39 @@ impl Peer {
             &self.p2p_address,
             &self.api_address
         );
-        let (shutdown_runtime_sender, shutdown_runtime_receiver) = mpsc::channel();
-        let _join_handle = thread::spawn(move || {
-            let rt = Runtime::new().unwrap();
-            rt.spawn(
-                async move {
-                    let _temp_dir = temp_dir;
-                    let iroha = Iroha::new(&configuration, permissions.into()).unwrap();
-                    iroha.start().await.expect("Failed to start Iroha.");
-                }
-                .instrument(info_span),
-            );
-            if shutdown_runtime_receiver.recv().is_err() {
-                // If shutdown sender was dropped - continue running until tests shutdown.
-                loop {
-                    thread::yield_now();
-                }
+        let broker = self.broker.clone();
+        let (sender, reciever) = std::sync::mpsc::sync_channel(1);
+        let join_handle = tokio::spawn(
+            async move {
+                let _temp_dir = temp_dir;
+                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
+                    &configuration,
+                    permissions.into(),
+                    broker,
+                )
+                .await
+                .expect("Failed to start iroha");
+                let jh = iroha.start_as_task().unwrap();
+                sender.send(iroha).unwrap();
+                jh.await.unwrap().unwrap();
             }
-        });
+            .instrument(info_span),
+        );
 
-        thread::sleep(Duration::from_millis(1000));
-        shutdown_runtime_sender
+        self.iroha = Some(reciever.recv().unwrap());
+        time::sleep(Duration::from_millis(1000)).await;
+        self.shutdown = Some(join_handle);
     }
 
     /// Starts peer with config
-    pub fn start_with_config(&self, configuration: Configuration) -> Sender<ShutdownRuntime> {
+    pub async fn start_with_config(&mut self, configuration: Configuration) {
         self.start_with_config_permissions(configuration, AllowAll)
+            .await;
     }
 
     /// Starts peer
-    pub fn start(&self) -> Sender<ShutdownRuntime> {
-        self.start_with_config(Configuration::test())
+    pub async fn start(&mut self) {
+        self.start_with_config(Configuration::test()).await;
     }
 
     /// Creates peer
@@ -318,35 +460,56 @@ impl Peer {
             address: p2p_address.clone(),
             public_key: key_pair.public_key.clone(),
         };
+        let shutdown = None;
         Ok(Self {
             id,
             key_pair,
             p2p_address,
             api_address,
+            shutdown,
+            iroha: None,
+            broker: Broker::new(),
         })
     }
 
     /// Starts peer with default configuration.
     /// Returns its info and client for connecting to it.
-    pub fn start_test() -> (Self, Client) {
-        Self::start_test_with_permissions(AllowAll.into())
+    pub fn start_test_with_runtime() -> (Runtime, Self, Client) {
+        let rt = Runtime::test();
+        let (peer, client) = rt.block_on(Self::start_test());
+        (rt, peer, client)
+    }
+
+    /// Starts peer with default configuration.
+    /// Returns its info and client for connecting to it.
+    pub async fn start_test() -> (Self, Client) {
+        Self::start_test_with_permissions(AllowAll.into()).await
     }
 
     /// Starts peer with default configuration and specified permissions.
     /// Returns its info and client for connecting to it.
-    pub fn start_test_with_permissions(permissions: PermissionsValidatorBox) -> (Self, Client) {
+    pub async fn start_test_with_permissions(
+        permissions: PermissionsValidatorBox<W>,
+    ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        let peer = Self::new().expect("Failed to create peer.");
+        let mut peer = Self::new().expect("Failed to create peer.");
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
         configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_owned());
-        peer.start_with_config_permissions(configuration.clone(), permissions);
+        peer.start_with_config_permissions(configuration.clone(), permissions)
+            .await;
         let client = Client::test(&peer.api_address);
-        thread::sleep(Duration::from_millis(
+        time::sleep(Duration::from_millis(
             configuration.sumeragi_configuration.pipeline_time_ms(),
-        ));
+        ))
+        .await;
         (peer, client)
     }
+}
+
+pub trait TestRuntime {
+    /// Creates test runtime
+    fn test() -> Self;
 }
 
 pub trait TestConfiguration {
@@ -384,7 +547,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 
@@ -396,14 +559,14 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 
@@ -416,7 +579,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 }
@@ -424,6 +587,15 @@ pub trait TestClient: Sized {
 pub trait TestQueryResult {
     /// Tries to find asset by id
     fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
+}
+
+impl TestRuntime for Runtime {
+    fn test() -> Self {
+        runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
 }
 
 impl TestConfiguration for Configuration {
@@ -490,7 +662,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {
@@ -506,7 +678,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {
@@ -523,7 +695,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {
@@ -540,7 +712,7 @@ impl TestClient for Client {
 
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
-        R: Query + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryRequest> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {

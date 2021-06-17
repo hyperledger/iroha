@@ -9,6 +9,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use iroha_actor::Message;
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_error::{Result, WrapErr};
@@ -19,8 +20,12 @@ use crate::prelude::*;
 #[cfg(feature = "roles")]
 use crate::smartcontracts::permissions;
 use crate::smartcontracts::{permissions::PermissionsValidatorBox, Evaluate, Execute};
+use crate::wsv::WorldTrait;
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
+impl Message for VersionedAcceptedTransaction {
+    type Result = ();
+}
 
 #[allow(clippy::missing_errors_doc)]
 impl VersionedAcceptedTransaction {
@@ -66,13 +71,13 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
-    /// `WorldStateView`.
+    /// `WorldStateView<W>`.
     ///
     /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn validate(
+    pub fn validate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
+        wsv: &WorldStateView<W>,
+        permissions_validator: &PermissionsValidatorBox<W>,
         is_genesis: bool,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
         self.into_inner_v1()
@@ -82,7 +87,10 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
-    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
+    pub fn check_signature_condition<W: WorldTrait>(
+        &self,
+        wsv: &WorldStateView<W>,
+    ) -> Result<bool> {
         self.as_inner_v1().check_signature_condition(wsv)
     }
 
@@ -95,7 +103,7 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         self.as_inner_v1().is_in_blockchain(wsv)
     }
 
@@ -181,10 +189,10 @@ impl AcceptedTransaction {
 
     #[allow(clippy::unwrap_in_result)]
     #[allow(clippy::expect_used)]
-    fn validate_internal(
+    fn validate_internal<W: WorldTrait>(
         &self,
-        wsv: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
+        wsv: &WorldStateView<W>,
+        permissions_validator: &PermissionsValidatorBox<W>,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
         let wsv_temp = wsv.clone();
@@ -262,17 +270,17 @@ impl AcceptedTransaction {
     }
 
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
-    /// `WorldStateView`.
+    /// `WorldStateView<W>`.
     ///
     /// # Errors
     /// Can fail if:
     /// - signature verification fails
     /// - instruction execution fails
     /// - permission check fails
-    pub fn validate(
+    pub fn validate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView,
-        permissions_validator: &PermissionsValidatorBox,
+        wsv: &WorldStateView<W>,
+        permissions_validator: &PermissionsValidatorBox<W>,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
         match self.validate_internal(wsv, permissions_validator, is_genesis) {
@@ -288,7 +296,10 @@ impl AcceptedTransaction {
     ///
     /// # Errors
     /// Can fail if signature conditionon account fails or if account is not found
-    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
+    pub fn check_signature_condition<W: WorldTrait>(
+        &self,
+        wsv: &WorldStateView<W>,
+    ) -> Result<bool> {
         let account_id = self.payload.account_id.clone();
         wsv.map_account(&account_id, |account| {
             account
@@ -308,7 +319,7 @@ impl AcceptedTransaction {
     }
 
     /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
@@ -346,13 +357,13 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 }
 
 impl IsInBlockchain for VersionedRejectedTransaction {
-    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         self.as_inner_v1().is_in_blockchain(wsv)
     }
 }
 
 impl IsInBlockchain for RejectedTransaction {
-    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
@@ -383,8 +394,8 @@ impl VersionedValidTransaction {
         }
     }
 
-    /// Apply instructions to the `WorldStateView`.
-    pub fn proceed(&self, wsv: &WorldStateView) -> Result<()> {
+    /// Apply instructions to the `WorldStateView<W>`.
+    pub fn proceed<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<()> {
         self.as_inner_v1().proceed(wsv)
     }
 
@@ -394,7 +405,7 @@ impl VersionedValidTransaction {
     }
 
     /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         self.as_inner_v1().is_in_blockchain(wsv)
     }
 
@@ -430,11 +441,11 @@ impl ValidTransaction {
         self.payload.check_instruction_len(max_instruction_len)
     }
 
-    /// Apply instructions to the `WorldStateView`.
+    /// Apply instructions to the `WorldStateView<W>`.
     ///
     /// # Errors
     /// Can fail if execution of instructions fail
-    pub fn proceed(&self, wsv: &WorldStateView) -> Result<()> {
+    pub fn proceed<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<()> {
         for instruction in &self.payload.instructions {
             instruction
                 .clone()
@@ -450,7 +461,7 @@ impl ValidTransaction {
     }
 
     /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
@@ -502,7 +513,7 @@ mod tests {
     use iroha_error::{Error, MessageError, Result, WrappedError};
 
     use super::*;
-    use crate::{config::Configuration, init, smartcontracts::permissions::AllowAll};
+    use crate::{config::Configuration, init, smartcontracts::permissions::AllowAll, wsv::World};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
