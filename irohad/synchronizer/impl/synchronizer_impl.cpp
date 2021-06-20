@@ -17,37 +17,36 @@
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 
-using namespace shared_model::interface::types;
+using iroha::synchronizer::SynchronizerImpl;
 
-namespace iroha {
-  namespace synchronizer {
+SynchronizerImpl::SynchronizerImpl(
+    std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
+    std::shared_ptr<validation::ChainValidator> validator,
+    std::shared_ptr<ametsuchi::MutableFactory> mutable_factory,
+    std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory,
+    std::shared_ptr<network::BlockLoader> block_loader,
+    logger::LoggerPtr log)
+    : command_executor_(std::move(command_executor)),
+      validator_(std::move(validator)),
+      mutable_factory_(std::move(mutable_factory)),
+      block_query_factory_(std::move(block_query_factory)),
+      block_loader_(std::move(block_loader)),
+      log_(std::move(log)) {}
 
-    SynchronizerImpl::SynchronizerImpl(
-        std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
-        std::shared_ptr<validation::ChainValidator> validator,
-        std::shared_ptr<ametsuchi::MutableFactory> mutable_factory,
-        std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory,
-        std::shared_ptr<network::BlockLoader> block_loader,
-        logger::LoggerPtr log)
-        : command_executor_(std::move(command_executor)),
-          validator_(std::move(validator)),
-          mutable_factory_(std::move(mutable_factory)),
-          block_query_factory_(std::move(block_query_factory)),
-          block_loader_(std::move(block_loader)),
-          log_(std::move(log)) {}
+std::optional<iroha::synchronizer::SynchronizationEvent>
+SynchronizerImpl::processOutcome(consensus::GateObject object) {
+  log_->info("processing consensus outcome");
 
-    SynchronizationEvent SynchronizerImpl::processOutcome(
-        consensus::GateObject object) {
-      log_->info("processing consensus outcome");
+  auto process_reject =
+      [this](auto outcome_type,
+             const auto &msg) -> std::optional<SynchronizationEvent> {
+    assert(msg.ledger_state->top_block_info.height + 1
+           == msg.round.block_round);
+    return SynchronizationEvent{outcome_type, msg.round, msg.ledger_state};
+  };
 
-      auto process_reject = [this](auto outcome_type, const auto &msg) {
-        assert(msg.ledger_state->top_block_info.height + 1
-               == msg.round.block_round);
-        return SynchronizationEvent{outcome_type, msg.round, msg.ledger_state};
-      };
-
-      return visit_in_place(
-          object,
+  return std::visit(
+      make_visitor(
           [this](const consensus::PairValid &msg) {
             assert(msg.ledger_state->top_block_info.height + 1
                    == msg.round.block_round);
@@ -76,149 +75,145 @@ namespace iroha {
             // block n is committed and cannot require its
             // acquisition.
             return this->processDifferent(msg, msg.round.block_round - 1);
-          });
-    }
+          }),
+      object);
+}
 
-    ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
-        const shared_model::interface::types::HeightType start_height,
-        const shared_model::interface::types::HeightType target_height,
-        const PublicKeyCollectionType &public_keys) {
-      auto storage_result = getStorage();
-      if (iroha::expected::hasError(storage_result)) {
-        return std::move(storage_result).assumeError();
-      }
-      auto storage = std::move(storage_result).assumeValue();
-      shared_model::interface::types::HeightType my_height = start_height;
+iroha::ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
+    const shared_model::interface::types::HeightType start_height,
+    const shared_model::interface::types::HeightType target_height,
+    const shared_model::interface::types::PublicKeyCollectionType
+        &public_keys) {
+  auto storage_result = getStorage();
+  if (iroha::expected::hasError(storage_result)) {
+    return std::move(storage_result).assumeError();
+  }
+  auto storage = std::move(storage_result).assumeValue();
+  shared_model::interface::types::HeightType my_height = start_height;
 
-      // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
-      using namespace iroha::expected;
-      for (const auto &public_key : public_keys) {
-        while (true) {
-          bool peer_ok = false;
-          log_->debug(
-              "trying to download blocks from {} to {} from peer with key {}",
-              my_height + 1,
-              target_height,
-              public_key);
-          auto maybe_reader = block_loader_->retrieveBlocks(
-              my_height, PublicKeyHexStringView{public_key});
+  // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
+  using namespace iroha::expected;
+  for (const auto &public_key : public_keys) {
+    while (true) {
+      bool peer_ok = false;
+      log_->debug(
+          "trying to download blocks from {} to {} from peer with key {}",
+          my_height + 1,
+          target_height,
+          public_key);
+      auto maybe_reader = block_loader_->retrieveBlocks(
+          my_height,
+          shared_model::interface::types::PublicKeyHexStringView{public_key});
 
-          if (hasError(maybe_reader)) {
-            log_->warn(
-                "failed to retrieve blocks starting from {} from peer {}: {}",
-                my_height,
-                public_key,
-                maybe_reader.assumeError());
-            continue;
-          }
-
-          auto block_var = maybe_reader.assumeValue()->read();
-          for (auto maybe_block = std::get_if<
-                   std::shared_ptr<const shared_model::interface::Block>>(
-                   &block_var);
-               maybe_block;
-               block_var = maybe_reader.assumeValue()->read(),
-                    maybe_block = std::get_if<
-                        std::shared_ptr<const shared_model::interface::Block>>(
-                        &block_var)) {
-            if (not(peer_ok =
-                        validator_->validateAndApply(*maybe_block, *storage))) {
-              break;
-            }
-
-            my_height = (*maybe_block)->height();
-          }
-          if (auto error = std::get_if<std::string>(&block_var)) {
-            log_->warn("failed to retrieve block: {}", *error);
-          }
-          if (my_height >= target_height) {
-            return mutable_factory_->commit(std::move(storage));
-          }
-          if (not peer_ok) {
-            // if the last block did not apply or we got no new blocks from this
-            // peer we should switch to next peer
-            break;
-          }
-        }
+      if (hasError(maybe_reader)) {
+        log_->warn(
+            "failed to retrieve blocks starting from {} from peer {}: {}",
+            my_height,
+            public_key,
+            maybe_reader.assumeError());
+        continue;
       }
 
-      return expected::makeError(
-          "Failed to download and commit any blocks from given peers");
-    }
-
-    iroha::expected::Result<std::unique_ptr<ametsuchi::MutableStorage>,
-                            std::string>
-    SynchronizerImpl::getStorage() {
-      return mutable_factory_->createMutableStorage(command_executor_);
-    }
-
-    SynchronizationEvent SynchronizerImpl::processNext(
-        const consensus::PairValid &msg) {
-      log_->info("at handleNext");
-      const auto notify =
-          [this,
-           &msg](std::shared_ptr<const iroha::LedgerState> &&ledger_state) {
-            return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                        msg.round,
-                                        std::move(ledger_state)};
-          };
-      if (mutable_factory_->preparedCommitEnabled()) {
-        auto result = mutable_factory_->commitPrepared(msg.block);
-        if (iroha::expected::hasValue(result)) {
-          return notify(std::move(result).assumeValue());
+      auto block_var = maybe_reader.assumeValue()->read();
+      for (auto maybe_block = std::get_if<
+               std::shared_ptr<const shared_model::interface::Block>>(
+               &block_var);
+           maybe_block;
+           block_var = maybe_reader.assumeValue()->read(),
+                maybe_block = std::get_if<
+                    std::shared_ptr<const shared_model::interface::Block>>(
+                    &block_var)) {
+        if (not(peer_ok =
+                    validator_->validateAndApply(*maybe_block, *storage))) {
+          break;
         }
-        log_->error("Error committing prepared block: {}",
-                    result.assumeError());
+
+        my_height = (*maybe_block)->height();
       }
-      auto commit_result =
-          getStorage() | [&](auto &&storage) -> ametsuchi::CommitResult {
-        if (storage->apply(msg.block)) {
-          return mutable_factory_->commit(std::move(storage));
-        } else {
-          return "Block failed to apply.";
-        }
-      };
-      return std::move(commit_result)
-          .match(
-              [&notify](auto &&ledger_state) {
-                return notify(std::move(ledger_state.value));
-              },
-              [this, &msg](const auto &error) {
-                this->log_->error("Failed to commit: {}", error.error);
-                return SynchronizationEvent{SynchronizationOutcomeType::kError,
-                                            msg.round,
-                                            msg.ledger_state};
-              });
+      if (auto error = std::get_if<std::string>(&block_var)) {
+        log_->warn("failed to retrieve block: {}", *error);
+      }
+      if (my_height >= target_height) {
+        return mutable_factory_->commit(std::move(storage));
+      }
+      if (not peer_ok) {
+        // if the last block did not apply or we got no new blocks from this
+        // peer we should switch to next peer
+        break;
+      }
     }
+  }
 
-    SynchronizationEvent SynchronizerImpl::processDifferent(
-        const consensus::Synchronizable &msg,
-        shared_model::interface::types::HeightType required_height) {
-      log_->info("at handleDifferent");
+  return expected::makeError(
+      "Failed to download and commit any blocks from given peers");
+}
 
-      auto commit_result = downloadAndCommitMissingBlocks(
-          msg.ledger_state->top_block_info.height,
-          required_height,
-          msg.public_keys);
+iroha::expected::Result<std::unique_ptr<iroha::ametsuchi::MutableStorage>,
+                        std::string>
+SynchronizerImpl::getStorage() {
+  return mutable_factory_->createMutableStorage(command_executor_);
+}
 
-      return commit_result.match(
-          [this, &msg](auto &value) {
-            auto &ledger_state = value.value;
-            assert(ledger_state);
-            const auto new_height = ledger_state->top_block_info.height;
-            return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                        new_height != msg.round.block_round
-                                            ? consensus::Round{new_height, 0}
-                                            : msg.round,
-                                        std::move(ledger_state)};
-          },
-          [this, &msg](const auto &error) {
-            log_->error("Synchronization failed: {}", error.error);
-            return SynchronizationEvent{SynchronizationOutcomeType::kError,
-                                        msg.round,
-                                        msg.ledger_state};
-          });
+std::optional<iroha::synchronizer::SynchronizationEvent>
+SynchronizerImpl::processNext(const consensus::PairValid &msg) {
+  log_->info("at handleNext");
+  if (mutable_factory_->preparedCommitEnabled()) {
+    auto result = mutable_factory_->commitPrepared(msg.block);
+    if (iroha::expected::hasValue(result)) {
+      return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                  msg.round,
+                                  std::move(std::move(result).assumeValue())};
     }
+    log_->error("Error committing prepared block: {}", result.assumeError());
+  }
+  auto maybe_storage = getStorage();
 
-  }  // namespace synchronizer
-}  // namespace iroha
+  if (expected::hasError(maybe_storage)) {
+    log_->error("Failed to getStorage(): {}", maybe_storage.assumeError());
+    return std::nullopt;
+  }
+
+  if (not maybe_storage.assumeValue()->apply(msg.block)) {
+    log_->error("Block failed to apply.");
+    return std::nullopt;
+  }
+
+  auto maybe_result =
+      mutable_factory_->commit(std::move(maybe_storage.assumeValue()));
+
+  if (expected::hasError(maybe_result)) {
+    log_->error("Failed to commit: {}", maybe_result.assumeError());
+    return std::nullopt;
+  }
+
+  return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                              msg.round,
+                              std::move(maybe_result.assumeValue())};
+}
+
+std::optional<iroha::synchronizer::SynchronizationEvent>
+SynchronizerImpl::processDifferent(
+    const consensus::Synchronizable &msg,
+    shared_model::interface::types::HeightType required_height) {
+  log_->info("at handleDifferent");
+
+  auto commit_result =
+      downloadAndCommitMissingBlocks(msg.ledger_state->top_block_info.height,
+                                     required_height,
+                                     msg.public_keys);
+
+  if (expected::hasError(commit_result)) {
+    log_->error("Synchronization failed in processDifferent(): {}",
+                commit_result.assumeError());
+    return std::nullopt;
+  }
+
+  auto &ledger_state = commit_result.assumeValue();
+  assert(ledger_state);
+  const auto new_height = ledger_state->top_block_info.height;
+  return SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                              new_height != msg.round.block_round
+                                  ? consensus::Round{new_height, 0}
+                                  : msg.round,
+                              std::move(ledger_state)};
+}
