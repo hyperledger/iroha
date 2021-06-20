@@ -174,7 +174,6 @@ target_link_libraries(ametsuchi
     postgres_storage
     logger
     logger_manager
-    rxcpp
     libs_files
     common
     postgres_burrow_storage

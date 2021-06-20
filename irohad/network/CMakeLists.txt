@@ -6,7 +6,6 @@ add_library(networking
     )
 
 target_link_libraries(networking
-    rxcpp
     shared_model_interfaces
     synchronizer
     logger
@@ -19,7 +18,6 @@ add_library(block_loader
 target_link_libraries(block_loader
     grpc_generic_client_factory
     loader_grpc
-    rxcpp
     shared_model_interfaces
     shared_model_proto_backend
     schema

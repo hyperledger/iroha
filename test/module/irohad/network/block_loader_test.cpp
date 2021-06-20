@@ -67,7 +67,7 @@ class BlockLoaderTest : public testing::Test {
             std::make_unique<MockValidator<iroha::protocol::Block>>()),
         getTestLogger("BlockLoader"),
         std::make_unique<ClientFactoryImpl<BlockLoaderImpl::Service>>(
-            getTestInsecureClientFactory(getDefaultTestChannelParams())));
+            getTestInsecureClientFactory(std::nullopt)));
     service = std::make_shared<BlockLoaderService>(
         block_query_factory, block_cache, getTestLogger("BlockLoaderService"));
 
