@@ -32,14 +32,5 @@ target_link_libraries(torii_service
     shared_model_interfaces_factories
     shared_model_stateless_validation
     shared_model_proto_backend
-    libs_timeout
     common
-    )
-
-add_library(status_bus
-    impl/status_bus_impl.cpp
-    )
-target_link_libraries(status_bus
-    rxcpp
-    shared_model_interfaces
     )

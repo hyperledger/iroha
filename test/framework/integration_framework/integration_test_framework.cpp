@@ -6,11 +6,8 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 
 #include <boost/assert.hpp>
-#include <boost/thread/barrier.hpp>
 #include <limits>
 #include <memory>
-#include <rxcpp/operators/rx-filter.hpp>
-#include <rxcpp/operators/rx-take.hpp>
 
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/block.hpp"
@@ -98,9 +95,6 @@ namespace {
   constexpr size_t kDefaultToriiPort = 11501;
   constexpr size_t kDefaultInternalPort = 50541;
 
-  static const std::shared_ptr<iroha::network::GrpcChannelParams>
-      kChannelParams = iroha::network::getDefaultTestChannelParams();
-
   std::string format_address(std::string ip,
                              integration_framework::PortGuard::PortType port) {
     ip.append(":");
@@ -110,691 +104,667 @@ namespace {
 
 }  // namespace
 
-namespace integration_framework {
+using integration_framework::IntegrationTestFramework;
 
-  template <typename T>
-  class IntegrationTestFramework::CheckerQueue {
-   public:
-    CheckerQueue(std::chrono::milliseconds timeout) : timeout_(timeout) {}
+template <typename T>
+class IntegrationTestFramework::CheckerQueue {
+ public:
+  CheckerQueue(std::chrono::milliseconds timeout) : timeout_(timeout) {}
 
-    void push(T obj) {
-      std::lock_guard<std::mutex> lock(queue_mutex_);
-      queue_.push(std::move(obj));
-      cv_.notify_one();
-    }
-
-    boost::optional<T> try_pop() {
-      std::unique_lock<std::mutex> lock(queue_mutex_);
-      if (queue_.empty()) {
-        if (not cv_.wait_for(
-                lock, timeout_, [this] { return not queue_.empty(); })) {
-          return boost::none;
-        }
-      }
-      T obj(std::move(queue_.front()));
-      queue_.pop();
-      return obj;
-    }
-
-   private:
-    std::chrono::milliseconds timeout_;
-    std::queue<T> queue_;
-    std::mutex queue_mutex_;
-    std::condition_variable cv_;
-  };
-
-  IntegrationTestFramework::IntegrationTestFramework(
-      size_t maximum_proposal_size,
-      const boost::optional<std::string> &dbname,
-      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
-      bool cleanup_on_exit,
-      bool mst_support,
-      const boost::optional<std::string> block_store_path,
-      milliseconds proposal_waiting,
-      milliseconds block_waiting,
-      milliseconds tx_response_waiting,
-      logger::LoggerManagerTreePtr log_manager)
-      : log_(log_manager->getLogger()),
-        log_manager_(std::move(log_manager)),
-        proposal_queue_(
-            std::make_unique<CheckerQueue<
-                std::shared_ptr<const shared_model::interface::Proposal>>>(
-                proposal_waiting)),
-        verified_proposal_queue_(
-            std::make_unique<CheckerQueue<VerifiedProposalType>>(
-                proposal_waiting)),
-        block_queue_(std::make_unique<CheckerQueue<BlockType>>(block_waiting)),
-        port_guard_(std::make_unique<PortGuard>()),
-        torii_port_(port_guard_->getPort(kDefaultToriiPort)),
-        command_client_(std::make_unique<torii::CommandSyncClient>(
-            iroha::network::createInsecureClient<
-                torii::CommandSyncClient::Service>(
-                kLocalHost, torii_port_, *kChannelParams),
-            log_manager_->getChild("CommandClient")->getLogger())),
-        query_client_(std::make_unique<torii_utils::QuerySyncClient>(
-            iroha::network::createInsecureClient<
-                torii_utils::QuerySyncClient::Service>(
-                kLocalHost, torii_port_, *kChannelParams))),
-        async_call_(std::make_shared<AsyncCall>(
-            log_manager_->getChild("AsyncCall")->getLogger())),
-        tx_response_waiting(tx_response_waiting),
-        maximum_proposal_size_(maximum_proposal_size),
-        common_objects_factory_(
-            std::make_shared<AlwaysValidProtoCommonObjectsFactory>(
-                iroha::test::kTestsValidatorsConfig)),
-        transaction_factory_(std::make_shared<ProtoTransactionFactory>(
-            std::make_unique<AlwaysValidInterfaceTransactionValidator>(),
-            std::make_unique<AlwaysValidProtoTransactionValidator>())),
-        batch_parser_(std::make_shared<
-                      shared_model::interface::TransactionBatchParserImpl>()),
-        batch_validator_(
-            std::make_shared<shared_model::validation::DefaultBatchValidator>(
-                iroha::test::kTestsValidatorsConfig)),
-        transaction_batch_factory_(
-            std::make_shared<
-                shared_model::interface::TransactionBatchFactoryImpl>(
-                batch_validator_)),
-        proposal_factory_([] {
-          std::shared_ptr<shared_model::validation::AbstractValidator<
-              iroha::protocol::Transaction>>
-              proto_transaction_validator =
-                  std::make_shared<AlwaysValidProtoTransactionValidator>();
-          std::unique_ptr<shared_model::validation::AbstractValidator<
-              shared_model::interface::Proposal>>
-              proposal_validator =
-                  std::make_unique<AlwaysValidProtoProposalValidator>();
-          std::unique_ptr<shared_model::validation::AbstractValidator<
-              iroha::protocol::Proposal>>
-              proto_proposal_validator = std::make_unique<
-                  shared_model::validation::ProtoProposalValidator>(
-                  std::move(proto_transaction_validator));
-          return std::make_shared<shared_model::proto::ProtoTransportFactory<
-              shared_model::interface::Proposal,
-              shared_model::proto::Proposal>>(
-              std::move(proposal_validator),
-              std::move(proto_proposal_validator));
-        }()),
-        tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
-        client_factory_(
-            iroha::network::getTestInsecureClientFactory(kChannelParams)),
-        yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
-            async_call_,
-            makeTransportClientFactory<iroha::consensus::yac::NetworkImpl>(
-                client_factory_),
-            log_manager_->getChild("ConsensusTransport")->getLogger())),
-        cleanup_on_exit_(cleanup_on_exit) {
-    // 1 h proposal_timeout results in non-deterministic behavior due to thread
-    // scheduling and network
-    config_.proposal_delay = 3600000;
-    // 100 ms is small delay to avoid unnecessary messages due to eternal voting
-    // and to allow scheduler to switch threads
-    config_.vote_delay = 100;
-    // amount of minutes in a day
-    config_.mst_expiration_time = 24 * 60;
-    config_.max_round_delay_ms = 0;
-    config_.proposal_creation_timeout = 0;
-    config_.stale_stream_max_rounds = 2;
-    config_.max_proposal_size = 10;
-    config_.mst_support = mst_support;
-    config_.block_store_path = block_store_path;
-    config_.torii_port = torii_port_;
-    config_.internal_port = port_guard_->getPort(kDefaultInternalPort);
-    iroha_instance_ =
-        std::make_shared<IrohaInstance>(config_,
-                                        kLocalHost,
-                                        log_manager_->getChild("Irohad"),
-                                        log_,
-                                        startup_wsv_data_policy,
-                                        dbname);
+  void push(T obj) {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    queue_.push(std::move(obj));
+    cv_.notify_one();
   }
 
-  IntegrationTestFramework::~IntegrationTestFramework() {
-    if (cleanup_on_exit_) {
-      iroha_instance_->terminateAndCleanup();
-    }
-    for (auto &server : fake_peers_servers_) {
-      server->shutdown(std::chrono::system_clock::now());
-    }
-    // the code below should be executed anyway in order to prevent app hang
-    if (iroha_instance_ and iroha_instance_->getIrohaInstance()) {
-      iroha_instance_->getIrohaInstance()->terminate(
-          std::chrono::system_clock::now());
-    }
-  }
-
-  std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
-      const boost::optional<Keypair> &key) {
-    BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
-    const auto port = port_guard_->getPort(kDefaultInternalPort);
-    auto fake_peer = std::make_shared<FakePeer>(
-        kLocalHost,
-        port,
-        key,
-        this_peer_,
-        common_objects_factory_,
-        transaction_factory_,
-        batch_parser_,
-        transaction_batch_factory_,
-        proposal_factory_,
-        tx_presence_cache_,
-        log_manager_->getChild("FakePeer")
-            ->getChild("at " + format_address(kLocalHost, port)));
-    fake_peer->initialize();
-    fake_peers_.emplace_back(fake_peer);
-    log_->debug("Added a fake peer at {} with {}.",
-                fake_peer->getAddress(),
-                fake_peer->getKeypair().publicKey());
-    return fake_peer;
-  }
-
-  std::vector<std::shared_ptr<fake_peer::FakePeer>>
-  IntegrationTestFramework::addFakePeers(size_t amount) {
-    std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers;
-    std::generate_n(std::back_inserter(fake_peers), amount, [this] {
-      auto fake_peer = addFakePeer({});
-      fake_peer->setBehaviour(std::make_shared<fake_peer::HonestBehaviour>());
-      return fake_peer;
-    });
-    return fake_peers;
-  }
-
-  shared_model::proto::Block IntegrationTestFramework::defaultBlock(
-      const shared_model::crypto::Keypair &key) const {
-    shared_model::interface::RolePermissionSet all_perms{};
-    for (size_t i = 0; i < all_perms.size(); ++i) {
-      auto perm = static_cast<shared_model::interface::permissions::Role>(i);
-      all_perms.set(perm);
-    }
-    auto genesis_tx_builder =
-        shared_model::proto::TransactionBuilder()
-            .creatorAccountId(kAdminId)
-            .createdTime(iroha::time::now())
-            .addPeer(getAddress(), PublicKeyHexStringView{key.publicKey()})
-            .createRole(kAdminRole, all_perms)
-            .createRole(kDefaultRole, {})
-            .createDomain(kDomain, kDefaultRole)
-            .createAccount(
-                kAdminName, kDomain, PublicKeyHexStringView{key.publicKey()})
-            .detachRole(kAdminId, kDefaultRole)
-            .appendRole(kAdminId, kAdminRole)
-            .createAsset(kAssetName, kDomain, 1)
-            .quorum(1);
-    // add fake peers
-    for (const auto &fake_peer : fake_peers_) {
-      genesis_tx_builder = genesis_tx_builder.addPeer(
-          fake_peer->getAddress(),
-          PublicKeyHexStringView{fake_peer->getKeypair().publicKey()});
-    };
-    auto genesis_tx =
-        genesis_tx_builder.build().signAndAddSignature(key).finish();
-    auto genesis_block =
-        shared_model::proto::BlockBuilder()
-            .transactions(
-                std::vector<shared_model::proto::Transaction>{genesis_tx})
-            .height(1)
-            .prevHash(DefaultHashProvider::makeHash(Blob("")))
-            .createdTime(iroha::time::now())
-            .build()
-            .signAndAddSignature(key)
-            .finish();
-    return genesis_block;
-  }
-
-  shared_model::proto::Block IntegrationTestFramework::defaultBlock() const {
-    BOOST_ASSERT_MSG(my_key_, "Need to set the ITF peer key first!");
-    return defaultBlock(*my_key_);
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::setGenesisBlock(
-      const shared_model::interface::Block &block) {
-    iroha_instance_->makeGenesis(clone(block));
-    iroha_instance_->init();
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::setInitialState(
-      const Keypair &keypair) {
-    initPipeline(keypair);
-    setGenesisBlock(defaultBlock(keypair));
-    log_->info("added genesis block");
-    subscribeQueuesAndRun();
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::setMstGossipParams(
-      std::chrono::milliseconds mst_gossip_emitting_period,
-      uint32_t mst_gossip_amount_per_once) {
-    iroha_instance_->setMstGossipParams(mst_gossip_emitting_period,
-                                        mst_gossip_amount_per_once);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::setInitialState(
-      const Keypair &keypair, const shared_model::interface::Block &block) {
-    initPipeline(keypair);
-    setGenesisBlock(block);
-    log_->info("added genesis block");
-    subscribeQueuesAndRun();
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::recoverState(
-      const Keypair &keypair) {
-    initPipeline(keypair);
-    iroha_instance_->init();
-    subscribeQueuesAndRun();
-    return *this;
-  }
-
-  void IntegrationTestFramework::initPipeline(
-      const shared_model::crypto::Keypair &keypair) {
-    log_->info("init state");
-    my_key_ = keypair;
-    this_peer_ =
-        framework::expected::val(
-            common_objects_factory_->createPeer(
-                getAddress(), PublicKeyHexStringView{keypair.publicKey()}))
-            .value()
-            .value;
-    iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
-    log_->info("created pipeline");
-  }
-
-  void IntegrationTestFramework::subscribeQueuesAndRun() {
-    // subscribing for components
-
-    proposal_subscription_ =
-        iroha::SubscriberCreator<bool, iroha::network::OrderingEvent>::
-            template create<iroha::EventTypes::kOnProposal>(
-                static_cast<iroha::SubscriptionEngineHandlers>(
-                    iroha::getSubscription()->dispatcher()->kExecuteInPool),
-                [proposal_queue(iroha::utils::make_weak(proposal_queue_)),
-                 log(iroha::utils::make_weak(log_))](auto, auto event) {
-                  auto maybe_proposal_queue = proposal_queue.lock();
-                  auto maybe_log = log.lock();
-                  if (maybe_proposal_queue and maybe_log and event.proposal) {
-                    maybe_proposal_queue->push(getProposalUnsafe(event));
-                    maybe_log->info("proposal");
-                  }
-                });
-
-    verified_proposal_subscription_ = iroha::SubscriberCreator<
-        bool,
-        iroha::simulator::VerifiedProposalCreatorEvent>::
-        template create<iroha::EventTypes::kOnVerifiedProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(
-                iroha::getSubscription()->dispatcher()->kExecuteInPool),
-            [verified_proposal_queue(
-                 iroha::utils::make_weak(verified_proposal_queue_)),
-             log(iroha::utils::make_weak(log_))](
-                auto, auto verified_proposal_and_errors) {
-              auto maybe_verified_proposal_queue =
-                  verified_proposal_queue.lock();
-              auto maybe_log = log.lock();
-              if (maybe_verified_proposal_queue and maybe_log
-                  and verified_proposal_and_errors.verified_proposal_result) {
-                maybe_verified_proposal_queue->push(
-                    iroha::simulator::getVerifiedProposalUnsafe(
-                        verified_proposal_and_errors));
-                maybe_log->info("verified proposal");
-              }
-            });
-
-    iroha_instance_->getIrohaInstance()->getStorage()->on_commit().subscribe(
-        [this](auto committed_block) {
-          block_queue_->push(committed_block);
-          log_->info("block commit");
-        });
-    iroha_instance_->getIrohaInstance()->getStatusBus()->statuses().subscribe(
-        [this](auto response) {
-          const auto hash = response->transactionHash().hex();
-          auto it = responses_queues_.find(hash);
-          if (it == responses_queues_.end()) {
-            it = responses_queues_
-                     .emplace(hash,
-                              std::make_unique<CheckerQueue<TxResponseType>>(
-                                  tx_response_waiting))
-                     .first;
-          }
-          it->second->push(response);
-          log_->info("response added to status queue: {}",
-                     response->toString());
-        });
-
-    if (fake_peers_.size() > 0) {
-      log_->info("starting fake iroha peers");
-      for (auto &fake_peer : fake_peers_) {
-        fake_peers_servers_.push_back(fake_peer->run());
+  boost::optional<T> try_peek() {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    if (queue_.empty()) {
+      if (not cv_.wait_for(
+              lock, timeout_, [this] { return not queue_.empty(); })) {
+        return boost::none;
       }
     }
-    // start instance
-    log_->info("starting main iroha instance");
-    iroha_instance_->run();
+    T obj(queue_.front());
+    return obj;
   }
 
-  std::shared_ptr<shared_model::interface::Peer>
-  IntegrationTestFramework::getThisPeer() const {
-    return this_peer_;
-  }
-
-  std::string IntegrationTestFramework::getAddress() const {
-    return format_address(kLocalHost, config_.internal_port);
-  }
-
-  rxcpp::observable<std::shared_ptr<iroha::MstState>>
-  IntegrationTestFramework::getMstStateUpdateObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getMstProcessor()
-        ->onStateUpdate();
-  }
-
-  rxcpp::observable<iroha::BatchPtr>
-  IntegrationTestFramework::getMstPreparedBatchesObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getMstProcessor()
-        ->onPreparedBatches();
-  }
-
-  rxcpp::observable<iroha::BatchPtr>
-  IntegrationTestFramework::getMstExpiredBatchesObservable() {
-    return iroha_instance_->getIrohaInstance()
-        ->getMstProcessor()
-        ->onExpiredBatches();
-  }
-
-  std::shared_ptr<iroha::ametsuchi::BlockQuery>
-  IntegrationTestFramework::getBlockQuery() {
-    return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::getTxStatus(
-      const shared_model::crypto::Hash &hash,
-      std::function<void(const shared_model::proto::TransactionResponse &)>
-          validation) {
-    iroha::protocol::TxStatusRequest request;
-    request.set_tx_hash(hash.hex());
-    iroha::protocol::ToriiResponse response;
-    command_client_->Status(request, response);
-    validation(shared_model::proto::TransactionResponse(std::move(response)));
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendTxWithoutValidation(
-      const shared_model::proto::Transaction &tx) {
-    log_->info("sending transaction");
-    log_->debug("{}", tx);
-
-    command_client_->Torii(tx.getTransport());
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendTx(
-      const shared_model::proto::Transaction &tx,
-      std::function<void(const shared_model::proto::TransactionResponse &)>
-          validation) {
-    // Required for StatusBus synchronization
-    boost::barrier bar1(2);
-    auto bar2 = std::make_shared<boost::barrier>(2);
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionResponse>>
-        statuses =
-            iroha_instance_->getIrohaInstance()->getStatusBus()->statuses();
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionResponse>>
-        filtered_statuses = statuses.filter(
-            [&](auto s) { return s->transactionHash() == tx.hash(); });
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionResponse>>
-        first_status = filtered_statuses.take(1);
-    first_status.subscribe(
-        [&bar1, b2 = std::weak_ptr<boost::barrier>(bar2)](auto s) {
-          bar1.wait();
-          if (auto lock = b2.lock()) {
-            lock->wait();
-          }
-        });
-
-    sendTxWithoutValidation(tx);
-    // make sure that the first (stateless) status has come
-    bar1.wait();
-    // fetch status of transaction
-    getTxStatus(tx.hash(), [&validation, &bar2](auto &status) {
-      // make sure that the following statuses (stateful/committed)
-      // haven't reached the bus yet
-      bar2->wait();
-
-      // check validation function
-      validation(status);
-    });
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendTx(
-      const shared_model::proto::Transaction &tx) {
-    sendTx(tx, [this](const auto &status) {
-      if (!status.statelessErrorOrCommandName().empty()) {
-        log_->debug("Got error while sending transaction: "
-                    + status.statelessErrorOrCommandName());
+  boost::optional<T> try_pop() {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    if (queue_.empty()) {
+      if (not cv_.wait_for(
+              lock, timeout_, [this] { return not queue_.empty(); })) {
+        return boost::none;
       }
-    });
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendTxAwait(
-      const shared_model::proto::Transaction &tx) {
-    return sendTxAwait(tx, [](const auto &) {});
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendTxAwait(
-      const shared_model::proto::Transaction &tx,
-      std::function<void(const BlockType &)> check) {
-    sendTx(tx).skipProposal().skipVerifiedProposal().checkBlock(check);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
-      const shared_model::interface::TransactionSequence &tx_sequence,
-      std::function<void(std::vector<shared_model::proto::TransactionResponse>
-                             &)> validation) {
-    log_->info("send transactions");
-    const auto &transactions = tx_sequence.transactions();
-
-    std::mutex m;
-    std::condition_variable cv;
-    bool processed = false;
-
-    // subscribe on status bus and save all stateless statuses into a vector
-    std::vector<shared_model::proto::TransactionResponse> observed_statuses;
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionResponse>>
-        statuses =
-            iroha_instance_->getIrohaInstance()->getStatusBus()->statuses();
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionResponse>>
-        filtered_statuses = statuses.filter([&transactions](auto s) {
-          // filter statuses for transactions from sequence
-          auto it = std::find_if(
-              transactions.begin(), transactions.end(), [&s](const auto tx) {
-                // check if status is either stateless valid or failed
-                bool is_stateless_status = iroha::visit_in_place(
-                    s->get(),
-                    [](const shared_model::interface::StatelessFailedTxResponse
-                           &stateless_failed_response) { return true; },
-                    [](const shared_model::interface::StatelessValidTxResponse
-                           &stateless_valid_response) { return true; },
-                    [](const auto &other_responses) { return false; });
-                return is_stateless_status
-                    and s->transactionHash() == tx->hash();
-              });
-          return it != transactions.end();
-        });
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionResponse>>
-        first_statuses = filtered_statuses.take(transactions.size());
-    first_statuses.subscribe(
-        [&observed_statuses](auto s) {
-          observed_statuses.push_back(
-              *std::static_pointer_cast<
-                  shared_model::proto::TransactionResponse>(s));
-        },
-        [&cv, &m, &processed] {
-          std::lock_guard<std::mutex> lock(m);
-          processed = true;
-          cv.notify_all();
-        });
-
-    // put all transactions to the TxList and send them to iroha
-    iroha::protocol::TxList tx_list;
-    for (const auto &tx : transactions) {
-      auto proto_tx =
-          std::static_pointer_cast<shared_model::proto::Transaction>(tx)
-              ->getTransport();
-      *tx_list.add_transactions() = proto_tx;
     }
-    command_client_->ListTorii(tx_list);
-
-    std::unique_lock<std::mutex> lk(m);
-    cv.wait(lk, [&] { return processed; });
-
-    validation(observed_statuses);
-    return *this;
+    T obj(std::move(queue_.front()));
+    queue_.pop();
+    return obj;
   }
 
-  IntegrationTestFramework &IntegrationTestFramework::sendTxSequenceAwait(
-      const shared_model::interface::TransactionSequence &tx_sequence,
-      std::function<void(const BlockType &)> check) {
-    sendTxSequence(tx_sequence)
-        .skipProposal()
-        .skipVerifiedProposal()
-        .checkBlock(check);
-    return *this;
-  }
+ private:
+  std::chrono::milliseconds timeout_;
+  std::queue<T> queue_;
+  std::mutex queue_mutex_;
+  std::condition_variable cv_;
+};
 
-  IntegrationTestFramework &IntegrationTestFramework::sendQuery(
-      const shared_model::proto::Query &qry,
-      std::function<void(const shared_model::proto::QueryResponse &)>
-          validation) {
-    log_->info("send query");
-    log_->debug("{}", qry);
+IntegrationTestFramework::IntegrationTestFramework(
+    size_t maximum_proposal_size,
+    const boost::optional<std::string> &dbname,
+    iroha::StartupWsvDataPolicy startup_wsv_data_policy,
+    bool cleanup_on_exit,
+    bool mst_support,
+    const boost::optional<std::string> block_store_path,
+    milliseconds proposal_waiting,
+    milliseconds block_waiting,
+    milliseconds tx_response_waiting,
+    logger::LoggerManagerTreePtr log_manager)
+    : log_(log_manager->getLogger()),
+      log_manager_(std::move(log_manager)),
+      proposal_queue_(
+          std::make_unique<CheckerQueue<
+              std::shared_ptr<const shared_model::interface::Proposal>>>(
+              proposal_waiting)),
+      verified_proposal_queue_(
+          std::make_unique<CheckerQueue<VerifiedProposalType>>(
+              proposal_waiting)),
+      block_queue_(std::make_unique<CheckerQueue<BlockType>>(block_waiting)),
+      port_guard_(std::make_unique<PortGuard>()),
+      torii_port_(port_guard_->getPort(kDefaultToriiPort)),
+      command_client_(std::make_unique<torii::CommandSyncClient>(
+          iroha::network::createInsecureClient<
+              torii::CommandSyncClient::Service>(
+              kLocalHost, torii_port_, std::nullopt),
+          log_manager_->getChild("CommandClient")->getLogger())),
+      query_client_(std::make_unique<torii_utils::QuerySyncClient>(
+          iroha::network::createInsecureClient<
+              torii_utils::QuerySyncClient::Service>(
+              kLocalHost, torii_port_, std::nullopt))),
+      async_call_(std::make_shared<AsyncCall>(
+          log_manager_->getChild("AsyncCall")->getLogger())),
+      tx_response_waiting(tx_response_waiting),
+      maximum_proposal_size_(maximum_proposal_size),
+      common_objects_factory_(
+          std::make_shared<AlwaysValidProtoCommonObjectsFactory>(
+              iroha::test::kTestsValidatorsConfig)),
+      transaction_factory_(std::make_shared<ProtoTransactionFactory>(
+          std::make_unique<AlwaysValidInterfaceTransactionValidator>(),
+          std::make_unique<AlwaysValidProtoTransactionValidator>())),
+      batch_parser_(std::make_shared<
+                    shared_model::interface::TransactionBatchParserImpl>()),
+      batch_validator_(
+          std::make_shared<shared_model::validation::DefaultBatchValidator>(
+              iroha::test::kTestsValidatorsConfig)),
+      transaction_batch_factory_(
+          std::make_shared<
+              shared_model::interface::TransactionBatchFactoryImpl>(
+              batch_validator_)),
+      proposal_factory_([] {
+        std::shared_ptr<shared_model::validation::AbstractValidator<
+            iroha::protocol::Transaction>>
+            proto_transaction_validator =
+                std::make_shared<AlwaysValidProtoTransactionValidator>();
+        std::unique_ptr<shared_model::validation::AbstractValidator<
+            shared_model::interface::Proposal>>
+            proposal_validator =
+                std::make_unique<AlwaysValidProtoProposalValidator>();
+        std::unique_ptr<shared_model::validation::AbstractValidator<
+            iroha::protocol::Proposal>>
+            proto_proposal_validator = std::make_unique<
+                shared_model::validation::ProtoProposalValidator>(
+                std::move(proto_transaction_validator));
+        return std::make_shared<shared_model::proto::ProtoTransportFactory<
+            shared_model::interface::Proposal,
+            shared_model::proto::Proposal>>(
+            std::move(proposal_validator), std::move(proto_proposal_validator));
+      }()),
+      tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
+      client_factory_(
+          iroha::network::getTestInsecureClientFactory(std::nullopt)),
+      yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
+          async_call_,
+          makeTransportClientFactory<iroha::consensus::yac::NetworkImpl>(
+              client_factory_),
+          log_manager_->getChild("ConsensusTransport")->getLogger())),
+      cleanup_on_exit_(cleanup_on_exit) {
+  // 1 h proposal_timeout results in non-deterministic behavior due to thread
+  // scheduling and network
+  config_.proposal_delay = 3600000;
+  // 100 ms is small delay to avoid unnecessary messages due to eternal voting
+  // and to allow scheduler to switch threads
+  config_.vote_delay = 100;
+  // amount of minutes in a day
+  config_.mst_expiration_time = 24 * 60;
+  config_.max_round_delay_ms = 0;
+  config_.proposal_creation_timeout = 0;
+  config_.stale_stream_max_rounds = 2;
+  config_.max_proposal_size = 10;
+  config_.mst_support = mst_support;
+  config_.block_store_path = block_store_path;
+  config_.torii_port = torii_port_;
+  config_.internal_port = port_guard_->getPort(kDefaultInternalPort);
+  iroha_instance_ =
+      std::make_shared<IrohaInstance>(config_,
+                                      kLocalHost,
+                                      log_manager_->getChild("Irohad"),
+                                      log_,
+                                      startup_wsv_data_policy,
+                                      dbname);
+}
 
-    iroha::protocol::QueryResponse response;
-    query_client_->Find(qry.getTransport(), response);
-    shared_model::proto::QueryResponse query_response{std::move(response)};
-
-    validation(query_response);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendQuery(
-      const shared_model::proto::Query &qry) {
-    sendQuery(qry, [](const auto &) {});
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendMstState(
-      PublicKeyHexStringView src_key, const iroha::MstState &mst_state) {
-    auto client = makeTransportClientFactory<iroha::network::MstTransportGrpc>(
-                      client_factory_)
-                      ->createClient(*this_peer_)
-                      .assumeValue();
-    iroha::network::sendStateAsync(mst_state, src_key, *client, *async_call_);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::sendYacState(
-      const std::vector<iroha::consensus::yac::VoteMessage> &yac_state) {
-    yac_transport_->sendState(*this_peer_, yac_state);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::checkProposal(
-      std::function<void(
-          const std::shared_ptr<const shared_model::interface::Proposal> &)>
-          validation) {
-    log_->info("check proposal");
-    // fetch first proposal from proposal queue
-    auto opt_proposal = proposal_queue_->try_pop();
-    if (not opt_proposal) {
-      throw std::runtime_error("missed proposal");
-    }
-    validation(*opt_proposal);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::skipProposal() {
-    checkProposal([](const auto &) {});
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::checkVerifiedProposal(
-      std::function<void(
-          const std::shared_ptr<const shared_model::interface::Proposal> &)>
-          validation) {
-    log_->info("check verified proposal");
-    // fetch first proposal from proposal queue
-    auto opt_verified_proposal_and_errors = verified_proposal_queue_->try_pop();
-    if (not opt_verified_proposal_and_errors) {
-      throw std::runtime_error("missed verified proposal");
-    }
-    validation(opt_verified_proposal_and_errors.value()->verified_proposal);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::skipVerifiedProposal() {
-    checkVerifiedProposal([](const auto &) {});
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::checkBlock(
-      std::function<void(const BlockType &)> validation) {
-    // fetch first from block queue
-    log_->info("check block");
-    auto opt_block = block_queue_->try_pop();
-    if (not opt_block) {
-      throw std::runtime_error("missed block");
-    }
-    validation(*opt_block);
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::skipBlock() {
-    checkBlock([](const auto &) {});
-    return *this;
-  }
-
-  IntegrationTestFramework &IntegrationTestFramework::checkStatus(
-      const shared_model::interface::types::HashType &tx_hash,
-      std::function<void(const shared_model::proto::TransactionResponse &)>
-          validation) {
-    // fetch first response associated with the tx from related queue
-    boost::optional<TxResponseType> opt_response;
-    const auto it = responses_queues_.find(tx_hash.hex());
-    if (it != responses_queues_.end()) {
-      opt_response = it->second->try_pop();
-    }
-    if (not opt_response) {
-      throw std::runtime_error("missed status");
-    }
-    validation(static_cast<const shared_model::proto::TransactionResponse &>(
-        *opt_response.value()));
-    return *this;
-  }
-
-  size_t IntegrationTestFramework::internalPort() const {
-    return config_.internal_port;
-  }
-
-  void IntegrationTestFramework::done() {
-    log_->info("done");
+IntegrationTestFramework::~IntegrationTestFramework() {
+  if (cleanup_on_exit_) {
     iroha_instance_->terminateAndCleanup();
   }
+  for (auto &server : fake_peers_servers_) {
+    server->shutdown(std::chrono::system_clock::now());
+  }
+  // the code below should be executed anyway in order to prevent app hang
+  if (iroha_instance_ and iroha_instance_->getIrohaInstance()) {
+    iroha_instance_->getIrohaInstance()->terminate(
+        std::chrono::system_clock::now());
+  }
+}
 
-  IrohaInstance &IntegrationTestFramework::getIrohaInstance() {
-    return *iroha_instance_;
+std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
+    const boost::optional<Keypair> &key) {
+  BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
+  const auto port = port_guard_->getPort(kDefaultInternalPort);
+  auto fake_peer = std::make_shared<FakePeer>(
+      kLocalHost,
+      port,
+      key,
+      this_peer_,
+      common_objects_factory_,
+      transaction_factory_,
+      batch_parser_,
+      transaction_batch_factory_,
+      proposal_factory_,
+      tx_presence_cache_,
+      log_manager_->getChild("FakePeer")
+          ->getChild("at " + format_address(kLocalHost, port)));
+  fake_peer->initialize();
+  fake_peers_.emplace_back(fake_peer);
+  log_->debug("Added a fake peer at {} with {}.",
+              fake_peer->getAddress(),
+              fake_peer->getKeypair().publicKey());
+  return fake_peer;
+}
+
+std::vector<std::shared_ptr<integration_framework::fake_peer::FakePeer>>
+IntegrationTestFramework::addFakePeers(size_t amount) {
+  std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers;
+  std::generate_n(std::back_inserter(fake_peers), amount, [this] {
+    auto fake_peer = addFakePeer({});
+    fake_peer->setBehaviour(std::make_shared<fake_peer::HonestBehaviour>());
+    return fake_peer;
+  });
+  return fake_peers;
+}
+
+shared_model::proto::Block IntegrationTestFramework::defaultBlock(
+    const shared_model::crypto::Keypair &key) const {
+  shared_model::interface::RolePermissionSet all_perms{};
+  for (size_t i = 0; i < all_perms.size(); ++i) {
+    auto perm = static_cast<shared_model::interface::permissions::Role>(i);
+    all_perms.set(perm);
+  }
+  auto genesis_tx_builder =
+      shared_model::proto::TransactionBuilder()
+          .creatorAccountId(kAdminId)
+          .createdTime(iroha::time::now())
+          .addPeer(getAddress(), PublicKeyHexStringView{key.publicKey()})
+          .createRole(kAdminRole, all_perms)
+          .createRole(kDefaultRole, {})
+          .createDomain(kDomain, kDefaultRole)
+          .createAccount(
+              kAdminName, kDomain, PublicKeyHexStringView{key.publicKey()})
+          .detachRole(kAdminId, kDefaultRole)
+          .appendRole(kAdminId, kAdminRole)
+          .createAsset(kAssetName, kDomain, 1)
+          .quorum(1);
+  // add fake peers
+  for (const auto &fake_peer : fake_peers_) {
+    genesis_tx_builder = genesis_tx_builder.addPeer(
+        fake_peer->getAddress(),
+        PublicKeyHexStringView{fake_peer->getKeypair().publicKey()});
+  };
+  auto genesis_tx =
+      genesis_tx_builder.build().signAndAddSignature(key).finish();
+  auto genesis_block =
+      shared_model::proto::BlockBuilder()
+          .transactions(
+              std::vector<shared_model::proto::Transaction>{genesis_tx})
+          .height(1)
+          .prevHash(DefaultHashProvider::makeHash(Blob("")))
+          .createdTime(iroha::time::now())
+          .build()
+          .signAndAddSignature(key)
+          .finish();
+  return genesis_block;
+}
+
+shared_model::proto::Block IntegrationTestFramework::defaultBlock() const {
+  BOOST_ASSERT_MSG(my_key_, "Need to set the ITF peer key first!");
+  return defaultBlock(*my_key_);
+}
+
+IntegrationTestFramework &IntegrationTestFramework::setGenesisBlock(
+    const shared_model::interface::Block &block) {
+  iroha_instance_->makeGenesis(clone(block));
+  iroha_instance_->init();
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::setInitialState(
+    const Keypair &keypair) {
+  initPipeline(keypair);
+  setGenesisBlock(defaultBlock(keypair));
+  log_->info("added genesis block");
+  subscribeQueuesAndRun();
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::setMstGossipParams(
+    std::chrono::milliseconds mst_gossip_emitting_period,
+    uint32_t mst_gossip_amount_per_once) {
+  iroha_instance_->setMstGossipParams(mst_gossip_emitting_period,
+                                      mst_gossip_amount_per_once);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::setInitialState(
+    const Keypair &keypair, const shared_model::interface::Block &block) {
+  initPipeline(keypair);
+  setGenesisBlock(block);
+  log_->info("added genesis block");
+  subscribeQueuesAndRun();
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::recoverState(
+    const Keypair &keypair) {
+  initPipeline(keypair);
+  iroha_instance_->init();
+  subscribeQueuesAndRun();
+  return *this;
+}
+
+void IntegrationTestFramework::initPipeline(
+    const shared_model::crypto::Keypair &keypair) {
+  log_->info("init state");
+  my_key_ = keypair;
+  this_peer_ =
+      framework::expected::val(
+          common_objects_factory_->createPeer(
+              getAddress(), PublicKeyHexStringView{keypair.publicKey()}))
+          .value()
+          .value;
+  iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
+  log_->info("created pipeline");
+}
+
+void IntegrationTestFramework::subscribeQueuesAndRun() {
+  // subscribing for components
+
+  proposal_subscription_ =
+      iroha::SubscriberCreator<bool, iroha::network::OrderingEvent>::
+          template create<iroha::EventTypes::kOnProposal>(
+              static_cast<iroha::SubscriptionEngineHandlers>(
+                  iroha::getSubscription()->dispatcher()->kExecuteInPool),
+              [proposal_queue(iroha::utils::make_weak(proposal_queue_)),
+               log(iroha::utils::make_weak(log_))](auto, auto event) {
+                auto maybe_proposal_queue = proposal_queue.lock();
+                auto maybe_log = log.lock();
+                if (maybe_proposal_queue and maybe_log and event.proposal) {
+                  maybe_proposal_queue->push(getProposalUnsafe(event));
+                  maybe_log->info("proposal");
+                }
+              });
+
+  verified_proposal_subscription_ =
+      iroha::SubscriberCreator<bool,
+                               iroha::simulator::VerifiedProposalCreatorEvent>::
+          template create<iroha::EventTypes::kOnVerifiedProposal>(
+              static_cast<iroha::SubscriptionEngineHandlers>(
+                  iroha::getSubscription()->dispatcher()->kExecuteInPool),
+              [verified_proposal_queue(
+                   iroha::utils::make_weak(verified_proposal_queue_)),
+               log(iroha::utils::make_weak(log_))](
+                  auto, auto verified_proposal_and_errors) {
+                auto maybe_verified_proposal_queue =
+                    verified_proposal_queue.lock();
+                auto maybe_log = log.lock();
+                if (maybe_verified_proposal_queue and maybe_log
+                    and verified_proposal_and_errors.verified_proposal_result) {
+                  maybe_verified_proposal_queue->push(
+                      iroha::simulator::getVerifiedProposalUnsafe(
+                          verified_proposal_and_errors));
+                  maybe_log->info("verified proposal");
+                }
+              });
+
+  block_subscription_ = iroha::SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::Block const>>::
+      template create<iroha::EventTypes::kOnBlock>(
+          static_cast<iroha::SubscriptionEngineHandlers>(
+              iroha::getSubscription()->dispatcher()->kExecuteInPool),
+          [this](auto, auto block) {
+            block_queue_->push(block);
+            log_->info("block commit");
+          });
+
+  responses_subscription_ = iroha::SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::TransactionResponse>>::
+      template create<iroha::EventTypes::kOnTransactionResponse>(
+          static_cast<iroha::SubscriptionEngineHandlers>(
+              iroha::getSubscription()->dispatcher()->kExecuteInPool),
+          [this](auto, auto response) {
+            const auto hash = response->transactionHash().hex();
+            auto it = responses_queues_.find(hash);
+            if (it == responses_queues_.end()) {
+              it = responses_queues_
+                       .emplace(hash,
+                                std::make_unique<CheckerQueue<TxResponseType>>(
+                                    tx_response_waiting))
+                       .first;
+            }
+            it->second->push(response);
+            log_->info("response added to status queue: {}",
+                       response->toString());
+          });
+
+  if (fake_peers_.size() > 0) {
+    log_->info("starting fake iroha peers");
+    for (auto &fake_peer : fake_peers_) {
+      fake_peers_servers_.push_back(fake_peer->run());
+    }
+  }
+  // start instance
+  log_->info("starting main iroha instance");
+  iroha_instance_->run();
+}
+
+std::shared_ptr<shared_model::interface::Peer>
+IntegrationTestFramework::getThisPeer() const {
+  return this_peer_;
+}
+
+std::string IntegrationTestFramework::getAddress() const {
+  return format_address(kLocalHost, config_.internal_port);
+}
+
+rxcpp::observable<std::shared_ptr<iroha::MstState>>
+IntegrationTestFramework::getMstStateUpdateObservable() {
+  return iroha_instance_->getIrohaInstance()
+      ->getMstProcessor()
+      ->onStateUpdate();
+}
+
+rxcpp::observable<iroha::BatchPtr>
+IntegrationTestFramework::getMstPreparedBatchesObservable() {
+  return iroha_instance_->getIrohaInstance()
+      ->getMstProcessor()
+      ->onPreparedBatches();
+}
+
+rxcpp::observable<iroha::BatchPtr>
+IntegrationTestFramework::getMstExpiredBatchesObservable() {
+  return iroha_instance_->getIrohaInstance()
+      ->getMstProcessor()
+      ->onExpiredBatches();
+}
+
+std::shared_ptr<iroha::ametsuchi::BlockQuery>
+IntegrationTestFramework::getBlockQuery() {
+  return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
+}
+
+IntegrationTestFramework &IntegrationTestFramework::getTxStatus(
+    const shared_model::crypto::Hash &hash,
+    std::function<void(const shared_model::proto::TransactionResponse &)>
+        validation) {
+  iroha::protocol::TxStatusRequest request;
+  request.set_tx_hash(hash.hex());
+  iroha::protocol::ToriiResponse response;
+  command_client_->Status(request, response);
+  validation(shared_model::proto::TransactionResponse(std::move(response)));
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendTxWithoutValidation(
+    const shared_model::proto::Transaction &tx) {
+  log_->info("sending transaction");
+  log_->debug("{}", tx);
+
+  command_client_->Torii(tx.getTransport());
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendTx(
+    const shared_model::proto::Transaction &tx,
+    std::function<void(const shared_model::proto::TransactionResponse &)>
+        validation) {
+  auto it = responses_queues_.find(tx.hash().hex());
+  if (it == responses_queues_.end())
+    it = responses_queues_
+             .emplace(tx.hash().hex(),
+                      std::make_unique<CheckerQueue<TxResponseType>>(
+                          tx_response_waiting))
+             .first;
+  sendTxWithoutValidation(tx);
+  // fetch first response associated with the tx from related queue
+  boost::optional<TxResponseType> opt_response(it->second->try_peek());
+  if (not opt_response)
+    throw std::runtime_error("missed status");
+
+  validation(static_cast<const shared_model::proto::TransactionResponse &>(
+      *opt_response.value()));
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendTx(
+    const shared_model::proto::Transaction &tx) {
+  sendTx(tx, [this](const auto &status) {
+    if (!status.statelessErrorOrCommandName().empty()) {
+      log_->debug("Got error while sending transaction: "
+                  + status.statelessErrorOrCommandName());
+    }
+  });
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendTxAwait(
+    const shared_model::proto::Transaction &tx) {
+  return sendTxAwait(tx, [](const auto &) {});
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendTxAwait(
+    const shared_model::proto::Transaction &tx,
+    std::function<void(const BlockType &)> check) {
+  sendTx(tx).skipProposal().skipVerifiedProposal().checkBlock(check);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
+    const shared_model::interface::TransactionSequence &tx_sequence,
+    std::function<void(std::vector<shared_model::proto::TransactionResponse> &)>
+        validation) {
+  log_->info("send transactions");
+  const auto &transactions = tx_sequence.transactions();
+
+  // put all transactions to the TxList and send them to iroha
+  iroha::protocol::TxList tx_list;
+  for (const auto &tx : transactions) {
+    auto proto_tx =
+        std::static_pointer_cast<shared_model::proto::Transaction>(tx)
+            ->getTransport();
+    *tx_list.add_transactions() = proto_tx;
+    auto it = responses_queues_.find(tx->hash().hex());
+    if (it == responses_queues_.end())
+      it = responses_queues_
+               .emplace(tx->hash().hex(),
+                        std::make_unique<CheckerQueue<TxResponseType>>(
+                            tx_response_waiting))
+               .first;
+  }
+  command_client_->ListTorii(tx_list);
+
+  // save all stateless statuses into a vector
+  std::vector<shared_model::proto::TransactionResponse> observed_statuses;
+  for (const auto &tx : transactions) {
+    // fetch first response associated with the tx from related queue
+    boost::optional<TxResponseType> opt_response(
+        responses_queues_.find(tx->hash().hex())->second->try_peek());
+    if (not opt_response)
+      throw std::runtime_error("missed status");
+
+    observed_statuses.push_back(
+        static_cast<const shared_model::proto::TransactionResponse &>(
+            *opt_response.value()));
   }
 
-  logger::LoggerManagerTreePtr getDefaultItfLogManager() {
-    return getTestLoggerManager()->getChild("IntegrationFramework");
-  }
+  validation(observed_statuses);
+  return *this;
+}
 
-}  // namespace integration_framework
+IntegrationTestFramework &IntegrationTestFramework::sendTxSequenceAwait(
+    const shared_model::interface::TransactionSequence &tx_sequence,
+    std::function<void(const BlockType &)> check) {
+  sendTxSequence(tx_sequence)
+      .skipProposal()
+      .skipVerifiedProposal()
+      .checkBlock(check);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendQuery(
+    const shared_model::proto::Query &qry,
+    std::function<void(const shared_model::proto::QueryResponse &)>
+        validation) {
+  log_->info("send query");
+  log_->debug("{}", qry);
+
+  iroha::protocol::QueryResponse response;
+  query_client_->Find(qry.getTransport(), response);
+  shared_model::proto::QueryResponse query_response{std::move(response)};
+
+  validation(query_response);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendQuery(
+    const shared_model::proto::Query &qry) {
+  sendQuery(qry, [](const auto &) {});
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendMstState(
+    PublicKeyHexStringView src_key, const iroha::MstState &mst_state) {
+  auto client = makeTransportClientFactory<iroha::network::MstTransportGrpc>(
+                    client_factory_)
+                    ->createClient(*this_peer_)
+                    .assumeValue();
+  iroha::network::sendStateAsync(mst_state, src_key, *client, *async_call_);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::sendYacState(
+    const std::vector<iroha::consensus::yac::VoteMessage> &yac_state) {
+  yac_transport_->sendState(*this_peer_, yac_state);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::checkProposal(
+    std::function<
+        void(const std::shared_ptr<const shared_model::interface::Proposal> &)>
+        validation) {
+  log_->info("check proposal");
+  // fetch first proposal from proposal queue
+  auto opt_proposal = proposal_queue_->try_pop();
+  if (not opt_proposal) {
+    throw std::runtime_error("missed proposal");
+  }
+  validation(*opt_proposal);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::skipProposal() {
+  checkProposal([](const auto &) {});
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::checkVerifiedProposal(
+    std::function<
+        void(const std::shared_ptr<const shared_model::interface::Proposal> &)>
+        validation) {
+  log_->info("check verified proposal");
+  // fetch first proposal from proposal queue
+  auto opt_verified_proposal_and_errors = verified_proposal_queue_->try_pop();
+  if (not opt_verified_proposal_and_errors) {
+    throw std::runtime_error("missed verified proposal");
+  }
+  validation(opt_verified_proposal_and_errors.value()->verified_proposal);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::skipVerifiedProposal() {
+  checkVerifiedProposal([](const auto &) {});
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::checkBlock(
+    std::function<void(const BlockType &)> validation) {
+  // fetch first from block queue
+  log_->info("check block");
+  auto opt_block = block_queue_->try_pop();
+  if (not opt_block) {
+    throw std::runtime_error("missed block");
+  }
+  validation(*opt_block);
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::skipBlock() {
+  checkBlock([](const auto &) {});
+  return *this;
+}
+
+IntegrationTestFramework &IntegrationTestFramework::checkStatus(
+    const shared_model::interface::types::HashType &tx_hash,
+    std::function<void(const shared_model::proto::TransactionResponse &)>
+        validation) {
+  // fetch first response associated with the tx from related queue
+  boost::optional<TxResponseType> opt_response;
+  const auto it = responses_queues_.find(tx_hash.hex());
+  if (it != responses_queues_.end()) {
+    opt_response = it->second->try_pop();
+  }
+  if (not opt_response) {
+    throw std::runtime_error("missed status");
+  }
+  validation(static_cast<const shared_model::proto::TransactionResponse &>(
+      *opt_response.value()));
+  return *this;
+}
+
+size_t IntegrationTestFramework::internalPort() const {
+  return config_.internal_port;
+}
+
+void IntegrationTestFramework::done() {
+  log_->info("done");
+  iroha_instance_->terminateAndCleanup();
+}
+
+integration_framework::IrohaInstance &
+IntegrationTestFramework::getIrohaInstance() {
+  return *iroha_instance_;
+}
+
+logger::LoggerManagerTreePtr integration_framework::getDefaultItfLogManager() {
+  return getTestLoggerManager()->getChild("IntegrationFramework");
+}

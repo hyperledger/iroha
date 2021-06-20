@@ -9,7 +9,6 @@
 #include <memory>
 #include <unordered_map>
 
-#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
@@ -17,8 +16,6 @@
 namespace iroha {
   class MstStorageStateImpl : public MstStorage {
    private:
-    struct private_tag {};
-
     // -----------------------------| private API |-----------------------------
 
     /**
@@ -32,20 +29,12 @@ namespace iroha {
 
    public:
     // ----------------------------| interface API |----------------------------
-    MstStorageStateImpl(MstStorageStateImpl::private_tag,
-                        CompleterType const &completer,
+    MstStorageStateImpl(CompleterType const &completer,
                         logger::LoggerPtr mst_state_logger,
                         logger::LoggerPtr log);
 
     MstStorageStateImpl(MstStorageStateImpl const &) = delete;
     MstStorageStateImpl &operator=(MstStorageStateImpl const &) = delete;
-
-    static std::shared_ptr<MstStorageStateImpl> create(
-        CompleterType const &completer,
-        rxcpp::observable<shared_model::interface::types::HashType>
-            finalized_txs,
-        logger::LoggerPtr mst_state_logger,
-        logger::LoggerPtr log);
 
     auto applyImpl(
         shared_model::interface::types::PublicKeyHexStringView target_peer_key,
@@ -67,6 +56,9 @@ namespace iroha {
         -> decltype(whatsNew(new_state)) override;
 
     bool batchInStorageImpl(const DataType &batch) const override;
+
+    void processFinalizedTransactionImpl(
+        shared_model::interface::types::HashType const &hash) override;
 
    private:
     // ---------------------------| private fields |----------------------------

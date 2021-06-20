@@ -8,7 +8,6 @@
 
 #include <vector>
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"
@@ -81,17 +80,9 @@ namespace iroha {
                            BlockStorageFactory &storage_factory) = 0;
 
       /**
-       * method called when block is written to the storage
-       * @return observable with the Block committed
-       */
-      virtual rxcpp::observable<
-          std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() = 0;
-
-      /**
        * Removes all peers from WSV
        */
-      virtual void resetPeers() = 0;
+      virtual expected::Result<void, std::string> resetPeers() = 0;
 
       /**
        * Remove all blocks from block storage.

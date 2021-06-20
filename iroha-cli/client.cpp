@@ -17,8 +17,7 @@ template <typename Service>
 std::unique_ptr<typename Service::StubInterface> makeStub(std::string target_ip,
                                                           int port) {
   using namespace iroha::network;
-  static const auto kChannelParams = getDefaultChannelParams();
-  return createInsecureClient<Service>(target_ip, port, *kChannelParams);
+  return createInsecureClient<Service>(target_ip, port, std::nullopt);
 }
 
 namespace iroha_cli {

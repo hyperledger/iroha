@@ -9,7 +9,6 @@
 #include "torii/processor/query_processor.hpp"
 
 #include <gmock/gmock.h>
-#include <rxcpp/rx-lite.hpp>
 
 namespace iroha {
   namespace torii {
@@ -20,11 +19,10 @@ namespace iroha {
                    iroha::expected::Result<
                        std::unique_ptr<shared_model::interface::QueryResponse>,
                        std::string>(const shared_model::interface::Query &));
-      MOCK_METHOD1(
-          blocksQueryHandle,
-          rxcpp::observable<
-              std::shared_ptr<shared_model::interface::BlockQueryResponse>>(
-              const shared_model::interface::BlocksQuery &));
+      MOCK_METHOD((iroha::expected::Result<void, std::string>),
+                  blocksQueryHandle,
+                  (shared_model::interface::BlocksQuery const &),
+                  (override));
     };
 
   }  // namespace torii

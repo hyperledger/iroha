@@ -7,7 +7,6 @@
 
 #include <boost/filesystem.hpp>
 #include <optional>
-#include <rxcpp/operators/rx-map.hpp>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -22,6 +21,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "common/bind.hpp"
 #include "common/files.hpp"
+#include "common/result_try.hpp"
 #include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
@@ -35,7 +35,6 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
-#include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
@@ -58,11 +57,11 @@
 #include "network/impl/tls_credentials.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
+#include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 #include "simulator/impl/simulator.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
 #include "torii/impl/command_service_transport_grpc.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 #include "torii/processor/query_processor_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
 #include "torii/query_service.hpp"
@@ -111,7 +110,8 @@ Irohad::Irohad(
     logger::LoggerManagerTreePtr logger_manager,
     StartupWsvDataPolicy startup_wsv_data_policy,
     StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
-    std::shared_ptr<const GrpcChannelParams> grpc_channel_params,
+    std::optional<std::shared_ptr<const GrpcChannelParams>>
+        maybe_grpc_channel_params,
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
@@ -120,17 +120,14 @@ Irohad::Irohad(
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
-      grpc_channel_params_(std::move(grpc_channel_params)),
+      maybe_grpc_channel_params_(std::move(maybe_grpc_channel_params)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
-      pending_txs_storage_init(
-          std::make_unique<PendingTransactionStorageInit>()),
       pg_opt_(std::move(pg_opt)),
       subscription_engine_(getSubscription()),
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
           logger_manager->getLogger())),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
-      consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
@@ -156,7 +153,6 @@ Irohad::~Irohad() {
   if (ordering_gate) {
     ordering_gate->stop();
   }
-  consensus_gate_objects_lifetime.unsubscribe();
   subscription_engine_->dispose();
 }
 
@@ -164,41 +160,41 @@ Irohad::~Irohad() {
  * Initializing iroha daemon
  */
 Irohad::RunResult Irohad::init() {
-  // clang-format off
-  return initSettings()
-         | [this]{ return initValidatorsConfigs();}
-         | [this]{ return initBatchParser();}
-         | [this]{ return initValidators();}
-         // Recover WSV from the existing ledger to be sure it is consistent
-         | [this]{ return initWsvRestorer(); }
-         | [this]{ return restoreWsv();}
-         | [this]{ return validateKeypair();}
-         | [this]{ return initTlsCredentials();}
-         | [this]{ return initPeerCertProvider();}
-         | [this]{ return initClientFactory();}
-         | [this]{ return initCryptoProvider();}
-         | [this]{ return initNetworkClient();}
-         | [this]{ return initFactories();}
-         | [this]{ return initPersistentCache();}
-         | [this]{ return initOrderingGate();}
-         | [this]{ return initSimulator();}
-         | [this]{ return initConsensusCache();}
-         | [this]{ return initBlockLoader();}
-         | [this]{ return initConsensusGate();}
-         | [this]{ return initSynchronizer();}
-         | [this]{ return initPeerCommunicationService();}
-         | [this]{ return initStatusBus();}
-         | [this]{ return initMstProcessor();}
-         | [this]{ return initPendingTxsStorageWithCache();}
-
-         // Torii
-         | [this]{ return initTransactionCommandService();}
-         | [this]{ return initQueryService();};
-  // clang-format on
+  IROHA_EXPECTED_ERROR_CHECK(initSettings());
+  IROHA_EXPECTED_ERROR_CHECK(initValidatorsConfigs());
+  IROHA_EXPECTED_ERROR_CHECK(initBatchParser());
+  IROHA_EXPECTED_ERROR_CHECK(initValidators());
+  // Recover WSV from the existing ledger to be sure it is consistent
+  IROHA_EXPECTED_ERROR_CHECK(initWsvRestorer());
+  IROHA_EXPECTED_ERROR_CHECK(restoreWsv());
+  IROHA_EXPECTED_ERROR_CHECK(validateKeypair());
+  IROHA_EXPECTED_ERROR_CHECK(initTlsCredentials());
+  IROHA_EXPECTED_ERROR_CHECK(initPeerCertProvider());
+  IROHA_EXPECTED_ERROR_CHECK(initClientFactory());
+  IROHA_EXPECTED_ERROR_CHECK(initCryptoProvider());
+  IROHA_EXPECTED_ERROR_CHECK(initNetworkClient());
+  IROHA_EXPECTED_ERROR_CHECK(initFactories());
+  IROHA_EXPECTED_ERROR_CHECK(initPersistentCache());
+  IROHA_EXPECTED_ERROR_CHECK(initOrderingGate());
+  IROHA_EXPECTED_ERROR_CHECK(initSimulator());
+  IROHA_EXPECTED_ERROR_CHECK(initConsensusCache());
+  IROHA_EXPECTED_ERROR_CHECK(initBlockLoader());
+  IROHA_EXPECTED_ERROR_CHECK(initConsensusGate());
+  IROHA_EXPECTED_ERROR_CHECK(initSynchronizer());
+  IROHA_EXPECTED_ERROR_CHECK(initPeerCommunicationService());
+  IROHA_EXPECTED_ERROR_CHECK(initStatusBus());
+  IROHA_EXPECTED_ERROR_CHECK(initMstProcessor());
+  IROHA_EXPECTED_ERROR_CHECK(initPendingTxsStorageWithCache());
+  // Torii
+  IROHA_EXPECTED_ERROR_CHECK(initTransactionCommandService());
+  IROHA_EXPECTED_ERROR_CHECK(initQueryService());
+  return {};
 }
 
 Irohad::RunResult Irohad::dropStorage() {
-  return storage->dropBlockStorage() | [this] { return resetWsv(); };
+  IROHA_EXPECTED_ERROR_CHECK(storage->dropBlockStorage());
+  IROHA_EXPECTED_ERROR_CHECK(resetWsv());
+  return {};
 }
 
 Irohad::RunResult Irohad::resetWsv() {
@@ -217,12 +213,10 @@ Irohad::RunResult Irohad::initSettings() {
     return expected::makeError("Unable to create Settings");
   }
 
-  return settingsQuery.get()->get() | [this](auto &&settings) -> RunResult {
-    this->settings_ = std::move(settings);
-
-    log_->info("[Init] => settings");
-    return {};
-  };
+  IROHA_EXPECTED_TRY_GET_VALUE(settings, settingsQuery.get()->get());
+  settings_ = std::move(settings);
+  log_->info("[Init] => settings");
+  return {};
 }
 
 /**
@@ -247,67 +241,69 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  */
 Irohad::RunResult Irohad::initStorage(
     StartupWsvDataPolicy startup_wsv_data_policy) {
-  return PgConnectionInit::init(startup_wsv_data_policy, *pg_opt_, log_manager_)
-             | [this](auto &&pool_wrapper) -> RunResult {
-    pool_wrapper_ = std::move(pool_wrapper);
-    query_response_factory_ =
-        std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
+  IROHA_EXPECTED_TRY_GET_VALUE(
+      pool_wrapper,
+      PgConnectionInit::init(startup_wsv_data_policy, *pg_opt_, log_manager_));
 
-    std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
-        vm_caller_ref;
-    if (vm_caller_) {
-      vm_caller_ref = *vm_caller_.value();
-    }
+  pool_wrapper_ = std::move(pool_wrapper);
+  query_response_factory_ =
+      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
-    return ::iroha::initStorage(*pg_opt_,
-                                pool_wrapper_,
-                                pending_txs_storage_,
-                                query_response_factory_,
-                                config_.block_store_path,
-                                vm_caller_ref,
-                                log_manager_->getChild("Storage"))
-               | [&](auto &&v) -> RunResult {
-      storage = std::move(v);
+  std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
+      vm_caller_ref;
+  if (vm_caller_) {
+    vm_caller_ref = *vm_caller_.value();
+  }
 
-      using shared_model::crypto::Hash;
-      using shared_model::interface::Block;
+  auto process_block =
+      [this](std::shared_ptr<shared_model::interface::Block const> block) {
+        iroha::getSubscription()->notify(EventTypes::kOnBlock, block);
+        if (ordering_init and tx_processor and pending_txs_storage_
+            and mst_storage) {
+          ordering_init->processCommittedBlock(block);
+          tx_processor->processCommit(block);
+          for (auto const &completed_tx : block->transactions()) {
+            pending_txs_storage_->removeTransaction(completed_tx.hash());
+            mst_storage->processFinalizedTransaction(completed_tx.hash());
+          }
+          for (auto const &rejected_tx_hash :
+               block->rejected_transactions_hashes()) {
+            pending_txs_storage_->removeTransaction(rejected_tx_hash);
+            mst_storage->processFinalizedTransaction(rejected_tx_hash);
+          }
+        }
+      };
 
-      finalized_txs_ =
-          storage->on_commit()
-              .template lift<Hash>([](rxcpp::subscriber<Hash> dest) {
-                return rxcpp::make_subscriber<std::shared_ptr<Block const>>(
-                    dest, [=](std::shared_ptr<Block const> const &block) {
-                      for (auto const &completed_tx : block->transactions()) {
-                        dest.on_next(completed_tx.hash());
-                      }
-                      for (auto const &rejected_tx_hash :
-                           block->rejected_transactions_hashes()) {
-                        dest.on_next(rejected_tx_hash);
-                      }
-                    });
-              })
-              .publish()
-              .ref_count();
+  IROHA_EXPECTED_TRY_GET_VALUE(
+      storage_,
+      ::iroha::initStorage(*pg_opt_,
+                           pool_wrapper_,
+                           pending_txs_storage_,
+                           query_response_factory_,
+                           config_.block_store_path,
+                           vm_caller_ref,
+                           process_block,
+                           log_manager_->getChild("Storage")));
 
-      log_->info("[Init] => storage");
-      return {};
-    };
-  };
+  storage = std::move(storage_);
+
+  log_->info("[Init] => storage");
+  return {};
 }
 
 Irohad::RunResult Irohad::restoreWsv() {
-  return wsv_restorer_->restoreWsv(
-             *storage,
-             startup_wsv_sync_policy_
-                 == StartupWsvSynchronizationPolicy::kWaitForNewBlocks)
-             | [](const auto &ledger_state) -> RunResult {
-    assert(ledger_state);
-    if (ledger_state->ledger_peers.empty()) {
-      return iroha::expected::makeError<std::string>(
-          "Have no peers in WSV after restoration!");
-    }
-    return {};
-  };
+  IROHA_EXPECTED_TRY_GET_VALUE(
+      ledger_state,
+      wsv_restorer_->restoreWsv(
+          *storage,
+          startup_wsv_sync_policy_
+              == StartupWsvSynchronizationPolicy::kWaitForNewBlocks));
+  assert(ledger_state);
+  if (ledger_state->ledger_peers.empty()) {
+    return iroha::expected::makeError<std::string>(
+        "Have no peers in WSV after restoration!");
+  }
+  return {};
 }
 
 Irohad::RunResult Irohad::validateKeypair() {
@@ -414,9 +410,11 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
  * Initializing channel pool.
  */
 Irohad::RunResult Irohad::initClientFactory() {
+  auto channel_factory =
+      std::make_unique<ChannelFactory>(this->maybe_grpc_channel_params_);
+  auto channel_pool = std::make_unique<ChannelPool>(std::move(channel_factory));
   inter_peer_client_factory_ =
-      std::make_unique<GenericClientFactory>(std::make_unique<ChannelPool>(
-          std::make_unique<ChannelFactory>(this->grpc_channel_params_)));
+      std::make_unique<GenericClientFactory>(std::move(channel_pool));
   return {};
 }
 
@@ -593,32 +591,29 @@ Irohad::RunResult Irohad::initOrderingGate() {
  * Initializing iroha verified proposal creator and block creator
  */
 Irohad::RunResult Irohad::initSimulator() {
-  return storage->createCommandExecutor() |
-             [this](auto &&command_executor) -> RunResult {
-    auto block_factory =
-        std::make_unique<shared_model::proto::ProtoBlockFactory>(
-            //  Block factory in simulator uses UnsignedBlockValidator because
-            //  it is not required to check signatures of block here, as they
-            //  will be checked when supermajority of peers will sign the block.
-            //  It is also not required to validate signatures of transactions
-            //  here because they are validated in the ordering gate, where they
-            //  are received from the ordering service.
-            std::make_unique<
-                shared_model::validation::DefaultUnsignedBlockValidator>(
-                block_validators_config_),
-            std::make_unique<shared_model::validation::ProtoBlockValidator>());
+  IROHA_EXPECTED_TRY_GET_VALUE(command_executor,
+                               storage->createCommandExecutor());
+  auto block_factory = std::make_unique<shared_model::proto::ProtoBlockFactory>(
+      //  Block factory in simulator uses UnsignedBlockValidator because
+      //  it is not required to check signatures of block here, as they
+      //  will be checked when supermajority of peers will sign the block.
+      //  It is also not required to validate signatures of transactions
+      //  here because they are validated in the ordering gate, where they
+      //  are received from the ordering service.
+      std::make_unique<shared_model::validation::DefaultUnsignedBlockValidator>(
+          block_validators_config_),
+      std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
-    simulator = std::make_shared<Simulator>(
-        std::move(command_executor),
-        stateful_validator,
-        storage,
-        crypto_signer_,
-        std::move(block_factory),
-        log_manager_->getChild("Simulator")->getLogger());
+  simulator = std::make_shared<Simulator>(
+      std::move(command_executor),
+      stateful_validator,
+      storage,
+      crypto_signer_,
+      std::move(block_factory),
+      log_manager_->getChild("Simulator")->getLogger());
 
-    log_->info("[Init] => init simulator");
-    return {};
-  };
+  log_->info("[Init] => init simulator");
+  return {};
 }
 
 /**
@@ -692,19 +687,18 @@ Irohad::RunResult Irohad::initConsensusGate() {
  * Initializing synchronizer
  */
 Irohad::RunResult Irohad::initSynchronizer() {
-  return storage->createCommandExecutor() |
-             [this](auto &&command_executor) -> RunResult {
-    synchronizer = std::make_shared<SynchronizerImpl>(
-        std::move(command_executor),
-        chain_validator,
-        storage,
-        storage,
-        block_loader,
-        log_manager_->getChild("Synchronizer")->getLogger());
+  IROHA_EXPECTED_TRY_GET_VALUE(command_executor,
+                               storage->createCommandExecutor());
+  synchronizer = std::make_shared<SynchronizerImpl>(
+      std::move(command_executor),
+      chain_validator,
+      storage,
+      storage,
+      block_loader,
+      log_manager_->getChild("Synchronizer")->getLogger());
 
-    log_->info("[Init] => synchronizer");
-    return {};
-  };
+  log_->info("[Init] => synchronizer");
+  return {};
 }
 
 namespace {
@@ -738,7 +732,20 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
 }
 
 Irohad::RunResult Irohad::initStatusBus() {
-  status_bus_ = std::make_shared<StatusBusImpl>();
+  struct StatusBusImpl final : public StatusBus {
+    StatusBusImpl(Irohad &irohad) : irohad_(irohad) {}
+
+    void publish(StatusBus::Objects const &response) override {
+      iroha::getSubscription()->notify(EventTypes::kOnTransactionResponse,
+                                       StatusBus::Objects(response));
+      if (irohad_.command_service)
+        irohad_.command_service->processTransactionResponse(response);
+    }
+
+   private:
+    Irohad &irohad_;
+  };
+  status_bus_ = std::make_shared<StatusBusImpl>(*this);
   log_->info("[Init] => Tx status bus");
   return {};
 }
@@ -749,12 +756,10 @@ Irohad::RunResult Irohad::initMstProcessor() {
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
   auto mst_completer = std::make_shared<DefaultCompleter>(std::chrono::minutes(
       config_.mst_expiration_time.value_or(kMstExpirationTimeDefault)));
-  auto mst_storage = MstStorageStateImpl::create(
+  mst_storage = std::make_shared<MstStorageStateImpl>(
       mst_completer,
-      finalized_txs_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
-  pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (config_.mst_support) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
@@ -787,15 +792,12 @@ Irohad::RunResult Irohad::initMstProcessor() {
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
 
-  pending_txs_storage_init->setMstSubscriptions(*mst_processor);
-
   log_->info("[Init] => MST processor");
   return {};
 }
 
 Irohad::RunResult Irohad::initPendingTxsStorage() {
-  pending_txs_storage_ =
-      pending_txs_storage_init->createPendingTransactionsStorage();
+  pending_txs_storage_ = std::make_shared<PendingTransactionStorageImpl>();
   log_->info("[Init] => pending transactions storage");
   return {};
 }
@@ -814,39 +816,43 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       status_bus_,
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
-  storage->on_commit().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
-          std::shared_ptr<shared_model::interface::Block const> const &block) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
-          maybe_tx_processor->processCommit(block);
-        }
-      });
   mst_processor->onStateUpdate().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor)),
+       pending_txs_storage(utils::make_weak(pending_txs_storage_))](
           std::shared_ptr<MstState> const &state) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_pending_txs_storage = pending_txs_storage.lock();
+        if (maybe_tx_processor and maybe_pending_txs_storage) {
           maybe_tx_processor->processStateUpdate(state);
+          maybe_pending_txs_storage->updatedBatchesHandler(state);
         }
       });
   mst_processor->onPreparedBatches().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor)),
+       pending_txs_storage(utils::make_weak(pending_txs_storage_))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_pending_txs_storage = pending_txs_storage.lock();
+        if (maybe_tx_processor and maybe_pending_txs_storage) {
           maybe_tx_processor->processPreparedBatch(batch);
+          maybe_pending_txs_storage->removeBatch(batch);
         }
       });
   mst_processor->onExpiredBatches().subscribe(
-      [tx_processor(utils::make_weak(tx_processor))](
+      [tx_processor(utils::make_weak(tx_processor)),
+       pending_txs_storage(utils::make_weak(pending_txs_storage_))](
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
-        if (auto maybe_tx_processor = tx_processor.lock()) {
+        auto maybe_tx_processor = tx_processor.lock();
+        auto maybe_pending_txs_storage = pending_txs_storage.lock();
+        if (maybe_tx_processor and maybe_pending_txs_storage) {
           maybe_tx_processor->processExpiredBatch(batch);
+          maybe_pending_txs_storage->removeBatch(batch);
         }
       });
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
-      storage,
       status_bus_,
       status_factory,
       cs_cache,
@@ -860,9 +866,6 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
           transaction_factory,
           batch_parser,
           transaction_batch_factory_,
-          consensus_gate_objects.get_observable().map([](const auto &) {
-            return ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{};
-          }),
           config_.stale_stream_max_rounds.value_or(
               kStaleStreamMaxRoundsDefault),
           command_service_log_manager->getChild("Transport")->getLogger());
@@ -934,12 +937,8 @@ Irohad::RunResult Irohad::run() {
     }
   });
 
-  using iroha::expected::operator|;
-  using iroha::operator|;
-
   yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
                        ordering_init(utils::make_weak(ordering_init)),
-                       consensus_gate_objects(consensus_gate_objects),
                        log(utils::make_weak(log_)),
                        subscription(utils::make_weak(getSubscription()))](
                           consensus::GateObject object) {
@@ -949,8 +948,10 @@ Irohad::RunResult Irohad::run() {
     auto maybe_subscription = subscription.lock();
     if (maybe_synchronizer and maybe_ordering_init and maybe_log
         and maybe_subscription) {
+      maybe_subscription->notify(
+          EventTypes::kOnConsensusGateEvent,
+          ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{});
       maybe_log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-      consensus_gate_objects.get_subscriber().on_next(object);
       auto event = maybe_synchronizer->processOutcome(std::move(object));
       if (not event) {
         return;
@@ -974,98 +975,81 @@ Irohad::RunResult Irohad::run() {
       log_manager_->getChild("InternalServerRunner")->getLogger(),
       false);
 
-  auto make_port_logger = [this](std::string server_name) {
-    return [this, server_name](auto port) -> RunResult {
-      log_->info("{} server bound on port {}", server_name, port);
-      return {};
-    };
-  };
-
   // Run torii server
-  auto run_result = torii_server->append(command_service_transport)
-                        .append(query_service)
-                        .run()
-      | make_port_logger("Torii");
+  IROHA_EXPECTED_TRY_GET_VALUE(torii_port,
+                               torii_server->append(command_service_transport)
+                                   .append(query_service)
+                                   .run());
+  log_->info("Torii server bound on port {}", torii_port);
 
   // Run torii TLS server
-  torii_tls_creds_ | [&, this](const auto &tls_creds) {
-    run_result |= [&, this] {
-      torii_tls_server = std::make_unique<ServerRunner>(
-          listen_ip_ + ":" + std::to_string(config_.torii_tls_params->port),
-          log_manager_->getChild("ToriiTlsServerRunner")->getLogger(),
-          false,
-          tls_creds);
-      return (*torii_tls_server)
-                 ->append(command_service_transport)
-                 .append(query_service)
-                 .run()
-          | make_port_logger("Torii TLS");
-    };
-  };
+  if (torii_tls_creds_) {
+    torii_tls_server = std::make_unique<ServerRunner>(
+        listen_ip_ + ":" + std::to_string(config_.torii_tls_params->port),
+        log_manager_->getChild("ToriiTlsServerRunner")->getLogger(),
+        false,
+        *torii_tls_creds_);
+    IROHA_EXPECTED_TRY_GET_VALUE(torii_tls_port,
+                                 torii_tls_server.value()
+                                     ->append(command_service_transport)
+                                     .append(query_service)
+                                     .run());
+    log_->info("Torii TLS server bound on port {}", torii_tls_port);
+  }
 
   // Run internal server
-  run_result |= [&, this] {
-    if (config_.mst_support) {
-      internal_server->append(
-          std::static_pointer_cast<MstTransportGrpc>(mst_transport));
-    }
-    return internal_server->append(ordering_init->service)
-               .append(yac_init->getConsensusNetwork())
-               .append(loader_init.service)
-               .run()
-        | make_port_logger("Internal");
-  };
+  if (config_.mst_support) {
+    internal_server->append(
+        std::static_pointer_cast<MstTransportGrpc>(mst_transport));
+  }
+  IROHA_EXPECTED_TRY_GET_VALUE(internal_port,
+                               internal_server->append(ordering_init->service)
+                                   .append(yac_init->getConsensusNetwork())
+                                   .append(loader_init.service)
+                                   .run());
+  log_->info("Internal server bound on port {}", internal_port);
 
-  return run_result | [&]() -> RunResult {
-    log_->info("===> iroha initialized");
-    // initiate first round
-    auto block_query = storage->createBlockQuery();
-    if (not block_query) {
-      return expected::makeError("Failed to create block query");
-    }
-    auto block_var =
-        (*block_query)->getBlock((*block_query)->getTopBlockHeight());
-    if (auto e = expected::resultToOptionalError(block_var)) {
-      return expected::makeError("Failed to get the top block: " + e->message);
-    }
+  log_->info("===> iroha initialized");
+  // initiate first round
+  auto block_query = storage->createBlockQuery();
+  if (not block_query) {
+    return expected::makeError("Failed to create block query");
+  }
+  auto block_var =
+      (*block_query)->getBlock((*block_query)->getTopBlockHeight());
+  if (auto e = expected::resultToOptionalError(block_var)) {
+    return expected::makeError("Failed to get the top block: " + e->message);
+  }
 
-    auto &block =
-        boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
-    auto block_height = block->height();
+  auto &block =
+      boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
+  auto block_height = block->height();
 
-    auto peers = storage->createPeerQuery() |
-        [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
-    if (not peers) {
-      return expected::makeError("Failed to fetch ledger peers!");
-    }
+  auto peers = storage->createPeerQuery() |
+      [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
+  if (not peers) {
+    return expected::makeError("Failed to fetch ledger peers!");
+  }
 
-    auto initial_ledger_state = storage->getLedgerState();
-    if (not initial_ledger_state) {
-      return expected::makeError("Failed to fetch ledger state!");
-    }
+  auto initial_ledger_state = storage->getLedgerState();
+  if (not initial_ledger_state) {
+    return expected::makeError("Failed to fetch ledger state!");
+  }
 
-    storage->on_commit().subscribe(
-        [ordering_init(utils::make_weak(ordering_init))](auto block) {
-          if (auto maybe_ordering_init = ordering_init.lock()) {
-            maybe_ordering_init->processCommittedBlock(block);
-          }
-        });
+  ordering_init->processCommittedBlock(std::move(block));
 
-    ordering_init->processCommittedBlock(std::move(block));
+  subscription_engine_->dispatcher()->add(
+      iroha::SubscriptionEngineHandlers::kYac,
+      [ordering_init(utils::make_weak(ordering_init)),
+       block_height,
+       initial_ledger_state] {
+        if (auto maybe_ordering_init = ordering_init.lock()) {
+          maybe_ordering_init->processSynchronizationEvent(
+              {SynchronizationOutcomeType::kCommit,
+               {block_height, ordering::kFirstRejectRound},
+               *initial_ledger_state});
+        }
+      });
 
-    subscription_engine_->dispatcher()->add(
-        iroha::SubscriptionEngineHandlers::kYac,
-        [ordering_init(utils::make_weak(ordering_init)),
-         block_height,
-         initial_ledger_state] {
-          if (auto maybe_ordering_init = ordering_init.lock()) {
-            maybe_ordering_init->processSynchronizationEvent(
-                {SynchronizationOutcomeType::kCommit,
-                 {block_height, ordering::kFirstRejectRound},
-                 *initial_ledger_state});
-          }
-        });
-
-    return {};
-  };
+  return {};
 }
