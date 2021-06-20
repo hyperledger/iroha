@@ -97,8 +97,7 @@ class ToriiQueriesTest : public testing::Test {
                [](const auto &err) { FAIL() << err.error; });
 
     stub_ = iroha::network::createInsecureClient<
-        torii_utils::QuerySyncClient::Service>(
-        ip, port, *iroha::network::getDefaultTestChannelParams());
+        torii_utils::QuerySyncClient::Service>(ip, port, std::nullopt);
 
     runner->waitForServersReady();
   }

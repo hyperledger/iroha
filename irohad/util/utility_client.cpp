@@ -24,7 +24,7 @@ struct UtilityClient::StubHolder {
   StubHolder(const std::string &address)
       : channel_(
             iroha::network::createInsecureChannel<proto::UtilityService_v1>(
-                address, *iroha::network::getDefaultChannelParams())),
+                address, std::nullopt)),
         stub_(proto::UtilityService_v1::NewStub(channel_)) {}
 
   std::shared_ptr<grpc::Channel> channel_;

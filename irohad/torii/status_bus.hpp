@@ -6,35 +6,27 @@
 #ifndef TORII_STATUS_BUS
 #define TORII_STATUS_BUS
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "interfaces/transaction_responses/tx_response.hpp"
 
-namespace iroha {
-  namespace torii {
+namespace iroha::torii {
+  /**
+   * Interface of bus for transaction statuses
+   */
+  class StatusBus {
+   public:
+    virtual ~StatusBus() = default;
+
+    /// Objects that represent status to operate with
+    using Objects =
+        std::shared_ptr<shared_model::interface::TransactionResponse>;
+
     /**
-     * Interface of bus for transaction statuses
+     * Shares object among the bus subscribers
+     * @param object to share
+     * note: guaranteed to be non-blocking call
      */
-    class StatusBus {
-     public:
-      virtual ~StatusBus() = default;
-
-      /// Objects that represent status to operate with
-      using Objects =
-          std::shared_ptr<shared_model::interface::TransactionResponse>;
-
-      /**
-       * Shares object among the bus subscribers
-       * @param object to share
-       * note: guaranteed to be non-blocking call
-       */
-      virtual void publish(Objects) = 0;
-
-      /**
-       * @return observable over objects in bus
-       */
-      virtual rxcpp::observable<Objects> statuses() = 0;
-    };
-  }  // namespace torii
-}  // namespace iroha
+    virtual void publish(Objects const &) = 0;
+  };
+}  // namespace iroha::torii
 
 #endif  // TORII_STATUS_BUS
