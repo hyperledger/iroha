@@ -6,6 +6,8 @@
 #ifndef IROHA_SYNCHRONIZER_HPP
 #define IROHA_SYNCHRONIZER_HPP
 
+#include <optional>
+
 #include "consensus/gate_object.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
@@ -19,7 +21,7 @@ namespace iroha {
       /**
        * Processing entry point for consensus outcome
        */
-      virtual SynchronizationEvent processOutcome(
+      virtual std::optional<SynchronizationEvent> processOutcome(
           consensus::GateObject object) = 0;
 
       virtual ~Synchronizer() = default;

@@ -10,10 +10,3 @@ target_link_libraries(consensus_round
     Boost::boost
     shared_model_utils
     )
-
-add_library(gate_object
-    impl/gate_object.cpp
-    )
-target_link_libraries(gate_object
-    Boost::boost
-    )
