@@ -157,7 +157,7 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
 
   // verify that yac gate emit expected block
   auto outcome = *gate->processOutcome(expected_commit);
-  auto block = boost::get<iroha::consensus::PairValid>(outcome).block;
+  auto block = std::get<iroha::consensus::PairValid>(outcome).block;
   ASSERT_EQ(block, expected_block);
 
   // verify that gate has put to cache block received from consensus
@@ -280,7 +280,7 @@ TEST_F(YacGateTest, DifferentCommit) {
 
   // verify that yac gate emit expected block
   auto outcome = *gate->processOutcome(expected_commit);
-  auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
+  auto concrete_outcome = std::get<iroha::consensus::VoteOther>(outcome);
   auto public_keys = concrete_outcome.public_keys;
   auto hash = concrete_outcome.hash;
 
@@ -319,7 +319,7 @@ TEST_F(YacGateTest, Future) {
 
   // verify that yac gate emit expected block
   auto outcome = *gate->processOutcome(FutureMessage{future_message});
-  auto concrete_outcome = boost::get<iroha::consensus::Future>(outcome);
+  auto concrete_outcome = std::get<iroha::consensus::Future>(outcome);
 
   ASSERT_EQ(future_round, concrete_outcome.round);
 }
@@ -387,7 +387,7 @@ class CommitFromTheFuture : public YacGateTest {
   void validate() {
     // verify that yac gate emit expected block
     auto outcome = *gate->processOutcome(expected_commit);
-    auto concrete_outcome = boost::get<CommitType>(outcome);
+    auto concrete_outcome = std::get<CommitType>(outcome);
 
     ASSERT_EQ(future_round, concrete_outcome.round);
   }

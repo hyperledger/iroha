@@ -35,7 +35,7 @@ namespace iroha {
           std::shared_ptr<network::BlockLoader> block_loader,
           logger::LoggerPtr log);
 
-      SynchronizationEvent processOutcome(
+      std::optional<SynchronizationEvent> processOutcome(
           consensus::GateObject object) override;
 
      private:
@@ -53,14 +53,15 @@ namespace iroha {
           const shared_model::interface::types::PublicKeyCollectionType
               &public_keys);
 
-      SynchronizationEvent processNext(const consensus::PairValid &msg);
+      std::optional<SynchronizationEvent> processNext(
+          const consensus::PairValid &msg);
 
       /**
        * Performs synchronization on rejects
        * @param msg - consensus gate message with a list of peers and a round
        * @param required_height - minimal top block height to be downloaded
        */
-      SynchronizationEvent processDifferent(
+      std::optional<SynchronizationEvent> processDifferent(
           const consensus::Synchronizable &msg,
           shared_model::interface::types::HeightType required_height);
 
