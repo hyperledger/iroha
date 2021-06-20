@@ -33,7 +33,6 @@ target_link_libraries(yac
     logger_manager
     hash
     consensus_round
-    gate_object
     permutation_generator
     )
 # avoid compilation error due to missing operator<< in Answer variant types

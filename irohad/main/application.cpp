@@ -721,9 +721,6 @@ namespace {
       case SynchronizationOutcomeType::kNothing:
         log->info(R"(~~~~~~~~~| EMPTY (-_-)zzz |~~~~~~~~~ )");
         break;
-      case SynchronizationOutcomeType::kError:
-        log->info(R"(~~~~~~~~~| ERROR :-?????? |~~~~~~~~~ )");
-        break;
     }
   }
 }  // namespace
@@ -955,9 +952,13 @@ Irohad::RunResult Irohad::run() {
       maybe_log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
       consensus_gate_objects.get_subscriber().on_next(object);
       auto event = maybe_synchronizer->processOutcome(std::move(object));
-      maybe_subscription->notify(EventTypes::kOnSynchronization, event);
-      printSynchronizationEvent(maybe_log, event);
-      maybe_ordering_init->processSynchronizationEvent(std::move(event));
+      if (not event) {
+        return;
+      }
+      maybe_subscription->notify(EventTypes::kOnSynchronization,
+                                 SynchronizationEvent(*event));
+      printSynchronizationEvent(maybe_log, *event);
+      maybe_ordering_init->processSynchronizationEvent(std::move(*event));
     }
   });
 
