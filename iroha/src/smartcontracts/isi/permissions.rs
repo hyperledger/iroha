@@ -12,35 +12,50 @@ use super::prelude::WorldTrait;
 use super::Evaluate;
 use crate::prelude::*;
 
+/// Operation for which the permission should be checked.
+pub trait NeedsPermission {}
+
+impl NeedsPermission for Instruction {}
+
+impl NeedsPermission for QueryBox {}
+
 /// Reason for prohibiting the execution of the particular instruction.
 pub type DenialReason = String;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait PermissionsValidator<W: WorldTrait> {
+pub trait PermissionsValidator<W: WorldTrait, O: NeedsPermission> {
     /// Checks if the `authority` is allowed to perform `instruction` given the current state of `wsv`.
     ///
     /// # Errors
     /// In the case when the execution of `instruction` under given `authority` with the current state of `wsv`
     /// is unallowed.
-    fn check_instruction(
+    fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        operation: &O,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason>;
 }
 
-/// Box with `PermissionChecker`
-pub type PermissionsValidatorBox<W> = Box<dyn PermissionsValidator<W> + Send + Sync>;
+/// Box with `PermissionsValidator`
+pub type PermissionsValidatorBox<W, O> = Box<dyn PermissionsValidator<W, O> + Send + Sync>;
+
+/// Box with `PermissionsValidator` for `Instruction`.
+pub type InstructionPermissionsValidatorBox<W> = PermissionsValidatorBox<W, Instruction>;
+
+/// Box with `PermissionsValidator` for `Query`.
+pub type QueryPermissionsValidatorBox<W> = PermissionsValidatorBox<W, QueryBox>;
 
 /// Trait for joining validators with `or` method, autoimplemented for all types which convert to `PermissionsValidatorBox`.
-pub trait ValidatorApplyOr<W: WorldTrait> {
+pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission> {
     /// Combines two validators into [`OrPermissionsValidator`].
-    fn or(self, another: impl Into<PermissionsValidatorBox<W>>) -> OrPermissionsValidator<W>;
+    fn or(self, another: impl Into<PermissionsValidatorBox<W, O>>) -> OrPermissionsValidator<W, O>;
 }
 
-impl<W: WorldTrait, V: Into<PermissionsValidatorBox<W>>> ValidatorApplyOr<W> for V {
-    fn or(self, another: impl Into<PermissionsValidatorBox<W>>) -> OrPermissionsValidator<W> {
+impl<W: WorldTrait, O: NeedsPermission, V: Into<PermissionsValidatorBox<W, O>>>
+    ValidatorApplyOr<W, O> for V
+{
+    fn or(self, another: impl Into<PermissionsValidatorBox<W, O>>) -> OrPermissionsValidator<W, O> {
         OrPermissionsValidator {
             first: self.into(),
             second: another.into(),
@@ -48,25 +63,27 @@ impl<W: WorldTrait, V: Into<PermissionsValidatorBox<W>>> ValidatorApplyOr<W> for
     }
 }
 
-/// `check_instruction` will succeed if either `first` or `second` validator succeeds.
+/// `check` will succeed if either `first` or `second` validator succeeds.
 #[allow(missing_debug_implementations)]
-pub struct OrPermissionsValidator<W: WorldTrait> {
-    first: PermissionsValidatorBox<W>,
-    second: PermissionsValidatorBox<W>,
+pub struct OrPermissionsValidator<W: WorldTrait, O: NeedsPermission> {
+    first: PermissionsValidatorBox<W, O>,
+    second: PermissionsValidatorBox<W, O>,
 }
 
-impl<W: WorldTrait> PermissionsValidator<W> for OrPermissionsValidator<W> {
-    fn check_instruction(
+impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O>
+    for OrPermissionsValidator<W, O>
+{
+    fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        operation: &O,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         self.first
-            .check_instruction(authority, instruction, wsv)
+            .check(authority, operation, wsv)
             .or_else(|first_error| {
                 self.second
-                    .check_instruction(authority, instruction, wsv)
+                    .check(authority, operation, wsv)
                     .map_err(|second_error| {
                         format!(
                             "Failed to pass first check with {} and second check with {}.",
@@ -77,8 +94,10 @@ impl<W: WorldTrait> PermissionsValidator<W> for OrPermissionsValidator<W> {
     }
 }
 
-impl<W: WorldTrait> From<OrPermissionsValidator<W>> for PermissionsValidatorBox<W> {
-    fn from(validator: OrPermissionsValidator<W>) -> Self {
+impl<W: WorldTrait, O: NeedsPermission + 'static> From<OrPermissionsValidator<W, O>>
+    for PermissionsValidatorBox<W, O>
+{
+    fn from(validator: OrPermissionsValidator<W, O>) -> Self {
         Box::new(validator)
     }
 }
@@ -87,18 +106,18 @@ impl<W: WorldTrait> From<OrPermissionsValidator<W>> for PermissionsValidatorBox<
 /// Pay attention to wrap only validators that do not check nested intructions by themselves.
 #[allow(missing_debug_implementations)]
 pub struct RecursivePermissionsValidator<W: WorldTrait> {
-    validator: PermissionsValidatorBox<W>,
+    validator: PermissionsValidatorBox<W, Instruction>,
 }
 
 impl<W: WorldTrait> RecursivePermissionsValidator<W> {
     /// Wraps `validator` to check nested permissions.
-    pub fn new(validator: PermissionsValidatorBox<W>) -> Self {
+    pub fn new(validator: PermissionsValidatorBox<W, Instruction>) -> Self {
         RecursivePermissionsValidator { validator }
     }
 }
 
-impl<W: WorldTrait> PermissionsValidator<W> for RecursivePermissionsValidator<W> {
-    fn check_instruction(
+impl<W: WorldTrait> PermissionsValidator<W, Instruction> for RecursivePermissionsValidator<W> {
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
@@ -113,27 +132,28 @@ impl<W: WorldTrait> PermissionsValidator<W> for RecursivePermissionsValidator<W>
             | Instruction::RemoveKeyValue(_)
             | Instruction::Transfer(_)
             | Instruction::Grant(_)
-            | Instruction::Fail(_) => self
-                .validator
-                .check_instruction(authority, instruction, wsv),
-            Instruction::If(if_box) => self
-                .check_instruction(authority, &if_box.then, wsv)
-                .and_then(|_| match &if_box.otherwise {
-                    Some(instruction) => self.check_instruction(authority, instruction, wsv),
-                    None => Ok(()),
-                }),
+            | Instruction::Fail(_) => self.validator.check(authority, instruction, wsv),
+            Instruction::If(if_box) => {
+                self.check(authority, &if_box.then, wsv)
+                    .and_then(|_| match &if_box.otherwise {
+                        Some(instruction) => self.check(authority, instruction, wsv),
+                        None => Ok(()),
+                    })
+            }
             Instruction::Pair(pair_box) => self
-                .check_instruction(authority, &pair_box.left_instruction, wsv)
-                .and(self.check_instruction(authority, &pair_box.right_instruction, wsv)),
+                .check(authority, &pair_box.left_instruction, wsv)
+                .and(self.check(authority, &pair_box.right_instruction, wsv)),
             Instruction::Sequence(sequence_box) => sequence_box
                 .instructions
                 .iter()
-                .try_for_each(|instruction| self.check_instruction(authority, instruction, wsv)),
+                .try_for_each(|instruction| self.check(authority, instruction, wsv)),
         }
     }
 }
 
-impl<W: WorldTrait> From<RecursivePermissionsValidator<W>> for PermissionsValidatorBox<W> {
+impl<W: WorldTrait> From<RecursivePermissionsValidator<W>>
+    for InstructionPermissionsValidatorBox<W>
+{
     fn from(validator: RecursivePermissionsValidator<W>) -> Self {
         Box::new(validator)
     }
@@ -141,49 +161,48 @@ impl<W: WorldTrait> From<RecursivePermissionsValidator<W>> for PermissionsValida
 
 /// A container for multiple permissions validators. It will succeed if all validators succeed.
 #[allow(missing_debug_implementations)]
-pub struct AllShouldSucceed<W: WorldTrait> {
-    validators: Vec<PermissionsValidatorBox<W>>,
+pub struct AllShouldSucceed<W: WorldTrait, O: NeedsPermission> {
+    validators: Vec<PermissionsValidatorBox<W, O>>,
 }
 
-impl<W: WorldTrait> PermissionsValidator<W> for AllShouldSucceed<W> {
-    fn check_instruction(
+impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AllShouldSucceed<W, O> {
+    fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        operation: &O,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         for validator in &self.validators {
-            validator.check_instruction(authority, instruction, wsv)?
+            validator.check(authority, operation, wsv)?
         }
         Ok(())
     }
 }
 
-impl<W: WorldTrait> From<AllShouldSucceed<W>> for PermissionsValidatorBox<W> {
-    fn from(validator: AllShouldSucceed<W>) -> Self {
+impl<W: WorldTrait, O: NeedsPermission + 'static> From<AllShouldSucceed<W, O>>
+    for PermissionsValidatorBox<W, O>
+{
+    fn from(validator: AllShouldSucceed<W, O>) -> Self {
         Box::new(validator)
     }
 }
 
 /// A container for multiple permissions validators. It will succeed if any validator succeeds.
 #[allow(missing_debug_implementations)]
-pub struct AnyShouldSucceed<W: WorldTrait> {
+pub struct AnyShouldSucceed<W: WorldTrait, O: NeedsPermission> {
     name: String,
-    validators: Vec<PermissionsValidatorBox<W>>,
+    validators: Vec<PermissionsValidatorBox<W, O>>,
 }
 
-impl<W: WorldTrait> PermissionsValidator<W> for AnyShouldSucceed<W> {
-    fn check_instruction(
+impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AnyShouldSucceed<W, O> {
+    fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        operation: &O,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         for validator in &self.validators {
-            if validator
-                .check_instruction(authority, instruction, wsv)
-                .is_ok()
-            {
+            if validator.check(authority, operation, wsv).is_ok() {
                 return Ok(());
             }
         }
@@ -194,8 +213,10 @@ impl<W: WorldTrait> PermissionsValidator<W> for AnyShouldSucceed<W> {
     }
 }
 
-impl<W: WorldTrait> From<AnyShouldSucceed<W>> for PermissionsValidatorBox<W> {
-    fn from(validator: AnyShouldSucceed<W>) -> Self {
+impl<W: WorldTrait, O: NeedsPermission + 'static> From<AnyShouldSucceed<W, O>>
+    for PermissionsValidatorBox<W, O>
+{
+    fn from(validator: AnyShouldSucceed<W, O>) -> Self {
         Box::new(validator)
     }
 }
@@ -203,11 +224,11 @@ impl<W: WorldTrait> From<AnyShouldSucceed<W>> for PermissionsValidatorBox<W> {
 /// Builder to combine multiple validation checks into one.
 #[allow(missing_debug_implementations)]
 #[derive(Default)]
-pub struct PermissionsValidatorBuilder<W: WorldTrait> {
-    validators: Vec<PermissionsValidatorBox<W>>,
+pub struct PermissionsValidatorBuilder<W: WorldTrait, O: NeedsPermission> {
+    validators: Vec<PermissionsValidatorBox<W, O>>,
 }
 
-impl<W: WorldTrait> PermissionsValidatorBuilder<W> {
+impl<W: WorldTrait, O: NeedsPermission + 'static> PermissionsValidatorBuilder<W, O> {
     /// Returns new `PermissionValidatorBuilder`, with empty set of validator checks.
     pub fn new() -> Self {
         PermissionsValidatorBuilder {
@@ -216,7 +237,7 @@ impl<W: WorldTrait> PermissionsValidatorBuilder<W> {
     }
 
     /// Adds a validator to the list.
-    pub fn with_validator(self, validator: impl Into<PermissionsValidatorBox<W>>) -> Self {
+    pub fn with_validator(self, validator: impl Into<PermissionsValidatorBox<W, O>>) -> Self {
         PermissionsValidatorBuilder {
             validators: self
                 .validators
@@ -226,16 +247,8 @@ impl<W: WorldTrait> PermissionsValidatorBuilder<W> {
         }
     }
 
-    /// Adds a validator to the list and wraps it with `RecursivePermissionValidator` to check nested permissions.
-    pub fn with_recursive_validator(
-        self,
-        validator: impl Into<PermissionsValidatorBox<W>>,
-    ) -> Self {
-        self.with_validator(RecursivePermissionsValidator::new(validator.into()))
-    }
-
     /// Returns [`AllShouldSucceed`] that will check all the checks of previously supplied validators.
-    pub fn all_should_succeed(self) -> PermissionsValidatorBox<W> {
+    pub fn all_should_succeed(self) -> PermissionsValidatorBox<W, O> {
         AllShouldSucceed {
             validators: self.validators,
         }
@@ -243,7 +256,10 @@ impl<W: WorldTrait> PermissionsValidatorBuilder<W> {
     }
 
     /// Returns [`AnyShouldSucceed`] that will succeed if any of the checks of previously supplied validators succeds.
-    pub fn any_should_succeed(self, check_name: impl Into<String>) -> PermissionsValidatorBox<W> {
+    pub fn any_should_succeed(
+        self,
+        check_name: impl Into<String>,
+    ) -> PermissionsValidatorBox<W, O> {
         AnyShouldSucceed {
             name: check_name.into(),
             validators: self.validators,
@@ -252,22 +268,32 @@ impl<W: WorldTrait> PermissionsValidatorBuilder<W> {
     }
 }
 
+impl<W: WorldTrait> PermissionsValidatorBuilder<W, Instruction> {
+    /// Adds a validator to the list and wraps it with `RecursivePermissionValidator` to check nested permissions.
+    pub fn with_recursive_validator(
+        self,
+        validator: impl Into<InstructionPermissionsValidatorBox<W>>,
+    ) -> Self {
+        self.with_validator(RecursivePermissionsValidator::new(validator.into()))
+    }
+}
+
 /// Allows all ISI to be executed for all possible values. Mostly for tests and simple cases.
 #[derive(Debug, Clone, Copy)]
 pub struct AllowAll;
 
-impl<W: WorldTrait> PermissionsValidator<W> for AllowAll {
-    fn check_instruction(
+impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AllowAll {
+    fn check(
         &self,
         _authority: &AccountId,
-        _instruction: &Instruction,
+        _instruction: &O,
         _wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         Ok(())
     }
 }
 
-impl<W: WorldTrait> From<AllowAll> for PermissionsValidatorBox<W> {
+impl<W: WorldTrait, O: NeedsPermission> From<AllowAll> for PermissionsValidatorBox<W, O> {
     fn from(AllowAll: AllowAll) -> Self {
         Box::new(AllowAll)
     }
@@ -292,8 +318,8 @@ pub trait GrantedTokenValidator<W: WorldTrait> {
     ) -> Result<PermissionToken, String>;
 }
 
-impl<W: WorldTrait> PermissionsValidator<W> for GrantedTokenValidatorBox<W> {
-    fn check_instruction(
+impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantedTokenValidatorBox<W> {
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
@@ -340,8 +366,8 @@ pub trait GrantInstructionValidator<W: WorldTrait> {
     ) -> Result<(), DenialReason>;
 }
 
-impl<W: WorldTrait> PermissionsValidator<W> for GrantInstructionValidatorBox<W> {
-    fn check_instruction(
+impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantInstructionValidatorBox<W> {
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
@@ -355,7 +381,9 @@ impl<W: WorldTrait> PermissionsValidator<W> for GrantInstructionValidatorBox<W> 
     }
 }
 
-impl<W: WorldTrait> From<GrantInstructionValidatorBox<W>> for PermissionsValidatorBox<W> {
+impl<W: WorldTrait> From<GrantInstructionValidatorBox<W>>
+    for InstructionPermissionsValidatorBox<W>
+{
     fn from(validator: GrantInstructionValidatorBox<W>) -> Self {
         Box::new(validator)
     }
@@ -422,14 +450,14 @@ mod tests {
 
     struct DenyBurn;
 
-    impl<W: WorldTrait> From<DenyBurn> for PermissionsValidatorBox<W> {
+    impl<W: WorldTrait> From<DenyBurn> for InstructionPermissionsValidatorBox<W> {
         fn from(permissions: DenyBurn) -> Self {
             Box::new(permissions)
         }
     }
 
-    impl<W: WorldTrait> PermissionsValidator<W> for DenyBurn {
-        fn check_instruction(
+    impl<W: WorldTrait> PermissionsValidator<W, Instruction> for DenyBurn {
+        fn check(
             &self,
             _authority: &AccountId,
             instruction: &Instruction,
@@ -444,14 +472,14 @@ mod tests {
 
     struct DenyAlice;
 
-    impl<W: WorldTrait> From<DenyAlice> for PermissionsValidatorBox<W> {
+    impl<W: WorldTrait> From<DenyAlice> for InstructionPermissionsValidatorBox<W> {
         fn from(permissions: DenyAlice) -> Self {
             Box::new(permissions)
         }
     }
 
-    impl<W: WorldTrait> PermissionsValidator<W> for DenyAlice {
-        fn check_instruction(
+    impl<W: WorldTrait> PermissionsValidator<W, Instruction> for DenyAlice {
+        fn check(
             &self,
             authority: &AccountId,
             _instruction: &Instruction,
@@ -496,16 +524,16 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check_instruction(&account_bob, &instruction_burn, &wsv)
+            .check(&account_bob, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(&account_alice, &instruction_fail, &wsv)
+            .check(&account_alice, &instruction_fail, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(&account_alice, &instruction_burn, &wsv)
+            .check(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(&account_bob, &instruction_fail, &wsv)
+            .check(&account_bob, &instruction_fail, &wsv)
             .is_ok());
     }
 
@@ -527,13 +555,13 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::new("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check_instruction(&account_alice, &instruction_fail, &wsv)
+            .check(&account_alice, &instruction_fail, &wsv)
             .is_ok());
         assert!(permissions_validator
-            .check_instruction(&account_alice, &instruction_burn, &wsv)
+            .check(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check_instruction(&account_alice, &nested_instruction_sequence, &wsv)
+            .check(&account_alice, &nested_instruction_sequence, &wsv)
             .is_err());
     }
 
@@ -552,11 +580,7 @@ mod tests {
         let domains = vec![("test".to_string(), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let validator: GrantedTokenValidatorBox<_> = Box::new(GrantedToken);
-        assert!(validator
-            .check_instruction(&alice_id, &instruction_burn, &wsv)
-            .is_err());
-        assert!(validator
-            .check_instruction(&bob_id, &instruction_burn, &wsv)
-            .is_ok());
+        assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
+        assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
     }
 }

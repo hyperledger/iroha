@@ -22,7 +22,7 @@ use crate::wsv::WorldTrait;
 use crate::{
     merkle::MerkleTree,
     prelude::*,
-    smartcontracts::permissions::PermissionsValidatorBox,
+    smartcontracts::permissions::InstructionPermissionsValidatorBox,
     sumeragi::InitializedNetworkTopology,
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
 };
@@ -208,7 +208,7 @@ impl ChainedBlock {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &PermissionsValidatorBox<W>,
+        permissions_validator: &InstructionPermissionsValidatorBox<W>,
     ) -> VersionedValidBlock {
         let mut transactions = Vec::new();
         let mut rejected_transactions = Vec::new();
@@ -288,7 +288,7 @@ impl VersionedValidBlock {
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &PermissionsValidatorBox<W>,
+        permissions_validator: &InstructionPermissionsValidatorBox<W>,
     ) -> VersionedValidBlock {
         self.into_inner_v1()
             .revalidate(wsv, permissions_validator)
@@ -392,7 +392,7 @@ impl ValidBlock {
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &PermissionsValidatorBox<W>,
+        permissions_validator: &InstructionPermissionsValidatorBox<W>,
     ) -> ValidBlock {
         ValidBlock {
             signatures: self.signatures,

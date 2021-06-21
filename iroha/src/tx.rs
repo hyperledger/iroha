@@ -16,11 +16,11 @@ use iroha_error::{Result, WrapErr};
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
-use crate::prelude::*;
 #[cfg(feature = "roles")]
 use crate::smartcontracts::permissions;
-use crate::smartcontracts::{permissions::PermissionsValidatorBox, Evaluate, Execute};
+use crate::smartcontracts::{Evaluate, Execute};
 use crate::wsv::WorldTrait;
+use crate::{prelude::*, smartcontracts::permissions::InstructionPermissionsValidatorBox};
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 impl Message for VersionedAcceptedTransaction {
@@ -77,7 +77,7 @@ impl VersionedAcceptedTransaction {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &PermissionsValidatorBox<W>,
+        permissions_validator: &InstructionPermissionsValidatorBox<W>,
         is_genesis: bool,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
         self.into_inner_v1()
@@ -192,7 +192,7 @@ impl AcceptedTransaction {
     fn validate_internal<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &PermissionsValidatorBox<W>,
+        permissions_validator: &InstructionPermissionsValidatorBox<W>,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
         let wsv_temp = wsv.clone();
@@ -251,7 +251,7 @@ impl AcceptedTransaction {
                         .expect("Unreachable as evalutions should have been checked previously by instruction executions.");
                     for instruction in &instructions {
                         permissions_validator
-                            .check_instruction(&account_id, instruction, wsv)
+                            .check(&account_id, instruction, wsv)
                             .map_err(|reason| NotPermittedFail { reason })
                             .map_err(TransactionRejectionReason::NotPermitted)?;
                     }
@@ -259,7 +259,7 @@ impl AcceptedTransaction {
                 #[cfg(not(feature = "roles"))]
                 {
                     permissions_validator
-                        .check_instruction(&account_id, instruction, wsv)
+                        .check(&account_id, instruction, wsv)
                         .map_err(|reason| NotPermittedFail { reason })
                         .map_err(TransactionRejectionReason::NotPermitted)?;
                 }
@@ -280,7 +280,7 @@ impl AcceptedTransaction {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &PermissionsValidatorBox<W>,
+        permissions_validator: &InstructionPermissionsValidatorBox<W>,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
         match self.validate_internal(wsv, permissions_validator, is_genesis) {
