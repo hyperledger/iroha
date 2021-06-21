@@ -7,8 +7,8 @@ use std::{collections::BTreeMap, convert::TryInto};
 use iroha::{
     prelude::*,
     smartcontracts::permissions::{
-        prelude::*, GrantedTokenValidator, PermissionsValidator, PermissionsValidatorBuilder,
-        ValidatorApplyOr,
+        prelude::*, GrantedTokenValidator, InstructionPermissionsValidatorBox,
+        PermissionsValidator, PermissionsValidatorBuilder, ValidatorApplyOr,
     },
     smartcontracts::Evaluate,
     wsv::WorldTrait,
@@ -16,9 +16,9 @@ use iroha::{
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
 
-macro_rules! impl_from_item_for_validator_box {
+macro_rules! impl_from_item_for_instruction_validator_box {
     ( $ty:ty ) => {
-        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W> {
+        impl<W: WorldTrait> From<$ty> for InstructionPermissionsValidatorBox<W> {
             fn from(validator: $ty) -> Self {
                 Box::new(validator)
             }
@@ -34,7 +34,7 @@ macro_rules! impl_from_item_for_granted_token_validator_box {
             }
         }
 
-        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W> {
+        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W, Instruction> {
             fn from(validator: $ty) -> Self {
                 let validator: GrantedTokenValidatorBox<W> = validator.into();
                 Box::new(validator)
@@ -51,7 +51,7 @@ macro_rules! impl_from_item_for_grant_instruction_validator_box {
             }
         }
 
-        impl<W: WorldTrait> From<$ty> for PermissionsValidatorBox<W> {
+        impl<W: WorldTrait> From<$ty> for InstructionPermissionsValidatorBox<W> {
             fn from(validator: $ty) -> Self {
                 let validator: GrantInstructionValidatorBox<W> = validator.into();
                 Box::new(validator)
@@ -76,7 +76,7 @@ pub mod private_blockchain {
     use super::*;
 
     /// A preconfigured set of permissions for simple use cases.
-    pub fn default_permissions<W: WorldTrait>() -> PermissionsValidatorBox<W> {
+    pub fn default_permissions<W: WorldTrait>() -> InstructionPermissionsValidatorBox<W> {
         PermissionsValidatorBuilder::new()
             .with_recursive_validator(
                 register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
@@ -116,10 +116,10 @@ pub mod private_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct ProhibitRegisterDomains;
 
-        impl_from_item_for_validator_box!(ProhibitRegisterDomains);
+        impl_from_item_for_instruction_validator_box!(ProhibitRegisterDomains);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for ProhibitRegisterDomains {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for ProhibitRegisterDomains {
+            fn check(
                 &self,
                 _authority: &AccountId,
                 instruction: &Instruction,
@@ -168,7 +168,7 @@ pub mod public_blockchain {
     pub const ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: &str = "asset_definition_id";
 
     /// A preconfigured set of permissions for simple use cases.
-    pub fn default_permissions<W: WorldTrait>() -> PermissionsValidatorBox<W> {
+    pub fn default_permissions<W: WorldTrait>() -> InstructionPermissionsValidatorBox<W> {
         // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
         let grant_instruction_validator = PermissionsValidatorBuilder::new()
             .with_validator(transfer::GrantMyAssetAccess)
@@ -318,10 +318,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyOwnedAssets;
 
-        impl_from_item_for_validator_box!(OnlyOwnedAssets);
+        impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for OnlyOwnedAssets {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for OnlyOwnedAssets {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -419,10 +419,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyAssetsCreatedByThisAccount;
 
-        impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
+        impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for OnlyAssetsCreatedByThisAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -531,10 +531,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyAssetsCreatedByThisAccount;
 
-        impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
+        impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for OnlyAssetsCreatedByThisAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -645,10 +645,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyAssetsCreatedByThisAccount;
 
-        impl_from_item_for_validator_box!(OnlyAssetsCreatedByThisAccount);
+        impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for OnlyAssetsCreatedByThisAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -745,10 +745,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct OnlyOwnedAssets;
 
-        impl_from_item_for_validator_box!(OnlyOwnedAssets);
+        impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for OnlyOwnedAssets {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for OnlyOwnedAssets {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -855,10 +855,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AssetSetOnlyForSignerAccount;
 
-        impl_from_item_for_validator_box!(AssetSetOnlyForSignerAccount);
+        impl_from_item_for_instruction_validator_box!(AssetSetOnlyForSignerAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for AssetSetOnlyForSignerAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for AssetSetOnlyForSignerAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -951,10 +951,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AccountSetOnlyForSignerAccount;
 
-        impl_from_item_for_validator_box!(AccountSetOnlyForSignerAccount);
+        impl_from_item_for_instruction_validator_box!(AccountSetOnlyForSignerAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for AccountSetOnlyForSignerAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for AccountSetOnlyForSignerAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -1047,10 +1047,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AssetRemoveOnlyForSignerAccount;
 
-        impl_from_item_for_validator_box!(AssetRemoveOnlyForSignerAccount);
+        impl_from_item_for_instruction_validator_box!(AssetRemoveOnlyForSignerAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for AssetRemoveOnlyForSignerAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for AssetRemoveOnlyForSignerAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -1142,10 +1142,10 @@ pub mod public_blockchain {
         #[derive(Debug, Copy, Clone)]
         pub struct AccountRemoveOnlyForSignerAccount;
 
-        impl_from_item_for_validator_box!(AccountRemoveOnlyForSignerAccount);
+        impl_from_item_for_instruction_validator_box!(AccountRemoveOnlyForSignerAccount);
 
-        impl<W: WorldTrait> PermissionsValidator<W> for AccountRemoveOnlyForSignerAccount {
-            fn check_instruction(
+        impl<W: WorldTrait> PermissionsValidator<W, Instruction> for AccountRemoveOnlyForSignerAccount {
+            fn check(
                 &self,
                 authority: &AccountId,
                 instruction: &Instruction,
@@ -1260,10 +1260,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
             assert!(transfer::OnlyOwnedAssets
-                .check_instruction(&alice_id, &transfer, &wsv)
+                .check(&alice_id, &transfer, &wsv)
                 .is_ok());
             assert!(transfer::OnlyOwnedAssets
-                .check_instruction(&bob_id, &transfer, &wsv)
+                .check(&bob_id, &transfer, &wsv)
                 .is_err());
         }
 
@@ -1290,15 +1290,11 @@ pub mod public_blockchain {
                 object: Value::U32(10).into(),
                 destination_id: IdBox::AssetId(bob_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox<World> = transfer::OnlyOwnedAssets
+            let validator: InstructionPermissionsValidatorBox<World> = transfer::OnlyOwnedAssets
                 .or(transfer::GrantedByAssetOwner)
                 .into();
-            assert!(validator
-                .check_instruction(&alice_id, &transfer, &wsv)
-                .is_ok());
-            assert!(validator
-                .check_instruction(&bob_id, &transfer, &wsv)
-                .is_ok());
+            assert!(validator.check(&alice_id, &transfer, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &transfer, &wsv).is_ok());
         }
 
         #[test]
@@ -1318,9 +1314,10 @@ pub mod public_blockchain {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox<World> = transfer::GrantMyAssetAccess.into();
-            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
-            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+            let validator: InstructionPermissionsValidatorBox<World> =
+                transfer::GrantMyAssetAccess.into();
+            assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -1347,10 +1344,10 @@ pub mod public_blockchain {
             let unregister =
                 Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
             assert!(unregister::OnlyAssetsCreatedByThisAccount
-                .check_instruction(&alice_id, &unregister, &wsv)
+                .check(&alice_id, &unregister, &wsv)
                 .is_ok());
             assert!(unregister::OnlyAssetsCreatedByThisAccount
-                .check_instruction(&bob_id, &unregister, &wsv)
+                .check(&bob_id, &unregister, &wsv)
                 .is_err());
         }
 
@@ -1378,16 +1375,12 @@ pub mod public_blockchain {
             };
             let wsv = WorldStateView::<World>::new(World::with(domains, btreeset! {}));
             let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
-            let validator: PermissionsValidatorBox<World> =
+            let validator: InstructionPermissionsValidatorBox<World> =
                 unregister::OnlyAssetsCreatedByThisAccount
                     .or(unregister::GrantedByAssetCreator)
                     .into();
-            assert!(validator
-                .check_instruction(&alice_id, &instruction, &wsv)
-                .is_ok());
-            assert!(validator
-                .check_instruction(&bob_id, &instruction, &wsv)
-                .is_ok());
+            assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
         }
 
         #[test]
@@ -1415,10 +1408,10 @@ pub mod public_blockchain {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox<World> =
+            let validator: InstructionPermissionsValidatorBox<World> =
                 unregister::GrantRegisteredByMeAccess.into();
-            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
-            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+            assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -1451,10 +1444,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(mint::OnlyAssetsCreatedByThisAccount
-                .check_instruction(&alice_id, &mint, &wsv)
+                .check(&alice_id, &mint, &wsv)
                 .is_ok());
             assert!(mint::OnlyAssetsCreatedByThisAccount
-                .check_instruction(&bob_id, &mint, &wsv)
+                .check(&bob_id, &mint, &wsv)
                 .is_err());
         }
 
@@ -1487,15 +1480,12 @@ pub mod public_blockchain {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox<World> = mint::OnlyAssetsCreatedByThisAccount
-                .or(mint::GrantedByAssetCreator)
-                .into();
-            assert!(validator
-                .check_instruction(&alice_id, &instruction, &wsv)
-                .is_ok());
-            assert!(validator
-                .check_instruction(&bob_id, &instruction, &wsv)
-                .is_ok());
+            let validator: InstructionPermissionsValidatorBox<World> =
+                mint::OnlyAssetsCreatedByThisAccount
+                    .or(mint::GrantedByAssetCreator)
+                    .into();
+            assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
         }
 
         #[test]
@@ -1523,9 +1513,10 @@ pub mod public_blockchain {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox<World> = mint::GrantRegisteredByMeAccess.into();
-            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
-            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+            let validator: InstructionPermissionsValidatorBox<World> =
+                mint::GrantRegisteredByMeAccess.into();
+            assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -1559,10 +1550,10 @@ pub mod public_blockchain {
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
             assert!(burn::OnlyAssetsCreatedByThisAccount
-                .check_instruction(&alice_id, &burn, &wsv)
+                .check(&alice_id, &burn, &wsv)
                 .is_ok());
             assert!(burn::OnlyAssetsCreatedByThisAccount
-                .check_instruction(&bob_id, &burn, &wsv)
+                .check(&bob_id, &burn, &wsv)
                 .is_err());
         }
 
@@ -1595,15 +1586,12 @@ pub mod public_blockchain {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox<World> = burn::OnlyAssetsCreatedByThisAccount
-                .or(burn::GrantedByAssetCreator)
-                .into();
-            assert!(validator
-                .check_instruction(&alice_id, &instruction, &wsv)
-                .is_ok());
-            assert!(validator
-                .check_instruction(&bob_id, &instruction, &wsv)
-                .is_ok());
+            let validator: InstructionPermissionsValidatorBox<World> =
+                burn::OnlyAssetsCreatedByThisAccount
+                    .or(burn::GrantedByAssetCreator)
+                    .into();
+            assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
         }
 
         #[test]
@@ -1631,9 +1619,10 @@ pub mod public_blockchain {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox<World> = burn::GrantRegisteredByMeAccess.into();
-            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
-            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+            let validator: InstructionPermissionsValidatorBox<World> =
+                burn::GrantRegisteredByMeAccess.into();
+            assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -1647,12 +1636,8 @@ pub mod public_blockchain {
                 object: Value::U32(100).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            assert!(burn::OnlyOwnedAssets
-                .check_instruction(&alice_id, &burn, &wsv)
-                .is_ok());
-            assert!(burn::OnlyOwnedAssets
-                .check_instruction(&bob_id, &burn, &wsv)
-                .is_err());
+            assert!(burn::OnlyOwnedAssets.check(&alice_id, &burn, &wsv).is_ok());
+            assert!(burn::OnlyOwnedAssets.check(&bob_id, &burn, &wsv).is_err());
         }
 
         #[test]
@@ -1676,12 +1661,10 @@ pub mod public_blockchain {
                 object: Value::U32(10).into(),
                 destination_id: IdBox::AssetId(alice_xor_id).into(),
             });
-            let validator: PermissionsValidatorBox<World> =
+            let validator: InstructionPermissionsValidatorBox<World> =
                 burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner).into();
-            validator.check_instruction(&alice_id, &transfer, &wsv)?;
-            assert!(validator
-                .check_instruction(&bob_id, &transfer, &wsv)
-                .is_ok());
+            validator.check(&alice_id, &transfer, &wsv)?;
+            assert!(validator.check(&bob_id, &transfer, &wsv).is_ok());
             Ok(())
         }
 
@@ -1702,9 +1685,10 @@ pub mod public_blockchain {
                 object: permission_token_to_alice.into(),
                 destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
-            let validator: PermissionsValidatorBox<World> = burn::GrantMyAssetAccess.into();
-            assert!(validator.check_instruction(&alice_id, &grant, &wsv).is_ok());
-            assert!(validator.check_instruction(&bob_id, &grant, &wsv).is_err());
+            let validator: InstructionPermissionsValidatorBox<World> =
+                burn::GrantMyAssetAccess.into();
+            assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
+            assert!(validator.check(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
@@ -1720,10 +1704,10 @@ pub mod public_blockchain {
                 Value::from("value".to_owned()),
             ));
             assert!(key_value::AssetSetOnlyForSignerAccount
-                .check_instruction(&alice_id, &set, &wsv)
+                .check(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(key_value::AssetSetOnlyForSignerAccount
-                .check_instruction(&bob_id, &set, &wsv)
+                .check(&bob_id, &set, &wsv)
                 .is_err());
         }
 
@@ -1739,10 +1723,10 @@ pub mod public_blockchain {
                 Value::from("key".to_owned()),
             ));
             assert!(key_value::AssetRemoveOnlyForSignerAccount
-                .check_instruction(&alice_id, &set, &wsv)
+                .check(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(key_value::AssetRemoveOnlyForSignerAccount
-                .check_instruction(&bob_id, &set, &wsv)
+                .check(&bob_id, &set, &wsv)
                 .is_err());
         }
 
@@ -1757,10 +1741,10 @@ pub mod public_blockchain {
                 Value::from("value".to_owned()),
             ));
             assert!(key_value::AccountSetOnlyForSignerAccount
-                .check_instruction(&alice_id, &set, &wsv)
+                .check(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(key_value::AccountSetOnlyForSignerAccount
-                .check_instruction(&bob_id, &set, &wsv)
+                .check(&bob_id, &set, &wsv)
                 .is_err());
         }
 
@@ -1774,10 +1758,10 @@ pub mod public_blockchain {
                 Value::from("key".to_owned()),
             ));
             assert!(key_value::AccountRemoveOnlyForSignerAccount
-                .check_instruction(&alice_id, &set, &wsv)
+                .check(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(key_value::AccountRemoveOnlyForSignerAccount
-                .check_instruction(&bob_id, &set, &wsv)
+                .check(&bob_id, &set, &wsv)
                 .is_err());
         }
     }

@@ -16,8 +16,7 @@ use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::FromVariant;
 use iroha_error::{derive::Error, error, Result};
 
-use super::Evaluate;
-use super::Execute;
+use super::{Evaluate, Execute};
 use crate::prelude::*;
 use crate::wsv::WorldTrait;
 

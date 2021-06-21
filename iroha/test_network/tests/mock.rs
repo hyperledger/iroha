@@ -16,7 +16,7 @@ use iroha::genesis::config::GenesisConfiguration;
 use iroha::genesis::GenesisNetworkTrait;
 use iroha::kura::StoreBlock;
 use iroha::queue::QueueTrait;
-use iroha::smartcontracts::permissions::PermissionsValidatorBox;
+use iroha::smartcontracts::permissions::InstructionPermissionsValidatorBox;
 use iroha::sumeragi::message::Message as SumeragiMessage;
 use iroha::wsv::WorldTrait;
 use iroha::{block_sync::BlockSynchronizer, queue::Queue};
@@ -333,7 +333,7 @@ pub mod utils {
                 configuration: &config::SumeragiConfiguration,
                 events_sender: EventsSender,
                 wsv: Arc<WorldStateView<W>>,
-                permissions_validator: PermissionsValidatorBox<W>,
+                permissions_validator: InstructionPermissionsValidatorBox<W>,
                 genesis_network: Option<Self::GenesisNetwork>,
                 queue: AlwaysAddr<Self::Queue>,
                 broker: Broker,
