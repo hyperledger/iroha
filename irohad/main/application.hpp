@@ -230,7 +230,6 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  std::shared_ptr<iroha::Subscription> se_;
   IrohadConfig config_;
   const std::string listen_ip_;
   boost::optional<shared_model::crypto::Keypair> keypair_;
@@ -268,7 +267,7 @@ class Irohad {
 
   // initialization objects
   std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
-  std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
+  std::shared_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
   // IR-907 14.09.2020 @lebdron: remove it from here

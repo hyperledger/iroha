@@ -15,6 +15,7 @@
 #include "module/irohad/ametsuchi/mock_tx_presence_cache.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
 #include "module/irohad/ordering/ordering_mocks.hpp"
+#include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -117,17 +118,13 @@ TEST_F(OnDemandOrderingGateTest, propagateBatch) {
  * @then new proposal round based on the received height is initiated
  */
 TEST_F(OnDemandOrderingGateTest, BlockEvent) {
-  auto mproposal = std::make_unique<MockProposal>();
-  auto proposal = mproposal.get();
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      oproposal(std::move(mproposal));
-  std::vector<std::shared_ptr<MockTransaction>> txs{
-      std::make_shared<MockTransaction>()};
-  ON_CALL(*txs[0], hash())
-      .WillByDefault(
-          ReturnRefOfCopy(shared_model::crypto::Hash(std::string(""))));
-  ON_CALL(*proposal, transactions())
-      .WillByDefault(Return(txs | boost::adaptors::indirected));
+  auto proposal = std::make_shared<shared_model::proto::Proposal>(
+      TestProposalBuilder()
+          .createdTime(iroha::time::now())
+          .height(round.block_round)
+          .transactions(
+              std::vector<shared_model::proto::Transaction>{generateTx()})
+          .build());
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
@@ -137,14 +134,13 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
 
   EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
 
-  auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
+  auto event = RoundSwitch(round, ledger_state);
 
   ordering_gate->processRoundSwitch(event);
 
-  auto val =
-      ordering_gate->processProposalRequest({std::move(oproposal), round});
+  auto val = ordering_gate->processProposalRequest({proposal, round});
 
-  ASSERT_EQ(proposal, getProposalUnsafe(*val).get());
+  ASSERT_EQ(*proposal, *getProposalUnsafe(*val));
   EXPECT_EQ(val->ledger_state->ledger_peers, event.ledger_state->ledger_peers);
 }
 
@@ -155,29 +151,24 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
  * @then new proposal round based on the received height is initiated
  */
 TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
-  auto mproposal = std::make_unique<MockProposal>();
-  auto proposal = mproposal.get();
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      oproposal(std::move(mproposal));
-  std::vector<std::shared_ptr<MockTransaction>> txs{
-      std::make_shared<MockTransaction>()};
-  ON_CALL(*txs[0], hash())
-      .WillByDefault(
-          ReturnRefOfCopy(shared_model::crypto::Hash(std::string(""))));
-  ON_CALL(*proposal, transactions())
-      .WillByDefault(Return(txs | boost::adaptors::indirected));
+  auto proposal = std::make_shared<shared_model::proto::Proposal>(
+      TestProposalBuilder()
+          .createdTime(iroha::time::now())
+          .height(round.block_round)
+          .transactions(
+              std::vector<shared_model::proto::Transaction>{generateTx()})
+          .build());
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
 
-  auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
+  auto event = RoundSwitch(round, ledger_state);
 
   ordering_gate->processRoundSwitch(event);
 
-  auto val =
-      ordering_gate->processProposalRequest({std::move(oproposal), round});
+  auto val = ordering_gate->processProposalRequest({proposal, round});
 
-  ASSERT_EQ(proposal, getProposalUnsafe(*val).get());
+  ASSERT_EQ(*proposal, *getProposalUnsafe(*val));
   EXPECT_EQ(val->ledger_state->ledger_peers, event.ledger_state->ledger_peers);
 }
 
@@ -194,8 +185,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
 
-  ordering_gate->processRoundSwitch(
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val =
       ordering_gate->processProposalRequest({std::move(proposal), round});
@@ -216,8 +206,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
 
-  ordering_gate->processRoundSwitch(
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val =
       ordering_gate->processProposalRequest({std::move(proposal), round});
@@ -269,8 +258,7 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
       .Times(AtMost(1))
       .WillOnce(Return(ByMove(std::move(ufactory_proposal))));
 
-  ordering_gate->processRoundSwitch(
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val = ordering_gate->processProposalRequest(
       {std::move(arriving_proposal), round});
@@ -320,8 +308,7 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
       .Times(AtMost(1))
       .WillOnce(Return(ByMove(std::move(ufactory_proposal))));
 
-  ordering_gate->processRoundSwitch(
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val = ordering_gate->processProposalRequest(
       {std::move(arriving_proposal), round});
@@ -354,8 +341,7 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
   EXPECT_CALL(*notification, onBatches(UnorderedElementsAreArray(collection)))
       .Times(1);
 
-  ordering_gate->processRoundSwitch(
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 }
 
 /**
@@ -369,6 +355,5 @@ TEST_F(OnDemandOrderingGateTest, PopEmptyBatchesFromTheCache) {
 
   EXPECT_CALL(*notification, onBatches(_)).Times(0);
 
-  ordering_gate->processRoundSwitch(
-      OnDemandOrderingGate::RoundSwitch(round, ledger_state));
+  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 }
