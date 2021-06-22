@@ -115,8 +115,7 @@ Irohad::Irohad(
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
-    : se_(getSubscription()),
-      config_(config),
+    : config_(config),
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
@@ -127,7 +126,7 @@ Irohad::Irohad(
       subscription_engine_(getSubscription()),
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
           logger_manager->getLogger())),
-      yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
+      yac_init(std::make_shared<iroha::consensus::yac::YacInit>()),
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
@@ -574,7 +573,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
       transaction_factory,
       batch_parser,
       transaction_batch_factory_,
-      async_call_,
       std::move(factory),
       proposal_factory,
       persistent_cache,
@@ -646,36 +644,20 @@ Irohad::RunResult Irohad::initBlockLoader() {
  * Initializing consensus gate
  */
 Irohad::RunResult Irohad::initConsensusGate() {
-  auto block_query = storage->createBlockQuery();
-  if (not block_query) {
-    return iroha::expected::makeError<std::string>(
-        "Failed to create block query");
-  }
-  auto block_var =
-      (*block_query)->getBlock((*block_query)->getTopBlockHeight());
-  if (auto e = expected::resultToOptionalError(block_var)) {
-    return iroha::expected::makeError<std::string>(
-        "Failed to get the top block: " + e->message);
-  }
-
-  auto &block =
-      boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
-
   auto initial_ledger_state = storage->getLedgerState();
   if (not initial_ledger_state) {
     return expected::makeError("Failed to fetch ledger state!");
   }
 
   consensus_gate = yac_init->initConsensusGate(
-      {block->height(), ordering::kFirstRejectRound},
-      storage,
+      {initial_ledger_state.value()->top_block_info.height + 1,
+       ordering::kFirstRejectRound},
       config_.initial_peers,
       *initial_ledger_state,
       block_loader,
       *keypair_,
       consensus_result_cache_,
       std::chrono::milliseconds(config_.vote_delay),
-      async_call_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
       inter_peer_client_factory_);
@@ -910,6 +892,42 @@ Irohad::RunResult Irohad::initWsvRestorer() {
   return {};
 }
 
+namespace {
+  struct ProcessGateObjectContext {
+    std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
+    std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
+    std::shared_ptr<iroha::consensus::yac::YacInit> yac_init;
+    logger::LoggerPtr log;
+    std::shared_ptr<iroha::Subscription> subscription;
+  };
+
+  void processGateObject(ProcessGateObjectContext context,
+                         consensus::GateObject const &object) {
+    context.subscription->notify(
+        EventTypes::kOnConsensusGateEvent,
+        ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{});
+    context.log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
+    auto event = context.synchronizer->processOutcome(std::move(object));
+    if (not event) {
+      return;
+    }
+    context.subscription->notify(EventTypes::kOnSynchronization,
+                                 SynchronizationEvent(*event));
+    printSynchronizationEvent(context.log, *event);
+    auto round_switch =
+        context.ordering_init->processSynchronizationEvent(std::move(*event));
+    if (auto maybe_object = context.yac_init->processRoundSwitch(
+            round_switch.next_round, round_switch.ledger_state)) {
+      auto round = [](auto &object) { return object.round; };
+      context.log->info("Ignoring object with {} because {} is newer",
+                        std::visit(round, object),
+                        std::visit(round, *maybe_object));
+      return processGateObject(std::move(context), *maybe_object);
+    }
+    context.ordering_init->processRoundSwitch(round_switch);
+  }
+}  // namespace
+
 /**
  * Run iroha daemon
  */
@@ -939,27 +957,23 @@ Irohad::RunResult Irohad::run() {
 
   yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
                        ordering_init(utils::make_weak(ordering_init)),
+                       yac_init(utils::make_weak(yac_init)),
                        log(utils::make_weak(log_)),
                        subscription(utils::make_weak(getSubscription()))](
-                          consensus::GateObject object) {
+                          consensus::GateObject const &object) {
     auto maybe_synchronizer = synchronizer.lock();
     auto maybe_ordering_init = ordering_init.lock();
+    auto maybe_yac_init = yac_init.lock();
     auto maybe_log = log.lock();
     auto maybe_subscription = subscription.lock();
-    if (maybe_synchronizer and maybe_ordering_init and maybe_log
-        and maybe_subscription) {
-      maybe_subscription->notify(
-          EventTypes::kOnConsensusGateEvent,
-          ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{});
-      maybe_log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-      auto event = maybe_synchronizer->processOutcome(std::move(object));
-      if (not event) {
-        return;
-      }
-      maybe_subscription->notify(EventTypes::kOnSynchronization,
-                                 SynchronizationEvent(*event));
-      printSynchronizationEvent(maybe_log, *event);
-      maybe_ordering_init->processSynchronizationEvent(std::move(*event));
+    if (maybe_synchronizer and maybe_ordering_init and maybe_yac_init
+        and maybe_log and maybe_subscription) {
+      processGateObject({std::move(maybe_synchronizer),
+                         std::move(maybe_ordering_init),
+                         std::move(maybe_yac_init),
+                         std::move(maybe_log),
+                         std::move(maybe_subscription)},
+                        object);
     }
   });
 
@@ -1040,14 +1054,41 @@ Irohad::RunResult Irohad::run() {
 
   subscription_engine_->dispatcher()->add(
       iroha::SubscriptionEngineHandlers::kYac,
-      [ordering_init(utils::make_weak(ordering_init)),
+      [synchronizer(utils::make_weak(synchronizer)),
+       ordering_init(utils::make_weak(ordering_init)),
+       yac_init(utils::make_weak(yac_init)),
+       log(utils::make_weak(log_)),
+       subscription(utils::make_weak(getSubscription())),
        block_height,
        initial_ledger_state] {
-        if (auto maybe_ordering_init = ordering_init.lock()) {
-          maybe_ordering_init->processSynchronizationEvent(
-              {SynchronizationOutcomeType::kCommit,
-               {block_height, ordering::kFirstRejectRound},
-               *initial_ledger_state});
+        auto maybe_synchronizer = synchronizer.lock();
+        auto maybe_ordering_init = ordering_init.lock();
+        auto maybe_yac_init = yac_init.lock();
+        auto maybe_log = log.lock();
+        auto maybe_subscription = subscription.lock();
+        if (maybe_synchronizer and maybe_ordering_init and maybe_yac_init
+            and maybe_log and maybe_subscription) {
+          ProcessGateObjectContext context{std::move(maybe_synchronizer),
+                                           std::move(maybe_ordering_init),
+                                           std::move(maybe_yac_init),
+                                           std::move(maybe_log),
+                                           std::move(maybe_subscription)};
+          consensus::Round initial_round{block_height,
+                                         ordering::kFirstRejectRound};
+          auto round_switch =
+              context.ordering_init->processSynchronizationEvent(
+                  {SynchronizationOutcomeType::kCommit,
+                   initial_round,
+                   *initial_ledger_state});
+          if (auto maybe_object = context.yac_init->processRoundSwitch(
+                  round_switch.next_round, round_switch.ledger_state)) {
+            auto round = [](auto &object) { return object.round; };
+            context.log->info("Ignoring object with {} because {} is newer",
+                              initial_round,
+                              std::visit(round, *maybe_object));
+            return processGateObject(std::move(context), *maybe_object);
+          }
+          context.ordering_init->processRoundSwitch(round_switch);
         }
       });
 

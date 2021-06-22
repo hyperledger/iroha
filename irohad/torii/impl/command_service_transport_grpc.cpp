@@ -106,6 +106,19 @@ grpc::Status CommandServiceTransportGrpc::StatusStream(
     grpc::ServerContext *context,
     const iroha::protocol::TxStatusRequest *request,
     grpc::ServerWriter<iroha::protocol::ToriiResponse> *response_writer) {
+  auto is_final_status = [](auto response) {
+    return iroha::visit_in_place(
+        response->get(),
+        [&](const auto &resp)
+            -> std::enable_if_t<FinalStatusValue<decltype(resp)>, bool> {
+          return true;
+        },
+        [](const auto &resp)
+            -> std::enable_if_t<not FinalStatusValue<decltype(resp)>, bool> {
+          return false;
+        });
+  };
+
   auto hash = shared_model::crypto::Hash::fromHexString(request->tx_hash());
 
   std::string client_id =
@@ -113,14 +126,14 @@ grpc::Status CommandServiceTransportGrpc::StatusStream(
 
   auto initial_response =
       std::static_pointer_cast<shared_model::proto::TransactionResponse>(
-          command_service_->getStatus(hash))
-          ->getTransport();
-  if (not response_writer->Write(initial_response)) {
+          command_service_->getStatus(hash));
+  if (not response_writer->Write(initial_response->getTransport())) {
     log_->error("write to stream has failed to client {}", client_id);
     return grpc::Status::OK;
   }
 
-  iroha::protocol::TxStatus last_tx_status = initial_response.tx_status();
+  iroha::protocol::TxStatus last_tx_status =
+      initial_response->getTransport().tx_status();
   auto rounds_counter{0};
 
   auto scheduler = std::make_shared<iroha::subscription::SchedulerBase>();
@@ -135,6 +148,10 @@ grpc::Status CommandServiceTransportGrpc::StatusStream(
       template create<EventTypes::kOnTransactionResponse>(
           static_cast<iroha::SubscriptionEngineHandlers>(*tid),
           [&](auto, auto response) {
+            if (response->transactionHash() != hash) {
+              return;
+            }
+
             const auto &proto_response =
                 std::static_pointer_cast<
                     shared_model::proto::TransactionResponse>(response)
@@ -171,6 +188,10 @@ grpc::Status CommandServiceTransportGrpc::StatusStream(
               return;
             }
             log_->debug("status written, {}", client_id);
+
+            if (is_final_status(response)) {
+              scheduler->dispose();
+            }
           });
 
   auto sync_events_subscription =
@@ -191,7 +212,9 @@ grpc::Status CommandServiceTransportGrpc::StatusStream(
             }
           });
 
-  scheduler->process();
+  if (not is_final_status(initial_response)) {
+    scheduler->process();
+  }
 
   getSubscription()->dispatcher()->unbind(*tid);
 

@@ -10,32 +10,26 @@
 
 #include "consensus/yac/yac_peer_orderer.hpp"
 
-namespace iroha {
-  namespace consensus {
-    namespace yac {
+namespace iroha::consensus::yac {
+  class MockYacPeerOrderer : public YacPeerOrderer {
+   public:
+    MOCK_METHOD2(
+        getOrdering,
+        std::optional<ClusterOrdering>(
+            const YacHash &,
+            std::vector<std::shared_ptr<shared_model::interface::Peer>> const
+                &));
 
-      class MockYacPeerOrderer : public YacPeerOrderer {
-       public:
-        MOCK_METHOD2(
-            getOrdering,
-            boost::optional<ClusterOrdering>(
-                const YacHash &,
-                std::vector<
-                    std::shared_ptr<shared_model::interface::Peer>> const &));
+    MockYacPeerOrderer() = default;
 
-        MockYacPeerOrderer() = default;
+    MockYacPeerOrderer(const MockYacPeerOrderer &rhs){};
 
-        MockYacPeerOrderer(const MockYacPeerOrderer &rhs){};
+    MockYacPeerOrderer(MockYacPeerOrderer &&rhs){};
 
-        MockYacPeerOrderer(MockYacPeerOrderer &&rhs){};
-
-        MockYacPeerOrderer &operator=(const MockYacPeerOrderer &rhs) {
-          return *this;
-        }
-      };
-
-    }  // namespace yac
-  }    // namespace consensus
-}  // namespace iroha
+    MockYacPeerOrderer &operator=(const MockYacPeerOrderer &rhs) {
+      return *this;
+    }
+  };
+}  // namespace iroha::consensus::yac
 
 #endif  // IROHA_MOCK_YAC_PEER_ORDERER_HPP

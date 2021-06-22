@@ -15,12 +15,12 @@
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 
-using namespace iroha;
-using namespace iroha::ordering;
+using iroha::ordering::OnDemandOrderingGate;
 
 OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<OnDemandOrderingService> ordering_service,
@@ -84,7 +84,7 @@ void OnDemandOrderingGate::stop() {
   }
 }
 
-std::optional<network::OrderingEvent>
+std::optional<iroha::network::OrderingEvent>
 OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
   if (not current_ledger_state_ || event.round != current_round_) {
     return std::nullopt;
@@ -99,6 +99,20 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
     return network::OrderingEvent{
         std::nullopt, event.round, current_ledger_state_};
   }
+  shared_model::interface::types::SharedTxsCollectionType transactions;
+  for (auto &transaction : result->transactions()) {
+    transactions.push_back(clone(transaction));
+  }
+  auto batch_txs =
+      shared_model::interface::TransactionBatchParserImpl().parseBatches(
+          transactions);
+  shared_model::interface::types::BatchesCollectionType batches;
+  for (auto &txs : batch_txs) {
+    batches.push_back(
+        std::make_shared<shared_model::interface::TransactionBatchImpl>(
+            std::move(txs)));
+  }
+  ordering_service_->processReceivedProposal(batches);
   return network::OrderingEvent{
       std::move(result), event.round, current_ledger_state_};
 }
@@ -135,8 +149,11 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
       // TODO andrei 30.11.18 IR-51 Handle database error
       return false;
     }
-    // TODO nickaleks 21.11.18: IR-1887 log replayed transactions
-    return !ametsuchi::isAlreadyProcessed(*tx_result);
+    auto is_processed = ametsuchi::isAlreadyProcessed(*tx_result);
+    if (is_processed)
+      log_->warn("Duplicate transaction: {}",
+                 iroha::ametsuchi::getHash(*tx_result).hex());
+    return !is_processed;
   };
 
   std::unordered_set<std::string> hashes;

@@ -117,7 +117,6 @@ FakePeer::FakePeer(
           iroha::network::makeTransportClientFactory<MstTransport>(
               client_factory_))),
       yac_transport_client_(std::make_shared<YacTransportClient>(
-          async_call_,
           iroha::network::makeTransportClientFactory<YacTransportClient>(
               client_factory_),
           consensus_log_manager_->getChild("Transport")->getLogger())),

@@ -20,7 +20,6 @@ using namespace iroha;
 using namespace iroha::ordering;
 using namespace iroha::ordering::transport;
 
-using grpc::testing::MockClientAsyncResponseReader;
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Return;
@@ -45,9 +44,6 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   void SetUp() override {
     auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();
     stub = ustub.get();
-    async_call =
-        std::make_shared<network::AsyncGrpcClient<google::protobuf::Empty>>(
-            getTestLogger("AsyncCall"));
     auto validator = std::make_unique<MockProposalValidator>();
     proposal_validator = validator.get();
     auto proto_validator = std::make_unique<MockProtoProposalValidator>();
@@ -56,7 +52,6 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
         std::move(validator), std::move(proto_validator));
     client = std::make_shared<OnDemandOsClientGrpc>(
         std::move(ustub),
-        async_call,
         proposal_factory,
         [&] { return timepoint; },
         timeout,
@@ -65,7 +60,6 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   }
 
   proto::MockOnDemandOrderingStub *stub;
-  std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>> async_call;
   OnDemandOsClientGrpc::TimepointType timepoint;
   std::chrono::milliseconds timeout{1};
   std::shared_ptr<OnDemandOsClientGrpc> client;
@@ -84,10 +78,8 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
  */
 TEST_F(OnDemandOsClientGrpcTest, onBatches) {
   proto::BatchesRequest request;
-  auto r = std::make_unique<
-      MockClientAsyncResponseReader<google::protobuf::Empty>>();
-  EXPECT_CALL(*stub, AsyncSendBatchesRaw(_, _, _))
-      .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  EXPECT_CALL(*stub, SendBatches(_, _, _))
+      .WillOnce(DoAll(SaveArg<1>(&request), Return(grpc::Status::OK)));
 
   OdOsNotification::CollectionType collection;
   auto creator = "test";
