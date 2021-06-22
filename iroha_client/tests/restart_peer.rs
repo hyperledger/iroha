@@ -1,14 +1,12 @@
 #![allow(clippy::module_inception, unused_results, clippy::restriction)]
 
-use std::str::FromStr;
-use std::{thread, time::Duration};
+use std::{str::FromStr, thread, time::Duration};
 
 use iroha::{config::Configuration, prelude::*};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
-use test_network::*;
-use test_network::{Peer as TestPeer, GENESIS_PATH};
+use test_network::{Peer as TestPeer, GENESIS_PATH, *};
 use tokio::runtime::Runtime;
 
 #[test]

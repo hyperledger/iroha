@@ -1,17 +1,18 @@
 //! Module with queue actor
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    fmt::Debug,
+    sync::Arc,
+    time::Duration,
+};
 
 use iroha_actor::{broker::*, prelude::*, Context as ActorContext};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result};
 
 use self::config::QueueConfiguration;
-use crate::prelude::*;
-use crate::wsv::WorldTrait;
+use crate::{prelude::*, wsv::WorldTrait};
 
 /// Transaction queue
 #[derive(Debug)]

@@ -6,12 +6,10 @@ mod tests {
 
     use std::thread;
 
-    use iroha::config::Configuration;
-    use iroha::prelude::*;
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::client;
     use iroha_data_model::prelude::*;
-    use test_network::Peer as TestPeer;
-    use test_network::*;
+    use test_network::{Peer as TestPeer, *};
 
     #[test]
     //TODO: use cucumber_rust to write `gherkin` instead of code.

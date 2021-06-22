@@ -56,8 +56,7 @@
 use std::any::{Any, TypeId};
 use std::sync::Arc;
 
-use dashmap::mapref::entry::Entry;
-use dashmap::DashMap;
+use dashmap::{mapref::entry::Entry, DashMap};
 use futures::future;
 
 use super::*;

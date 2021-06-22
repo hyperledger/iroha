@@ -2,9 +2,11 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::error::Error;
-use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
+use std::{
+    error::Error,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 use serde_json::Value;
 use tokio::sync::mpsc::{self, Receiver, Sender};

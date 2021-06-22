@@ -8,8 +8,7 @@
 use std::{collections::HashMap, ops::Range};
 
 use proc_macro::TokenStream;
-use proc_macro2::Span;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
 use quote::{format_ident, quote};
 use syn::{

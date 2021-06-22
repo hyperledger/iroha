@@ -6,8 +6,7 @@ use serde_json::Value;
 pub mod derive {
     //! Modules with things related with deriving `Configurable`
 
-    use std::error::Error as StdError;
-    use std::fmt;
+    use std::{error::Error as StdError, fmt};
 
     /// Derive macro for implementing [`iroha_config::Configurable`](`crate::Configurable`) for config structures.
     ///

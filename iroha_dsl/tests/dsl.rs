@@ -5,8 +5,7 @@ use std::{thread, time::Duration};
 use iroha::config::Configuration;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_dsl::prelude::*;
-use test_network::Peer as TestPeer;
-use test_network::TestRuntime;
+use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";

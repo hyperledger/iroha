@@ -5,30 +5,25 @@
     clippy::missing_panics_doc
 )]
 
-use std::ops::Deref;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{ops::Deref, path::Path, sync::Arc, time::Duration};
 
-use iroha::block_sync::{BlockSynchronizerTrait, ContinueSync};
-use iroha::event::EventsSender;
-use iroha::genesis::config::GenesisConfiguration;
-use iroha::genesis::GenesisNetworkTrait;
-use iroha::kura::StoreBlock;
-use iroha::queue::QueueTrait;
-use iroha::smartcontracts::permissions::InstructionPermissionsValidatorBox;
-use iroha::sumeragi::message::Message as SumeragiMessage;
-use iroha::wsv::WorldTrait;
-use iroha::{block_sync::BlockSynchronizer, queue::Queue};
-use iroha::{kura::KuraTrait, prelude::*, sumeragi::*};
+use iroha::{
+    block_sync::{BlockSynchronizer, BlockSynchronizerTrait, ContinueSync},
+    event::EventsSender,
+    genesis::{config::GenesisConfiguration, GenesisNetworkTrait},
+    kura::{KuraTrait, StoreBlock},
+    prelude::*,
+    queue::{Queue, QueueTrait},
+    smartcontracts::permissions::InstructionPermissionsValidatorBox,
+    sumeragi::{message::Message as SumeragiMessage, *},
+    wsv::WorldTrait,
+};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_data_model::prelude::*;
 use iroha_error::Result;
 use test_network::*;
-use tokio::sync::mpsc;
-use tokio::time;
-use utils::kura::*;
-use utils::{genesis, kura, sumeragi, world};
+use tokio::{sync::mpsc, time};
+use utils::{genesis, kura, kura::*, sumeragi, world};
 
 pub mod utils {
     use super::*;
@@ -63,8 +58,7 @@ pub mod utils {
     }
 
     pub mod kura {
-        use iroha::kura::Mode;
-        use iroha::sumeragi;
+        use iroha::{kura::Mode, sumeragi};
 
         use super::*;
 
@@ -480,10 +474,8 @@ pub mod utils {
     pub mod world {
         use std::ops::{Deref, DerefMut};
 
-        use iroha::prelude::*;
-        use iroha::{tx::Domain, wsv::WorldTrait};
-        use iroha_data_model::prelude::*;
-        use iroha_data_model::world::World;
+        use iroha::{prelude::*, tx::Domain, wsv::WorldTrait};
+        use iroha_data_model::{prelude::*, world::World};
         use once_cell::sync::Lazy;
 
         #[derive(Debug, Clone, Default)]

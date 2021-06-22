@@ -12,8 +12,10 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
-use petgraph::graph::Graph;
-use petgraph::{algo, graph::NodeIndex};
+use petgraph::{
+    algo,
+    graph::{Graph, NodeIndex},
+};
 use tokio::{
     task::{self, JoinHandle},
     time,

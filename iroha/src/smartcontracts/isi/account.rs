@@ -11,8 +11,7 @@ use crate::prelude::*;
 /// - update metadata
 /// - grant permissions and roles
 pub mod isi {
-    use super::super::prelude::*;
-    use super::*;
+    use super::{super::prelude::*, *};
 
     impl<W: WorldTrait> Execute<W> for Mint<Account, PublicKey> {
         type Error = Error;
@@ -163,8 +162,7 @@ pub mod query {
     use iroha_error::{error, Result, WrapErr};
     use iroha_logger::log;
 
-    use super::super::Evaluate;
-    use super::*;
+    use super::{super::Evaluate, *};
     use crate::smartcontracts::isi::prelude::WorldTrait;
 
     #[cfg(feature = "roles")]

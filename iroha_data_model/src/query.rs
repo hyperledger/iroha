@@ -2,8 +2,7 @@
 
 #![allow(clippy::missing_inline_in_public_items)]
 
-use std::convert::TryFrom;
-use std::time::SystemTime;
+use std::{convert::TryFrom, time::SystemTime};
 
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
@@ -1065,9 +1064,9 @@ pub mod transaction {
     use serde::{Deserialize, Serialize};
 
     use super::QueryOutput;
-    use crate::account::prelude::AccountId;
-    use crate::expression::EvaluatesTo;
-    use crate::transaction::TransactionValue;
+    use crate::{
+        account::prelude::AccountId, expression::EvaluatesTo, transaction::TransactionValue,
+    };
 
     /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
     /// for the account
@@ -1111,10 +1110,9 @@ pub mod transaction {
 pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
-    pub use super::QueryOutput;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, QueryBox, QueryRequest, QueryResult,
+        permissions::prelude::*, transaction::*, QueryBox, QueryOutput, QueryRequest, QueryResult,
         SignedQueryRequest, VersionedQueryResult, VersionedSignedQueryRequest,
     };
 }

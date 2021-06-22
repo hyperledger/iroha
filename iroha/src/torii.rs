@@ -1,13 +1,11 @@
 //! This module contains incoming requests handling logic of Iroha.
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
-use std::convert::Infallible;
-use std::{fmt::Debug, sync::Arc};
+use std::{convert::Infallible, fmt::Debug, sync::Arc};
 
 use config::ToriiConfiguration;
 use iroha_actor::{broker::*, prelude::*};
-use iroha_config::derive::Error as ConfigError;
-use iroha_config::Configurable;
+use iroha_config::{derive::Error as ConfigError, Configurable};
 use iroha_data_model::prelude::*;
 use iroha_error::{derive::Error, error};
 use iroha_http_server::{http::Json, prelude::*, web_socket::WebSocketStream, Server};
@@ -20,18 +18,18 @@ use iroha_version::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::RwLock, task};
 
-use crate::queue::QueueTrait;
-use crate::sumeragi::SumeragiTrait;
-use crate::wsv::WorldTrait;
 use crate::{
     block_sync::message::VersionedMessage as BlockSyncVersionedMessage,
     config::Configuration,
     event::{Consumer, EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
-    queue::GetPendingTransactions,
+    queue::{GetPendingTransactions, QueueTrait},
     smartcontracts::isi::query::VerifiedQueryRequest,
-    sumeragi::{message::VersionedMessage as SumeragiVersionedMessage, GetLeader, IsLeader},
+    sumeragi::{
+        message::VersionedMessage as SumeragiVersionedMessage, GetLeader, IsLeader, SumeragiTrait,
+    },
+    wsv::WorldTrait,
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -563,11 +561,13 @@ mod tests {
     use tokio::{sync::mpsc, time};
 
     use super::*;
-    use crate::config::Configuration;
-    use crate::genesis::GenesisNetwork;
-    use crate::queue::{Queue, QueueTrait};
-    use crate::sumeragi::{Sumeragi, SumeragiTrait};
-    use crate::wsv::World;
+    use crate::{
+        config::Configuration,
+        genesis::GenesisNetwork,
+        queue::{Queue, QueueTrait},
+        sumeragi::{Sumeragi, SumeragiTrait},
+        wsv::World,
+    };
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";

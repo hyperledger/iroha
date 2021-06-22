@@ -18,9 +18,11 @@ use parity_scale_codec::{Decode, Encode};
 
 #[cfg(feature = "roles")]
 use crate::smartcontracts::permissions;
-use crate::smartcontracts::{Evaluate, Execute};
-use crate::wsv::WorldTrait;
-use crate::{prelude::*, smartcontracts::permissions::InstructionPermissionsValidatorBox};
+use crate::{
+    prelude::*,
+    smartcontracts::{permissions::InstructionPermissionsValidatorBox, Evaluate, Execute},
+    wsv::WorldTrait,
+};
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 impl Message for VersionedAcceptedTransaction {

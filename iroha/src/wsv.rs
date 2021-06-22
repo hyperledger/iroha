@@ -16,8 +16,11 @@ use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_error::Result;
 use tokio::task;
 
-use crate::smartcontracts::ParentHashNotFound;
-use crate::{block::Chain, prelude::*, smartcontracts::FindError};
+use crate::{
+    block::Chain,
+    prelude::*,
+    smartcontracts::{FindError, ParentHashNotFound},
+};
 
 /// World proxy for using with `WorldTrait`
 #[derive(Debug, Default, Clone)]
@@ -400,8 +403,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
-    use iroha_data_model::metadata::Limits as MetadataLimits;
-    use iroha_data_model::LengthLimits;
+    use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_ASSET_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));

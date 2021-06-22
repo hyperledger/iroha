@@ -2,12 +2,15 @@
 
 #![allow(clippy::print_stdout)]
 
-use std::env;
-use std::fmt::{self, Debug, Display, Formatter};
-use std::panic::{self, PanicInfo};
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::{error::Error as StdError, ptr};
+use std::{
+    env,
+    error::Error as StdError,
+    fmt::{self, Debug, Display, Formatter},
+    panic::{self, PanicInfo},
+    path::Path,
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use owo_colors::OwoColorize;
 

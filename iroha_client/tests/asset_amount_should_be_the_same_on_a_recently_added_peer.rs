@@ -4,8 +4,7 @@
 mod tests {
     use std::thread;
 
-    use iroha::config::Configuration;
-    use iroha::prelude::*;
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::client;
     use iroha_data_model::prelude::*;
     use iroha_error::Result;

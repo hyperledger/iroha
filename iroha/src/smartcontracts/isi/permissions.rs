@@ -440,8 +440,7 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::BTreeMap;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use iroha_data_model::isi::*;
 

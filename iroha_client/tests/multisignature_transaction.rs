@@ -4,14 +4,12 @@
 mod tests {
     use std::{thread, time::Duration};
 
-    use iroha::config::Configuration;
-    use iroha::prelude::*;
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::{
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
-    use iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE;
-    use iroha_data_model::prelude::*;
+    use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
     use test_network::*;
 
     #[allow(clippy::too_many_lines)]

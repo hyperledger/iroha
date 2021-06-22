@@ -7,8 +7,7 @@ mod tests {
     use iroha::config::Configuration;
     use iroha_client::client::transaction;
     use iroha_data_model::prelude::*;
-    use test_network::Peer as TestPeer;
-    use test_network::*;
+    use test_network::{Peer as TestPeer, *};
 
     #[test]
     fn client_has_rejected_and_acepted_txs_should_return_tx_history() {

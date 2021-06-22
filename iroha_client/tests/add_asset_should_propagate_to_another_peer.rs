@@ -4,13 +4,11 @@
 mod tests {
     use std::thread;
 
-    use iroha::config::Configuration;
-    use iroha::prelude::*;
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::client::{self, Client};
     use iroha_data_model::prelude::*;
     use iroha_error::Result;
-    use test_network::Network;
-    use test_network::*;
+    use test_network::{Network, *};
 
     #[test]
     fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(

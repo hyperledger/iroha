@@ -11,11 +11,12 @@
 use std::{
     convert::{Infallible, TryFrom},
     future::Future,
+    io,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
-use std::{io, sync::Arc};
 
 use dashmap::DashMap;
 use iroha_error::{error, Result};

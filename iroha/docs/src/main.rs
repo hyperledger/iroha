@@ -2,9 +2,10 @@
 
 #![allow(clippy::restriction)]
 
-use std::fmt::Debug;
-use std::io::Result;
-use std::io::{stdout, BufWriter, Write};
+use std::{
+    fmt::Debug,
+    io::{stdout, BufWriter, Result, Write},
+};
 
 use iroha::config::Configuration;
 use iroha_config::Configurable;
