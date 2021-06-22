@@ -361,7 +361,8 @@ namespace iroha {
           throw std::runtime_error(e.value());
         }
 
-        log_->info("StorageImpl::commitPrepared()  notify(EventTypes::kOnBlock)");
+        log_->info(
+            "StorageImpl::commitPrepared()  notify(EventTypes::kOnBlock)");
         notifier_.get_subscriber().on_next(block);
         getSubscription()->notify(
             EventTypes::kOnBlock,

@@ -280,7 +280,7 @@ namespace iroha::ametsuchi {
     return execute(
         db_context_,
         [&](auto &common) -> expected::Result<void, DbError> {
-          return makeError<void>(1000u, "Not used");
+          return makeError<void>(ErrorCodes::kNotUsed, "Not used");
         },
         [&]() { return fmt::format("Insert signatory {}", signatory); });
   }
@@ -343,7 +343,7 @@ namespace iroha::ametsuchi {
     return execute(
         db_context_,
         [&](auto &common) -> expected::Result<void, DbError> {
-          return makeError<void>(1000u, "Not used");
+          return makeError<void>(ErrorCodes::kNotUsed, "Not used");
         },
         [&]() { return fmt::format("Insert signatory {}", signatory); });
   }
@@ -439,7 +439,7 @@ namespace iroha::ametsuchi {
       const std::string &val) {
     return execute(db_context_,
                    [&](auto &common) -> expected::Result<void, DbError> {
-                     return makeError<void>(1000u, "Not used");
+                     return makeError<void>(ErrorCodes::kNotUsed, "Not used");
                    },
                    [&]() {
                      return fmt::format(

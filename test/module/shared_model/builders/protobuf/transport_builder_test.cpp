@@ -46,7 +46,7 @@ class TransportBuilderTest : public ::testing::Test {
     quorum = 2;
     counter = 1048576;
     hash = shared_model::crypto::Hash(std::string(32, '0'));
-    invalid_hash = shared_model::crypto::Hash("");
+    invalid_hash = shared_model::crypto::Hash(std::string(""));
     height = 1;
     invalid_account_id = "some#invalid?account@@id";
   }

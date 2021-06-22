@@ -122,7 +122,7 @@ Metrics::Metrics(std::string const &listen_addr,
             total_number_of_transactions.Increment(
                 boost::size(pblock->transactions()));
             logger_->info("total_number_of_transactions {}",
-                       total_number_of_transactions.Value());
+                          total_number_of_transactions.Value());
             int domains_diff = 0, peers_diff = 0;
             using namespace shared_model::interface;
             for (Transaction const &trx : pblock->transactions()) {

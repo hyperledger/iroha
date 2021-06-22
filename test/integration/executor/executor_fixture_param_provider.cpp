@@ -7,12 +7,13 @@
 
 #include "integration/executor/executor_fixture_param.hpp"
 #include "integration/executor/executor_fixture_param_postgres.hpp"
+#include "integration/executor/executor_fixture_param_rocksdb.hpp"
 
 namespace executor_testing {
 
   std::vector<ExecutorTestParamProvider> getExecutorTestParamProvidersVector() {
-    return std::vector<ExecutorTestParamProvider>{
-        &getExecutorTestParamPostgres};
+    return std::vector<ExecutorTestParamProvider>{&getExecutorTestParamPostgres,
+                                                  &getExecutorTestParamRocksDB};
   }
 
   auto getExecutorTestParams()

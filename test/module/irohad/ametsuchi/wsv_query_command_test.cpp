@@ -59,7 +59,7 @@ namespace iroha {
      */
     TEST_F(WsvQueryCommandTest, SetAndGetTopBlockInfo) {
       iroha::TopBlockInfo top_block_info_set{
-          1234, shared_model::crypto::Hash{"hash"}};
+          1234, shared_model::crypto::Hash{std::string("hash")}};
       framework::expected::expectResultValue(
           command->setTopBlockInfo(top_block_info_set));
       auto top_block_info_read = query->getTopBlockInfo();

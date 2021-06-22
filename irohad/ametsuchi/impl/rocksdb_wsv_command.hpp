@@ -17,6 +17,8 @@ namespace iroha {
 
     class RocksDBWsvCommand : public WsvCommand {
      public:
+      enum ErrorCodes { kNotUsed = 1000 };
+
       explicit RocksDBWsvCommand(std::shared_ptr<RocksDBPort> db_port);
       WsvCommandResult insertRole(
           const shared_model::interface::types::RoleIdType &role_name) override;

@@ -20,10 +20,12 @@ namespace iroha::ametsuchi {
    public:
     RocksDBIndexer(std::shared_ptr<RocksDBPort> db_port);
 
-    void committedTxHash(const shared_model::interface::types::HashType
+    void committedTxHash(const TxPosition &position,
+                         const shared_model::interface::types::HashType
                              &committed_tx_hash) override;
 
-    void rejectedTxHash(const shared_model::interface::types::HashType
+    void rejectedTxHash(const TxPosition &position,
+                        const shared_model::interface::types::HashType
                             &rejected_tx_hash) override;
 
     void txPositions(
@@ -39,7 +41,8 @@ namespace iroha::ametsuchi {
     std::shared_ptr<RocksDBContext> db_context_;
 
     /// Index tx status by its hash.
-    void txHashStatus(const shared_model::interface::types::HashType &tx_hash,
+    void txHashStatus(const TxPosition &position,
+                      const shared_model::interface::types::HashType &tx_hash,
                       bool is_committed);
   };
 
