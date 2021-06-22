@@ -67,11 +67,13 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::convert::{AsRef, From};
-use std::error::Error as StdError;
-use std::fmt::{self, Debug, Display};
-use std::ops::{Deref, DerefMut};
-use std::result::Result as StdResult;
+use std::{
+    convert::{AsRef, From},
+    error::Error as StdError,
+    fmt::{self, Debug, Display},
+    ops::{Deref, DerefMut},
+    result::Result as StdResult,
+};
 
 pub use message_error::MessageError;
 pub use reporter::{install as install_panic_reporter, Reporter};

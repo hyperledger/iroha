@@ -126,8 +126,7 @@ pub enum RawVersioned {
 pub mod scale {
     use parity_scale_codec::{Decode, Encode};
 
-    use super::error::Result;
-    use super::Version;
+    use super::{error::Result, Version};
 
     /// [`Decode`] versioned analog.
     pub trait DecodeVersioned: Decode + Version {
@@ -151,8 +150,7 @@ pub mod scale {
 pub mod json {
     use serde::{Deserialize, Serialize};
 
-    use super::error::Result;
-    use super::Version;
+    use super::{error::Result, Version};
 
     /// [`Serialize`] versioned analog, specifically for JSON.
     pub trait DeserializeVersioned<'a>: Deserialize<'a> + Version {

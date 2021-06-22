@@ -6,8 +6,7 @@ use iroha::config::Configuration;
 use iroha_client::client;
 use iroha_data_model::prelude::*;
 use iroha_error::Result;
-use test_network::Peer as TestPeer;
-use test_network::*;
+use test_network::{Peer as TestPeer, *};
 
 #[test]
 fn client_add_account_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>

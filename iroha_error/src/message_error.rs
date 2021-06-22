@@ -1,5 +1,7 @@
-use std::error::Error as StdError;
-use std::fmt::{self, Debug, Display};
+use std::{
+    error::Error as StdError,
+    fmt::{self, Debug, Display},
+};
 
 /// Error type used for simple messages
 #[derive(Eq, PartialEq, Clone)]

@@ -1045,8 +1045,7 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-    use std::sync::Arc;
-    use std::{thread, time::Duration};
+    use std::{sync::Arc, thread, time::Duration};
 
     use futures::{SinkExt, StreamExt};
     use isahc::AsyncReadResponseExt;

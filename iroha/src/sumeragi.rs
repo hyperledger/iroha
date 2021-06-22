@@ -22,8 +22,7 @@ use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use tokio::{sync::RwLock, task, time};
 
-use self::message::Message;
-use self::message::*;
+use self::message::{Message, *};
 use crate::{
     block::{BlockHeader, ChainedBlock, VersionedPendingBlock},
     event::EventsSender,
@@ -1025,8 +1024,10 @@ impl VotingBlock {
 pub mod message {
     #![allow(clippy::module_name_repetitions)]
 
-    use std::sync::Arc;
-    use std::time::{Duration, SystemTime};
+    use std::{
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
@@ -1037,8 +1038,8 @@ pub mod message {
     use parity_scale_codec::{Decode, Encode};
     use tokio::{task, time};
 
-    use crate::genesis::GenesisNetworkTrait;
     use crate::{
+        genesis::GenesisNetworkTrait,
         queue::QueueTrait,
         sumeragi::{InitializedNetworkTopology, Role, Sumeragi, VotingBlock},
         torii::uri,

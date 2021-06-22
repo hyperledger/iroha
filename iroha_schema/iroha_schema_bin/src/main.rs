@@ -4,8 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use iroha_data_model::prelude::*;
-use iroha_data_model::query::QueryBox;
+use iroha_data_model::{prelude::*, query::QueryBox};
 use iroha_schema::prelude::*;
 
 macro_rules! to_json {

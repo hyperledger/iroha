@@ -5,8 +5,7 @@ use std::thread;
 use iroha::config::Configuration;
 use iroha_client::client::asset;
 use iroha_data_model::prelude::*;
-use test_network::Peer as TestPeer;
-use test_network::*;
+use test_network::{Peer as TestPeer, *};
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {

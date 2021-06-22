@@ -3,9 +3,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::error;
-use std::ops::RangeInclusive;
-use std::{convert::TryFrom, fmt::Debug};
+use std::{convert::TryFrom, error, fmt::Debug, ops::RangeInclusive};
 
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
@@ -1040,12 +1038,12 @@ pub mod asset {
     //! This module contains [`Asset`] structure, it's implementation and related traits and
     //! instructions implementations.
 
-    use std::ops::RangeInclusive;
     use std::{
         cmp::Ordering,
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
         iter::FromIterator,
+        ops::RangeInclusive,
         str::FromStr,
     };
 
@@ -1781,8 +1779,7 @@ pub mod transaction {
     // TODO remove `allow` when the task https://jira.hyperledger.org/browse/IR-1048 will be closed
     #![allow(unused_results, clippy::missing_inline_in_public_items)]
 
-    use std::cmp::Ordering;
-    use std::{iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
+    use std::{cmp::Ordering, iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
 
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
@@ -1800,8 +1797,10 @@ pub mod transaction {
         std::collections::BTreeMap,
     };
 
-    use crate::prelude::TransactionRejectionReason;
-    use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+    use crate::{
+        account::Account, isi::Instruction, metadata::UnlimitedMetadata,
+        prelude::TransactionRejectionReason, Identifiable,
+    };
 
     /// Maximum number of instructions and expressions per transaction
     pub const MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);

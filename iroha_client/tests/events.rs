@@ -8,8 +8,7 @@ use std::{
 use iroha::config::Configuration;
 use iroha_data_model::prelude::*;
 use iroha_error::Result;
-use test_network::Peer as TestPeer;
-use test_network::*;
+use test_network::{Peer as TestPeer, *};
 
 #[test]
 fn transaction_event_should_be_sent_after_it_is_committed() -> Result<()> {

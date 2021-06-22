@@ -5,11 +5,14 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_data_model::prelude::*;
 
-use self::{config::BlockSyncConfiguration, message::Message, message::*};
-use crate::prelude::*;
-use crate::wsv::WorldTrait;
+use self::{
+    config::BlockSyncConfiguration,
+    message::{Message, *},
+};
 use crate::{
+    prelude::*,
     sumeragi::{CommitBlock, GetNetworkTopology, GetSortedPeers, Role, SumeragiTrait},
+    wsv::WorldTrait,
     VersionedCommittedBlock,
 };
 

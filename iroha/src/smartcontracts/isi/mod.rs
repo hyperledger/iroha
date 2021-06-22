@@ -9,16 +9,17 @@ pub mod query;
 pub mod tx;
 pub mod world;
 
-use std::error::Error as StdError;
-use std::fmt::{self, Display, Formatter};
+use std::{
+    error::Error as StdError,
+    fmt::{self, Display, Formatter},
+};
 
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::FromVariant;
 use iroha_error::{derive::Error, error, Result};
 
 use super::{Evaluate, Execute};
-use crate::prelude::*;
-use crate::wsv::WorldTrait;
+use crate::{prelude::*, wsv::WorldTrait};
 
 /// Instruction execution error type
 #[allow(clippy::clippy::pub_enum_variant_names)]

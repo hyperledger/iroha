@@ -9,8 +9,7 @@ use iroha_data_model::{
 use iroha_error::{error, Error, Result};
 
 use super::Evaluate;
-use crate::prelude::*;
-use crate::wsv::WorldTrait;
+use crate::{prelude::*, wsv::WorldTrait};
 
 impl<E: Into<Error>, V: TryFrom<Value, Error = E>, W: WorldTrait> Evaluate<W> for EvaluatesTo<V> {
     type Value = V;

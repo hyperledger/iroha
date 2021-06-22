@@ -4,13 +4,11 @@
 mod tests {
     use std::thread;
 
-    use iroha::config::Configuration;
-    use iroha::prelude::*;
+    use iroha::{config::Configuration, prelude::*};
     use iroha_client::client::{self, Client};
     use iroha_data_model::prelude::*;
     use iroha_error::Result;
-    use test_network::Peer as TestPeer;
-    use test_network::*;
+    use test_network::{Peer as TestPeer, *};
 
     #[test]
     fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {

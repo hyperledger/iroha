@@ -5,12 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use layer::LevelFilter;
 use telemetry::{Telemetry, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
-pub use tracing::instrument as log;
 use tracing::subscriber::set_global_default;
-pub use tracing::Instrument;
-pub use tracing::Level;
-pub use tracing::{debug, error, info, trace, warn};
-pub use tracing::{debug_span, error_span, info_span, trace_span, warn_span};
+pub use tracing::{
+    debug, debug_span, error, error_span, info, info_span, instrument as log, trace, trace_span,
+    warn, warn_span, Instrument, Level,
+};
 pub use tracing_futures::Instrument as InstrumentFutures;
 
 pub mod layer;

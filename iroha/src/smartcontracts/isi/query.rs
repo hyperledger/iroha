@@ -1,8 +1,6 @@
 //! This module contains query related Iroha functionality.
 
-use std::convert::TryFrom;
-use std::error::Error as StdError;
-use std::fmt;
+use std::{convert::TryFrom, error::Error as StdError, fmt};
 
 use iroha_data_model::prelude::*;
 use iroha_derive::Io;
@@ -14,8 +12,7 @@ use iroha_http_server::http::{
 use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
 
-use crate::prelude::*;
-use crate::WorldTrait;
+use crate::{prelude::*, WorldTrait};
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Io, Encode, Decode)]

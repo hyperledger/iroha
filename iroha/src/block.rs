@@ -6,25 +6,23 @@
     clippy::missing_inline_in_public_items
 )]
 
-use std::iter;
-use std::time::SystemTime;
+use std::{iter, time::SystemTime};
 
 use dashmap::{iter::Iter as MapIter, mapref::one::Ref as MapRef, DashMap};
 use iroha_crypto::{KeyPair, Signatures};
-use iroha_data_model::events::prelude::*;
-use iroha_data_model::transaction::prelude::*;
+use iroha_data_model::{events::prelude::*, transaction::prelude::*};
 use iroha_derive::Io;
 use iroha_error::Result;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
-use crate::wsv::WorldTrait;
 use crate::{
     merkle::MerkleTree,
     prelude::*,
     smartcontracts::permissions::InstructionPermissionsValidatorBox,
     sumeragi::InitializedNetworkTopology,
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
+    wsv::WorldTrait,
 };
 
 /// Blockchain.

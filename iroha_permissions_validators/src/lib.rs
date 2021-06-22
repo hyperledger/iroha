@@ -6,11 +6,13 @@ use std::{collections::BTreeMap, convert::TryInto};
 
 use iroha::{
     prelude::*,
-    smartcontracts::permissions::{
-        prelude::*, GrantedTokenValidator, InstructionPermissionsValidatorBox,
-        PermissionsValidator, PermissionsValidatorBuilder, ValidatorApplyOr,
+    smartcontracts::{
+        permissions::{
+            prelude::*, GrantedTokenValidator, InstructionPermissionsValidatorBox,
+            PermissionsValidator, PermissionsValidatorBuilder, ValidatorApplyOr,
+        },
+        Evaluate,
     },
-    smartcontracts::Evaluate,
     wsv::WorldTrait,
 };
 use iroha_data_model::{isi::*, prelude::*};

@@ -29,11 +29,12 @@ use iroha::{
 };
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
-use iroha_data_model::peer::Peer as DataModelPeer;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_error::{Error, Result};
-use iroha_logger::config::{LevelEnv, LoggerConfiguration};
-use iroha_logger::InstrumentFutures;
+use iroha_logger::{
+    config::{LevelEnv, LoggerConfiguration},
+    InstrumentFutures,
+};
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{

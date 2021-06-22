@@ -26,8 +26,7 @@ use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result, WrapErr};
 use smartcontracts::permissions::InstructionPermissionsValidatorBox;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::{sync::mpsc, task::JoinHandle};
 use wsv::{World, WorldTrait};
 
 use crate::{

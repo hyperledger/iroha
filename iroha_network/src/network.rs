@@ -1,13 +1,16 @@
-use std::convert::Infallible;
-use std::convert::TryFrom;
-use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    convert::{Infallible, TryFrom},
+    future::Future,
+    sync::Arc,
+    time::Duration,
+};
 
 use iroha_error::Result;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    time::timeout,
+};
 
 use super::{AsyncStream, Request, Response, State};
 

@@ -1,5 +1,7 @@
-use std::borrow::Borrow;
-use std::convert::{TryFrom, TryInto};
+use std::{
+    borrow::Borrow,
+    convert::{TryFrom, TryInto},
+};
 
 use attohttpc::Response as AttohttpcResponse;
 pub use http::{Response, StatusCode};

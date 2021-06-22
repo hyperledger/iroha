@@ -1,9 +1,11 @@
 #[cfg(backtrace)]
 use std::backtrace::Backtrace;
-use std::error::Error as StdError;
-use std::fmt::{self, Debug, Display};
-use std::ops::{Deref, DerefMut};
-use std::result::Result as StdResult;
+use std::{
+    error::Error as StdError,
+    fmt::{self, Debug, Display},
+    ops::{Deref, DerefMut},
+    result::Result as StdResult,
+};
 
 use crate::{Error, Result};
 

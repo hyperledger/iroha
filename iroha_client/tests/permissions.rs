@@ -6,8 +6,7 @@ use iroha::config::Configuration;
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain;
-use test_network::Peer as TestPeer;
-use test_network::*;
+use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
 const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
