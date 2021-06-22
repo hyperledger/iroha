@@ -3,41 +3,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_POSTGRES_HPP
-#define TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_POSTGRES_HPP
+#ifndef TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_ROCKSDB_HPP
+#define TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_ROCKSDB_HPP
 
 #include "integration/executor/executor_fixture_param.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
 
-namespace soci {
-  class session;
+namespace iroha::ametsuchi {
+  struct RocksDBPort;
 }
-
-namespace iroha {
-  namespace integration_framework {
-    class TestDbManager;
-  }
-}  // namespace iroha
 
 namespace executor_testing {
 
   /**
-   * PostgreSQL backend parameter for ExecutorTest.
+   * RocksDB backend parameter for ExecutorTest.
    * Creates and holds a test database manager object that:
-   * - gets PostgreSQL connection options
    * - creates a new working database with a random name
    * - drops the working database when the test suite is complete
    */
-  class PostgresExecutorTestParam : public ExecutorTestParam {
+  class RocksDBExecutorTestParam final : public ExecutorTestParam {
    public:
-    PostgresExecutorTestParam();
-
-    virtual ~PostgresExecutorTestParam();
+    RocksDBExecutorTestParam();
+    virtual ~RocksDBExecutorTestParam();
 
     void clearBackendState() override;
 
     ExecutorType getType() const override {
-      return ExecutorType::kPostgres;
+      return ExecutorType::kRocksDb;
     }
 
     iroha::integration_framework::ExecutorItfTarget getExecutorItfParam()
@@ -54,14 +46,14 @@ namespace executor_testing {
     std::string toString() const override;
 
    private:
-    std::unique_ptr<iroha::integration_framework::TestDbManager> db_manager_;
+    std::string db_name_;
+    std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port_;
+
     iroha::integration_framework::ExecutorItfTarget executor_itf_target_;
-    std::unique_ptr<soci::session> burrow_storage_session_;
-    std::unique_ptr<soci::session> block_indexer_session_;
     std::shared_ptr<iroha::ametsuchi::BlockIndex> block_indexer_;
   };
 
-  std::reference_wrapper<ExecutorTestParam> getExecutorTestParamPostgres();
+  std::reference_wrapper<ExecutorTestParam> getExecutorTestParamRocksDB();
 }  // namespace executor_testing
 
-#endif /* TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_POSTGRES_HPP */
+#endif /* TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_ROCKSDB_HPP */

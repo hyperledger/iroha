@@ -27,6 +27,8 @@ namespace shared_model {
       Hash();
 
       explicit Hash(const std::string &hash);
+      explicit Hash(std::string_view hash);
+      explicit Hash(const char *hash);
 
       explicit Hash(const Blob &blob);
 

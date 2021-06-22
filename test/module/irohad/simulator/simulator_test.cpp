@@ -138,7 +138,9 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
       .Times(1);
 
   auto ledger_state = std::make_shared<LedgerState>(
-      ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
+      ledger_peers,
+      proposal->height() - 1,
+      shared_model::crypto::Hash{std::string("hash")});
   OrderingEvent ordering_event{proposal, consensus::Round{}, ledger_state};
 
   auto verified_proposal_event = simulator->processProposal(ordering_event);
@@ -212,7 +214,9 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
       }));
 
   auto ledger_state = std::make_shared<LedgerState>(
-      ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
+      ledger_peers,
+      proposal->height() - 1,
+      shared_model::crypto::Hash{std::string("hash")});
   OrderingEvent ordering_event{
       std::make_optional(proposal), consensus::Round{}, ledger_state};
   auto verification_result =
