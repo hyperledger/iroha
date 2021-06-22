@@ -45,11 +45,6 @@ COPY --from=cacher $CARGO_HOME $CARGO_HOME
 RUN cargo build $PROFILE --all
 
 FROM $BASE_IMAGE
-RUN set -ex; \
-    apt-get update  -yq; \
-    apt-get install -y --no-install-recommends apt-utils; \
-    apt-get install -y --no-install-recommends ca-certificates; \
-    rm -rf /var/lib/apt/lists/*
 COPY iroha/config.json .
 COPY iroha/trusted_peers.json .
 COPY iroha/genesis.json .
