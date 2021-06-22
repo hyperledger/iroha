@@ -66,7 +66,7 @@ namespace iroha {
               network,
               crypto,
               timer,
-              ordering,
+              ordering.getPeers(),
               initial_round,
               getTestLogger("Yac"));
         }

@@ -110,6 +110,9 @@ boost::optional<iroha::consensus::yac::Answer> YacVoteStorage::store(
 bool YacVoteStorage::isCommitted(const Round &round) {
   auto iter = getProposalStorage(round);
   if (iter == proposal_storages_.end()) {
+    if (auto last_round = getLastFinalizedRound()) {
+      return *last_round >= round;
+    }
     return false;
   }
   return bool(iter->getState());
