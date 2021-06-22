@@ -66,8 +66,8 @@ class YacGateTest : public ::testing::Test {
     EXPECT_CALL(*block, signatures())
         .WillRepeatedly(
             Return<shared_model::interface::types::SignatureRangeType>({}));
-    auto prev_hash = Hash("prev hash");
-    auto current_hash = Hash("current hash");
+    auto prev_hash = Hash(std::string("prev hash"));
+    auto current_hash = Hash(std::string("current hash"));
     EXPECT_CALL(*block, prevHash())
         .WillRepeatedly(testing::ReturnRefOfCopy(prev_hash));
     EXPECT_CALL(*block, hash())
@@ -111,7 +111,7 @@ class YacGateTest : public ::testing::Test {
   iroha::consensus::Round round{2, 1};
   boost::optional<ClusterOrdering> alternative_order;
   std::string expected_signed{"expected_signed"};
-  Hash prev_hash{"prev hash"};
+  Hash prev_hash{std::string{"prev hash"}};
   YacHash expected_hash;
   std::shared_ptr<const shared_model::interface::Proposal> expected_proposal;
   std::shared_ptr<shared_model::interface::Block> expected_block;
@@ -261,7 +261,7 @@ TEST_F(YacGateTest, DifferentCommit) {
   // create another block, which will be "received", and generate a commit
   // message with it
   decltype(expected_block) actual_block = std::make_shared<MockBlock>();
-  Hash actual_hash("actual_hash");
+  Hash actual_hash(std::string("actual_hash"));
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey()).WillRepeatedly(ReturnRef(kActualPubkey));
 
@@ -372,7 +372,7 @@ class CommitFromTheFuture : public YacGateTest {
     gate->vote(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
 
-    Hash actual_hash("actual_hash");
+    Hash actual_hash(std::string("actual_hash"));
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
         .WillRepeatedly(ReturnRef(kActualPubkey));

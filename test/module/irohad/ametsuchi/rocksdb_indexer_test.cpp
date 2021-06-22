@@ -32,23 +32,29 @@ class RocksDBIndexerTest : public ::testing::Test {
 
   void initDB(RocksDbCommon &common) {
     common.valueBuffer() = hash_1_;
-    forTransactionByTimestamp<kDbOperation::kPut>(common, account_1_, ts_1_);
+    forTransactionByTimestamp<kDbOperation::kPut>(
+        common, account_1_, ts_1_, 1, 1);
 
     common.valueBuffer() = hash_2_;
-    forTransactionByTimestamp<kDbOperation::kPut>(common, account_1_, ts_2_);
+    forTransactionByTimestamp<kDbOperation::kPut>(
+        common, account_1_, ts_2_, 2, 1);
 
     common.valueBuffer() = hash_3_;
-    forTransactionByTimestamp<kDbOperation::kPut>(common, account_2_, ts_1_);
+    forTransactionByTimestamp<kDbOperation::kPut>(
+        common, account_2_, ts_1_, 1, 2);
 
     common.valueBuffer().assign(
         fmt::format("{}#{}#{}", "asset", ts_1_, hash_1_));
-    forTransactionByPosition<kDbOperation::kPut>(common, account_1_, 1, 1);
+    forTransactionByPosition<kDbOperation::kPut>(
+        common, account_1_, ts_1_, 1, 1);
 
     common.valueBuffer().assign(fmt::format("{}#{}#{}", "", ts_2_, hash_2_));
-    forTransactionByPosition<kDbOperation::kPut>(common, account_1_, 2, 1);
+    forTransactionByPosition<kDbOperation::kPut>(
+        common, account_1_, ts_2_, 2, 1);
 
     common.valueBuffer().assign(fmt::format("{}#{}#{}", "", ts_1_, hash_3_));
-    forTransactionByPosition<kDbOperation::kPut>(common, account_2_, 1, 1);
+    forTransactionByPosition<kDbOperation::kPut>(
+        common, account_2_, ts_1_, 1, 2);
 
     common.valueBuffer().assign("TRUE");
     forTransactionStatus<kDbOperation::kPut>(common, hash_1_);
@@ -128,19 +134,19 @@ TEST_F(RocksDBIndexerTest, SimpleCheckTxByTs) {
 
   auto result =
       forTransactionByTimestamp<kDbOperation::kGet, kDbEntry::kMustExist>(
-          common, account_1_, ts_1_);
+          common, account_1_, ts_1_, 1, 1);
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_TRUE(result.assumeValue());
   ASSERT_EQ(*result.assumeValue(), hash_1_);
 
   result = forTransactionByTimestamp<kDbOperation::kGet, kDbEntry::kMustExist>(
-      common, account_1_, ts_2_);
+      common, account_1_, ts_2_, 2, 1);
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_TRUE(result.assumeValue());
   ASSERT_EQ(*result.assumeValue(), hash_2_);
 
   result = forTransactionByTimestamp<kDbOperation::kGet, kDbEntry::kMustExist>(
-      common, account_2_, ts_1_);
+      common, account_2_, ts_1_, 1, 2);
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_TRUE(result.assumeValue());
   ASSERT_EQ(*result.assumeValue(), hash_3_);
@@ -210,7 +216,7 @@ TEST_F(RocksDBIndexerTest, SimpleCheckTxByPos) {
 
   ASSERT_EQ(items.size(), 2ull);
   for (auto &it : items) {
-    auto position = iroha::ametsuchi::staticSplitId<3>(it.first, "/");
+    auto position = iroha::ametsuchi::staticSplitId<5>(it.first, "/");
     ASSERT_TRUE(position.at(0) == "1" || position.at(0) == "2");
     ASSERT_TRUE(position.at(2) == "1");
 
@@ -233,9 +239,9 @@ TEST_F(RocksDBIndexerTest, SimpleCheckTxByPos) {
 
   ASSERT_EQ(items.size(), 1ull);
   for (auto &it : items) {
-    auto position = iroha::ametsuchi::staticSplitId<3>(it.first, "/");
+    auto position = iroha::ametsuchi::staticSplitId<5>(it.first, "/");
     ASSERT_TRUE(position.at(0) == "1");
-    ASSERT_TRUE(position.at(2) == "1");
+    ASSERT_TRUE(position.at(2) == "2");
 
     auto data = iroha::ametsuchi::staticSplitId<3>(it.second);
     ASSERT_TRUE(data.at(0) == "");

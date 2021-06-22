@@ -102,8 +102,8 @@ CommandResult RocksDbCommandExecutor::execute(
           common.commit();
           return {};
         } catch (std::exception &e) {
-          return expected::makeError(
-              CommandError{command.toString(), 1002, e.what()});
+          return expected::makeError(CommandError{
+              command.toString(), ErrorCodes::kException, e.what()});
         }
       },
       cmd.get());
@@ -157,7 +157,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   result += amount;
   common.valueBuffer().assign(result.toStringRepr());
   if (common.valueBuffer()[0] == 'N')
-    return makeError<void>(1003,
+    return makeError<void>(ErrorCodes::kInvalidAssetAmount,
                            "Invalid asset {} amount {}",
                            command.assetId(),
                            result.toString());
@@ -225,18 +225,25 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
         opt_permissions,
         forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
             common,
-            account_name,
-            domain_id,
             creator_account_name,
-            creator_domain_id));
+            creator_domain_id,
+            account_name,
+            domain_id));
     if (opt_permissions)
       granted_account_permissions = *opt_permissions;
 
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions,
-                                     granted_account_permissions,
-                                     Role::kAddSignatory,
-                                     Grantable::kAddMySignatory));
+    if (creator_account_id == command.accountId()) {
+      RDB_ERROR_CHECK(
+          checkPermissions(creator_permissions, Role::kAddSignatory));
+    } else {
+      RDB_ERROR_CHECK(checkGrantablePermissions(creator_permissions,
+                                                granted_account_permissions,
+                                                Grantable::kAddMySignatory));
+    }
   }
+
+  RDB_ERROR_CHECK(forAccount<kDbOperation::kCheck, kDbEntry::kMustExist>(
+      common, account_name, domain_id));
 
   RDB_ERROR_CHECK(forSignatory<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
       common, account_name, domain_id, command.pubkey()));
@@ -266,7 +273,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
         opt_permissions,
         forRole<kDbOperation::kGet, kDbEntry::kMustExist>(common, role_name));
     if (!opt_permissions->isSubsetOf(creator_permissions))
-      return makeError<void>(1004, "Insufficient permissions");
+      return makeError<void>(ErrorCodes::kNoPermissions,
+                             "Insufficient permissions");
   }
 
   RDB_ERROR_CHECK(forAccount<kDbOperation::kCheck, kDbEntry::kMustExist>(
@@ -291,7 +299,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     shared_model::interface::types::CommandIndexType /*cmd_index*/,
     bool /*do_validation*/,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  return makeError<void>(1005, "Not implemented");
+  return makeError<void>(ErrorCodes::kNoImplementation, "Not implemented");
 }
 
 RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
@@ -343,14 +351,36 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       command.checkEmpty() ? !command.oldValue() && !opt_detail : !opt_detail;
 
   if (eq || same) {
+    RDB_TRY_GET_VALUE(
+        opt_detail,
+        forAccountDetail<kDbOperation::kGet, kDbEntry::kCanExist>(
+            common,
+            account_name,
+            domain_id,
+            !creator_account_id.empty() ? creator_account_id : "genesis",
+            command.key()));
+
     common.valueBuffer().assign(command.value());
     RDB_ERROR_CHECK(forAccountDetail<kDbOperation::kPut>(
         common, account_name, domain_id, creator_id, command.key()));
 
+    if (!opt_detail) {
+      RDB_TRY_GET_VALUE(
+          opt_acc_details_count,
+          forAccountDetailsCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+              common, account_name, domain_id));
+      const uint64_t count =
+          opt_acc_details_count ? *opt_acc_details_count : 0ull;
+
+      common.encode(count + 1ull);
+      RDB_ERROR_CHECK(forAccountDetailsCount<kDbOperation::kPut>(
+          common, account_name, domain_id));
+    }
+
     return {};
   }
 
-  return makeError<void>(4, "Old value incorrect");
+  return makeError<void>(ErrorCodes::kIncorrectOldValue, "Old value incorrect");
 }
 
 RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
@@ -381,7 +411,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       forRole<kDbOperation::kGet, kDbEntry::kMustExist>(common, default_role));
 
   if (do_validation && !opt_permissions->isSubsetOf(creator_permissions))
-    return makeError<void>(1006, "Insufficient permissions");
+    return makeError<void>(ErrorCodes::kNoPermissions,
+                           "Insufficient permissions");
 
   common.valueBuffer() = "";
   RDB_ERROR_CHECK(forAccountRole<kDbOperation::kPut>(
@@ -456,6 +487,15 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
         common, default_role));
   }
 
+  uint64_t domains_count = 0ull;
+  if (auto result =
+          forDomainsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(common);
+      expected::hasValue(result) && result.assumeValue())
+    domains_count = *result.assumeValue();
+
+  common.encode(domains_count + 1ull);
+  forDomainsTotalCount<kDbOperation::kPut>(common);
+
   common.valueBuffer().assign(default_role);
   RDB_ERROR_CHECK(forDomain<kDbOperation::kPut>(common, domain_id));
 
@@ -479,12 +519,15 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kCreateRole));
 
     if (!role_permissions.isSubsetOf(creator_permissions))
-      return makeError<void>(1006, "Insufficient permissions");
-
-    // check if role already exists
-    RDB_ERROR_CHECK(forRole<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-        common, role_name));
+      return makeError<void>(ErrorCodes::kNoPermissions,
+                             "Insufficient permissions");
   }
+
+  // check if role already exists
+  if (auto result = forRole<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+          common, role_name);
+      expected::hasError(result))
+    return makeError<void>(ErrorCodes::kRoleAlreadyExists, "Already exists.");
 
   common.valueBuffer().assign(role_permissions.toBitstring());
   RDB_ERROR_CHECK(forRole<kDbOperation::kPut>(common, role_name));
@@ -557,7 +600,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   // check if already granted
   if (granted_account_permissions.isSet(granted_perm))
-    return makeError<void>(1007, "Permission is already set.");
+    return makeError<void>(ErrorCodes::kPermissionIsAlreadySet,
+                           "Permission is already set.");
 
   granted_account_permissions.set(granted_perm);
   common.valueBuffer().assign(granted_account_permissions.toBitstring());
@@ -581,7 +625,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     bool do_validation,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
   if (command.pubkey().empty())
-    return makeError<void>(1008, "Pubkey empty.");
+    return makeError<void>(ErrorCodes::kPublicKeyIsEmpty, "Pubkey empty.");
 
   if (do_validation)
     RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kRemovePeer));
@@ -593,7 +637,9 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       opt_peers_count,
       forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
   if (*opt_peers_count == 1ull)
-    return makeError<void>(4, "Can not remove last peer {}.", command.pubkey());
+    return makeError<void>(ErrorCodes::kPeersCountIsNotEnough,
+                           "Can not remove last peer {}.",
+                           command.pubkey());
 
   common.encode(*opt_peers_count - 1ull);
   RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common));
@@ -617,25 +663,58 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
 
   if (do_validation) {
+    uint64_t quorum;
+    if (auto result = forQuorum<kDbOperation::kGet, kDbEntry::kMustExist>(
+            common, account_name, domain_id);
+        expected::hasError(result))
+      return makeError<void>(ErrorCodes::kNoAccount,
+                             std::move(result.assumeError()));
+    else
+      quorum = *result.assumeValue();
+
     GrantablePermissionSet granted_account_permissions;
     RDB_TRY_GET_VALUE(
         opt_permissions,
         forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
             common,
-            account_name,
-            domain_id,
             creator_account_name,
-            creator_domain_id));
+            creator_domain_id,
+            account_name,
+            domain_id));
     if (opt_permissions)
       granted_account_permissions = *opt_permissions;
 
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions,
-                                     granted_account_permissions,
-                                     Role::kRemoveSignatory,
-                                     Grantable::kRemoveMySignatory));
+    if (creator_account_id == command.accountId()) {
+      RDB_ERROR_CHECK(
+          checkPermissions(creator_permissions, Role::kRemoveSignatory));
+    } else {
+      RDB_ERROR_CHECK(checkGrantablePermissions(creator_permissions,
+                                                granted_account_permissions,
+                                                Grantable::kRemoveMySignatory));
+    }
 
-    RDB_ERROR_CHECK(forSignatory<kDbOperation::kCheck, kDbEntry::kMustExist>(
-        common, account_name, domain_id, command.pubkey()));
+    if (auto result = forSignatory<kDbOperation::kCheck, kDbEntry::kMustExist>(
+            common, account_name, domain_id, command.pubkey());
+        expected::hasError(result))
+      return makeError<void>(ErrorCodes::kNoSignatory,
+                             std::move(result.assumeError()));
+
+    uint64_t counter = 0;
+    auto status = enumerateKeys(common,
+                                [&](auto key) {
+                                  ++counter;
+                                  return true;
+                                },
+                                fmtstrings::kPathSignatories,
+                                domain_id,
+                                account_name);
+    if (counter <= quorum)
+      return makeError<void>(
+          ErrorCodes::kCountNotEnough,
+          "Remove signatory {} for account {} with quorum {} failed.",
+          command.pubkey(),
+          command.accountId(),
+          quorum);
   }
 
   RDB_ERROR_CHECK(forSignatory<kDbOperation::kDel>(
@@ -682,7 +761,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   // check if not granted
   if (!granted_account_permissions.isSet(revoked_perm))
-    return makeError<void>(1008, "Permission not set");
+    return makeError<void>(ErrorCodes::kNoPermissions, "Permission not set");
 
   granted_account_permissions.unset(revoked_perm);
   common.valueBuffer().assign(granted_account_permissions.toBitstring());
@@ -716,10 +795,10 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
           opt_permissions,
           forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
               common,
-              account_name,
-              domain_id,
               creator_account_name,
-              creator_domain_id));
+              creator_domain_id,
+              account_name,
+              domain_id));
       if (opt_permissions)
         granted_account_permissions = *opt_permissions;
 
@@ -734,6 +813,15 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
         common, account_name, domain_id));
   }
 
+  RDB_TRY_GET_VALUE(
+      opt_detail,
+      forAccountDetail<kDbOperation::kGet, kDbEntry::kCanExist>(
+          common,
+          account_name,
+          domain_id,
+          !creator_account_id.empty() ? creator_account_id : "genesis",
+          command.key()));
+
   common.valueBuffer().assign(command.value());
   RDB_ERROR_CHECK(forAccountDetail<kDbOperation::kPut>(
       common,
@@ -741,6 +829,19 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       domain_id,
       !creator_account_id.empty() ? creator_account_id : "genesis",
       command.key()));
+
+  if (!opt_detail) {
+    RDB_TRY_GET_VALUE(
+        opt_acc_details_count,
+        forAccountDetailsCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+            common, account_name, domain_id));
+    const uint64_t count =
+        opt_acc_details_count ? *opt_acc_details_count : 0ull;
+
+    common.encode(count + 1ull);
+    RDB_ERROR_CHECK(forAccountDetailsCount<kDbOperation::kPut>(
+        common, account_name, domain_id));
+  }
 
   return {};
 }
@@ -793,8 +894,9 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
                               account_name);
 
   if (command.newQuorum() > counter)
-    return makeError<void>(
-        5, "Quorum value more than signatories. {}", command.toString());
+    return makeError<void>(ErrorCodes::kCountNotEnough,
+                           "Quorum value more than signatories. {}",
+                           command.toString());
 
   common.encode(command.newQuorum());
   RDB_ERROR_CHECK(
@@ -849,7 +951,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   result -= amount;
   common.valueBuffer().assign(result.toStringRepr());
   if (common.valueBuffer()[0] == 'N')
-    return makeError<void>(3,
+    return makeError<void>(ErrorCodes::kInvalidAmount,
                            "Invalid {} amount {} from {}",
                            command.toString(),
                            result.toString(),
@@ -894,8 +996,9 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
         accountPermissions(
             common, destination_account_name, destination_domain_id));
     if (!destination_permissions.isSet(Role::kReceive))
-      return makeError<void>(
-          2, "Not enough permissions. {}", command.toString());
+      return makeError<void>(ErrorCodes::kNoPermissions,
+                             "Not enough permissions. {}",
+                             command.toString());
 
     if (command.srcAccountId() != creator_account_id) {
       GrantablePermissionSet granted_account_permissions;
@@ -931,7 +1034,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       uint64_t max_description_size;
       common.decode(max_description_size);
       if (description.size() > max_description_size)
-        return makeError<void>(1009, "Too big description");
+        return makeError<void>(ErrorCodes::kInvalidFieldSize,
+                               "Too big description");
     }
   }
 
@@ -944,7 +1048,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   source_balance -= amount;
   if (source_balance.toStringRepr()[0] == 'N')
-    return makeError<void>(6, "Not enough assets");
+    return makeError<void>(ErrorCodes::kNotEnoughAssets, "Not enough assets");
 
   RDB_TRY_GET_VALUE(
       opt_account_asset_size,
@@ -970,7 +1074,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   destination_balance += amount;
   if (destination_balance.toStringRepr()[0] == 'N')
-    return makeError<void>(7, "Incorrect balance");
+    return makeError<void>(ErrorCodes::kIncorrectBalance, "Incorrect balance");
 
   common.valueBuffer().assign(source_balance.toStringRepr());
   RDB_ERROR_CHECK(forAccountAsset<kDbOperation::kPut>(
