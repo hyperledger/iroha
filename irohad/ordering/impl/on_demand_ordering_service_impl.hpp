@@ -64,6 +64,8 @@ namespace iroha {
         removeFromBatchesCache(hashes);
       }
 
+      void processReceivedProposal(CollectionType batches) override;
+
      private:
       /**
        * Packs new proposals and creates new rounds
@@ -132,7 +134,7 @@ namespace iroha {
       mutable std::mutex proposals_mutex_;
 
       mutable std::shared_timed_mutex batches_cache_cs_;
-      BatchesSetType batches_cache_;
+      BatchesSetType batches_cache_, used_batches_cache_;
 
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;

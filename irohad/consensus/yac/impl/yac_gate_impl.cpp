@@ -33,7 +33,7 @@ using iroha::consensus::yac::YacGateImpl;
 YacGateImpl::YacGateImpl(
     std::shared_ptr<HashGate> hash_gate,
     std::shared_ptr<YacPeerOrderer> orderer,
-    boost::optional<ClusterOrdering> alternative_order,
+    std::optional<ClusterOrdering> alternative_order,
     std::shared_ptr<const LedgerState> ledger_state,
     std::shared_ptr<YacHashProvider> hash_provider,
     std::shared_ptr<consensus::ConsensusResultCache> consensus_result_cache,
@@ -48,12 +48,10 @@ YacGateImpl::YacGateImpl(
       hash_gate_(std::move(hash_gate)) {}
 
 void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
-  if (current_hash_.vote_round >= event.round) {
-    log_->info(
-        "Current round {} is greater than or equal to vote round {}, "
-        "skipped",
-        current_hash_.vote_round,
-        event.round);
+  if (current_hash_.vote_round != event.round) {
+    log_->info("Current round {} not equal to vote round {}, skipped",
+               current_hash_.vote_round,
+               event.round);
     return;
   }
 
@@ -63,7 +61,7 @@ void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
          == current_ledger_state_->top_block_info.height + 1);
 
   if (not event.round_data) {
-    current_block_ = boost::none;
+    current_block_ = std::nullopt;
     // previous block is committed to block storage, it is safe to clear
     // the cache
     // TODO 2019-03-15 andrei: IR-405 Subscribe BlockLoaderService to
@@ -103,6 +101,21 @@ void YacGateImpl::stop() {
   hash_gate_->stop();
 }
 
+std::optional<iroha::consensus::GateObject> YacGateImpl::processRoundSwitch(
+    consensus::Round const &round,
+    std::shared_ptr<LedgerState const> ledger_state) {
+  current_hash_ = YacHash();
+  current_hash_.vote_round = round;
+  current_ledger_state_ = std::move(ledger_state);
+  current_block_ = std::nullopt;
+  consensus_result_cache_->release();
+  if (auto answer = hash_gate_->processRoundSwitch(
+          current_hash_.vote_round, current_ledger_state_->ledger_peers)) {
+    return processOutcome(*answer);
+  }
+  return std::nullopt;
+}
+
 void YacGateImpl::copySignatures(const CommitMessage &commit) {
   for (const auto &vote : commit.votes) {
     auto sig = vote.hash.block_signature;
@@ -124,6 +137,8 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::handleCommit(
   }
 
   assert(hash.vote_round.block_round == current_hash_.vote_round.block_round);
+  assert(hash.vote_round.block_round
+         == current_ledger_state_->top_block_info.height + 1);
 
   if (hash == current_hash_ and current_block_) {
     // if node has voted for the committed block
@@ -141,13 +156,13 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::handleCommit(
   if (hash.vote_hashes.proposal_hash.empty()) {
     // if consensus agreed on nothing for commit
     log_->info("Consensus skipped round, voted for nothing");
-    current_block_ = boost::none;
+    current_block_ = std::nullopt;
     return AgreementOnNone(
         hash.vote_round, current_ledger_state_, std::move(public_keys));
   }
 
   log_->info("Voted for another block, waiting for sync");
-  current_block_ = boost::none;
+  current_block_ = std::nullopt;
   auto model_hash = hash_provider_->toModelHash(hash);
   return VoteOther(hash.vote_round,
                    current_ledger_state_,
@@ -167,6 +182,8 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::handleReject(
   }
 
   assert(hash.vote_round.block_round == current_hash_.vote_round.block_round);
+  assert(hash.vote_round.block_round
+         == current_ledger_state_->top_block_info.height + 1);
 
   auto has_same_proposals =
       std::all_of(std::next(msg.votes.begin()),

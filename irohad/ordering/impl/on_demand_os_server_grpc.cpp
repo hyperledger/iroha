@@ -52,6 +52,10 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
     return ::grpc::Status::OK;
   }
 
+  log_->info("Received SendBatches with {} from {}",
+             *batches.assumeValue().front(),
+             context->peer());
+
   ordering_service_->onBatches(std::move(batches).assumeValue());
 
   return ::grpc::Status::OK;
@@ -75,9 +79,18 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
         template create<EventTypes::kOnNewBatchInCache>(
             static_cast<iroha::SubscriptionEngineHandlers>(*tid),
             [scheduler(utils::make_weak(scheduler))](auto, auto) {
-              if (auto maybe_scheduler = scheduler.lock()) {
+              if (auto maybe_scheduler = scheduler.lock())
                 maybe_scheduler->dispose();
-              }
+            });
+    auto proposals_subscription =
+        SubscriberCreator<bool, consensus::Round>::template create<
+            EventTypes::kOnPackProposal>(
+            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+            [round, scheduler(utils::make_weak(scheduler))](auto,
+                                                            auto packed_round) {
+              if (auto maybe_scheduler = scheduler.lock();
+                  maybe_scheduler and round == packed_round)
+                maybe_scheduler->dispose();
             });
     scheduler->addDelayed(delay_, [scheduler(utils::make_weak(scheduler))] {
       if (auto maybe_scheduler = scheduler.lock()) {
