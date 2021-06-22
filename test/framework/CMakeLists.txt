@@ -57,6 +57,7 @@ target_link_libraries(integration_framework
     mst_transport
     test_logger
     pg_connection_init
+    rdb_connection_init
     )
 
 add_library(common_test_constants common_constants.cpp)
@@ -94,6 +95,7 @@ target_link_libraries(test_db_manager
     k_times_reconnection_strategy
     logger_manager
     pg_connection_init
+    rdb_connection_init
     postgres_options
     SOCI::postgresql
     SOCI::core

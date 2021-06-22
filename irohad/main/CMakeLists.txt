@@ -24,6 +24,14 @@ target_link_libraries(raw_block_loader
     logger
     )
 
+add_library(rdb_connection_init impl/rocksdb_connection_init.cpp)
+target_link_libraries(rdb_connection_init
+    RocksDB::rocksdb
+    failover_callback
+    irohad_version
+    logger
+    )
+
 add_library(pg_connection_init impl/pg_connection_init.cpp)
 target_link_libraries(pg_connection_init
     SOCI::postgresql
@@ -90,6 +98,7 @@ target_link_libraries(application
     pending_txs_storage_init
     common
     pg_connection_init
+    rdb_connection_init
     generator
     async_subscription
     )
@@ -110,6 +119,7 @@ target_link_libraries(irohad
     logger_manager
     irohad_version
     pg_connection_init
+    rdb_connection_init
     maintenance
     )
 

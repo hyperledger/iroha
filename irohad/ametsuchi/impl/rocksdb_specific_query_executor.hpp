@@ -55,13 +55,15 @@ namespace iroha::ametsuchi {
     };
 
     RocksDbSpecificQueryExecutor(
-        std::shared_ptr<RocksDBPort> db_port,
+        std::shared_ptr<RocksDBContext> db_context,
         BlockStorage &block_store,
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter);
+
+    std::shared_ptr<RocksDBContext> getTxContext();
 
     QueryExecutorResult execute(
         const shared_model::interface::Query &qry) override;

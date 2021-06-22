@@ -8,43 +8,31 @@
 
 #include <soci/soci.h>
 
-#include "ametsuchi/block_query.hpp"
-#include "ametsuchi/block_storage.hpp"
-#include "logger/logger_fwd.hpp"
+#include "ametsuchi/impl/block_query_base.hpp"
 
-namespace iroha {
-  namespace ametsuchi {
+namespace iroha::ametsuchi {
 
-    /**
-     * Class which implements BlockQuery with a Postgres backend.
-     */
-    class PostgresBlockQuery : public BlockQuery {
-     public:
-      PostgresBlockQuery(soci::session &sql,
-                         BlockStorage &block_storage,
-                         logger::LoggerPtr log);
+  /**
+   * Class which implements BlockQuery with a Postgres backend.
+   */
+  class PostgresBlockQuery : public BlockQueryBase {
+   public:
+    PostgresBlockQuery(soci::session &sql,
+                       BlockStorage &block_storage,
+                       logger::LoggerPtr log);
 
-      PostgresBlockQuery(std::unique_ptr<soci::session> sql,
-                         BlockStorage &block_storage,
-                         logger::LoggerPtr log);
+    PostgresBlockQuery(std::unique_ptr<soci::session> sql,
+                       BlockStorage &block_storage,
+                       logger::LoggerPtr log);
 
-      BlockResult getBlock(
-          shared_model::interface::types::HeightType height) override;
+    std::optional<int32_t> getTxStatus(
+        const shared_model::crypto::Hash &hash) override;
 
-      shared_model::interface::types::HeightType getTopBlockHeight() override;
+   private:
+    std::unique_ptr<soci::session> psql_;
+    soci::session &sql_;
+  };
 
-      void reloadBlockstore() override;
-
-      std::optional<TxCacheStatusType> checkTxPresence(
-          const shared_model::crypto::Hash &hash) override;
-
-     private:
-      std::unique_ptr<soci::session> psql_;
-      soci::session &sql_;
-      BlockStorage &block_storage_;
-      logger::LoggerPtr log_;
-    };
-  }  // namespace ametsuchi
-}  // namespace iroha
+}  // namespace iroha::ametsuchi
 
 #endif  // IROHA_POSTGRES_BLOCK_QUERY_HPP

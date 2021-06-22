@@ -19,6 +19,8 @@
 
 struct IrohadConfig {
   struct DbConfig {
+    std::string type;
+    std::string path;
     std::string host;
     uint16_t port;
     std::string user;

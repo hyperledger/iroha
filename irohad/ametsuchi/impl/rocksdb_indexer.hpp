@@ -18,7 +18,7 @@ namespace iroha::ametsuchi {
 
   class RocksDBIndexer final : public Indexer {
    public:
-    RocksDBIndexer(std::shared_ptr<RocksDBPort> db_port);
+    RocksDBIndexer(std::shared_ptr<RocksDBContext> db_context);
 
     void committedTxHash(const TxPosition &position,
                          const shared_model::interface::types::HashType

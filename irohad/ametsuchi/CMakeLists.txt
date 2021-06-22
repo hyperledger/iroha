@@ -76,12 +76,26 @@ target_link_libraries(proto_command_executor
     shared_model_stateless_validation
     )
 
+add_library(query_executor_base
+    impl/query_executor_base.cpp
+    )
+target_link_libraries(query_executor_base
+    logger
+    )
+
+add_library(rocksdb_query_executor
+    impl/rocksdb_query_executor.cpp
+    )
+target_link_libraries(rocksdb_query_executor
+    query_executor_base
+    )
+
 add_library(postgres_query_executor
     impl/postgres_query_executor.cpp
     )
 target_link_libraries(postgres_query_executor
     SOCI::core
-    logger
+    query_executor_base
     )
 target_compile_definitions(postgres_query_executor
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
@@ -92,13 +106,19 @@ add_library(proto_specific_query_executor
     )
 target_link_libraries(proto_specific_query_executor
     postgres_query_executor
+    rocksdb_query_executor
     shared_model_proto_backend
     shared_model_stateless_validation
     )
 
 add_library(ametsuchi
+    impl/storage_base.cpp
     impl/storage_impl.cpp
+    impl/rocksdb_storage_impl.cpp
+    impl/rocksdb_temporary_wsv_impl.cpp
+    impl/block_query_base.cpp
     impl/temporary_wsv_impl.cpp
+    impl/postgres_temporary_wsv_impl.cpp
     impl/mutable_storage_impl.cpp
     impl/postgres_wsv_query.cpp
     impl/postgres_wsv_command.cpp
@@ -106,6 +126,8 @@ add_library(ametsuchi
     impl/postgres_block_query.cpp
     impl/setting_query.cpp
     impl/postgres_setting_query.cpp
+    impl/rocksdb_settings_query.cpp
+    impl/rocksdb_block_query.cpp
     impl/executor_common.cpp
     impl/command_executor.cpp
     impl/postgres_command_executor.cpp
@@ -169,6 +191,8 @@ endif()
 target_link_libraries(ametsuchi
     default_vm_call
     pg_connection_init
+    rdb_connection_init
+    ametsuchi_rocksdb
     flat_file_storage
     postgres_indexer
     postgres_storage
@@ -187,6 +211,7 @@ target_link_libraries(ametsuchi
     SOCI::postgresql
     SOCI::core
     postgres_query_executor
+    rocksdb_query_executor
     async_subscription
     )
 
@@ -202,5 +227,6 @@ add_library(ametsuchi_rocksdb
 target_link_libraries(ametsuchi_rocksdb
     ametsuchi
     RocksDB::rocksdb
+    rocksdb_indexer
     shared_model_interfaces
     )

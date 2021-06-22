@@ -8,6 +8,7 @@
 
 #include <functional>
 
+#include "ametsuchi/impl/DbTransaction.hpp"
 #include "common/result.hpp"
 #include "validation/stateful_validator_common.hpp"
 
@@ -54,6 +55,8 @@ namespace iroha {
        */
       virtual std::unique_ptr<TemporaryWsv::SavepointWrapper> createSavepoint(
           const std::string &name) = 0;
+
+      virtual DatabaseTransaction &getDbTransaction() = 0;
 
       virtual ~TemporaryWsv() = default;
     };

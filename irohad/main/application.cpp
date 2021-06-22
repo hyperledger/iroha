@@ -10,6 +10,7 @@
 #include <rxcpp/operators/rx-map.hpp>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
+#include "ametsuchi/impl/rocksdb_storage_impl.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -37,6 +38,7 @@
 #include "main/impl/on_demand_ordering_init.hpp"
 #include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/impl/rocksdb_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
 #include "main/subscription.hpp"
@@ -106,6 +108,7 @@ static constexpr uint32_t kMaxRoundsDelayDefault = 3000;
 Irohad::Irohad(
     const IrohadConfig &config,
     std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
+    std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt,
     const std::string &listen_ip,
     const boost::optional<shared_model::crypto::Keypair> &keypair,
     logger::LoggerManagerTreePtr logger_manager,
@@ -126,6 +129,7 @@ Irohad::Irohad(
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
       pg_opt_(std::move(pg_opt)),
+      rdb_opt_(std::move(rdb_opt)),
       subscription_engine_(getSubscription()),
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
           logger_manager->getLogger())),
@@ -143,7 +147,10 @@ Irohad::Irohad(
 #if defined(USE_BURROW)
         vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
 #endif
-        return initStorage(startup_wsv_data_policy);
+        return initStorage(startup_wsv_data_policy,
+                           config_.database_config->type == "rocksdb"
+                               ? StorageType::kRocksDb
+                               : StorageType::kPostgres);
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
@@ -203,9 +210,13 @@ Irohad::RunResult Irohad::dropStorage() {
 
 Irohad::RunResult Irohad::resetWsv() {
   storage.reset();
+  db_context_.reset();
 
   log_->info("Recreating schema.");
-  return initStorage(StartupWsvDataPolicy::kDrop);
+  return initStorage(StartupWsvDataPolicy::kDrop,
+                     config_.database_config->type == "rocksdb"
+                         ? StorageType::kRocksDb
+                         : StorageType::kPostgres);
 }
 
 /**
@@ -246,27 +257,35 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
-    StartupWsvDataPolicy startup_wsv_data_policy) {
-  return PgConnectionInit::init(startup_wsv_data_policy, *pg_opt_, log_manager_)
-             | [this](auto &&pool_wrapper) -> RunResult {
-    pool_wrapper_ = std::move(pool_wrapper);
-    query_response_factory_ =
-        std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
+    StartupWsvDataPolicy startup_wsv_data_policy, StorageType type) {
+  query_response_factory_ =
+      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
-    std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
-        vm_caller_ref;
-    if (vm_caller_) {
-      vm_caller_ref = *vm_caller_.value();
-    }
+  std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
+      vm_caller_ref;
+  if (vm_caller_) {
+    vm_caller_ref = *vm_caller_.value();
+  }
 
-    return ::iroha::initStorage(*pg_opt_,
-                                pool_wrapper_,
-                                pending_txs_storage_,
-                                query_response_factory_,
-                                config_.block_store_path,
-                                vm_caller_ref,
-                                log_manager_->getChild("Storage"))
-               | [&](auto &&v) -> RunResult {
+  auto storage_creator = [&]() -> RunResult {
+    auto st = type == StorageType::kPostgres
+        ? ::iroha::initStorage(*pg_opt_,
+                               pool_wrapper_,
+                               pending_txs_storage_,
+                               query_response_factory_,
+                               config_.block_store_path,
+                               vm_caller_ref,
+                               log_manager_->getChild("Storage"))
+        : type == StorageType::kRocksDb
+            ? ::iroha::initStorage(db_context_,
+                                   pending_txs_storage_,
+                                   query_response_factory_,
+                                   config_.block_store_path,
+                                   vm_caller_ref,
+                                   log_manager_->getChild("Storage"))
+            : iroha::expected::makeError("Unexpected storage type.");
+
+    return st | [&](auto &&v) -> RunResult {
       storage = std::move(v);
 
       using shared_model::crypto::Hash;
@@ -293,6 +312,29 @@ Irohad::RunResult Irohad::initStorage(
       return {};
     };
   };
+
+  switch (type) {
+    case StorageType::kPostgres:
+      return PgConnectionInit::init(
+                 startup_wsv_data_policy, *pg_opt_, log_manager_)
+                 | [this](auto &&pool_wrapper) -> RunResult {
+        pool_wrapper_ = std::move(pool_wrapper);
+        return {};
+      } | storage_creator;
+
+    case StorageType::kRocksDb:
+      return RdbConnectionInit::init(
+                 startup_wsv_data_policy, *rdb_opt_, log_manager_)
+                 | [&](auto &&rdb_port) -> RunResult {
+        db_context_ =
+            std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
+        return {};
+      } | storage_creator;
+
+    default:
+      return iroha::expected::makeError<std::string>(
+          "Unexpected storage type!");
+  }
 }
 
 Irohad::RunResult Irohad::restoreWsv() {

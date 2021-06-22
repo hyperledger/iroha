@@ -620,7 +620,9 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig::DbConfig &dest) {
       and getDictChild(config_members::WorkingDbName)
               .loadInto(dest.working_dbname)
       and getDictChild(config_members::MaintenanceDbName)
-              .loadInto(dest.maintenance_dbname);
+              .loadInto(dest.maintenance_dbname)
+      and getDictChild(config_members::DbPath).loadInto(dest.path)
+      and getDictChild(config_members::DbType).loadInto(dest.type);
 }
 
 template <>

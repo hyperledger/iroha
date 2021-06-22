@@ -50,18 +50,22 @@ using shared_model::interface::permissions::Role;
 using shared_model::interface::RolePermissionSet;
 
 RocksDbSpecificQueryExecutor::RocksDbSpecificQueryExecutor(
-    std::shared_ptr<RocksDBPort> db_port,
+    std::shared_ptr<RocksDBContext> db_context,
     BlockStorage &block_store,
     std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
     std::shared_ptr<shared_model::interface::QueryResponseFactory>
         response_factory,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter)
-    : db_context_(std::make_shared<RocksDBContext>(db_port)),
+    : db_context_(std::move(db_context)),
       block_store_(block_store),
       pending_txs_storage_(std::move(pending_txs_storage)),
       query_response_factory_{std::move(response_factory)},
       perm_converter_(std::move(perm_converter)) {
   assert(db_context_);
+}
+
+std::shared_ptr<RocksDBContext> RocksDbSpecificQueryExecutor::getTxContext() {
+  return db_context_;
 }
 
 QueryExecutorResult RocksDbSpecificQueryExecutor::execute(

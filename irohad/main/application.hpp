@@ -39,7 +39,9 @@ namespace iroha {
     class Storage;
     class ReconnectionStrategyFactory;
     class PostgresOptions;
+    class RocksDbOptions;
     struct PoolWrapper;
+    struct RocksDBContext;
     class VmCaller;
   }  // namespace ametsuchi
   namespace consensus {
@@ -128,6 +130,7 @@ class Irohad {
    */
   Irohad(const IrohadConfig &config,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+         std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt,
          const std::string &listen_ip,
          const boost::optional<shared_model::crypto::Keypair> &keypair,
          logger::LoggerManagerTreePtr logger_manager,
@@ -174,7 +177,8 @@ class Irohad {
  protected:
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(
-      iroha::StartupWsvDataPolicy startup_wsv_data_policy);
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
+      iroha::StorageType type);
 
   RunResult initTlsCredentials();
 
@@ -260,9 +264,11 @@ class Irohad {
 
   // ------------------------| internal dependencies |-------------------------
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
+  std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;
 
  public:
   std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
+  std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:

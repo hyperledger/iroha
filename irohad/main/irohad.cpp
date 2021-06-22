@@ -25,6 +25,7 @@
 #include "logger/logger_manager.hpp"
 #include "main/application.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/impl/rocksdb_connection_init.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
@@ -269,6 +270,7 @@ int main(int argc, char *argv[]) {
     }
 
     std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt;
+    std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt;
     if (config.database_config) {
       pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
           config.database_config->host,
@@ -278,6 +280,8 @@ int main(int argc, char *argv[]) {
           config.database_config->working_dbname,
           config.database_config->maintenance_dbname,
           log);
+      rdb_opt = std::make_unique<iroha::ametsuchi::RocksDbOptions>(
+          config.database_config->path);
     } else if (config.pg_opt) {
       log->warn("Using deprecated database connection string!");
       pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
@@ -292,6 +296,7 @@ int main(int argc, char *argv[]) {
     auto irohad = std::make_unique<Irohad>(
         config,
         std::move(pg_opt),
+        std::move(rdb_opt),
         kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
                     // config file and/or command-line arguments?
         std::move(keypair),

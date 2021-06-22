@@ -81,6 +81,7 @@ target_link_libraries(storage_init_test
     integration_framework_config_helper
     shared_model_proto_backend
     pg_connection_init
+    rdb_connection_init
     test_logger
     sync_subscription
     )
@@ -177,6 +178,7 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     SOCI::postgresql
     SOCI::core
     pg_connection_init
+    rdb_connection_init
     test_logger
     )
 

@@ -17,6 +17,7 @@
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
 #include "ametsuchi/impl/executor_common.hpp"
+#include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -29,6 +30,7 @@
  * |ROOT|-+-|STORE|-+-<height_1, value:block>
  *        |         +-<height_2, value:block>
  *        |         +-<height_3, value:block>
+ *        |         +-<version>
  *        |
  *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
  *                |           |         |           +-<peer_2_pubkey, value:address>
@@ -75,29 +77,30 @@
  *                |                +-<tx_total_count>
  *                |
  *                +-|DOMAIN|-+-|DOMAIN_1|-+-|ASSETS|-+-<asset_1, value:precision>
- *                           |            |          +-<asset_2, value:precision>
- *                           |            |
- *                           |            +-|ACCOUNTS|-|NAME_1|-+-|ASSETS|-+-<asset_1, value:quantity>
- *                           |                                  |          +-<asset_2, value:quantity>
- *                           |                                  |
- *                           |                                  +-|OPTIONS|-+-<quorum>
- *                           |                                  |           +-<asset_size>
- *                           |                                  |           +-<total, value: count>
- *                           |                                  |
- *                           |                                  +-|DETAILS|-+-<writer>-<key, value>
- *                           |                                  |
- *                           |                                  +-|ROLES|-+-<role_1, value:flag>
- *                           |                                  |         +-<role_2, value:flag>
- *                           |                                  |
- *                           |                                  +-|GRANTABLE_PER|-+-<domain_account_1, value:permissions>
- *                           |                                  |                 +-<domain_account_2, value:permissions>
- *                           |                                  |
- *                           |                                  +-|SIGNATORIES|-+-<signatory_1>
- *                           |                                                  +-<signatory_2>
- *                           |
- *                           +-<domain_1, value: default_role>
- *                           +-<total_count, value>
- *
+ *                |          |            |          +-<asset_2, value:precision>
+ *                |          |            |
+ *                |          |            +-|ACCOUNTS|-|NAME_1|-+-|ASSETS|-+-<asset_1, value:quantity>
+ *                |          |                                  |          +-<asset_2, value:quantity>
+ *                |          |                                  |
+ *                |          |                                  +-|OPTIONS|-+-<quorum>
+ *                |          |                                  |           +-<asset_size>
+ *                |          |                                  |           +-<total, value: count>
+ *                |          |                                  |
+ *                |          |                                  +-|DETAILS|-+-<writer>-<key, value>
+ *                |          |                                  |
+ *                |          |                                  +-|ROLES|-+-<role_1, value:flag>
+ *                |          |                                  |         +-<role_2, value:flag>
+ *                |          |                                  |
+ *                |          |                                  +-|GRANTABLE_PER|-+-<domain_account_1, value:permissions>
+ *                |          |                                  |                 +-<domain_account_2, value:permissions>
+ *                |          |                                  |
+ *                |          |                                  +-|SIGNATORIES|-+-<signatory_1>
+ *                |          |                                                  +-<signatory_2>
+ *                |          |
+ *                |          +-<domain_1, value: default_role>
+ *                |          +-<total_count, value>
+ *                |
+ *                +-<version>
  *
  *
  * ######################################
@@ -138,6 +141,7 @@
  * ### F_TOP BLOCK   ##       Q       ###
  * ### F_PEERS COUNT ##       Z       ###
  * ### F_TOTAL COUNT ##       V       ###
+ * ### F_VERSION     ##       v       ###
  * ######################################
  *
  * ######################################
@@ -178,6 +182,7 @@
 #define RDB_F_TOP_BLOCK "Q"
 #define RDB_F_PEERS_COUNT "Z"
 #define RDB_F_TOTAL_COUNT "V"
+#define RDB_F_VERSION "v"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -198,6 +203,8 @@ namespace iroha::ametsuchi::fmtstrings {
   // domain_id/account_name
   static auto constexpr kPathAccountRoles{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ROLES)};
+
+  static auto constexpr kPathWsv{FMT_STRING(RDB_ROOT /**/ RDB_WSV)};
 
   // domain_id/account_name
   static auto constexpr kPathAccount{FMT_STRING(RDB_PATH_ACCOUNT)};
@@ -339,6 +346,14 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kAccountDetailsCount{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_OPTIONS /**/ RDB_F_TOTAL_COUNT)};
 
+  // ➡️ value
+  static auto constexpr kStoreVersion{
+      FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_F_VERSION)};
+
+  // ➡️ value
+  static auto constexpr kWsvVersion{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_F_VERSION)};
+
 }  // namespace iroha::ametsuchi::fmtstrings
 
 #undef RDB_ADDRESS
@@ -370,6 +385,7 @@ namespace iroha::ametsuchi::fmtstrings {
 #undef RDB_F_TOP_BLOCK
 #undef RDB_F_PEERS_COUNT
 #undef RDB_F_TOTAL_COUNT
+#undef RDB_F_VERSION
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -425,6 +441,7 @@ namespace iroha::ametsuchi {
     kInvalidPagination = 4,
     kInvalidStatus = 12,
     kInitializeFailed = 15,
+    kOperationFailed = 16,
   };
 
   /// Db errors structure
@@ -456,27 +473,34 @@ namespace iroha::ametsuchi {
     RocksDBPort() = default;
 
     expected::Result<void, DbError> initialize(std::string const &db_name) {
+      if (db_name_) {
+        assert(*db_name_ == db_name);
+        return {};
+      }
+
       rocksdb::Options options;
       options.create_if_missing = true;
-      options.error_if_exists = true;
 
       rocksdb::OptimisticTransactionDB *transaction_db;
       auto status = rocksdb::OptimisticTransactionDB::Open(
           options, db_name, &transaction_db);
 
-      std::unique_ptr<rocksdb::OptimisticTransactionDB> tdb(transaction_db);
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
                                "Db {} initialization failed with status: {}.",
                                db_name,
                                status.ToString());
 
+      std::unique_ptr<rocksdb::OptimisticTransactionDB> tdb(transaction_db);
       transaction_db_.swap(tdb);
+
+      db_name_ = db_name;
       return {};
     }
 
    private:
     std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
+    std::optional<std::string> db_name_;
     friend class RocksDbCommon;
 
     void prepareTransaction(RocksDBContext &tx_context) {
@@ -486,15 +510,30 @@ namespace iroha::ametsuchi {
     }
   };
 
-#define RDB_ERROR_CHECK(...)                                               \
-  if (auto _tmp_gen_var = (__VA_ARGS__); expected::hasError(_tmp_gen_var)) \
+#define RDB_ERROR_CHECK(...)                   \
+  if (auto _tmp_gen_var = (__VA_ARGS__);       \
+      iroha::expected::hasError(_tmp_gen_var)) \
   return _tmp_gen_var.assumeError()
 
-#define RDB_TRY_GET_VALUE(name, ...)                                       \
-  typename decltype(__VA_ARGS__)::ValueInnerType name;                     \
-  if (auto _tmp_gen_var = (__VA_ARGS__); expected::hasError(_tmp_gen_var)) \
-    return _tmp_gen_var.assumeError();                                     \
-  else                                                                     \
+#define RDB_ERROR_CHECK_TO_STR(...)            \
+  if (auto _tmp_gen_var = (__VA_ARGS__);       \
+      iroha::expected::hasError(_tmp_gen_var)) \
+  return _tmp_gen_var.assumeError().description
+
+#define RDB_TRY_GET_VALUE(name, ...)                   \
+  typename decltype(__VA_ARGS__)::ValueInnerType name; \
+  if (auto _tmp_gen_var = (__VA_ARGS__);               \
+      iroha::expected::hasError(_tmp_gen_var))         \
+    return _tmp_gen_var.assumeError();                 \
+  else                                                 \
+    name = std::move(_tmp_gen_var.assumeValue())
+
+#define RDB_TRY_GET_VALUE_TO_STR(name, ...)            \
+  typename decltype(__VA_ARGS__)::ValueInnerType name; \
+  if (auto _tmp_gen_var = (__VA_ARGS__);               \
+      iroha::expected::hasError(_tmp_gen_var))         \
+    return _tmp_gen_var.assumeError().description;     \
+  else                                                 \
     name = std::move(_tmp_gen_var.assumeValue())
 
   /**
@@ -505,6 +544,10 @@ namespace iroha::ametsuchi {
       if (!tx_context_->transaction)
         tx_context_->db_port->prepareTransaction(*tx_context_);
       return tx_context_->transaction;
+    }
+
+    bool isTransaction() const {
+      return !!tx_context_->transaction;
     }
 
    public:
@@ -527,9 +570,57 @@ namespace iroha::ametsuchi {
 
     /// Makes commit to DB
     auto commit() {
-      auto res = transaction()->Commit();
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->Commit();
+
       transaction().reset();
-      return res;
+      return status;
+    }
+
+    /// Rollback all transaction changes
+    auto rollback() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->Rollback();
+
+      transaction().reset();
+      return status;
+    }
+
+    auto release() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->PopSavePoint();
+      return status;
+    }
+
+    /// Prepare tx for 2pc
+    auto prepare() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->Prepare();
+      return status;
+    }
+
+    /// Skips all changes made in this transaction
+    void skip() {
+      if (isTransaction())
+        transaction().reset();
+    }
+
+    /// Saves current state of a transaction
+    void savepoint() {
+      if (isTransaction())
+        transaction()->SetSavePoint();
+    }
+
+    /// Restores to the previously saved savepoint
+    auto rollbackToSavepoint() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->RollbackToSavePoint();
+      return status;
     }
 
     /// Encode number into @see valueBuffer
@@ -604,6 +695,21 @@ namespace iroha::ametsuchi {
       for (; it->Valid() && it->key().starts_with(key); it->Next())
         if (!std::forward<F>(func)(it, key.size()))
           break;
+
+      return it->status();
+    }
+
+    /// Removes range of items by key-filter
+    template <typename S, typename... Args>
+    auto filterDelete(S const &fmtstring, Args &&... args) {
+      auto it = seek(fmtstring, std::forward<Args>(args)...);
+      if (!it->status().ok())
+        return it->status();
+
+      rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
+      for (; it->Valid() && it->key().starts_with(key); it->Next())
+        if (auto status = transaction()->Delete(it->key()); !status.ok())
+          return status;
 
       return it->status();
     }
@@ -769,12 +875,13 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<uint64_t> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok()) {
-      uint64_t _;
-      common.decode(_);
-      value = _;
+      if (status.assumeValue().ok()) {
+        uint64_t _;
+        common.decode(_);
+        value = _;
+      }
     }
     return value;
   }
@@ -787,10 +894,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<std::string_view> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value = common.valueBuffer();
+      if (status.assumeValue().ok())
+        value = common.valueBuffer();
+    }
     return value;
   }
 
@@ -803,10 +911,37 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<shared_model::interface::RolePermissionSet> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value = shared_model::interface::RolePermissionSet{common.valueBuffer()};
+      if (status.assumeValue().ok())
+        value =
+            shared_model::interface::RolePermissionSet{common.valueBuffer()};
+    }
+    return value;
+  }
+
+  template <kDbOperation kOp,
+            typename T,
+            typename = std::enable_if_t<std::is_same<T, IrohadVersion>::value>>
+  inline std::optional<IrohadVersion> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<IrohadVersion> value;
+    if constexpr (kOp == kDbOperation::kGet) {
+      assert(expected::hasValue(status));
+      if (status.assumeValue().ok()) {
+        auto const &[major, minor, patch] =
+            staticSplitId<3ull>(common.valueBuffer(), "#");
+        IrohadVersion version;
+        std::from_chars(
+            major.data(), major.data() + major.size(), version.major);
+        std::from_chars(
+            minor.data(), minor.data() + minor.size(), version.minor);
+        std::from_chars(
+            patch.data(), patch.data() + patch.size(), version.patch);
+        value = std::move(version);
+      }
+    }
     return value;
   }
 
@@ -818,10 +953,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<shared_model::interface::Amount> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value.emplace(common.valueBuffer());
+      if (status.assumeValue().ok())
+        value.emplace(common.valueBuffer());
+    }
     return value;
   }
 
@@ -834,11 +970,12 @@ namespace iroha::ametsuchi {
   loadValue(RocksDbCommon &common,
             expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<shared_model::interface::GrantablePermissionSet> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value =
-          shared_model::interface::GrantablePermissionSet{common.valueBuffer()};
+      if (status.assumeValue().ok())
+        value = shared_model::interface::GrantablePermissionSet{
+            common.valueBuffer()};
+    }
     return value;
   }
 
@@ -849,10 +986,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<bool> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value = true;
+      if (status.assumeValue().ok())
+        value = true;
+    }
     return value;
   }
 
@@ -884,6 +1022,34 @@ namespace iroha::ametsuchi {
                          std::string_view domain) {
     return dbCall<uint64_t, kOp, kSc>(
         common, fmtstrings::kAccountDetailsCount, domain, account);
+  }
+
+  /**
+   * Access to store version.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<IrohadVersion>, DbError>
+  forStoreVersion(RocksDbCommon &common) {
+    return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kStoreVersion);
+  }
+
+  /**
+   * Access to WSV version.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<IrohadVersion>, DbError> forWSVVersion(
+      RocksDbCommon &common) {
+    return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kWsvVersion);
   }
 
   /**
@@ -1510,6 +1676,13 @@ namespace iroha::ametsuchi {
 
     result += result.size() == 1ull ? "}" : "}}";
     return result;
+  }
+
+  inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
+    if (auto status = common.filterDelete(fmtstrings::kPathWsv); !status.ok())
+      return makeError<void>(DbErrorCode::kOperationFailed,
+                             "Clear WSV failed.");
+    return {};
   }
 
 }  // namespace iroha::ametsuchi

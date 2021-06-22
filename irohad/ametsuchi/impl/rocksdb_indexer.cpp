@@ -13,8 +13,8 @@
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
 
-RocksDBIndexer::RocksDBIndexer(std::shared_ptr<RocksDBPort> db_port)
-    : db_context_(std::make_shared<RocksDBContext>(db_port)) {}
+RocksDBIndexer::RocksDBIndexer(std::shared_ptr<RocksDBContext> db_context)
+    : db_context_(std::move(db_context)) {}
 
 void RocksDBIndexer::txHashStatus(const TxPosition &position,
                                   const HashType &tx_hash,

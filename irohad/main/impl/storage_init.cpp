@@ -9,15 +9,17 @@
 
 #include <fmt/core.h>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
+#include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
+#include "ametsuchi/impl/rocksdb_storage_impl.hpp"
+#include "ametsuchi/impl/storage_base.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/result.hpp"
 #include "generator/generator.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
-#include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "validators/always_valid_validator.hpp"
@@ -75,6 +77,44 @@ namespace {
     return std::move(block_storage).assumeValue();
   }
 }  // namespace
+
+iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>
+iroha::initStorage(
+    std::shared_ptr<ametsuchi::RocksDBContext> db_context,
+    std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage,
+    std::shared_ptr<shared_model::interface::QueryResponseFactory>
+        query_response_factory,
+    boost::optional<std::string> block_storage_dir,
+    std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
+        vm_caller_ref,
+    logger::LoggerManagerTreePtr log_manager) {
+  auto perm_converter =
+      std::make_shared<shared_model::proto::ProtoPermissionToString>();
+
+  auto block_transport_factory =
+      std::make_shared<shared_model::proto::ProtoBlockFactory>(
+          std::make_unique<shared_model::validation::AlwaysValidValidator<
+              shared_model::interface::Block>>(),
+          std::make_unique<shared_model::validation::ProtoBlockValidator>());
+
+  std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
+      std::make_unique<InMemoryBlockStorageFactory>();
+
+  if (!block_storage_dir)
+    return iroha::expected::makeError(
+        fmt::format("Flat file block storage is not present."));
+
+  auto persistent_block_storage =
+      makeFlatFileBlockStorage(block_storage_dir.value(), log_manager);
+  return RocksDbStorageImpl::create(db_context,
+                                    perm_converter,
+                                    std::move(pending_txs_storage),
+                                    std::move(query_response_factory),
+                                    std::move(temporary_block_storage_factory),
+                                    std::move(persistent_block_storage),
+                                    vm_caller_ref,
+                                    log_manager->getChild("Storage"));
+}
 
 iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>
 iroha::initStorage(
