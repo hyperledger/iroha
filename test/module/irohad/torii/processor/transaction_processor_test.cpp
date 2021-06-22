@@ -55,7 +55,7 @@ class TransactionProcessorTest : public ::testing::Test {
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
-        shared_model::crypto::Hash{"hash"});
+        shared_model::crypto::Hash{std::string("hash")});
   }
 
   auto base_tx() {

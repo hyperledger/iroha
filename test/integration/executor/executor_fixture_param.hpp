@@ -20,9 +20,16 @@ namespace iroha::ametsuchi {
 namespace executor_testing {
 
   struct ExecutorTestParam {
+    enum struct ExecutorType {
+      kPostgres,
+      kRocksDb,
+    };
+
     ExecutorTestParam();
 
     virtual ~ExecutorTestParam();
+
+    virtual ExecutorType getType() const = 0;
 
     /// Implementations must define this to clear WSV completely between tests.
     virtual void clearBackendState() = 0;

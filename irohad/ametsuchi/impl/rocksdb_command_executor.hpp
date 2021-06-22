@@ -49,6 +49,25 @@ namespace iroha::ametsuchi {
    public:
     using ExecutionResult = expected::Result<void, DbError>;
 
+    enum ErrorCodes {
+      kNoPermissions = 2,
+      kNoAccount = 3,
+      kInvalidAmount = 3,
+      kRoleAlreadyExists = 3,
+      kInvalidAssetAmount = 4,
+      kIncorrectOldValue = 4,
+      kPeersCountIsNotEnough = 4,
+      kNoSignatory = 4,
+      kCountNotEnough = 5,
+      kNotEnoughAssets = 6,
+      kIncorrectBalance = 7,
+      kException = 1002,
+      kNoImplementation = 1005,
+      kPermissionIsAlreadySet = 1007,
+      kPublicKeyIsEmpty = 1008,
+      kInvalidFieldSize = 1009,
+    };
+
     RocksDbCommandExecutor(
         std::shared_ptr<RocksDBPort> db_port,
         std::shared_ptr<shared_model::interface::PermissionToString>

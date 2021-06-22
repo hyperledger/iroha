@@ -68,7 +68,7 @@ class ProtoQueryResponseFactoryTest : public ::testing::Test {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAccountAssetResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   constexpr int kAccountAssetsNumber = 5;
   const std::string kAccountId = "doge@meme";
@@ -123,7 +123,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountAssetResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   const DetailType account_details = "{ fav_meme : doge }";
   const size_t total_number = 999;
@@ -152,7 +152,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAccountResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   const AccountIdType kAccountId = "doge@meme";
   const DomainIdType kDomainId = "meme";
@@ -193,7 +193,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountResponse) {
 TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
   using ErrorTypes =
       shared_model::interface::QueryResponseFactory::ErrorQueryType;
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   const auto kStatelessErrorMsg = "stateless failed";
   const auto kStatefulFailedErrorMsg = "stateful failed";
@@ -256,7 +256,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   std::vector<std::string> signatories;
   signatories.emplace_back(
@@ -283,7 +283,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   constexpr int kTransactionsNumber = 5;
 
@@ -321,8 +321,8 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsPageResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-  const HashType kNextTxHash{"next_tx_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
+  const HashType kNextTxHash{std::string("next_tx_hash")};
 
   constexpr int kTransactionsNumber = 5;
 
@@ -364,7 +364,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsPageResponse) {
  */
 TEST_F(ProtoQueryResponseFactoryTest,
        CreateTransactionsPageResponseWithoutNextTxHash) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   constexpr int kTransactionsNumber = 5;
 
@@ -404,7 +404,7 @@ TEST_F(ProtoQueryResponseFactoryTest,
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAssetResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   const AssetIdType kAssetId = "doge#coin";
   const DomainIdType kDomainId = "coin";
@@ -437,7 +437,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAssetResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateRolesResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   const std::vector<RoleIdType> roles{"admin", "user"};
   auto query_response =
@@ -461,7 +461,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateRolesResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateRolePermissionsResponse) {
-  const HashType kQueryHash{"my_super_hash"};
+  const HashType kQueryHash{std::string("my_super_hash")};
 
   const shared_model::interface::RolePermissionSet perms{
       shared_model::interface::permissions::Role::kGetMyAccount,

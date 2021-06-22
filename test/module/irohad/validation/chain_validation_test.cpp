@@ -53,8 +53,8 @@ class ChainValidationTest : public ::testing::Test {
     EXPECT_CALL(*mock_block, payload())
         .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::Blob{"blob"}));
     EXPECT_CALL(*mock_block, hash())
-        .WillRepeatedly(
-            testing::ReturnRefOfCopy(shared_model::crypto::Hash("hash")));
+        .WillRepeatedly(testing::ReturnRefOfCopy(
+            shared_model::crypto::Hash(std::string("hash"))));
   }
 
   std::shared_ptr<iroha::consensus::yac::MockSupermajorityChecker>
@@ -66,7 +66,7 @@ class ChainValidationTest : public ::testing::Test {
   std::vector<std::shared_ptr<shared_model::interface::Signature>> signatures;
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
   shared_model::crypto::Hash prev_hash =
-      shared_model::crypto::Hash("previous top hash");
+      shared_model::crypto::Hash(std::string{"previous top hash"});
   shared_model::interface::types::HeightType prev_height = 1;
   shared_model::interface::types::HeightType height = prev_height + 1;
   std::shared_ptr<MockBlock> mock_block = std::make_shared<MockBlock>();

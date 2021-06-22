@@ -62,7 +62,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round,
-        shared_model::crypto::Hash{"hash"});
+        shared_model::crypto::Hash{std::string{"hash"}});
   }
 
   /**
@@ -100,7 +100,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
  * @then it is passed to the ordering service
  */
 TEST_F(OnDemandOrderingGateTest, propagateBatch) {
-  auto hash1 = shared_model::interface::types::HashType("");
+  auto hash1 = shared_model::interface::types::HashType(std::string(""));
   auto batch = createMockBatchWithHash(hash1);
   OdOsNotification::CollectionType collection{batch};
 
@@ -124,7 +124,8 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   std::vector<std::shared_ptr<MockTransaction>> txs{
       std::make_shared<MockTransaction>()};
   ON_CALL(*txs[0], hash())
-      .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash("")));
+      .WillByDefault(
+          ReturnRefOfCopy(shared_model::crypto::Hash(std::string(""))));
   ON_CALL(*proposal, transactions())
       .WillByDefault(Return(txs | boost::adaptors::indirected));
 
@@ -161,7 +162,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
   std::vector<std::shared_ptr<MockTransaction>> txs{
       std::make_shared<MockTransaction>()};
   ON_CALL(*txs[0], hash())
-      .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash("")));
+      .WillByDefault(
+          ReturnRefOfCopy(shared_model::crypto::Hash(std::string(""))));
   ON_CALL(*proposal, transactions())
       .WillByDefault(Return(txs | boost::adaptors::indirected));
 
@@ -232,7 +234,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
 TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
   // initialize mock transaction
   auto tx1 = std::make_shared<NiceMock<MockTransaction>>();
-  auto hash = shared_model::crypto::Hash("mock code is readable");
+  auto hash = shared_model::crypto::Hash(std::string("mock code is readable"));
   ON_CALL(*tx1, hash()).WillByDefault(testing::ReturnRef(testing::Const(hash)));
   std::vector<decltype(tx1)> txs{tx1};
   auto tx_range = txs | boost::adaptors::indirected;
@@ -334,10 +336,10 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
  */
 TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
   // prepare internals of mock batches
-  shared_model::interface::types::HashType hash1("hash1");
+  shared_model::interface::types::HashType hash1(std::string("hash1"));
   auto tx1 = createMockTransactionWithHash(hash1);
 
-  shared_model::interface::types::HashType hash2("hash2");
+  shared_model::interface::types::HashType hash2(std::string("hash2"));
   auto tx2 = createMockTransactionWithHash(hash2);
 
   // prepare batches

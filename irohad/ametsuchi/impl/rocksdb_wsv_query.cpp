@@ -186,16 +186,16 @@ namespace iroha::ametsuchi {
     }
   }
 
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers(){
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers() {
     return iroha::expected::makeError("unimplemented yet");
   }
-  
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countDomains(){
-      return iroha::expected::makeError("unimplemented yet");
+
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countDomains() {
+    return iroha::expected::makeError("unimplemented yet");
   }
-  
-  iroha::expected::Result<size_t, std::string> 
-      RocksDBWsvQuery::countTransactions() {
+
+  iroha::expected::Result<size_t, std::string>
+  RocksDBWsvQuery::countTransactions() {
     return iroha::expected::makeError("unimplemented yet");
   }
 
