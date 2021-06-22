@@ -15,6 +15,7 @@
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/impl/round_switch.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
 
@@ -31,16 +32,6 @@ namespace iroha {
      */
     class OnDemandOrderingGate : public network::OrderingGate {
      public:
-      struct RoundSwitch {
-        consensus::Round next_round;
-        std::shared_ptr<const LedgerState> ledger_state;
-
-        RoundSwitch(consensus::Round next_round,
-                    std::shared_ptr<const LedgerState> ledger_state)
-            : next_round(std::move(next_round)),
-              ledger_state(std::move(ledger_state)) {}
-      };
-
       OnDemandOrderingGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
           std::shared_ptr<transport::OdOsNotification> network_client,

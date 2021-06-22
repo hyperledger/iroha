@@ -36,7 +36,7 @@ namespace iroha::consensus::yac {
     YacGateImpl(
         std::shared_ptr<HashGate> hash_gate,
         std::shared_ptr<YacPeerOrderer> orderer,
-        boost::optional<ClusterOrdering> alternative_order,
+        std::optional<ClusterOrdering> alternative_order,
         std::shared_ptr<const LedgerState> ledger_state,
         std::shared_ptr<YacHashProvider> hash_provider,
         std::shared_ptr<consensus::ConsensusResultCache> consensus_result_cache,
@@ -46,6 +46,10 @@ namespace iroha::consensus::yac {
     std::optional<GateObject> processOutcome(Answer const &outcome);
 
     void stop() override;
+
+    std::optional<GateObject> processRoundSwitch(
+        consensus::Round const &round,
+        std::shared_ptr<LedgerState const> ledger_state);
 
    private:
     /**
@@ -60,10 +64,10 @@ namespace iroha::consensus::yac {
 
     logger::LoggerPtr log_;
 
-    boost::optional<std::shared_ptr<shared_model::interface::Block>>
+    std::optional<std::shared_ptr<shared_model::interface::Block>>
         current_block_;
     YacHash current_hash_;
-    boost::optional<ClusterOrdering> alternative_order_;
+    std::optional<ClusterOrdering> alternative_order_;
     std::shared_ptr<const LedgerState> current_ledger_state_;
 
     std::shared_ptr<YacPeerOrderer> orderer_;

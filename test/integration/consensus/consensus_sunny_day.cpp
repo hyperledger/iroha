@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <thread>
+
 #include <gmock/gmock.h>
 #include <grpc++/grpc++.h>
 
@@ -75,11 +77,7 @@ class ConsensusSunnyDayTest : public ::testing::Test {
     subscription = iroha::getSubscription();
     cleanup_strategy =
         std::make_shared<iroha::consensus::yac::BufferedCleanupStrategy>();
-    auto async_call = std::make_shared<
-        iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
-        getTestLogger("AsyncCall"));
     network = std::make_shared<NetworkImpl>(
-        async_call,
         std::make_unique<
             iroha::network::ClientFactoryImpl<NetworkImpl::Service>>(
             iroha::network::getTestInsecureClientFactory(std::nullopt)),
@@ -98,7 +96,7 @@ class ConsensusSunnyDayTest : public ::testing::Test {
         network,
         crypto,
         timer,
-        order.value(),
+        order->getPeers(),
         initial_round,
         getTestLogger("Yac"));
 

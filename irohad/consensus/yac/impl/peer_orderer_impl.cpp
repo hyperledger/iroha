@@ -15,11 +15,7 @@
 
 using iroha::consensus::yac::PeerOrdererImpl;
 
-PeerOrdererImpl::PeerOrdererImpl(
-    std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory)
-    : peer_query_factory_(peer_query_factory) {}
-
-boost::optional<iroha::consensus::yac::ClusterOrdering>
+std::optional<iroha::consensus::yac::ClusterOrdering>
 PeerOrdererImpl::getOrdering(
     const YacHash &hash,
     std::vector<std::shared_ptr<shared_model::interface::Peer>> const &peers) {

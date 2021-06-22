@@ -105,7 +105,8 @@ TEST_F(OnDemandOsServerGrpcTest, SendBatches) {
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
 
-  server->SendBatches(nullptr, &request, nullptr);
+  grpc::ServerContext context;
+  server->SendBatches(&context, &request, nullptr);
 
   ASSERT_EQ(collection.at(0)->transactions().at(0)->creatorAccountId(),
             creator);
