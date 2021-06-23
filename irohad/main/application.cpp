@@ -90,6 +90,7 @@ Irohad::Irohad(const std::string &block_store_dir,
                boost::optional<shared_model::interface::types::PeerList>
                    opt_alternative_peers,
                logger::LoggerManagerTreePtr logger_manager,
+               iroha::StartupWsvDataPolicy startup_wsv_data_policy,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params)
     : block_store_dir_(block_store_dir),
@@ -105,6 +106,7 @@ Irohad::Irohad(const std::string &block_store_dir,
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_alternative_peers_(std::move(opt_alternative_peers)),
+      startup_wsv_data_policy_(startup_wsv_data_policy),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
@@ -215,6 +217,9 @@ Irohad::RunResult Irohad::initStorage() {
 }
 
 Irohad::RunResult Irohad::restoreWsv() {
+  if (startup_wsv_data_policy_ == iroha::StartupWsvDataPolicy::kReuse) {
+    return {};
+  }
   return wsv_restorer_->restoreWsv(*storage).match(
       [](const auto &value) -> RunResult {
         if (not value.value) {

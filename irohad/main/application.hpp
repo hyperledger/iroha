@@ -16,6 +16,7 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
+#include "main/startup_params.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 
 namespace iroha {
@@ -114,6 +115,7 @@ class Irohad {
          boost::optional<shared_model::interface::types::PeerList>
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
+         iroha::StartupWsvDataPolicy startup_wsv_data_policy,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none);
 
@@ -210,6 +212,7 @@ class Irohad {
   size_t stale_stream_max_rounds_;
   const boost::optional<shared_model::interface::types::PeerList>
       opt_alternative_peers_;
+  iroha::StartupWsvDataPolicy startup_wsv_data_policy_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
 
