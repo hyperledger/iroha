@@ -52,6 +52,8 @@
 
 First message after handshake from client: `SubscriptionRequest`
 
+When server is ready to transmit events it sends: `SubscriptionAccepted`
+
 Server sends `Event` and expects `EventReceived` after each, before sending the next event.
 
 ### Metrics
@@ -128,7 +130,8 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 - `Transaction` - `iroha_data_model::transaction::Transaction`
 - `SignedQueryRequest` - `iroha_data_model::query::SignedQueryRequest`
 - `QueryResult` - `iroha_data_model::query::QueryResult`
-- `SubscriptionRequest` - `iroha_data_model::events::SubscriptionRequest`
-- `Event` - `iroha_data_model::events::Event`
-- `EventReceived` - `iroha_data_model::events::EventReceived`
+- `SubscriptionRequest` - `iroha_data_model::events::EventSocketMessage::SubscriptionRequest`
+- `SubscriptionAccepted` - `iroha_data_model::events::EventSocketMessage::SubscriptionAccepted`
+- `Event` - `iroha_data_model::events::EventSocketMessage::Event`
+- `EventReceived` - `iroha_data_model::events::EventSocketMessage::EventReceived`
 - `Metrics` - `iroha::maintenance::Metrics`
