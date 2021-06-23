@@ -45,7 +45,7 @@ RocksDBExecutorTestParam::RocksDBExecutorTestParam() {
   executor_itf_target_ = createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
 
   block_indexer_ = std::make_shared<BlockIndexImpl>(
-      std::make_unique<RocksDBIndexer>(db_port_),
+      std::make_unique<RocksDBIndexer>(std::make_shared<RocksDBContext>(db_port_)),
       getTestLogger("RocksDBIndexer"));
 }
 
@@ -65,7 +65,7 @@ void RocksDBExecutorTestParam::clearBackendState() {
   executor_itf_target_ = createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
 
   block_indexer_ = std::make_shared<BlockIndexImpl>(
-      std::make_unique<RocksDBIndexer>(db_port_),
+      std::make_unique<RocksDBIndexer>(std::make_shared<RocksDBContext>(db_port_)),
       getTestLogger("RocksDBIndexer"));
 }
 
@@ -100,14 +100,14 @@ namespace {
       : public RocksDbSpecificQueryExecutor {
    public:
     RocksDBSpecificQueryExecutorWrapper(
-        std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port,
+        std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context,
         std::unique_ptr<BlockStorage> block_storage,
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter)
-        : RocksDbSpecificQueryExecutor(db_port,
+        : RocksDbSpecificQueryExecutor(db_context,
                                        *block_storage,
                                        std::move(pending_txs_storage),
                                        std::move(response_factory),
@@ -123,13 +123,13 @@ namespace {
       VmCaller &vm_caller) {
     ExecutorItfTarget target;
     auto query_executor = std::make_shared<RocksDBSpecificQueryExecutorWrapper>(
-        db_port,
+        std::make_shared<RocksDBContext>(db_port),
         std::make_unique<MockBlockStorage>(),
         std::make_shared<MockPendingTransactionStorage>(),
         std::make_shared<shared_model::proto::ProtoQueryResponseFactory>(),
         std::make_shared<shared_model::proto::ProtoPermissionToString>());
     target.command_executor = std::make_shared<RocksDbCommandExecutor>(
-        db_port,
+        std::make_shared<RocksDBContext>(db_port),
         std::make_shared<shared_model::proto::ProtoPermissionToString>(),
         vm_caller);
     target.query_executor = std::move(query_executor);

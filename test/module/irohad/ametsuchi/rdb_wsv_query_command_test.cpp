@@ -33,8 +33,8 @@ namespace iroha {
         auto db_port = std::make_shared<RocksDBPort>();
         db_port->initialize(db_name_);
 
-        command_ = std::make_unique<RocksDBWsvCommand>(db_port);
-        query_ = std::make_unique<RocksDBWsvQuery>(db_port,
+        command_ = std::make_unique<RocksDBWsvCommand>(std::make_shared<RocksDBContext>(db_port));
+        query_ = std::make_unique<RocksDBWsvQuery>(std::make_shared<RocksDBContext>(db_port),
                                                    getTestLogger("WsvQuery"));
       }
 

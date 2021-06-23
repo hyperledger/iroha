@@ -21,6 +21,10 @@ namespace iroha {
                         const std::string &,
                         shared_model::interface::types::CommandIndexType,
                         bool));
+
+      MOCK_METHOD0(skipChanges, void());
+      MOCK_METHOD0(dbSession, DatabaseTransaction &());
+
     };
 
   }  // namespace ametsuchi
