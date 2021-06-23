@@ -196,9 +196,9 @@ int main(int argc, char *argv[]) {
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
       std::move(config.initial_peers),
+      log_manager->getChild("Irohad"),
       FLAGS_drop_state ? iroha::StartupWsvDataPolicy::kDrop
                          : iroha::StartupWsvDataPolicy::kReuse,
-      log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}));
 
