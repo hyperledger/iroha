@@ -23,7 +23,7 @@ impl NeedsPermission for QueryBox {}
 pub type DenialReason = String;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait PermissionsValidator<W: WorldTrait, O: NeedsPermission> {
+pub trait IsAllowed<W: WorldTrait, O: NeedsPermission> {
     /// Checks if the `authority` is allowed to perform `instruction` given the current state of `wsv`.
     ///
     /// # Errors
@@ -37,26 +37,26 @@ pub trait PermissionsValidator<W: WorldTrait, O: NeedsPermission> {
     ) -> Result<(), DenialReason>;
 }
 
-/// Box with `PermissionsValidator`
-pub type PermissionsValidatorBox<W, O> = Box<dyn PermissionsValidator<W, O> + Send + Sync>;
+/// Box with permissions validator.
+pub type IsAllowedBoxed<W, O> = Box<dyn IsAllowed<W, O> + Send + Sync>;
 
-/// Box with `PermissionsValidator` for `Instruction`.
-pub type InstructionPermissionsValidatorBox<W> = PermissionsValidatorBox<W, Instruction>;
+/// Box with permissions validator for `Instruction`.
+pub type IsInstructionAllowedBoxed<W> = IsAllowedBoxed<W, Instruction>;
 
-/// Box with `PermissionsValidator` for `Query`.
-pub type QueryPermissionsValidatorBox<W> = PermissionsValidatorBox<W, QueryBox>;
+/// Box with permissions validator for `Query`.
+pub type IsQueryAllowedBoxed<W> = IsAllowedBoxed<W, QueryBox>;
 
-/// Trait for joining validators with `or` method, autoimplemented for all types which convert to `PermissionsValidatorBox`.
+/// Trait for joining validators with `or` method, autoimplemented for all types which convert to [`IsAllowedBoxed`].
 pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission> {
-    /// Combines two validators into [`OrPermissionsValidator`].
-    fn or(self, another: impl Into<PermissionsValidatorBox<W, O>>) -> OrPermissionsValidator<W, O>;
+    /// Combines two validators into [`Or`].
+    fn or(self, another: impl Into<IsAllowedBoxed<W, O>>) -> Or<W, O>;
 }
 
-impl<W: WorldTrait, O: NeedsPermission, V: Into<PermissionsValidatorBox<W, O>>>
-    ValidatorApplyOr<W, O> for V
+impl<W: WorldTrait, O: NeedsPermission, V: Into<IsAllowedBoxed<W, O>>> ValidatorApplyOr<W, O>
+    for V
 {
-    fn or(self, another: impl Into<PermissionsValidatorBox<W, O>>) -> OrPermissionsValidator<W, O> {
-        OrPermissionsValidator {
+    fn or(self, another: impl Into<IsAllowedBoxed<W, O>>) -> Or<W, O> {
+        Or {
             first: self.into(),
             second: another.into(),
         }
@@ -65,14 +65,12 @@ impl<W: WorldTrait, O: NeedsPermission, V: Into<PermissionsValidatorBox<W, O>>>
 
 /// `check` will succeed if either `first` or `second` validator succeeds.
 #[allow(missing_debug_implementations)]
-pub struct OrPermissionsValidator<W: WorldTrait, O: NeedsPermission> {
-    first: PermissionsValidatorBox<W, O>,
-    second: PermissionsValidatorBox<W, O>,
+pub struct Or<W: WorldTrait, O: NeedsPermission> {
+    first: IsAllowedBoxed<W, O>,
+    second: IsAllowedBoxed<W, O>,
 }
 
-impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O>
-    for OrPermissionsValidator<W, O>
-{
+impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for Or<W, O> {
     fn check(
         &self,
         authority: &AccountId,
@@ -94,10 +92,8 @@ impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O>
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission + 'static> From<OrPermissionsValidator<W, O>>
-    for PermissionsValidatorBox<W, O>
-{
-    fn from(validator: OrPermissionsValidator<W, O>) -> Self {
+impl<W: WorldTrait, O: NeedsPermission + 'static> From<Or<W, O>> for IsAllowedBoxed<W, O> {
+    fn from(validator: Or<W, O>) -> Self {
         Box::new(validator)
     }
 }
@@ -105,18 +101,18 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<OrPermissionsValidator<W,
 /// Wraps validator to check nested permissions.
 /// Pay attention to wrap only validators that do not check nested intructions by themselves.
 #[allow(missing_debug_implementations)]
-pub struct RecursivePermissionsValidator<W: WorldTrait> {
-    validator: PermissionsValidatorBox<W, Instruction>,
+pub struct CheckNested<W: WorldTrait> {
+    validator: IsAllowedBoxed<W, Instruction>,
 }
 
-impl<W: WorldTrait> RecursivePermissionsValidator<W> {
+impl<W: WorldTrait> CheckNested<W> {
     /// Wraps `validator` to check nested permissions.
-    pub fn new(validator: PermissionsValidatorBox<W, Instruction>) -> Self {
-        RecursivePermissionsValidator { validator }
+    pub fn new(validator: IsAllowedBoxed<W, Instruction>) -> Self {
+        CheckNested { validator }
     }
 }
 
-impl<W: WorldTrait> PermissionsValidator<W, Instruction> for RecursivePermissionsValidator<W> {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W> {
     fn check(
         &self,
         authority: &AccountId,
@@ -151,10 +147,8 @@ impl<W: WorldTrait> PermissionsValidator<W, Instruction> for RecursivePermission
     }
 }
 
-impl<W: WorldTrait> From<RecursivePermissionsValidator<W>>
-    for InstructionPermissionsValidatorBox<W>
-{
-    fn from(validator: RecursivePermissionsValidator<W>) -> Self {
+impl<W: WorldTrait> From<CheckNested<W>> for IsInstructionAllowedBoxed<W> {
+    fn from(validator: CheckNested<W>) -> Self {
         Box::new(validator)
     }
 }
@@ -162,10 +156,10 @@ impl<W: WorldTrait> From<RecursivePermissionsValidator<W>>
 /// A container for multiple permissions validators. It will succeed if all validators succeed.
 #[allow(missing_debug_implementations)]
 pub struct AllShouldSucceed<W: WorldTrait, O: NeedsPermission> {
-    validators: Vec<PermissionsValidatorBox<W, O>>,
+    validators: Vec<IsAllowedBoxed<W, O>>,
 }
 
-impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AllShouldSucceed<W, O> {
+impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllShouldSucceed<W, O> {
     fn check(
         &self,
         authority: &AccountId,
@@ -180,7 +174,7 @@ impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AllShould
 }
 
 impl<W: WorldTrait, O: NeedsPermission + 'static> From<AllShouldSucceed<W, O>>
-    for PermissionsValidatorBox<W, O>
+    for IsAllowedBoxed<W, O>
 {
     fn from(validator: AllShouldSucceed<W, O>) -> Self {
         Box::new(validator)
@@ -191,10 +185,10 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<AllShouldSucceed<W, O>>
 #[allow(missing_debug_implementations)]
 pub struct AnyShouldSucceed<W: WorldTrait, O: NeedsPermission> {
     name: String,
-    validators: Vec<PermissionsValidatorBox<W, O>>,
+    validators: Vec<IsAllowedBoxed<W, O>>,
 }
 
-impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AnyShouldSucceed<W, O> {
+impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AnyShouldSucceed<W, O> {
     fn check(
         &self,
         authority: &AccountId,
@@ -214,7 +208,7 @@ impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AnyShould
 }
 
 impl<W: WorldTrait, O: NeedsPermission + 'static> From<AnyShouldSucceed<W, O>>
-    for PermissionsValidatorBox<W, O>
+    for IsAllowedBoxed<W, O>
 {
     fn from(validator: AnyShouldSucceed<W, O>) -> Self {
         Box::new(validator)
@@ -224,21 +218,21 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<AnyShouldSucceed<W, O>>
 /// Builder to combine multiple validation checks into one.
 #[allow(missing_debug_implementations)]
 #[derive(Default)]
-pub struct PermissionsValidatorBuilder<W: WorldTrait, O: NeedsPermission> {
-    validators: Vec<PermissionsValidatorBox<W, O>>,
+pub struct ValidatorBuilder<W: WorldTrait, O: NeedsPermission> {
+    validators: Vec<IsAllowedBoxed<W, O>>,
 }
 
-impl<W: WorldTrait, O: NeedsPermission + 'static> PermissionsValidatorBuilder<W, O> {
-    /// Returns new `PermissionValidatorBuilder`, with empty set of validator checks.
+impl<W: WorldTrait, O: NeedsPermission + 'static> ValidatorBuilder<W, O> {
+    /// Returns new `ValidatorBuilder`, with empty set of validator checks.
     pub fn new() -> Self {
-        PermissionsValidatorBuilder {
+        ValidatorBuilder {
             validators: Vec::new(),
         }
     }
 
     /// Adds a validator to the list.
-    pub fn with_validator(self, validator: impl Into<PermissionsValidatorBox<W, O>>) -> Self {
-        PermissionsValidatorBuilder {
+    pub fn with_validator(self, validator: impl Into<IsAllowedBoxed<W, O>>) -> Self {
+        ValidatorBuilder {
             validators: self
                 .validators
                 .into_iter()
@@ -248,7 +242,7 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> PermissionsValidatorBuilder<W,
     }
 
     /// Returns [`AllShouldSucceed`] that will check all the checks of previously supplied validators.
-    pub fn all_should_succeed(self) -> PermissionsValidatorBox<W, O> {
+    pub fn all_should_succeed(self) -> IsAllowedBoxed<W, O> {
         AllShouldSucceed {
             validators: self.validators,
         }
@@ -256,10 +250,7 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> PermissionsValidatorBuilder<W,
     }
 
     /// Returns [`AnyShouldSucceed`] that will succeed if any of the checks of previously supplied validators succeds.
-    pub fn any_should_succeed(
-        self,
-        check_name: impl Into<String>,
-    ) -> PermissionsValidatorBox<W, O> {
+    pub fn any_should_succeed(self, check_name: impl Into<String>) -> IsAllowedBoxed<W, O> {
         AnyShouldSucceed {
             name: check_name.into(),
             validators: self.validators,
@@ -268,13 +259,13 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> PermissionsValidatorBuilder<W,
     }
 }
 
-impl<W: WorldTrait> PermissionsValidatorBuilder<W, Instruction> {
-    /// Adds a validator to the list and wraps it with `RecursivePermissionValidator` to check nested permissions.
+impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
+    /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
     pub fn with_recursive_validator(
         self,
-        validator: impl Into<InstructionPermissionsValidatorBox<W>>,
+        validator: impl Into<IsInstructionAllowedBoxed<W>>,
     ) -> Self {
-        self.with_validator(RecursivePermissionsValidator::new(validator.into()))
+        self.with_validator(CheckNested::new(validator.into()))
     }
 }
 
@@ -282,7 +273,7 @@ impl<W: WorldTrait> PermissionsValidatorBuilder<W, Instruction> {
 #[derive(Debug, Clone, Copy)]
 pub struct AllowAll;
 
-impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AllowAll {
+impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     fn check(
         &self,
         _authority: &AccountId,
@@ -293,24 +284,24 @@ impl<W: WorldTrait, O: NeedsPermission> PermissionsValidator<W, O> for AllowAll 
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> From<AllowAll> for PermissionsValidatorBox<W, O> {
+impl<W: WorldTrait, O: NeedsPermission> From<AllowAll> for IsAllowedBoxed<W, O> {
     fn from(AllowAll: AllowAll) -> Self {
         Box::new(AllowAll)
     }
 }
 
 /// Boxed validator implementing [`GrantedTokenValidator`] trait.
-pub type GrantedTokenValidatorBox<W> = Box<dyn GrantedTokenValidator<W> + Send + Sync>;
+pub type HasTokenBoxed<W> = Box<dyn HasToken<W> + Send + Sync>;
 
-/// Trait that should be implemented by
-pub trait GrantedTokenValidator<W: WorldTrait> {
+/// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
+pub trait HasToken<W: WorldTrait> {
     /// This function should return the token that `authority` should possess, given the `instruction`
     /// they are planning to execute on the current state of `wsv`
     ///
     /// # Errors
     /// In the case when it is impossible to deduce the required token given current data
     /// (e.g. unexistent account or unaplicable instruction).
-    fn should_have_token(
+    fn token(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
@@ -318,7 +309,7 @@ pub trait GrantedTokenValidator<W: WorldTrait> {
     ) -> Result<PermissionToken, String>;
 }
 
-impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantedTokenValidatorBox<W> {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
     fn check(
         &self,
         authority: &AccountId,
@@ -326,7 +317,7 @@ impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantedTokenValidat
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         let permission_token = self
-            .should_have_token(authority, instruction, wsv)
+            .token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
         let contain = wsv
             .map_account(authority, |account| {
@@ -346,14 +337,14 @@ impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantedTokenValidat
 
 // TODO: rewrite when specialization reaches stable
 // Currently we simply can't do the following:
-// impl <T: GrantInstructionValidator> PermissionsValidator for T {}
+// impl <T: IsGrantAllowed> PermissionsValidator for T {}
 // when we have
-// impl <T: GrantedTokenValidator> PermissionsValidator for T {}
-/// Boxed validator implementing [`GrantInstructionValidator`] trait.
-pub type GrantInstructionValidatorBox<W> = Box<dyn GrantInstructionValidator<W> + Send + Sync>;
+// impl <T: HasToken> PermissionsValidator for T {}
+/// Boxed validator implementing [`IsGrantAllowed`] trait.
+pub type IsGrantAllowedBoxed<W> = Box<dyn IsGrantAllowed<W> + Send + Sync>;
 
 /// Checks the [`GrantBox`] instruction.
-pub trait GrantInstructionValidator<W: WorldTrait> {
+pub trait IsGrantAllowed<W: WorldTrait> {
     /// Checks the [`GrantBox`] instruction.
     ///
     /// # Errors
@@ -366,7 +357,7 @@ pub trait GrantInstructionValidator<W: WorldTrait> {
     ) -> Result<(), DenialReason>;
 }
 
-impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantInstructionValidatorBox<W> {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
     fn check(
         &self,
         authority: &AccountId,
@@ -381,10 +372,8 @@ impl<W: WorldTrait> PermissionsValidator<W, Instruction> for GrantInstructionVal
     }
 }
 
-impl<W: WorldTrait> From<GrantInstructionValidatorBox<W>>
-    for InstructionPermissionsValidatorBox<W>
-{
-    fn from(validator: GrantInstructionValidatorBox<W>) -> Self {
+impl<W: WorldTrait> From<IsGrantAllowedBoxed<W>> for IsInstructionAllowedBoxed<W> {
+    fn from(validator: IsGrantAllowedBoxed<W>) -> Self {
         Box::new(validator)
     }
 }
@@ -431,8 +420,7 @@ pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
-        AllowAll, DenialReason, GrantInstructionValidator, GrantInstructionValidatorBox,
-        GrantedTokenValidatorBox, PermissionsValidatorBox,
+        AllowAll, DenialReason, HasTokenBoxed, IsAllowedBoxed, IsGrantAllowed, IsGrantAllowedBoxed,
     };
 }
 
@@ -449,13 +437,13 @@ mod tests {
 
     struct DenyBurn;
 
-    impl<W: WorldTrait> From<DenyBurn> for InstructionPermissionsValidatorBox<W> {
+    impl<W: WorldTrait> From<DenyBurn> for IsInstructionAllowedBoxed<W> {
         fn from(permissions: DenyBurn) -> Self {
             Box::new(permissions)
         }
     }
 
-    impl<W: WorldTrait> PermissionsValidator<W, Instruction> for DenyBurn {
+    impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyBurn {
         fn check(
             &self,
             _authority: &AccountId,
@@ -471,13 +459,13 @@ mod tests {
 
     struct DenyAlice;
 
-    impl<W: WorldTrait> From<DenyAlice> for InstructionPermissionsValidatorBox<W> {
+    impl<W: WorldTrait> From<DenyAlice> for IsInstructionAllowedBoxed<W> {
         fn from(permissions: DenyAlice) -> Self {
             Box::new(permissions)
         }
     }
 
-    impl<W: WorldTrait> PermissionsValidator<W, Instruction> for DenyAlice {
+    impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyAlice {
         fn check(
             &self,
             authority: &AccountId,
@@ -494,8 +482,8 @@ mod tests {
 
     struct GrantedToken;
 
-    impl<W: WorldTrait> GrantedTokenValidator<W> for GrantedToken {
-        fn should_have_token(
+    impl<W: WorldTrait> HasToken<W> for GrantedToken {
+        fn token(
             &self,
             _authority: &AccountId,
             _instruction: &Instruction,
@@ -507,7 +495,7 @@ mod tests {
 
     #[test]
     pub fn multiple_validators_combined() {
-        let permissions_validator = PermissionsValidatorBuilder::new()
+        let permissions_validator = ValidatorBuilder::new()
             .with_validator(DenyBurn)
             .with_validator(DenyAlice)
             .all_should_succeed();
@@ -538,7 +526,7 @@ mod tests {
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator = PermissionsValidatorBuilder::new()
+        let permissions_validator = ValidatorBuilder::new()
             .with_recursive_validator(DenyBurn)
             .all_should_succeed();
         let instruction_burn: Instruction = BurnBox::new(
@@ -578,7 +566,7 @@ mod tests {
         drop(domain.accounts.insert(bob_id.clone(), bob_account));
         let domains = vec![("test".to_string(), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
-        let validator: GrantedTokenValidatorBox<_> = Box::new(GrantedToken);
+        let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
     }

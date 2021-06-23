@@ -19,7 +19,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     merkle::MerkleTree,
     prelude::*,
-    smartcontracts::permissions::InstructionPermissionsValidatorBox,
+    smartcontracts::permissions::IsInstructionAllowedBoxed,
     sumeragi::InitializedNetworkTopology,
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
     wsv::WorldTrait,
@@ -206,7 +206,7 @@ impl ChainedBlock {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &InstructionPermissionsValidatorBox<W>,
+        permissions_validator: &IsInstructionAllowedBoxed<W>,
     ) -> VersionedValidBlock {
         let mut transactions = Vec::new();
         let mut rejected_transactions = Vec::new();
@@ -286,7 +286,7 @@ impl VersionedValidBlock {
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &InstructionPermissionsValidatorBox<W>,
+        permissions_validator: &IsInstructionAllowedBoxed<W>,
     ) -> VersionedValidBlock {
         self.into_inner_v1()
             .revalidate(wsv, permissions_validator)
@@ -390,7 +390,7 @@ impl ValidBlock {
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &InstructionPermissionsValidatorBox<W>,
+        permissions_validator: &IsInstructionAllowedBoxed<W>,
     ) -> ValidBlock {
         ValidBlock {
             signatures: self.signatures,

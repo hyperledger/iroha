@@ -14,7 +14,7 @@ use iroha::{
     kura::{KuraTrait, StoreBlock},
     prelude::*,
     queue::{Queue, QueueTrait},
-    smartcontracts::permissions::InstructionPermissionsValidatorBox,
+    smartcontracts::permissions::IsInstructionAllowedBoxed,
     sumeragi::{message::Message as SumeragiMessage, *},
     wsv::WorldTrait,
 };
@@ -327,7 +327,7 @@ pub mod utils {
                 configuration: &config::SumeragiConfiguration,
                 events_sender: EventsSender,
                 wsv: Arc<WorldStateView<W>>,
-                permissions_validator: InstructionPermissionsValidatorBox<W>,
+                permissions_validator: IsInstructionAllowedBoxed<W>,
                 genesis_network: Option<Self::GenesisNetwork>,
                 queue: AlwaysAddr<Self::Queue>,
                 broker: Broker,
