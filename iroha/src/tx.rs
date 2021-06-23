@@ -20,7 +20,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::smartcontracts::permissions;
 use crate::{
     prelude::*,
-    smartcontracts::{permissions::InstructionPermissionsValidatorBox, Evaluate, Execute},
+    smartcontracts::{permissions::IsInstructionAllowedBoxed, Evaluate, Execute},
     wsv::WorldTrait,
 };
 
@@ -79,7 +79,7 @@ impl VersionedAcceptedTransaction {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &InstructionPermissionsValidatorBox<W>,
+        permissions_validator: &IsInstructionAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
         self.into_inner_v1()
@@ -194,7 +194,7 @@ impl AcceptedTransaction {
     fn validate_internal<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &InstructionPermissionsValidatorBox<W>,
+        permissions_validator: &IsInstructionAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
         let wsv_temp = wsv.clone();
@@ -282,7 +282,7 @@ impl AcceptedTransaction {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &InstructionPermissionsValidatorBox<W>,
+        permissions_validator: &IsInstructionAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
         match self.validate_internal(wsv, permissions_validator, is_genesis) {

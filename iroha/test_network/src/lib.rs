@@ -21,7 +21,7 @@ use iroha::{
     kura::{Kura, KuraTrait},
     prelude::*,
     queue::{Queue, QueueTrait},
-    smartcontracts::permissions::InstructionPermissionsValidatorBox,
+    smartcontracts::permissions::IsInstructionAllowedBoxed,
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
@@ -357,7 +357,7 @@ where
     pub async fn start_with_config_permissions_dir(
         &mut self,
         configuration: Configuration,
-        permissions: impl Into<InstructionPermissionsValidatorBox<W>> + Send + 'static,
+        permissions: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
         temp_dir: &TempDir,
     ) {
         let mut configuration = self.get_config(configuration);
@@ -397,7 +397,7 @@ where
     pub async fn start_with_config_permissions(
         &mut self,
         configuration: Configuration,
-        permissions: impl Into<InstructionPermissionsValidatorBox<W>> + Send + 'static,
+        permissions: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
     ) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let mut configuration = self.get_config(configuration);
@@ -490,7 +490,7 @@ where
     /// Starts peer with default configuration and specified permissions.
     /// Returns its info and client for connecting to it.
     pub async fn start_test_with_permissions(
-        permissions: InstructionPermissionsValidatorBox<W>,
+        permissions: IsInstructionAllowedBoxed<W>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         let mut peer = Self::new().expect("Failed to create peer.");

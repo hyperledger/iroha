@@ -30,7 +30,7 @@ use crate::{
     kura::StoreBlock,
     prelude::*,
     queue::{PopPendingTransactions, QueueTrait},
-    smartcontracts::permissions::InstructionPermissionsValidatorBox,
+    smartcontracts::permissions::IsInstructionAllowedBoxed,
     wsv::WorldTrait,
     VersionedValidBlock,
 };
@@ -107,7 +107,7 @@ where
     number_of_view_changes: u32,
     /// Hashes of invalidated blocks
     pub invalidated_blocks_hashes: Vec<Hash>,
-    permissions_validator: Arc<InstructionPermissionsValidatorBox<W>>,
+    permissions_validator: Arc<IsInstructionAllowedBoxed<W>>,
     n_topology_shifts_before_reshuffle: u32,
     max_instruction_number: usize,
     /// Genesis network
@@ -144,7 +144,7 @@ pub trait SumeragiTrait:
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<Self::World>>,
-        permissions_validator: InstructionPermissionsValidatorBox<Self::World>,
+        permissions_validator: IsInstructionAllowedBoxed<Self::World>,
         genesis_network: Option<Self::GenesisNetwork>,
         queue: AlwaysAddr<Self::Queue>,
         broker: Broker,
@@ -161,7 +161,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sum
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<W>>,
-        permissions_validator: InstructionPermissionsValidatorBox<W>,
+        permissions_validator: IsInstructionAllowedBoxed<W>,
         genesis_network: Option<G>,
         queue: AlwaysAddr<Self::Queue>,
         broker: Broker,

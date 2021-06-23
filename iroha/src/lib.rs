@@ -25,7 +25,7 @@ use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result, WrapErr};
-use smartcontracts::permissions::InstructionPermissionsValidatorBox;
+use smartcontracts::permissions::IsInstructionAllowedBoxed;
 use tokio::{sync::mpsc, task::JoinHandle};
 use wsv::{World, WorldTrait};
 
@@ -96,7 +96,7 @@ where
     /// - Initialization of sumeragi
     pub async fn new(
         config: &Configuration,
-        validiator: InstructionPermissionsValidatorBox<K::World>,
+        validiator: IsInstructionAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
         Self::with_broker(config, validiator, broker).await
@@ -110,7 +110,7 @@ where
     /// - Initialization of sumeragi
     pub async fn with_broker(
         config: &Configuration,
-        validiator: InstructionPermissionsValidatorBox<K::World>,
+        validiator: IsInstructionAllowedBoxed<K::World>,
         broker: Broker,
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
