@@ -10,6 +10,7 @@
 #include "framework/test_client_factory.hpp"
 #include "main/application.hpp"
 #include "main/server_runner.hpp"
+#include "ametsuchi/impl/rocksdb_options.hpp"
 
 namespace integration_framework {
   /**
@@ -19,6 +20,7 @@ namespace integration_framework {
    public:
     TestIrohad(const IrohadConfig &config,
                std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+               std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt,
                const std::string &listen_ip,
                const shared_model::crypto::Keypair &keypair,
                logger::LoggerManagerTreePtr irohad_log_manager,
@@ -28,6 +30,7 @@ namespace integration_framework {
                    &opt_mst_gossip_params = boost::none)
         : Irohad(config,
                  std::move(pg_opt),
+                 std::move(rdb_opt),
                  listen_ip,
                  keypair,
                  std::move(irohad_log_manager),

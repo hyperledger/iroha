@@ -17,8 +17,9 @@
 #include "logger/logger.hpp"
 #include "main/impl/pg_connection_init.hpp"
 
-using namespace std::chrono_literals;
 
+namespace fs = boost::filesystem;
+using namespace std::chrono_literals;
 static constexpr std::chrono::milliseconds kMstEmissionPeriod = 100ms;
 
 namespace integration_framework {
@@ -32,6 +33,7 @@ namespace integration_framework {
       const boost::optional<std::string> &dbname)
       : config_(config),
         working_dbname_(dbname.value_or(getRandomDbName())),
+        rocksdb_filepath_((fs::temp_directory_path() / fs::unique_path()).string()),
         listen_ip_(listen_ip),
         opt_mst_gossip_params_(boost::make_optional(
             config_.mst_support,
@@ -91,6 +93,7 @@ namespace integration_framework {
         config_,
         std::make_unique<iroha::ametsuchi::PostgresOptions>(
             getPostgresCredsOrDefault(), working_dbname_, log_),
+        std::make_unique<iroha::ametsuchi::RocksDbOptions>(rocksdb_filepath_),
         listen_ip_,
         key_pair,
         irohad_log_manager_,
