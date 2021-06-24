@@ -18,10 +18,13 @@ namespace iroha {
 
     class MockChainValidator : public ChainValidator {
      public:
-      MOCK_CONST_METHOD2(
+      MOCK_METHOD(
+          bool,
           validateAndApply,
-          bool(std::shared_ptr<const shared_model::interface::Block>,
-               ametsuchi::MutableStorage &));
+          (std::shared_ptr<const shared_model::interface::Block>,
+               ametsuchi::MutableStorage &,
+               bool),
+          (const));
     };
   }  // namespace validation
 }  // namespace iroha

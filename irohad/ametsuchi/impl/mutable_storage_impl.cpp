@@ -6,8 +6,10 @@
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
 #include <fmt/core.h>
+
 #include <boost/variant/apply_visitor.hpp>
 #include <stdexcept>
+
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/block_index_impl.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
@@ -48,7 +50,8 @@ namespace iroha {
 
     bool MutableStorageImpl::applyBlockIf(
         std::shared_ptr<const shared_model::interface::Block> block,
-        MutableStoragePredicate predicate) {
+        MutableStoragePredicate predicate,
+        bool do_flush) {
       auto execute_transaction = [this](auto &transaction) -> bool {
         auto result = transaction_executor_->execute(transaction, false);
         auto error = expected::resultToOptionalError(result);
@@ -77,7 +80,7 @@ namespace iroha {
         }
 
         block_storage_->insert(block);
-        block_index_->index(*block);
+        block_index_->index(*block, do_flush);
 
         auto opt_ledger_peers = peer_query_->getLedgerPeers();
         if (not opt_ledger_peers) {
@@ -121,9 +124,10 @@ namespace iroha {
 
     bool MutableStorageImpl::applyIf(
         std::shared_ptr<const shared_model::interface::Block> block,
-        MutableStoragePredicate predicate) {
+        MutableStoragePredicate predicate,
+        bool do_flush) {
       return withSavepoint(
-          [&] { return this->applyBlockIf(block, predicate); });
+          [&] { return this->applyBlockIf(block, predicate, do_flush); });
     }
 
     boost::optional<std::shared_ptr<const iroha::LedgerState>>

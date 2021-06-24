@@ -696,7 +696,10 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
       and getDictChild(InitialPeers).loadInto(dest.initial_peers)
       and getDictChild(UtilityService).loadInto(dest.utility_service)
       and getDictChild(kCrypto).loadInto(dest.crypto)
-      and (getDictChild("metrics").loadInto(dest.metrics_addr_port) or true);
+      and (getDictChild("metrics").loadInto(dest.metrics_addr_port) or true)
+      and (getDictChild("reindex_blocks_flush_cache_size_in_blocks")
+               .loadInto(dest.reindex_blocks_flush_cache_size_in_blocks)
+           or true);
 }
 
 // ------------ end of loadInto(path, dst, src) specializations ------------

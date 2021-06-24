@@ -42,7 +42,8 @@ namespace iroha {
           std::unique_ptr<shared_model::validation::AbstractValidator<
               iroha::protocol::Block_v1>> proto_validator,
           std::shared_ptr<validation::ChainValidator> validator,
-          logger::LoggerPtr log);
+          logger::LoggerPtr log,
+          unsigned reindex_blocks_flush_cache_size_in_blocks = 1000);
 
       virtual ~WsvRestorerImpl() = default;
       /**
@@ -66,6 +67,7 @@ namespace iroha {
           proto_validator_;
       std::shared_ptr<validation::ChainValidator> validator_;
       logger::LoggerPtr log_;
+      unsigned reindex_blocks_flush_cache_size_in_blocks_ = 1000;
     };
 
   }  // namespace ametsuchi

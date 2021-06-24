@@ -6,12 +6,11 @@
 #ifndef IROHA_CHAIN_VALIDATOR_IMPL_HPP
 #define IROHA_CHAIN_VALIDATOR_IMPL_HPP
 
-#include "validation/chain_validator.hpp"
-
 #include <memory>
 
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
+#include "validation/chain_validator.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -38,7 +37,8 @@ namespace iroha {
 
       bool validateAndApply(
           std::shared_ptr<const shared_model::interface::Block> block,
-          ametsuchi::MutableStorage &storage) const override;
+          ametsuchi::MutableStorage &storage,
+          bool do_flush = true) const override;
 
      private:
       /// Verifies whether previous hash of block matches top_hash

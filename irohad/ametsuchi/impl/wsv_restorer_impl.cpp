@@ -109,7 +109,8 @@ namespace {
           &proto_validator,
       iroha::validation::ChainValidator &validator,
       HeightType starting_height,
-      HeightType ending_height) {
+      HeightType ending_height,
+      unsigned reindex_blocks_flush_cache_size_in_blocks) {
     for (auto height = starting_height; height <= ending_height; ++height) {
       auto result = block_query.getBlock(height);
       if (hasError(result)) {
@@ -136,7 +137,12 @@ namespace {
         }
       }
 
-      if (not validator.validateAndApply(std::move(block), *mutable_storage)) {
+      // flush every N blocks
+      auto counter = height - starting_height + 1;
+      bool const do_flash = counter % reindex_blocks_flush_cache_size_in_blocks == 0
+          or height == ending_height;
+      if (not validator.validateAndApply(
+              std::move(block), *mutable_storage, do_flash)) {
         return iroha::expected::makeError("Cannot validate and apply blocks!");
       }
     }
@@ -152,11 +158,14 @@ namespace iroha::ametsuchi {
       std::unique_ptr<shared_model::validation::AbstractValidator<
           iroha::protocol::Block_v1>> proto_validator,
       std::shared_ptr<validation::ChainValidator> validator,
-      logger::LoggerPtr log)
+      logger::LoggerPtr log,
+      unsigned reindex_blocks_flush_cache_size_in_blocks)
       : interface_validator_{std::move(interface_validator)},
         proto_validator_{std::move(proto_validator)},
         validator_{std::move(validator)},
-        log_{std::move(log)} {}
+        log_{std::move(log)},
+        reindex_blocks_flush_cache_size_in_blocks_(
+            reindex_blocks_flush_cache_size_in_blocks) {}
 
   CommitResult WsvRestorerImpl::restoreWsv(Storage &storage,
                                            bool wait_for_new_blocks) {
@@ -234,7 +243,8 @@ namespace iroha::ametsuchi {
                                *proto_validator_,
                                *validator_,
                                wsv_ledger_height + 1,
-                               last_block_in_storage);
+                               last_block_in_storage,
+                               reindex_blocks_flush_cache_size_in_blocks_);
         };
         if (hasError(res)) {
           break;

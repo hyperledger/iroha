@@ -6,9 +6,8 @@
 #ifndef IROHA_ROCKSDB_WSV_QUERY_HPP
 #define IROHA_ROCKSDB_WSV_QUERY_HPP
 
-#include "ametsuchi/wsv_query.hpp"
-
 #include "ametsuchi/impl/rocksdb_common.hpp"
+#include "ametsuchi/wsv_query.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

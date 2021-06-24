@@ -6,6 +6,7 @@
 #include "validation/impl/chain_validator_impl.hpp"
 
 #include <boost/algorithm/string/join.hpp>
+
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
@@ -24,13 +25,16 @@ namespace iroha {
 
     bool ChainValidatorImpl::validateAndApply(
         std::shared_ptr<const shared_model::interface::Block> block,
-        ametsuchi::MutableStorage &storage) const {
+        ametsuchi::MutableStorage &storage,
+        bool do_flush) const {
       log_->info("validate block...");
 
-      return storage.applyIf(block,
-                             [this](auto block, const auto &ledger_state) {
-                               return this->validateBlock(block, ledger_state);
-                             });
+      return storage.applyIf(
+          block,
+          [this](auto block, const auto &ledger_state) {
+            return this->validateBlock(block, ledger_state);
+          },
+          do_flush);
     }
 
     bool ChainValidatorImpl::validatePreviousHash(

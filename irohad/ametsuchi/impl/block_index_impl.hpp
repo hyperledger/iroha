@@ -7,7 +7,6 @@
 #define IROHA_POSTGRES_BLOCK_INDEX_HPP
 
 #include "ametsuchi/impl/block_index.hpp"
-
 #include "ametsuchi/indexer.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger_fwd.hpp"
@@ -32,7 +31,8 @@ namespace iroha {
       BlockIndexImpl(std::unique_ptr<Indexer> indexer, logger::LoggerPtr log);
 
       /// Index a block.
-      void index(const shared_model::interface::Block &block) override;
+      void index(const shared_model::interface::Block &block,
+                 bool do_flush = true) override;
 
      private:
       /// Index a transaction.

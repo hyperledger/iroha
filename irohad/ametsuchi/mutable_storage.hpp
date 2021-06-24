@@ -64,7 +64,8 @@ namespace iroha {
        */
       virtual bool applyIf(
           std::shared_ptr<const shared_model::interface::Block> block,
-          MutableStoragePredicate predicate) = 0;
+          MutableStoragePredicate predicate,
+          bool do_flush = true) = 0;
 
       /// Apply the local changes made to this MutableStorage to block_storage
       /// and the global WSV.

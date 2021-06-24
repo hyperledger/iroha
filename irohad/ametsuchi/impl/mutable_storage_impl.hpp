@@ -6,10 +6,10 @@
 #ifndef IROHA_MUTABLE_STORAGE_IMPL_HPP
 #define IROHA_MUTABLE_STORAGE_IMPL_HPP
 
-#include "ametsuchi/mutable_storage.hpp"
-
 #include <soci/soci.h>
+
 #include "ametsuchi/block_storage.hpp"
+#include "ametsuchi/mutable_storage.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
@@ -38,7 +38,8 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
       bool applyIf(std::shared_ptr<const shared_model::interface::Block> block,
-                   MutableStoragePredicate predicate) override;
+                   MutableStoragePredicate predicate,
+                   bool do_flush = true) override;
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const;
@@ -64,7 +65,8 @@ namespace iroha {
        */
       bool applyBlockIf(
           std::shared_ptr<const shared_model::interface::Block> block,
-          MutableStoragePredicate predicate);
+          MutableStoragePredicate predicate,
+          bool do_flush = true);
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 

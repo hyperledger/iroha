@@ -906,7 +906,8 @@ Irohad::RunResult Irohad::initWsvRestorer() {
       std::move(interface_validator),
       std::move(proto_validator),
       chain_validator,
-      log_manager_->getChild("WsvRestorer")->getLogger());
+      log_manager_->getChild("WsvRestorer")->getLogger(),
+      config_.reindex_blocks_flush_cache_size_in_blocks);
   return {};
 }
 

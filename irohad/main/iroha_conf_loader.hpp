@@ -89,6 +89,7 @@ struct IrohadConfig {
   boost::optional<Crypto> crypto;
 
   std::string metrics_addr_port;
+  unsigned reindex_blocks_flush_cache_size_in_blocks = 1000;
 };
 
 /**

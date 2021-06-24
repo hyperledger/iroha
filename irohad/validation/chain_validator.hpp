@@ -42,7 +42,8 @@ namespace iroha {
        */
       virtual bool validateAndApply(
           std::shared_ptr<const shared_model::interface::Block> block,
-          ametsuchi::MutableStorage &storage) const = 0;
+          ametsuchi::MutableStorage &storage,
+          bool do_flush = true) const = 0;
     };
   }  // namespace validation
 }  // namespace iroha

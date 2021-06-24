@@ -171,11 +171,11 @@ void chainValidatorExpectChain(
     iroha::validation::MockChainValidator &chain_validator,
     std::vector<std::shared_ptr<const shared_model::interface::Block>> chain) {
   if (chain.empty()) {
-    EXPECT_CALL(chain_validator, validateAndApply(_, _)).Times(0);
+    EXPECT_CALL(chain_validator, validateAndApply(_, _, true)).Times(0);
   } else {
     InSequence s;  // ensures the call order
     for (auto &block : chain) {
-      EXPECT_CALL(chain_validator, validateAndApply(block, _))
+      EXPECT_CALL(chain_validator, validateAndApply(block, _, true))
           .WillOnce(Return(true));
     }
   }
@@ -219,7 +219,7 @@ TEST_F(SynchronizerTest, ValidWhenSingleCommitSynchronized) {
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
   mutableStorageExpectChain(*mutable_factory, {commit_message});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+  EXPECT_CALL(*chain_validator, validateAndApply(_, _, true)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
   auto commit_event = synchronizer->processOutcome(consensus::PairValid(
@@ -241,7 +241,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
 
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
-  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(ByMove(make_reader({commit_message}))));
@@ -295,9 +295,9 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
   {
     InSequence s;  // ensures the call order
-    EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+    EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
         .WillOnce(Return(false));
-    EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+    EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
         .WillOnce(Return(true));
   }
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
@@ -365,10 +365,10 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
         .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
                         Return(ByMove(make_reader(chain_bad)))));
-    EXPECT_CALL(*chain_validator, validateAndApply(_, _))
+    EXPECT_CALL(*chain_validator, validateAndApply(_, _, true))
         .Times(kBadBlockNumber - 1)
         .WillRepeatedly(Return(true));
-    EXPECT_CALL(*chain_validator, validateAndApply(_, _))
+    EXPECT_CALL(*chain_validator, validateAndApply(_, _, true))
         .WillOnce(Return(false));
 
     // second attempt: request blocks from kBadBlockHeight and commit
@@ -521,7 +521,7 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
       .WillRepeatedly(
           [this](auto, auto) { return make_reader({commit_message}); });
 
-  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
       .Times(number_of_failures)
       .WillRepeatedly(Return(false));
 
@@ -537,7 +537,7 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
  */
 TEST_F(SynchronizerTest, ProposalRejectOutcome) {
   mutableStorageExpectChain(*mutable_factory, {});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+  EXPECT_CALL(*chain_validator, validateAndApply(_, _, true)).Times(0);
 
   auto commit_event = synchronizer->processOutcome(consensus::ProposalReject(
       consensus::Round{kHeight, 1}, ledger_state, public_keys));
@@ -552,7 +552,7 @@ TEST_F(SynchronizerTest, ProposalRejectOutcome) {
  */
 TEST_F(SynchronizerTest, BlockRejectOutcome) {
   mutableStorageExpectChain(*mutable_factory, {});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+  EXPECT_CALL(*chain_validator, validateAndApply(_, _, true)).Times(0);
 
   auto commit_event = synchronizer->processOutcome(consensus::BlockReject(
       consensus::Round{kHeight, 1}, ledger_state, public_keys));
@@ -567,7 +567,7 @@ TEST_F(SynchronizerTest, BlockRejectOutcome) {
  */
 TEST_F(SynchronizerTest, NoneOutcome) {
   mutableStorageExpectChain(*mutable_factory, {});
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+  EXPECT_CALL(*chain_validator, validateAndApply(_, _, true)).Times(0);
 
   auto commit_event = synchronizer->processOutcome(consensus::AgreementOnNone(
       consensus::Round{kHeight, 1}, ledger_state, public_keys));
@@ -616,7 +616,7 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillRepeatedly(Return(ByMove(make_reader({commit_message}))));
 
-  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
       .WillOnce(Return(true));
 
   auto commit_event = synchronizer->processOutcome(consensus::VoteOther(
@@ -659,7 +659,7 @@ TEST_F(SynchronizerTest, CommitFailureVoteSameBlock) {
   mutableStorageExpectChain(*mutable_factory, {commit_message});
   EXPECT_CALL(*mutable_factory, commit_(_))
       .WillOnce(Return(ByMove(expected::makeError(""))));
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
+  EXPECT_CALL(*chain_validator, validateAndApply(_, _, true)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 
   auto commit_event = synchronizer->processOutcome(consensus::PairValid(
@@ -680,7 +680,7 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
   EXPECT_CALL(*mutable_factory, commit_(_))
       .WillOnce(Return(ByMove(expected::makeError(""))));
 
-  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(ByMove(make_reader({commit_message}))));
@@ -701,7 +701,7 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
 
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
-  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _))
+  EXPECT_CALL(*chain_validator, validateAndApply(commit_message, _, true))
       .WillOnce(Return(true));
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillOnce(Return(ByMove(make_reader({commit_message}))));
