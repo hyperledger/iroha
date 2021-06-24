@@ -466,4 +466,5 @@ namespace iroha::ametsuchi {
                              top_block_info.top_hash.hex());
         });
   }
+
 }  // namespace iroha::ametsuchi

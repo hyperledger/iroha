@@ -122,14 +122,15 @@ namespace {
       std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port,
       VmCaller &vm_caller) {
     ExecutorItfTarget target;
+    auto db_context = std::make_shared<RocksDBContext>(db_port);
     auto query_executor = std::make_shared<RocksDBSpecificQueryExecutorWrapper>(
-        std::make_shared<RocksDBContext>(db_port),
+        db_context,
         std::make_unique<MockBlockStorage>(),
         std::make_shared<MockPendingTransactionStorage>(),
         std::make_shared<shared_model::proto::ProtoQueryResponseFactory>(),
         std::make_shared<shared_model::proto::ProtoPermissionToString>());
     target.command_executor = std::make_shared<RocksDbCommandExecutor>(
-        std::make_shared<RocksDBContext>(db_port),
+        db_context,
         std::make_shared<shared_model::proto::ProtoPermissionToString>(),
         vm_caller);
     target.query_executor = std::move(query_executor);

@@ -230,6 +230,7 @@ namespace iroha {
        */
       virtual WsvCommandResult setTopBlockInfo(
           const TopBlockInfo &top_block_info) const = 0;
+
     };
 
   }  // namespace ametsuchi

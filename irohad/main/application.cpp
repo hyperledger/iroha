@@ -148,7 +148,7 @@ Irohad::Irohad(
         vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
 #endif
         return initStorage(startup_wsv_data_policy,
-                           config_.database_config->type == "rocksdb"
+                           config_.database_config && config_.database_config->type == "rocksdb"
                                ? StorageType::kRocksDb
                                : StorageType::kPostgres);
       })) {
@@ -214,7 +214,7 @@ Irohad::RunResult Irohad::resetWsv() {
 
   log_->info("Recreating schema.");
   return initStorage(StartupWsvDataPolicy::kDrop,
-                     config_.database_config->type == "rocksdb"
+                     config_.database_config && config_.database_config->type == "rocksdb"
                          ? StorageType::kRocksDb
                          : StorageType::kPostgres);
 }
