@@ -61,6 +61,7 @@ criterion = "0.3"
 hex = "0.4.0"
 unique_port = "0.1.0"
 maplit = "1.0.2"
+byte-unit = "4.0.12"
 
 [[bench]]
 name = "sumeragi"
@@ -68,4 +69,8 @@ harness = false
 
 [[bench]]
 name = "validation"
+harness = false
+
+[[bench]]
+name = "kura"
 harness = false

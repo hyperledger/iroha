@@ -179,12 +179,16 @@ impl Default for Mode {
 
 /// Representation of a consistent storage.
 #[derive(Debug)]
-struct BlockStore {
+pub struct BlockStore {
     path: PathBuf,
 }
 
 impl BlockStore {
-    fn new(path: &Path) -> Result<BlockStore> {
+    /// Initialize block storage at `path`.
+    ///
+    /// # Errors
+    /// - Failed to create directory.
+    pub fn new(path: &Path) -> Result<BlockStore> {
         if fs::read_dir(path).is_err() {
             fs::create_dir_all(path).wrap_err("Failed to create Block Store directory.")?;
         }
@@ -197,12 +201,14 @@ impl BlockStore {
         format!("{}", block_height)
     }
 
-    fn get_block_path(&self, block_height: u64) -> PathBuf {
+    /// Get filysystem path for the block at height.
+    pub fn get_block_path(&self, block_height: u64) -> PathBuf {
         self.path.join(BlockStore::get_block_filename(block_height))
     }
 
+    /// Write block as file onto the disk.
     #[iroha_futures::telemetry_future]
-    async fn write(&self, block: &VersionedCommittedBlock) -> Result<Hash> {
+    pub async fn write(&self, block: &VersionedCommittedBlock) -> Result<Hash> {
         //filename is its height
         let path = self.get_block_path(block.header().height);
         let mut file = File::create(path)
@@ -216,8 +222,12 @@ impl BlockStore {
         Ok(hash)
     }
 
+    /// Returns a block at height, read from disk.
+    ///
+    /// # Errors
+    /// - There is no file corresponding to this block.
     #[iroha_futures::telemetry_future]
-    async fn read(&self, height: u64) -> Result<VersionedCommittedBlock> {
+    pub async fn read(&self, height: u64) -> Result<VersionedCommittedBlock> {
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.wrap_err("No file found.")?;
         let metadata = metadata(&path).await.wrap_err("Unable to read metadata.")?;
@@ -230,7 +240,7 @@ impl BlockStore {
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
     #[iroha_futures::telemetry_future]
-    async fn read_all(&self) -> Vec<VersionedCommittedBlock> {
+    pub async fn read_all(&self) -> Vec<VersionedCommittedBlock> {
         let mut height = 1;
         let mut blocks = Vec::new();
         while let Ok(block) = self.read(height).await {
