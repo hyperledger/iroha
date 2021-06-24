@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use iroha_data_model::{prelude::*, query::QueryBox};
+use iroha_data_model::prelude::*;
 use iroha_schema::prelude::*;
 
 macro_rules! to_json {
@@ -19,15 +19,10 @@ fn main() {
     println!(
         "{}",
         to_json!(
-            Account,
-            AccountId,
-            Value,
-            Instruction,
-            Domain,
-            QueryBox,
-            VersionedEventSocketMessage,
             VersionedTransaction,
+            VersionedSignedQueryRequest,
             VersionedQueryResult,
+            VersionedEventSocketMessage,
         )
     )
 }
