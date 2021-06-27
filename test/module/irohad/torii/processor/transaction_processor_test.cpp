@@ -25,7 +25,6 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 
 using namespace iroha;
 using namespace iroha::network;
@@ -55,7 +54,7 @@ class TransactionProcessorTest : public ::testing::Test {
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
-        shared_model::crypto::Hash{"hash"});
+        shared_model::crypto::Hash{std::string("hash")});
   }
 
   auto base_tx() {

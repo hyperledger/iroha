@@ -109,7 +109,7 @@ class IrohadTest : public AcceptanceFixture {
     db_name_ = integration_framework::getRandomDbName();
     pgopts_ = "dbname=" + db_name_ + " "
         + integration_framework::getPostgresCredsFromEnv().value_or(
-            doc[config_members::PgOpt].GetString());
+              doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
@@ -236,18 +236,6 @@ class IrohadTest : public AcceptanceFixture {
                   std::string{"--drop_state"});
   }
 
-  static const iroha::network::GrpcChannelParams &getChannelParams() {
-    static const auto params = [] {
-      auto params = iroha::network::getDefaultTestChannelParams();
-      params->retry_policy->max_attempts = 3u;
-      params->retry_policy->initial_backoff = 1s;
-      params->retry_policy->max_backoff = 1s;
-      params->retry_policy->backoff_multiplier = 1.0f;
-      return params;
-    }();
-    return *params;
-  }
-
   torii::CommandSyncClient createToriiClient(
       bool enable_tls = false,
       const boost::optional<uint16_t> override_port = {}) {
@@ -255,10 +243,9 @@ class IrohadTest : public AcceptanceFixture {
 
     auto client = enable_tls
         ? iroha::network::createSecureClient<torii::CommandSyncClient::Service>(
-            kAddress, port, root_ca_, boost::none, getChannelParams())
+              kAddress, port, root_ca_, std::nullopt, std::nullopt)
         : iroha::network::createInsecureClient<
-            torii::CommandSyncClient::Service>(
-            kAddress, port, getChannelParams());
+              torii::CommandSyncClient::Service>(kAddress, port, std::nullopt);
 
     return torii::CommandSyncClient(
         std::move(client),
@@ -572,7 +559,7 @@ TEST_F(IrohadTest, SendQuery) {
   auto client =
       torii_utils::QuerySyncClient(iroha::network::createInsecureClient<
                                    torii_utils::QuerySyncClient::Service>(
-          kAddress, kPort, getChannelParams()));
+          kAddress, kPort, std::nullopt));
   client.Find(query.getTransport(), response);
   shared_model::proto::QueryResponse resp{std::move(response)};
 

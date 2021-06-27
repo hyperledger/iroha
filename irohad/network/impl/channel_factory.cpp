@@ -15,30 +15,11 @@
 
 using namespace iroha::expected;
 using namespace iroha::network;
-using namespace std::literals::chrono_literals;
 
 using iroha::operator|;
 
 std::string makeJsonString(const std::string &val) {
   return fmt::format("\"{}\"", val);
-}
-
-std::unique_ptr<GrpcChannelParams> iroha::network::getDefaultChannelParams() {
-  static const auto retry_policy = [] {
-    GrpcChannelParams::RetryPolicy retry_policy;
-    retry_policy.max_attempts = 5u;
-    retry_policy.initial_backoff = 5s;
-    retry_policy.max_backoff = 120s;
-    retry_policy.backoff_multiplier = 1.6f;
-    retry_policy.retryable_status_codes = {
-        "UNKNOWN", "DEADLINE_EXCEEDED", "ABORTED", "INTERNAL", "UNAVAILABLE"};
-    return retry_policy;
-  }();
-  auto params = std::make_unique<GrpcChannelParams>();
-  params->max_request_message_bytes = std::numeric_limits<int>::max();
-  params->max_response_message_bytes = std::numeric_limits<int>::max();
-  params->retry_policy = retry_policy;
-  return params;
 }
 
 grpc::ChannelArguments iroha::network::detail::makeInterPeerChannelArguments(
@@ -102,34 +83,43 @@ grpc::ChannelArguments iroha::network::detail::makeChannelArguments(
 std::shared_ptr<grpc::Channel> iroha::network::createInsecureChannel(
     const shared_model::interface::types::AddressType &address,
     const std::string &service_full_name,
-    const GrpcChannelParams &params) {
-  return grpc::CreateCustomChannel(
-      address,
-      grpc::InsecureChannelCredentials(),
-      detail::makeInterPeerChannelArguments({service_full_name}, params));
+    std::optional<std::reference_wrapper<GrpcChannelParams const>>
+        maybe_params) {
+  if (not maybe_params)
+    return grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
+
+  return grpc::CreateCustomChannel(address,
+                                   grpc::InsecureChannelCredentials(),
+                                   detail::makeInterPeerChannelArguments(
+                                       {service_full_name}, *maybe_params));
 }
 
 class ChannelFactory::ChannelArgumentsProvider {
  public:
-  ChannelArgumentsProvider(std::shared_ptr<const GrpcChannelParams> params)
-      : params_(std::move(params)) {}
+  ChannelArgumentsProvider(
+      std::optional<std::shared_ptr<const GrpcChannelParams>> maybe_params)
+      : maybe_params_(std::move(maybe_params)) {}
 
   const grpc::ChannelArguments &get(const std::string &service_full_name) {
-    if (service_names_.count(service_full_name) == 0) {
+    if (maybe_params_ and service_names_.count(service_full_name) == 0) {
       service_names_.emplace(service_full_name);
-      args_ = detail::makeInterPeerChannelArguments(service_names_, *params_);
+      args_ = detail::makeInterPeerChannelArguments(service_names_,
+                                                    *maybe_params_.value());
     }
     return args_;
   }
 
  private:
-  std::shared_ptr<const GrpcChannelParams> params_;
+  std::optional<std::shared_ptr<const GrpcChannelParams>> maybe_params_;
   std::set<std::string> service_names_;
   grpc::ChannelArguments args_;
 };
 
-ChannelFactory::ChannelFactory(std::shared_ptr<const GrpcChannelParams> params)
-    : args_(std::make_unique<ChannelArgumentsProvider>(std::move(params))) {}
+ChannelFactory::ChannelFactory(
+    std::optional<std::shared_ptr<const GrpcChannelParams>> maybe_params)
+    : args_(
+          std::make_unique<ChannelArgumentsProvider>(std::move(maybe_params))) {
+}
 
 ChannelFactory::~ChannelFactory() = default;
 

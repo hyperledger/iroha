@@ -33,6 +33,10 @@ namespace iroha {
       iroha::expected::Result<iroha::TopBlockInfo, std::string>
       getTopBlockInfo() const override;
 
+      iroha::expected::Result<size_t, std::string> countPeers() override;
+      iroha::expected::Result<size_t, std::string> countDomains() override;
+      iroha::expected::Result<size_t, std::string> countTransactions() override;
+
      private:
       std::shared_ptr<RocksDBPort> db_port_;
       std::shared_ptr<RocksDBContext> db_context_;

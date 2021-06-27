@@ -13,6 +13,7 @@ namespace iroha {
     kYac = 0,
     kRequestProposal,
     kVoteProcess,
+    kMetrics,
     //---------------
     kTotalCount
   };
@@ -37,6 +38,8 @@ namespace iroha {
     kOnNewProposal,
     kOnNewBatchInCache,
     kOnProposalResponse,
+    kOnTransactionResponse,
+    kOnConsensusGateEvent,
 
     // MST
     kOnStateUpdate,

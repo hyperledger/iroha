@@ -17,19 +17,12 @@
 #include <boost/bimap.hpp>
 #include <boost/bimap/unordered_multiset_of.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "multi_sig_transactions/hash.hpp"
 
 namespace iroha {
-
-  class MstState;
-
   class PendingTransactionStorageImpl : public PendingTransactionStorage {
-   private:
-    struct private_tag {};
-
    public:
     using AccountIdType = shared_model::interface::types::AccountIdType;
     using HashType = shared_model::interface::types::HashType;
@@ -38,26 +31,6 @@ namespace iroha {
     using TransactionBatch = shared_model::interface::TransactionBatch;
     using SharedState = std::shared_ptr<MstState>;
     using SharedBatch = std::shared_ptr<TransactionBatch>;
-    using StateObservable = rxcpp::observable<SharedState>;
-    using BatchObservable = rxcpp::observable<SharedBatch>;
-    using PreparedTransactionDescriptor = std::pair<AccountIdType, HashType>;
-    using PreparedTransactionsObservable =
-        rxcpp::observable<PreparedTransactionDescriptor>;
-    using FinalizedTransactionsObservable = rxcpp::observable<HashType>;
-
-    PendingTransactionStorageImpl(PendingTransactionStorageImpl::private_tag);
-
-    PendingTransactionStorageImpl(PendingTransactionStorageImpl const &) =
-        delete;
-    PendingTransactionStorageImpl &operator=(
-        PendingTransactionStorageImpl const &) = delete;
-
-    static std::shared_ptr<PendingTransactionStorageImpl> create(
-        StateObservable updated_batches,
-        BatchObservable prepared_batch,
-        BatchObservable expired_batch,
-        PreparedTransactionsObservable prepared_txs,
-        FinalizedTransactionsObservable finalized_txs);
 
     SharedTxsCollectionType getPendingTransactions(
         const AccountIdType &account_id) const override;
@@ -71,18 +44,16 @@ namespace iroha {
     void insertPresenceCache(
         std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
 
+    void removeTransaction(HashType const &hash) override;
+
+    void updatedBatchesHandler(const SharedState &updated_batches) override;
+
+    void removeBatch(const SharedBatch &batch) override;
+
    private:
-    void updatedBatchesHandler(const SharedState &updated_batches);
-
-    void removeBatch(const SharedBatch &batch);
-
-    void removeBatch(const PreparedTransactionDescriptor &prepared_transaction);
-
     void removeFromStorage(const HashType &first_tx_hash,
                            const std::set<AccountIdType> &batch_creators,
                            uint64_t batch_size);
-
-    void removeTransaction(HashType const &hash);
 
     static std::set<AccountIdType> batchCreators(const TransactionBatch &batch);
 

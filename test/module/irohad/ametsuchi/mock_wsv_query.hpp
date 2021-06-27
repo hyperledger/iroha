@@ -6,10 +6,10 @@
 #ifndef IROHA_MOCK_WSV_QUERY_HPP
 #define IROHA_MOCK_WSV_QUERY_HPP
 
-#include "ametsuchi/wsv_query.hpp"
-
 #include <gmock/gmock.h>
+
 #include "ametsuchi/ledger_state.hpp"
+#include "ametsuchi/wsv_query.hpp"
 
 namespace testing {
   // iroha::TopBlockInfo is not default-constructible, so this provides a
@@ -50,6 +50,12 @@ namespace iroha {
       MOCK_CONST_METHOD0(
           getTopBlockInfo,
           iroha::expected::Result<iroha::TopBlockInfo, std::string>());
+
+      MOCK_METHOD0(countPeers, iroha::expected::Result<size_t, std::string>());
+      MOCK_METHOD0(countDomains,
+                   iroha::expected::Result<size_t, std::string>());
+      MOCK_METHOD0(countTransactions,
+                   iroha::expected::Result<size_t, std::string>());
     };
 
   }  // namespace ametsuchi

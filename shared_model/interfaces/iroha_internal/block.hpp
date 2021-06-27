@@ -24,10 +24,6 @@ namespace shared_model {
        * @return hash of a previous block
        */
       virtual const types::HashType &prevHash() const = 0;
-      /**
-       * @return amount of transactions in block
-       */
-      virtual types::TransactionsNumberType txsNumber() const = 0;
 
       /**
        * @return collection of transactions
