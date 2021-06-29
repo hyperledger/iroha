@@ -187,8 +187,7 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
             .prevHash(shared_model::crypto::Hash{"prev_hash"})
             .createdTime(iroha::time::now())
             .build();
-    const auto block_indexer = getBackendParam().getBlockIndexer();
-    block_indexer->index(block);
+    getBackendParam().getBlockIndexer()->index(block);
   }
 
   iroha::expected::Result<std::string, iroha::ametsuchi::TxExecutionError>
