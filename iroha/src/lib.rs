@@ -72,7 +72,7 @@ pub struct Iroha<
     /// Kura - block storage
     pub kura: AlwaysAddr<K>,
     /// Block synchronization actor
-    pub blocksync: AlwaysAddr<B>,
+    pub block_sync: AlwaysAddr<B>,
     /// Torii web server
     pub torii: Option<Torii<Q, S, W>>,
 }
@@ -170,7 +170,7 @@ where
                 .start()
                 .await
                 .expect_running();
-        let blocksync = B::from_configuration(
+        let block_sync = B::from_configuration(
             &config.block_sync_configuration,
             Arc::clone(&wsv),
             sumeragi.clone(),
@@ -198,12 +198,12 @@ where
         );
         let torii = Some(torii);
         Ok(Self {
-            torii,
-            kura,
-            blocksync,
-            sumeragi,
-            queue,
             wsv,
+            queue,
+            sumeragi,
+            kura,
+            block_sync,
+            torii,
         })
     }
 

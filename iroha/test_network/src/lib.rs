@@ -294,7 +294,7 @@ where
 {
     fn drop(&mut self) {
         iroha_logger::error!(
-            "Stoping peer (p2p = {}, api = {})",
+            "Stopping peer (p2p = {}, api = {})",
             self.p2p_address,
             self.api_address
         );
@@ -322,7 +322,7 @@ where
     pub fn stop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.abort();
-            iroha_logger::error!("Stoping down peer...");
+            iroha_logger::error!("Shutting down peer...");
         }
     }
 

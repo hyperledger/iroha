@@ -221,7 +221,7 @@ impl Request {
             .wrap_err("Failed to read payload")?;
         payload.append(&mut rest_payload);
 
-        Ok(Self { payload, uri_path })
+        Ok(Self { uri_path, payload })
     }
 }
 

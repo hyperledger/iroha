@@ -49,13 +49,13 @@ pub mod post_process {
             let max = *minmax.max().unwrap();
 
             Self {
+                name,
+                stddev,
+                variance,
+                median,
+                mean,
                 min,
                 max,
-                name,
-                mean,
-                median,
-                variance,
-                stddev,
             }
         }
     }

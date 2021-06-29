@@ -15,7 +15,11 @@ use iroha::{
     prelude::*,
     queue::{Queue, QueueTrait},
     smartcontracts::permissions::IsInstructionAllowedBoxed,
-    sumeragi::{message::Message as SumeragiMessage, *},
+    sumeragi::{
+        message::Message as SumeragiMessage,
+        network_topology::{Role, Topology},
+        *,
+    },
     wsv::WorldTrait,
 };
 use iroha_actor::{broker::*, prelude::*, Context};
@@ -47,11 +51,7 @@ pub mod utils {
                 Ok(None)
             }
 
-            async fn wait_for_peers(
-                &self,
-                _: PeerId,
-                _: InitializedNetworkTopology,
-            ) -> Result<InitializedNetworkTopology> {
+            async fn wait_for_peers(&self, _: PeerId, _: Topology) -> Result<Topology> {
                 unreachable!()
             }
         }
@@ -107,7 +107,6 @@ pub mod utils {
     pub mod sumeragi {
         use std::{fmt::Debug, marker::PhantomData, ops::DerefMut};
 
-        use iroha::sumeragi;
         use iroha_actor::Message;
 
         use super::*;
@@ -125,14 +124,14 @@ pub mod utils {
 
         pub trait ConstRoleTrait: Debug + Send + 'static {
             /// Returns true if we indead is that role
-            fn role(role: sumeragi::Role) -> bool;
+            fn role(role: Role) -> bool;
         }
 
         #[derive(Debug, Clone, Copy, Default)]
         struct Not<R>(PhantomData<R>);
 
         impl<R: ConstRoleTrait> ConstRoleTrait for Not<R> {
-            fn role(role: sumeragi::Role) -> bool {
+            fn role(role: Role) -> bool {
                 !R::role(role)
             }
         }
@@ -142,8 +141,8 @@ pub mod utils {
                 #[derive(Debug, Clone, Copy, Default)]
                 pub struct $name;
                 impl ConstRoleTrait for $name {
-                    fn role(role: sumeragi::Role) -> bool {
-                        sumeragi::Role::$name == role
+                    fn role(role: Role) -> bool {
+                        Role::$name == role
                     }
                 }
             )*};
@@ -155,7 +154,7 @@ pub mod utils {
         pub struct Any;
 
         impl ConstRoleTrait for Any {
-            fn role(_: sumeragi::Role) -> bool {
+            fn role(_: Role) -> bool {
                 true
             }
         }
@@ -376,14 +375,14 @@ pub mod utils {
         impl_handler_proxy!(
             Faulty: Handler<UpdateNetworkTopology, Result = ()>
                      + Handler<CommitBlock, Result = ()>
-                     + Handler<GetNetworkTopology, Result = InitializedNetworkTopology>
+                     + Handler<GetNetworkTopology, Result = Topology>
                      + Handler<GetSortedPeers, Result = Vec<PeerId>>
                      + Handler<IsLeader, Result = bool>
                      + Handler<GetLeader, Result = PeerId>
         );
 
         #[derive(Debug, Clone, Copy, Default, Message)]
-        #[message(result = "InitializedNetworkTopology")]
+        #[message(result = "Topology")]
         pub struct NetworkTopology;
 
         #[async_trait::async_trait]
@@ -395,9 +394,9 @@ pub mod utils {
             G: GenesisNetworkTrait,
             W: WorldTrait,
         {
-            type Result = InitializedNetworkTopology;
+            type Result = Topology;
             async fn handle(&mut self, _: NetworkTopology) -> Self::Result {
-                self.network_topology.clone()
+                self.topology.clone()
             }
         }
 
@@ -412,7 +411,7 @@ pub mod utils {
         {
             type Result = ();
             async fn handle(&mut self, msg: SumeragiMessage) -> Self::Result {
-                if R::role(self.network_topology.role(&self.peer_id)) {
+                if R::role(self.topology.role(&self.peer_id)) {
                     F::fault(&mut *self, msg).await;
                 } else {
                     drop(msg.handle(&mut *self).await);
@@ -582,10 +581,10 @@ where
         .await;
 }
 
-async fn get_topology_with_shift<W, G, Q, S, K, B>(
+async fn get_topology_with_n_view_changes<W, G, Q, S, K, B>(
     network: &Network<W, G, Q, S, K, B>,
-    shift: u32,
-) -> InitializedNetworkTopology
+    n_view_changes: u32,
+) -> Topology
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
@@ -594,7 +593,7 @@ where
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
-    let mut expected = network
+    let expected = network
         .genesis
         .iroha
         .as_ref()
@@ -602,8 +601,11 @@ where
         .sumeragi
         .send(sumeragi::NetworkTopology)
         .await;
-    expected.shift_peers_by_n(shift);
     expected
+        .into_builder()
+        .with_view_changes(n_view_changes)
+        .build()
+        .expect("Failed to build topology.")
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -650,7 +652,7 @@ async fn change_view_on_commit_timeout() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_shift(&network, 1).await;
+    let expected = get_topology_with_n_view_changes(&network, 1).await;
 
     // send to leader
     send_tx(&network, true).await;
@@ -666,7 +668,7 @@ async fn change_view_on_commit_timeout() {
         .await;
 
     for (got, b) in got.into_iter().zip(blocks) {
-        assert_eq!(expected.sorted_peers, got.sorted_peers);
+        assert_eq!(expected.sorted_peers(), got.sorted_peers());
         assert_eq!(b.len(), 1);
     }
 }
@@ -689,7 +691,7 @@ async fn change_view_on_tx_receipt_timeout() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_shift(&network, 1).await;
+    let expected = get_topology_with_n_view_changes(&network, 1).await;
     //
     // send to not leader
     send_tx(&network, false).await;
@@ -702,7 +704,7 @@ async fn change_view_on_tx_receipt_timeout() {
         .await;
 
     for got in got {
-        assert_eq!(expected.sorted_peers, got.sorted_peers);
+        assert_eq!(expected.sorted_peers(), got.sorted_peers());
     }
 }
 
@@ -724,7 +726,7 @@ async fn change_view_on_block_creation_timeout() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_shift(&network, 1).await;
+    let expected = get_topology_with_n_view_changes(&network, 1).await;
 
     // send to not leader
     send_tx(&network, false).await;
@@ -737,7 +739,7 @@ async fn change_view_on_block_creation_timeout() {
         .await;
 
     for got in got {
-        assert_eq!(expected.sorted_peers, got.sorted_peers);
+        assert_eq!(expected.sorted_peers(), got.sorted_peers());
     }
 }
 
@@ -759,7 +761,7 @@ async fn not_enough_votes() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_shift(&network, 1).await;
+    let expected = get_topology_with_n_view_changes(&network, 1).await;
 
     // send to not leader
     send_tx(&network, true).await;
@@ -775,7 +777,7 @@ async fn not_enough_votes() {
         .await;
 
     for (got, blocks) in got.into_iter().zip(blocks) {
-        assert_eq!(expected.sorted_peers, got.sorted_peers);
+        assert_eq!(expected.sorted_peers(), got.sorted_peers());
         assert_eq!(blocks.len(), 1);
     }
 }

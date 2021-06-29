@@ -11,7 +11,9 @@ use self::{
 };
 use crate::{
     prelude::*,
-    sumeragi::{CommitBlock, GetNetworkTopology, GetSortedPeers, Role, SumeragiTrait},
+    sumeragi::{
+        network_topology::Role, CommitBlock, GetNetworkTopology, GetSortedPeers, SumeragiTrait,
+    },
     wsv::WorldTrait,
     VersionedCommittedBlock,
 };
@@ -175,13 +177,16 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             .sumeragi
             .send(GetNetworkTopology(block.header().clone()))
             .await;
-        if block.header().number_of_view_changes <= self.n_topology_shifts_before_reshuffle {
-            network_topology.shift_peers_by_n(block.header().number_of_view_changes);
-        } else {
-            network_topology.sort_peers_by_hash_and_counter(
-                Some(block.hash()),
-                block.header().number_of_view_changes,
-            )
+        // If it is genesis topology we can not apply view changes as peers have custom order!
+        #[allow(clippy::expect_used)]
+        if !block.header().is_genesis() {
+            network_topology = network_topology
+                .into_builder()
+                .with_view_changes(block.header().number_of_view_changes)
+                .build()
+                .expect(
+                    "Unreachable as doing view changes on valid topology will not raise an error.",
+                );
         }
         if self.wsv.as_ref().latest_block_hash() == block.header().previous_block_hash
             && network_topology
