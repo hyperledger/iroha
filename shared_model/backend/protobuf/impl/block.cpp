@@ -93,16 +93,6 @@ namespace shared_model {
 
     bool Block::addSignature(const crypto::Signed &signed_blob,
                              const crypto::PublicKey &public_key) {
-      // if already has such signature
-      if (std::find_if(impl_->signatures_.begin(),
-                       impl_->signatures_.end(),
-                       [&public_key](const auto &signature) {
-                         return signature.publicKey() == public_key;
-                       })
-          != impl_->signatures_.end()) {
-        return false;
-      }
-
       auto sig = impl_->proto_.add_signatures();
       sig->set_signature(signed_blob.hex());
       sig->set_public_key(public_key.hex());

@@ -8,6 +8,8 @@
 #include "backend/protobuf/block.hpp"
 #include "common/bind.hpp"
 #include "logger/logger.hpp"
+#include "cryptography/public_key.hpp"
+#include "cryptography/signed.hpp"
 
 using namespace iroha;
 using namespace iroha::ametsuchi;
@@ -49,9 +51,23 @@ grpc::Status BlockLoaderService::retrieveBlocks(
             block_result)
             .value;
 
+    auto pt = static_cast<shared_model::proto::Block *>(block.get());
+    auto s = pt->signatures();
+
+    boost::optional<shared_model::crypto::PublicKey> pk;
+    boost::optional<shared_model::crypto::Signed> signed_da;
+
+    for (auto &sig : s ) {
+      pk = sig.publicKey();
+      signed_da = sig.signedData();
+      break;
+    }
+
+    for (uint64_t x = 0; x < 132000; ++x)
+      pt->addSignature(*signed_da, *pk);
+
     protocol::Block proto_block;
-    *proto_block.mutable_block_v1() =
-        static_cast<shared_model::proto::Block *>(block.get())->getTransport();
+    *proto_block.mutable_block_v1() = pt->getTransport();
 
     writer->Write(proto_block);
   }
