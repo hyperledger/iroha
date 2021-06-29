@@ -49,9 +49,9 @@ void PostgresBlockIndex::makeAccountAssetIndex(
   for (const auto &transfer :
        commands | boost::adaptors::transformed(getTransferAsset)
            | boost::adaptors::filtered(
-                 [](const auto &opt_tx) { return static_cast<bool>(opt_tx); })
+               [](const auto &opt_tx) { return static_cast<bool>(opt_tx); })
            | boost::adaptors::transformed(
-                 [](const auto &opt_tx) -> const auto & { return *opt_tx; })) {
+               [](const auto &opt_tx) -> const auto & { return *opt_tx; })) {
     const auto &src_id = transfer.srcAccountId();
     const auto &dest_id = transfer.destAccountId();
 
@@ -96,7 +96,7 @@ void PostgresBlockIndex::index(const shared_model::interface::Block &block,
     indexer_->rejectedTxHash(rejected_tx_hash);
   }
 
-  if (do_flush){
+  if (do_flush) {
     if (auto e = resultToOptionalError(indexer_->flush())) {
       log_->error(e.value());
     }

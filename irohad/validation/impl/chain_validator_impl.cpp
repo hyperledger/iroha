@@ -17,27 +17,28 @@
 #include "validation/utils.hpp"
 
 namespace iroha::validation {
-  
+
   ChainValidatorImpl::ChainValidatorImpl(
       std::shared_ptr<consensus::yac::SupermajorityChecker>
           supermajority_checker,
       logger::LoggerPtr log,
       unsigned reindex_blocks_flush_cache_size_in_blocks)
-      : supermajority_checker_(std::move(supermajority_checker))
-      , log_(std::move(log))
-      , reindex_blocks_flush_cache_size_in_blocks_{reindex_blocks_flush_cache_size_in_blocks} 
-  {}
+      : supermajority_checker_(std::move(supermajority_checker)),
+        log_(std::move(log)),
+        reindex_blocks_flush_cache_size_in_blocks_{
+            reindex_blocks_flush_cache_size_in_blocks} {}
 
   bool ChainValidatorImpl::validateAndApply(
-      rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-          blocks,
-      ametsuchi::MutableStorage &storage)const{
+      rxcpp::observable<std::shared_ptr<shared_model::interface::Block>> blocks,
+      ametsuchi::MutableStorage &storage) const {
     log_->info("validate chain...");
 
-    return storage.applyIf(blocks,
-                         [this](auto block, const auto &ledger_state) {
-                           return this->validateBlock(block, ledger_state);
-                         },reindex_blocks_flush_cache_size_in_blocks_);
+    return storage.applyIf(
+        blocks,
+        [this](auto block, const auto &ledger_state) {
+          return this->validateBlock(block, ledger_state);
+        },
+        reindex_blocks_flush_cache_size_in_blocks_);
   }
 
   bool ChainValidatorImpl::validatePreviousHash(
@@ -74,8 +75,8 @@ namespace iroha::validation {
 
   bool ChainValidatorImpl::validatePeerSupermajority(
       const shared_model::interface::Block &block,
-      const std::vector<std::shared_ptr<shared_model::interface::Peer>>
-          &peers) const {
+      const std::vector<std::shared_ptr<shared_model::interface::Peer>> &peers)
+      const {
     const auto &signatures = block.signatures();
     auto has_supermajority = supermajority_checker_->hasSupermajority(
                                  boost::size(signatures), peers.size())
@@ -102,7 +103,7 @@ namespace iroha::validation {
   }
 
   bool ChainValidatorImpl::validateBlock(
-      std::shared_ptr<const shared_model::interface::Block> const& block,
+      std::shared_ptr<const shared_model::interface::Block> const &block,
       const iroha::LedgerState &ledger_state) const {
     log_->debug("validate block: height {}, hash {}",
                 block->height(),
@@ -112,5 +113,5 @@ namespace iroha::validation {
         and validateHeight(*block, ledger_state.top_block_info.height)
         and validatePeerSupermajority(*block, ledger_state.ledger_peers);
   }
-    
+
 }  // namespace iroha::validation

@@ -63,7 +63,7 @@ namespace iroha {
        * of ledger peers
        */
       bool validateBlock(
-          std::shared_ptr<const shared_model::interface::Block> const& block,
+          std::shared_ptr<const shared_model::interface::Block> const &block,
           const iroha::LedgerState &ledger_state) const;
 
       /**

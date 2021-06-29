@@ -38,8 +38,8 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
       bool applyIf(rxcpp::observable<
-                     std::shared_ptr<shared_model::interface::Block>> blocks,
-                 MutableStoragePredicate predicate,
+                       std::shared_ptr<shared_model::interface::Block>> blocks,
+                   MutableStoragePredicate predicate,
                    unsigned reindex_blocks_flush_cache_size_in_blocks) override;
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>>
@@ -65,8 +65,8 @@ namespace iroha {
        * the block
        */
       bool applyIf(std::shared_ptr<const shared_model::interface::Block> block,
-                 MutableStoragePredicate predicate = {},
-                 bool do_flush = true);
+                   MutableStoragePredicate predicate = {},
+                   bool do_flush = true);
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 

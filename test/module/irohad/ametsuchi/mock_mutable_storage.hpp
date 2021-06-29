@@ -16,23 +16,22 @@ namespace iroha {
 
     class MockMutableStorage : public MutableStorage {
      public:
-      MOCK_METHOD(bool,
+      MOCK_METHOD(
+          bool,
           applyIf,
           (rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>,
            std::function<
-                    bool(std::shared_ptr<const shared_model::interface::Block>,
+               bool(std::shared_ptr<const shared_model::interface::Block>,
                     const iroha::LedgerState &)>,
-              unsigned reindex_blocks_flush_cache_size_in_blocks
-          ),(override)
-      );
-      MOCK_METHOD(
-        bool,
-        apply,
-        (std::shared_ptr<const shared_model::interface::Block>),
-        (override));
+           unsigned reindex_blocks_flush_cache_size_in_blocks),
+          (override));
+      MOCK_METHOD(bool,
+                  apply,
+                  (std::shared_ptr<const shared_model::interface::Block>),
+                  (override));
       MOCK_METHOD(bool,
                   applyPrepared,
-                   (std::shared_ptr<const shared_model::interface::Block>));
+                  (std::shared_ptr<const shared_model::interface::Block>));
 
       MOCK_METHOD1(do_commit,
                    expected::Result<MutableStorage::CommitResult, std::string>(

@@ -31,8 +31,8 @@ namespace iroha {
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
         std::shared_ptr<PostgresCommandExecutor> command_executor,
         std::unique_ptr<BlockStorage> block_storage,
-        logger::LoggerManagerTreePtr log_manager
-        ): ledger_state_(std::move(ledger_state)),
+        logger::LoggerManagerTreePtr log_manager)
+        : ledger_state_(std::move(ledger_state)),
           sql_(command_executor->getSession()),
           wsv_command_(std::make_unique<PostgresWsvCommand>(sql_)),
           peer_query_(
@@ -45,8 +45,7 @@ namespace iroha {
               std::move(command_executor))),
           block_storage_(std::move(block_storage)),
           committed(false),
-          log_(log_manager->getLogger()
-          ) {
+          log_(log_manager->getLogger()) {
       sql_ << "BEGIN";
     }
 
@@ -68,8 +67,8 @@ namespace iroha {
                  block->height(),
                  block->hash().hex());
 
-      auto block_applied =
-          (not ledger_state_ or (!predicate) or predicate(block, *ledger_state_.value()))
+      auto block_applied = (not ledger_state_ or (!predicate)
+                            or predicate(block, *ledger_state_.value()))
           and std::all_of(block->transactions().begin(),
                           block->transactions().end(),
                           execute_transaction);
@@ -129,13 +128,14 @@ namespace iroha {
         MutableStoragePredicate predicate,
         unsigned reindex_blocks_flush_cache_size_in_blocks) {
       try {
-        auto counter=unsigned{0};
+        auto counter = unsigned{0};
         return blocks
-            .all([&](auto block){ //todo mutable, but rxcpp does not accept
+            .all([&](auto block) {  // todo mutable, but rxcpp does not accept
               // flush every N blocks
               ++counter;
-              bool do_flush = counter % reindex_blocks_flush_cache_size_in_blocks == 0
-              ;//or counter == blocks.size();
+              bool do_flush =
+                  counter % reindex_blocks_flush_cache_size_in_blocks
+                  == 0;  // or counter == blocks.size();
               return withSavepoint(
                   [&] { return this->applyIf(block, predicate, do_flush); });
             })
