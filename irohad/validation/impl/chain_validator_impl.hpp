@@ -6,12 +6,11 @@
 #ifndef IROHA_CHAIN_VALIDATOR_IMPL_HPP
 #define IROHA_CHAIN_VALIDATOR_IMPL_HPP
 
-#include "validation/chain_validator.hpp"
-
 #include <memory>
 
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
+#include "validation/chain_validator.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -34,7 +33,8 @@ namespace iroha {
      public:
       ChainValidatorImpl(std::shared_ptr<consensus::yac::SupermajorityChecker>
                              supermajority_checker,
-                         logger::LoggerPtr log);
+                         logger::LoggerPtr log,
+                         unsigned reindex_blocks_flush_cache_size_in_blocks);
 
       bool validateAndApply(
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
@@ -63,7 +63,7 @@ namespace iroha {
        * of ledger peers
        */
       bool validateBlock(
-          std::shared_ptr<const shared_model::interface::Block> block,
+          std::shared_ptr<const shared_model::interface::Block> const& block,
           const iroha::LedgerState &ledger_state) const;
 
       /**
@@ -73,6 +73,8 @@ namespace iroha {
           supermajority_checker_;
 
       logger::LoggerPtr log_;
+
+      unsigned reindex_blocks_flush_cache_size_in_blocks_ = 1;
     };
   }  // namespace validation
 }  // namespace iroha

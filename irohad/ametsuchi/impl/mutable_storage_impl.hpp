@@ -6,10 +6,10 @@
 #ifndef IROHA_MUTABLE_STORAGE_IMPL_HPP
 #define IROHA_MUTABLE_STORAGE_IMPL_HPP
 
-#include "ametsuchi/mutable_storage.hpp"
-
 #include <soci/soci.h>
+
 #include "ametsuchi/block_storage.hpp"
+#include "ametsuchi/mutable_storage.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
@@ -37,9 +37,10 @@ namespace iroha {
       bool apply(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
-      bool apply(rxcpp::observable<
+      bool applyIf(rxcpp::observable<
                      std::shared_ptr<shared_model::interface::Block>> blocks,
-                 MutableStoragePredicate predicate) override;
+                 MutableStoragePredicate predicate,
+                   unsigned reindex_blocks_flush_cache_size_in_blocks) override;
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const;
@@ -63,8 +64,9 @@ namespace iroha {
        * Verifies whether the block is applicable using predicate, and applies
        * the block
        */
-      bool apply(std::shared_ptr<const shared_model::interface::Block> block,
-                 MutableStoragePredicate predicate);
+      bool applyIf(std::shared_ptr<const shared_model::interface::Block> block,
+                 MutableStoragePredicate predicate = {},
+                 bool do_flush = true);
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 

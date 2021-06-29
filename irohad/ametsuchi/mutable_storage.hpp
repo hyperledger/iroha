@@ -63,10 +63,11 @@ namespace iroha {
        * transactions
        * @return True if blocks were successfully applied, false otherwise.
        */
-      virtual bool apply(
+      virtual bool applyIf(
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
               blocks,
-          MutableStoragePredicate predicate) = 0;
+          MutableStoragePredicate predicate,
+          unsigned reindex_blocks_flush_cache_size_in_blocks = 1) = 0;
 
       /// Apply the local changes made to this MutableStorage to block_storage
       /// and the global WSV.

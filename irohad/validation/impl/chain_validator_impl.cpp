@@ -7,6 +7,7 @@
 
 #include <boost/algorithm/string/join.hpp>
 #include <rxcpp/rx-lite.hpp>
+#include <utility>
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
@@ -15,98 +16,101 @@
 #include "logger/logger.hpp"
 #include "validation/utils.hpp"
 
-namespace iroha {
-  namespace validation {
-    ChainValidatorImpl::ChainValidatorImpl(
-        std::shared_ptr<consensus::yac::SupermajorityChecker>
-            supermajority_checker,
-        logger::LoggerPtr log)
-        : supermajority_checker_(supermajority_checker), log_(std::move(log)) {}
+namespace iroha::validation {
+  
+  ChainValidatorImpl::ChainValidatorImpl(
+      std::shared_ptr<consensus::yac::SupermajorityChecker>
+          supermajority_checker,
+      logger::LoggerPtr log,
+      unsigned reindex_blocks_flush_cache_size_in_blocks)
+      : supermajority_checker_(std::move(supermajority_checker))
+      , log_(std::move(log))
+      , reindex_blocks_flush_cache_size_in_blocks_{reindex_blocks_flush_cache_size_in_blocks} 
+  {}
 
-    bool ChainValidatorImpl::validateAndApply(
-        rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-            blocks,
-        ametsuchi::MutableStorage &storage) const {
-      log_->info("validate chain...");
+  bool ChainValidatorImpl::validateAndApply(
+      rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
+          blocks,
+      ametsuchi::MutableStorage &storage)const{
+    log_->info("validate chain...");
 
-      return storage.apply(blocks,
-                           [this](auto block, const auto &ledger_state) {
-                             return this->validateBlock(block, ledger_state);
-                           });
+    return storage.applyIf(blocks,
+                         [this](auto block, const auto &ledger_state) {
+                           return this->validateBlock(block, ledger_state);
+                         },reindex_blocks_flush_cache_size_in_blocks_);
+  }
+
+  bool ChainValidatorImpl::validatePreviousHash(
+      const shared_model::interface::Block &block,
+      const shared_model::interface::types::HashType &top_hash) const {
+    auto same_prev_hash = block.prevHash() == top_hash;
+
+    if (not same_prev_hash) {
+      log_->info(
+          "Previous hash {} of block does not match top block hash {} "
+          "in storage",
+          block.prevHash().hex(),
+          top_hash.hex());
     }
 
-    bool ChainValidatorImpl::validatePreviousHash(
-        const shared_model::interface::Block &block,
-        const shared_model::interface::types::HashType &top_hash) const {
-      auto same_prev_hash = block.prevHash() == top_hash;
+    return same_prev_hash;
+  }
 
-      if (not same_prev_hash) {
-        log_->info(
-            "Previous hash {} of block does not match top block hash {} "
-            "in storage",
-            block.prevHash().hex(),
-            top_hash.hex());
-      }
+  bool ChainValidatorImpl::validateHeight(
+      const shared_model::interface::Block &block,
+      const shared_model::interface::types::HeightType &top_height) const {
+    const bool valid_height = block.height() == top_height + 1;
 
-      return same_prev_hash;
+    if (not valid_height) {
+      log_->info(
+          "Block height {} is does not consequently follow the top block "
+          "height {}.",
+          block.height(),
+          top_height);
     }
 
-    bool ChainValidatorImpl::validateHeight(
-        const shared_model::interface::Block &block,
-        const shared_model::interface::types::HeightType &top_height) const {
-      const bool valid_height = block.height() == top_height + 1;
+    return valid_height;
+  }
 
-      if (not valid_height) {
-        log_->info(
-            "Block height {} is does not consequently follow the top block "
-            "height {}.",
-            block.height(),
-            top_height);
-      }
+  bool ChainValidatorImpl::validatePeerSupermajority(
+      const shared_model::interface::Block &block,
+      const std::vector<std::shared_ptr<shared_model::interface::Peer>>
+          &peers) const {
+    const auto &signatures = block.signatures();
+    auto has_supermajority = supermajority_checker_->hasSupermajority(
+                                 boost::size(signatures), peers.size())
+        and peersSubset(signatures, peers);
 
-      return valid_height;
+    if (not has_supermajority) {
+      log_->info(
+          "Block does not contain signatures of supermajority of "
+          "peers. Block signatures public keys: [{}], ledger peers "
+          "public keys: [{}]",
+          boost::algorithm::join(
+              signatures | boost::adaptors::transformed([](const auto &s) {
+                return s.publicKey();
+              }),
+              ", "),
+          boost::algorithm::join(
+              peers | boost::adaptors::transformed([](const auto &p) {
+                return p->pubkey();
+              }),
+              ", "));
     }
 
-    bool ChainValidatorImpl::validatePeerSupermajority(
-        const shared_model::interface::Block &block,
-        const std::vector<std::shared_ptr<shared_model::interface::Peer>>
-            &peers) const {
-      const auto &signatures = block.signatures();
-      auto has_supermajority = supermajority_checker_->hasSupermajority(
-                                   boost::size(signatures), peers.size())
-          and peersSubset(signatures, peers);
+    return has_supermajority;
+  }
 
-      if (not has_supermajority) {
-        log_->info(
-            "Block does not contain signatures of supermajority of "
-            "peers. Block signatures public keys: [{}], ledger peers "
-            "public keys: [{}]",
-            boost::algorithm::join(
-                signatures | boost::adaptors::transformed([](const auto &s) {
-                  return s.publicKey();
-                }),
-                ", "),
-            boost::algorithm::join(
-                peers | boost::adaptors::transformed([](const auto &p) {
-                  return p->pubkey();
-                }),
-                ", "));
-      }
+  bool ChainValidatorImpl::validateBlock(
+      std::shared_ptr<const shared_model::interface::Block> const& block,
+      const iroha::LedgerState &ledger_state) const {
+    log_->debug("validate block: height {}, hash {}",
+                block->height(),
+                block->hash().hex());
 
-      return has_supermajority;
-    }
-
-    bool ChainValidatorImpl::validateBlock(
-        std::shared_ptr<const shared_model::interface::Block> block,
-        const iroha::LedgerState &ledger_state) const {
-      log_->debug("validate block: height {}, hash {}",
-                  block->height(),
-                  block->hash().hex());
-
-      return validatePreviousHash(*block, ledger_state.top_block_info.top_hash)
-          and validateHeight(*block, ledger_state.top_block_info.height)
-          and validatePeerSupermajority(*block, ledger_state.ledger_peers);
-    }
-
-  }  // namespace validation
-}  // namespace iroha
+    return validatePreviousHash(*block, ledger_state.top_block_info.top_hash)
+        and validateHeight(*block, ledger_state.top_block_info.height)
+        and validatePeerSupermajority(*block, ledger_state.ledger_peers);
+  }
+    
+}  // namespace iroha::validation

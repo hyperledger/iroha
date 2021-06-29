@@ -8,6 +8,7 @@
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+
 #include "ametsuchi/tx_cache_response.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/commands/command_variant.hpp"
@@ -71,7 +72,8 @@ PostgresBlockIndex::PostgresBlockIndex(std::unique_ptr<Indexer> indexer,
                                        logger::LoggerPtr log)
     : indexer_(std::move(indexer)), log_(std::move(log)) {}
 
-void PostgresBlockIndex::index(const shared_model::interface::Block &block) {
+void PostgresBlockIndex::index(const shared_model::interface::Block &block,
+                               bool do_flush) {
   auto height = block.height();
   for (auto tx : block.transactions() | boost::adaptors::indexed(0)) {
     const auto &creator_id = tx.value().creatorAccountId();
@@ -94,7 +96,9 @@ void PostgresBlockIndex::index(const shared_model::interface::Block &block) {
     indexer_->rejectedTxHash(rejected_tx_hash);
   }
 
-  if (auto e = resultToOptionalError(indexer_->flush())) {
-    log_->error(e.value());
+  if (do_flush){
+    if (auto e = resultToOptionalError(indexer_->flush())) {
+      log_->error(e.value());
+    }
   }
 }

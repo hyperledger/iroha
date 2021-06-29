@@ -86,6 +86,8 @@ struct IrohadConfig {
   };
 
   boost::optional<Crypto> crypto;
+
+  unsigned reindex_blocks_flush_cache_size_in_blocks = 1000;
 };
 
 /**

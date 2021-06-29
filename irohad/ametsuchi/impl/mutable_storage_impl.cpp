@@ -6,9 +6,11 @@
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
 #include <fmt/core.h>
+
 #include <boost/variant/apply_visitor.hpp>
 #include <rxcpp/operators/rx-all.hpp>
 #include <stdexcept>
+
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
@@ -29,8 +31,8 @@ namespace iroha {
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
         std::shared_ptr<PostgresCommandExecutor> command_executor,
         std::unique_ptr<BlockStorage> block_storage,
-        logger::LoggerManagerTreePtr log_manager)
-        : ledger_state_(std::move(ledger_state)),
+        logger::LoggerManagerTreePtr log_manager
+        ): ledger_state_(std::move(ledger_state)),
           sql_(command_executor->getSession()),
           wsv_command_(std::make_unique<PostgresWsvCommand>(sql_)),
           peer_query_(
@@ -43,13 +45,15 @@ namespace iroha {
               std::move(command_executor))),
           block_storage_(std::move(block_storage)),
           committed(false),
-          log_(log_manager->getLogger()) {
+          log_(log_manager->getLogger()
+          ) {
       sql_ << "BEGIN";
     }
 
-    bool MutableStorageImpl::apply(
+    bool MutableStorageImpl::applyIf(
         std::shared_ptr<const shared_model::interface::Block> block,
-        MutableStoragePredicate predicate) {
+        MutableStoragePredicate predicate,
+        bool do_flush) {
       auto execute_transaction = [this](auto &transaction) -> bool {
         auto result = transaction_executor_->execute(transaction, false);
         auto error = expected::resultToOptionalError(result);
@@ -65,7 +69,7 @@ namespace iroha {
                  block->hash().hex());
 
       auto block_applied =
-          (not ledger_state_ or predicate(block, *ledger_state_.value()))
+          (not ledger_state_ or (!predicate) or predicate(block, *ledger_state_.value()))
           and std::all_of(block->transactions().begin(),
                           block->transactions().end(),
                           execute_transaction);
@@ -78,7 +82,7 @@ namespace iroha {
         }
 
         block_storage_->insert(block);
-        block_index_->index(*block);
+        block_index_->index(*block, do_flush);
 
         auto opt_ledger_peers = peer_query_->getLedgerPeers();
         if (not opt_ledger_peers) {
@@ -115,19 +119,25 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block) {
       return withSavepoint([&] {
-        return this->apply(block, [](const auto &, auto &) { return true; });
+        return this->applyIf(block, [](const auto &, auto &) { return true; });
       });
     }
 
-    bool MutableStorageImpl::apply(
+    bool MutableStorageImpl::applyIf(
         rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
             blocks,
-        MutableStoragePredicate predicate) {
+        MutableStoragePredicate predicate,
+        unsigned reindex_blocks_flush_cache_size_in_blocks) {
       try {
+        auto counter=unsigned{0};
         return blocks
-            .all([&](auto block) {
+            .all([&](auto block){ //todo mutable, but rxcpp does not accept
+              // flush every N blocks
+              ++counter;
+              bool do_flush = counter % reindex_blocks_flush_cache_size_in_blocks == 0
+              ;//or counter == blocks.size();
               return withSavepoint(
-                  [&] { return this->apply(block, predicate); });
+                  [&] { return this->applyIf(block, predicate, do_flush); });
             })
             .as_blocking()
             .first();

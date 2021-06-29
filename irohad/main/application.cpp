@@ -448,7 +448,8 @@ Irohad::RunResult Irohad::initValidators() {
       validators_log_manager->getChild("Stateful")->getLogger());
   chain_validator = std::make_shared<ChainValidatorImpl>(
       getSupermajorityChecker(kConsensusConsistencyModel),
-      validators_log_manager->getChild("Chain")->getLogger());
+      validators_log_manager->getChild("Chain")->getLogger(),
+      config_.reindex_blocks_flush_cache_size_in_blocks);
 
   log_->info("[Init] => validators");
   return {};

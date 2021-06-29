@@ -27,7 +27,8 @@ namespace iroha {
        * Create necessary indexes for block
        * @param block to be indexed
        */
-      virtual void index(const shared_model::interface::Block &) = 0;
+      virtual void index(const shared_model::interface::Block &,
+                         bool do_flush = true) = 0;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

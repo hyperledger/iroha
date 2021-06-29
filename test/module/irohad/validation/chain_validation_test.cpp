@@ -29,7 +29,7 @@ class ChainValidationTest : public ::testing::Test {
  public:
   void SetUp() override {
     validator = std::make_shared<ChainValidatorImpl>(
-        supermajority_checker, getTestLogger("ChainValidator"));
+        supermajority_checker, getTestLogger("ChainValidator"), 1);
     storage = std::make_shared<MockMutableStorage>();
     peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
 
@@ -86,7 +86,7 @@ TEST_F(ChainValidationTest, ValidCase) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(true)));
 
-  EXPECT_CALL(*storage, apply(blocks, _))
+  EXPECT_CALL(*storage, applyIf(blocks, _, _))
       .WillOnce(
           InvokeArgument<1>(block, LedgerState{peers, prev_height, prev_hash}));
 
@@ -107,7 +107,7 @@ TEST_F(ChainValidationTest, FailWhenDifferentPrevHash) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillRepeatedly(Return(true));
 
-  EXPECT_CALL(*storage, apply(blocks, _))
+  EXPECT_CALL(*storage, applyIf(blocks, _, _))
       .WillOnce(InvokeArgument<1>(
           block, LedgerState{peers, prev_height, another_hash}));
 
@@ -125,7 +125,7 @@ TEST_F(ChainValidationTest, FailWhenNoSupermajority) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(false)));
 
-  EXPECT_CALL(*storage, apply(blocks, _))
+  EXPECT_CALL(*storage, applyIf(blocks, _, _))
       .WillOnce(
           InvokeArgument<1>(block, LedgerState{peers, prev_height, prev_hash}));
 

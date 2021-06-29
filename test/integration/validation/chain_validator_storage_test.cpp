@@ -29,7 +29,7 @@ namespace iroha {
     void SetUp() override {
       ametsuchi::AmetsuchiTest::SetUp();
       validator = std::make_shared<validation::ChainValidatorImpl>(
-          supermajority_checker, getTestLogger("ChainValidator"));
+          supermajority_checker, getTestLogger("ChainValidator"), 1);
 
       for (size_t i = 0; i < 5; ++i) {
         keys.push_back(shared_model::crypto::DefaultCryptoAlgorithmType::
