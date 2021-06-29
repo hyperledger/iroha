@@ -1,15 +1,13 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::collections::HashSet;
-
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha::sumeragi::NetworkTopology;
+use iroha::sumeragi::network_topology;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 
 const N_PEERS: usize = 255;
 
-fn get_n_peers(n: usize) -> HashSet<PeerId> {
+fn get_n_peers(n: usize) -> Vec<PeerId> {
     (0..n)
         .map(|i| PeerId {
             address: format!("127.0.0.{}", i),
@@ -21,11 +19,9 @@ fn get_n_peers(n: usize) -> HashSet<PeerId> {
 }
 
 fn sort_peers(criterion: &mut Criterion) {
-    let mut network_topology = NetworkTopology::new(get_n_peers(N_PEERS), None, 1)
-        .init()
-        .expect("Failed to initialize topology.");
+    let peers = get_n_peers(N_PEERS);
     let _ = criterion.bench_function("sort_peers", |b| {
-        b.iter(|| network_topology.sort_peers_by_hash(Some(Hash([0_u8; 32]))));
+        b.iter(|| network_topology::sort_peers_by_hash(peers.clone(), Hash([0_u8; 32])));
     });
 }
 

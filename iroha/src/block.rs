@@ -20,10 +20,20 @@ use crate::{
     merkle::MerkleTree,
     prelude::*,
     smartcontracts::permissions::IsInstructionAllowedBoxed,
-    sumeragi::InitializedNetworkTopology,
+    sumeragi::network_topology::Topology,
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
     wsv::WorldTrait,
 };
+
+/// The chain of the previous block hash if there is no previous block - the blockchain is empty.
+#[derive(Debug, Clone, Copy)]
+pub struct EmptyChainHash;
+
+impl From<EmptyChainHash> for Hash {
+    fn from(EmptyChainHash: EmptyChainHash) -> Hash {
+        Hash([0_u8; 32])
+    }
+}
 
 /// Blockchain.
 #[derive(Debug, Default)]
@@ -119,16 +129,13 @@ impl PendingBlock {
 
     /// Create a new blockchain with current block as a first block.
     #[allow(clippy::missing_const_for_fn)]
-    pub fn chain_first_with_genesis_topology(
-        self,
-        genesis_topology: InitializedNetworkTopology,
-    ) -> ChainedBlock {
+    pub fn chain_first_with_genesis_topology(self, genesis_topology: Topology) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
-                previous_block_hash: Hash([0_u8; 32]),
+                previous_block_hash: EmptyChainHash.into(),
                 transactions_merkle_root_hash: Hash([0_u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
                 number_of_view_changes: 0,
@@ -146,7 +153,7 @@ impl PendingBlock {
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
-                previous_block_hash: Hash([0_u8; 32]),
+                previous_block_hash: EmptyChainHash.into(),
                 transactions_merkle_root_hash: Hash([0_u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
                 number_of_view_changes: 0,
@@ -185,7 +192,7 @@ pub struct BlockHeader {
     /// Hashes of the blocks that were rejected by consensus.
     pub invalidated_blocks_hashes: Vec<Hash>,
     /// Genesis topology
-    pub genesis_topology: Option<InitializedNetworkTopology>,
+    pub genesis_topology: Option<Topology>,
 }
 
 impl BlockHeader {

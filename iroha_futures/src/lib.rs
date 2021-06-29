@@ -25,7 +25,7 @@ impl<F> TelemetryFuture<F> {
     /// Constructor for future
     pub fn new(future: F, name: &'static str) -> Self {
         let id = rand::random();
-        Self { future, name, id }
+        Self { future, id, name }
     }
 }
 

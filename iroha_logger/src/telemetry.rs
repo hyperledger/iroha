@@ -108,8 +108,8 @@ impl<S: Subscriber> TelemetryLayer<S> {
     /// Create telemetry from channel sender
     pub fn from_sender(subscriber: S, telemetry_sender: Sender<Telemetry>) -> impl Subscriber {
         EventSubscriber(Self {
-            subscriber,
             telemetry_sender,
+            subscriber,
         })
     }
 
