@@ -207,13 +207,13 @@ void mutableStorageExpectChain(
       [chain = std::move(chain)](auto) -> std::unique_ptr<MutableStorage> {
     auto mutable_storage = std::make_unique<MockMutableStorage>();
     if (chain.empty()) {
-      EXPECT_CALL(*mutable_storage, apply(_)).Times(0);
+      EXPECT_CALL(*mutable_storage, applyBlock(_)).Times(0);
     } else {
       InSequence s;  // ensures the call order
       for (const auto &block : chain) {
         EXPECT_CALL(
             *mutable_storage,
-            apply(std::const_pointer_cast<const shared_model::interface::Block>(
+            applyBlock(std::const_pointer_cast<const shared_model::interface::Block>(
                 block)))
             .WillOnce(Return(true));
       }

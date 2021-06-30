@@ -34,7 +34,7 @@ namespace iroha {
           std::unique_ptr<BlockStorage> block_storage,
           logger::LoggerManagerTreePtr log_manager);
 
-      bool apply(
+      bool applyBlock(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
       bool applyIf(rxcpp::observable<
@@ -49,6 +49,8 @@ namespace iroha {
           BlockStorage &block_storage)
           && override;
 
+//      virtual iroha::expected::Result<void, std::string> flush() override;
+      
       ~MutableStorageImpl() override;
 
      private:
@@ -64,7 +66,7 @@ namespace iroha {
        * Verifies whether the block is applicable using predicate, and applies
        * the block
        */
-      bool applyIf(std::shared_ptr<const shared_model::interface::Block> block,
+      bool applyBlockIf(std::shared_ptr<const shared_model::interface::Block> block,
                    MutableStoragePredicate predicate = {},
                    bool do_flush = true);
 

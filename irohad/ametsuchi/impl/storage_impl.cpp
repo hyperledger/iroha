@@ -150,7 +150,7 @@ namespace iroha {
         return createMutableStorage(std::move(command_executor)) |
                    [&](auto &&mutable_storage)
                    -> expected::Result<void, std::string> {
-          const bool is_inserted = mutable_storage->apply(block);
+          const bool is_inserted = mutable_storage->applyBlock(block);
           commit(std::move(mutable_storage));
           if (is_inserted) {
             return {};
@@ -345,7 +345,7 @@ namespace iroha {
         soci::session sql(*connection_);
         sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
         PostgresBlockIndex block_index(
-            std::make_unique<PostgresIndexer>(sql),
+            sql,
             log_manager_->getChild("BlockIndex")->getLogger());
         block_index.index(*block);
         block_is_prepared_ = false;

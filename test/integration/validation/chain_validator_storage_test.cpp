@@ -94,7 +94,7 @@ namespace iroha {
 
       auto ms = createMutableStorage();
 
-      ms->apply(block);
+      ms->applyBlock(block);
       auto commit_result = storage->commit(std::move(ms));
       EXPECT_TRUE(boost::get<expected::ValueOf<decltype(commit_result)>>(
           (&commit_result)));

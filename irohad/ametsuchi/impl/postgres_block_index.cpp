@@ -19,7 +19,7 @@
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
 
-using TxPosition = iroha::ametsuchi::Indexer::TxPosition;
+//using TxPosition = iroha::ametsuchi::Indexer::TxPosition;
 
 namespace {
   // Return transfer asset if command contains it
@@ -59,18 +59,20 @@ void PostgresBlockIndex::makeAccountAssetIndex(
     const auto asset_id = transfer.assetId();
     // flat map accounts to unindexed keys
     for (const auto &id : ids) {
-      indexer_->txPositions(id, hash, asset_id, ts, position);
+      this->txPositions(id, hash, asset_id, ts, position);
       creator_was_added |= id == account_id;
     }
     if (not creator_was_added) {
-      indexer_->txPositions(account_id, hash, asset_id, ts, position);
+      this->txPositions(account_id, hash, asset_id, ts, position);
     }
   }
 }
 
-PostgresBlockIndex::PostgresBlockIndex(std::unique_ptr<Indexer> indexer,
+PostgresBlockIndex::PostgresBlockIndex(//std::unique_ptr<Indexer> indexer,
+                                       soci::session &sql,
                                        logger::LoggerPtr log)
-    : indexer_(std::move(indexer)), log_(std::move(log)) {}
+    : sql_(sql), log_(std::move(log)) {}
+    // : indexer_(std::move(indexer)), log_(std::move(log)) {}
 
 void PostgresBlockIndex::index(const shared_model::interface::Block &block,
                                bool do_flush) {
@@ -79,13 +81,13 @@ void PostgresBlockIndex::index(const shared_model::interface::Block &block,
     const auto &creator_id = tx.value().creatorAccountId();
     const TxPosition position{height, static_cast<size_t>(tx.index())};
 
-    indexer_->committedTxHash(tx.value().hash());
+    this->committedTxHash(tx.value().hash());
     makeAccountAssetIndex(creator_id,
                           tx.value().hash(),
                           tx.value().createdTime(),
                           position,
                           tx.value().commands());
-    indexer_->txPositions(creator_id,
+    this->txPositions(creator_id,
                           tx.value().hash(),
                           boost::none,
                           tx.value().createdTime(),
@@ -93,12 +95,120 @@ void PostgresBlockIndex::index(const shared_model::interface::Block &block,
   }
 
   for (const auto &rejected_tx_hash : block.rejected_transactions_hashes()) {
-    indexer_->rejectedTxHash(rejected_tx_hash);
+    this->rejectedTxHash(rejected_tx_hash);
   }
 
   if (do_flush) {
-    if (auto e = resultToOptionalError(indexer_->flush())) {
+    if (auto e = resultToOptionalError(this->flush())) {
       log_->error(e.value());
     }
+  }
+}
+
+
+
+#include <fmt/core.h>
+#include <soci/soci.h>
+#include <boost/format.hpp>
+#include "cryptography/hash.hpp"
+
+using namespace iroha::ametsuchi;
+using namespace shared_model::interface::types;
+
+
+void PostgresBlockIndex::txHashStatus(const HashType &tx_hash, bool is_committed) {
+  tx_hash_status_.hash.emplace_back(tx_hash.hex());
+  tx_hash_status_.status.emplace_back(is_committed ? "TRUE" : "FALSE");
+}
+
+void PostgresBlockIndex::committedTxHash(const HashType &committed_tx_hash) {
+  txHashStatus(committed_tx_hash, true);
+}
+
+void PostgresBlockIndex::rejectedTxHash(const HashType &rejected_tx_hash) {
+  txHashStatus(rejected_tx_hash, false);
+}
+
+void PostgresBlockIndex::txPositions(
+    shared_model::interface::types::AccountIdType const &account,
+    HashType const &hash,
+    boost::optional<AssetIdType> &&asset_id,
+    TimestampType const ts,
+    TxPosition const &position) {
+  tx_positions_.account.emplace_back(account);
+  tx_positions_.hash.emplace_back(hash.hex());
+  tx_positions_.asset_id.emplace_back(std::move(asset_id));
+  tx_positions_.ts.emplace_back(ts);
+  tx_positions_.height.emplace_back(position.height);
+  tx_positions_.index.emplace_back(position.index);
+}
+
+iroha::expected::Result<void, std::string> PostgresBlockIndex::flush() {
+  try {
+    std::string cache_str;
+    assert(tx_hash_status_.hash.size() == tx_hash_status_.status.size());
+    if (not tx_hash_status_.hash.empty()) {
+      cache_str +=
+          "INSERT INTO tx_status_by_hash"
+          "(hash, status) VALUES ";
+      for (size_t ix = 0; ix < tx_hash_status_.hash.size(); ++ix) {
+        cache_str += fmt::format("('{}','{}')",
+                              tx_hash_status_.hash[ix],
+                              tx_hash_status_.status[ix]);
+        if (ix != tx_hash_status_.hash.size() - 1)
+          cache_str += ',';
+      }
+      cache_str += ";\n";
+
+      tx_hash_status_.hash.clear();
+      tx_hash_status_.status.clear();
+    }
+
+    assert(tx_positions_.account.size() == tx_positions_.hash.size());
+    assert(tx_positions_.account.size() == tx_positions_.asset_id.size());
+    assert(tx_positions_.account.size() == tx_positions_.ts.size());
+    assert(tx_positions_.account.size() == tx_positions_.height.size());
+    assert(tx_positions_.account.size() == tx_positions_.index.size());
+    if (!tx_positions_.account.empty()) {
+      cache_str +=
+          "INSERT INTO tx_positions"
+          "(creator_id, hash, asset_id, ts, height, index) VALUES ";
+      for (size_t ix = 0; ix < tx_positions_.account.size(); ++ix) {
+        if (tx_positions_.asset_id[ix]) {
+          cache_str += fmt::format("('{}','{}','{}',{},{},{})",
+                                tx_positions_.account[ix],
+                                tx_positions_.hash[ix],
+                                *tx_positions_.asset_id[ix],
+                                tx_positions_.ts[ix],
+                                tx_positions_.height[ix],
+                                tx_positions_.index[ix]);
+        } else {
+          cache_str += fmt::format("('{}','{}',NULL,{},{},{})",
+                                tx_positions_.account[ix],
+                                tx_positions_.hash[ix],
+                                tx_positions_.ts[ix],
+                                tx_positions_.height[ix],
+                                tx_positions_.index[ix]);
+        }
+        if (ix != tx_positions_.account.size() - 1)
+          cache_str += ',';
+      }
+      cache_str += " ON CONFLICT DO NOTHING;\n";
+
+      tx_positions_.account.clear();
+      tx_positions_.hash.clear();
+      tx_positions_.asset_id.clear();
+      tx_positions_.ts.clear();
+      tx_positions_.height.clear();
+      tx_positions_.index.clear();
+    }
+
+    if (cache_str.size())
+      sql_ << cache_str;
+
+    return {};
+
+  } catch (const std::exception &e) {
+    return e.what();
   }
 }

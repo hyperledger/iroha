@@ -171,7 +171,7 @@ namespace iroha {
       void apply(const std::shared_ptr<StorageImpl> &storage,
                  std::shared_ptr<const shared_model::interface::Block> block) {
         auto ms = createMutableStorage();
-        ASSERT_TRUE(ms->apply(block));
+        ASSERT_TRUE(ms->applyBlock(block));
         IROHA_ASSERT_RESULT_VALUE(storage->commit(std::move(ms)));
       }
 

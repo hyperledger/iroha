@@ -38,7 +38,7 @@ class BlockQueryTest : public AmetsuchiTest {
     sql = std::make_unique<soci::session>(*soci::factory_postgresql(), pgopt_);
 
     index = std::make_shared<PostgresBlockIndex>(
-        std::make_unique<PostgresIndexer>(*sql), getTestLogger("BlockIndex"));
+        *sql, getTestLogger("BlockIndex"));
     auto converter =
         std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
     auto block_storage_factory = std::make_unique<FlatFileBlockStorageFactory>(

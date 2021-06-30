@@ -365,7 +365,7 @@ namespace iroha {
                           prev_hash);
           prev_hash = block->hash();
 
-          if (not ms->apply(block)) {
+          if (not ms->applyBlock(block)) {
             FAIL() << "could not apply block to the storage";
           }
         }

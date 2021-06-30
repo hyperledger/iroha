@@ -437,7 +437,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
   });
 
   auto mutable_storage = createMutableStorage();
-  mutable_storage->apply(expected_block);
+  mutable_storage->applyBlock(expected_block);
 
   ASSERT_TRUE(val(storage->commit(std::move(mutable_storage))));
 

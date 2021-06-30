@@ -26,7 +26,7 @@ namespace iroha {
            unsigned reindex_blocks_flush_cache_size_in_blocks),
           (override));
       MOCK_METHOD(bool,
-                  apply,
+                  applyBlock,
                   (std::shared_ptr<const shared_model::interface::Block>),
                   (override));
       MOCK_METHOD(bool,

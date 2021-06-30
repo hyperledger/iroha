@@ -52,7 +52,7 @@ namespace iroha {
        * Applies block without additional validation function
        * @see apply(block, function)
        */
-      virtual bool apply(
+      virtual bool applyBlock(
           std::shared_ptr<const shared_model::interface::Block> block) = 0;
 
       /**
@@ -73,7 +73,9 @@ namespace iroha {
       /// and the global WSV.
       virtual expected::Result<MutableStorage::CommitResult, std::string>
       commit(BlockStorage &block_storage) && = 0;
-
+      
+//      virtual iroha::expected::Result<void, std::string> flush() = 0;
+      
       virtual ~MutableStorage() = default;
     };
 

@@ -179,7 +179,7 @@ namespace iroha {
       if (not committed_prepared) {
         auto commit_result =
             getStorage() | [&](auto &&storage) -> ametsuchi::CommitResult {
-          if (storage->apply(msg.block)) {
+          if (storage->applyBlock(msg.block)) {
             return mutable_factory_->commit(std::move(storage));
           } else {
             return "Block failed to apply.";

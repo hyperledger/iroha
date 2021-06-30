@@ -59,7 +59,7 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
 
   block_indexer_session_ = db_manager_->getSession();
   block_indexer_ = std::make_shared<PostgresBlockIndex>(
-      std::make_unique<PostgresIndexer>(*block_indexer_session_),
+      *block_indexer_session_,
       getTestLogger("PostgresIndexer"));
 }
 
