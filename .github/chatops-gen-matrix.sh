@@ -1,106 +1,125 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s lastpipe
 
-JSON_ubuntu='{}'
-JSON_macos='{}'
-json_edit(){
-    declare -n json=JSON_$1
-    shift
-    json="$(echo "$json" | jq "$@" || echo "$json")"
+echowarn(){
+   echo >&2 '::warning::'"$@"
 }
-show_json(){
-    declare -n json=JSON_$1
-    echo "$json" | jq
+echoerr(){
+   echo >&2 '::error::'"$@"
 }
 
-handle_line(){
-    local os compiler cmake_opts build_type dockerpush=yes
-    local readonly DEFAULT_os="ubuntu macos" DEFAULT_build_type="Debug" DEFAULT_cmake_opts="default burrow ursa"
-    local readonly DEFAULT_ubuntu_compiler="gcc-9" AVAILABLE_ubuntu_compiler="gcc-9 gcc-10 clang-10"
-    local readonly DEFAULT_macos_compiler="clang"  AVAILABLE_macos_compiler="clang llvm gcc-10"
-    for arg ;do
-        # echo arg $arg
-        case "$arg" in 
-            macos)                     os+=" $arg " ;;
-            ubuntu|linux)              os+=" ubuntu " ;;
-            windows)                   os+=" $arg " ;;
-            default)                   cmake_opts+=" $arg "  ;;
-            burrow)                    cmake_opts+=" $arg "  ;;
-            ursa)                      cmake_opts+=" $arg "  ;;
-            release|Release)           build_type+=" Release " ;;
-            debug|Debug)               build_type+=" Debug"  ;;
-            gcc-9|gcc9)                compiler+=" gcc-9 " ;;
-            gcc-10|gcc10)              compiler+=" gcc-10 " ;;
-            clang-10|clang10)          compiler+=" clang-10"  ;;
-            llvm)                      compiler+=" $arg " ;;
-            clang)                     compiler+=" $arg " ;;
-            # msvc)                      compiler+=" $arg " ;;
-            # mingw)                     compiler+=" $arg " ;;
-            # notest)  ;;
-            # test)  ;;
-            dockerpush)                dockerpush=yes ;;
-            nodockerpush)              dockerpush=no ;;
-            /build) ;;
-            *)  echo ::warning::"Unknown /build argument '$arg'" ;;
-        esac
-    done
+readonly DEFAULT_oses="ubuntu macos windows" DEFAULT_build_types="Debug" DEFAULT_cmake_opts="default burrow ursa"
+readonly DEFAULT_ubuntu_compilers="gcc-9" AVAILABLE_ubuntu_compilers="gcc-9 gcc-10 clang-10"
+readonly DEFAULT_macos_compilers="clang"  AVAILABLE_macos_compilers="clang llvm gcc-10"
+readonly DEFAULT_windows_compilers="msvc" AVAILABLE_windows_compilers="msvc mingw cygwin"
+readonly ALL_oses="ubuntu macos windows" ALL_build_types="Debug Release" ALL_cmake_opts="default burrow ursa" ALL_compilers="gcc-9 gcc-10 clang-10 clang llvm msvc"
 
-    ##UBUNTU_MATRIX
-    os=${os:-$DEFAULT_os}
-    build_type=${build_type:-$DEFAULT_build_type}
-    cmake_opts=${cmake_opts:-$DEFAULT_cmake_opts}
-
-    use_from_o(){
-        if [[ $o = default ]] ;then
-            use=''
-        else
-            use=-DUSE_${o^^}=ON
-        fi
-    }
-
-    generate(){
-        declare -n DEFAULT_compiler=DEFAULT_$1_compiler
-        declare -n AVAILABLE_compiler=AVAILABLE_$1_compiler
-        declare -n MATRIX=MATRIX_$1
-        
-        if [[ " $os " = *" $1 "* ]] ;then
-            cc=${compiler:-$DEFAULT_compiler}
-            local c b o
-            for c in $cc ;do
-                if ! [[ " $AVAILABLE_compiler " = *" $c "* ]] ;then 
-                    c=
-                    continue
-                fi
-                for b in $build_type ;do
-                    for o in $cmake_opts ;do
-                        MATRIX+="$1 $c $b $o"$'\n'
-                        local use; use_from_o
-                        json_edit $1 ".include+=[{ 
-                            cc:\"$c\", 
-                            build_type:\"$b\" 
-                            ${use:+,CMAKE_USE:\"$use\"}
-                            ,dockerpush: \"$dockerpush\"
-                        }]"
-            done;done;done
-            if test "${c:-}" = "" ; then
-                echo ::warning::"No available compiler for '$1' among '$cc', available: '$AVAILABLE_compiler'"
-            fi
-            echo "${MATRIX:-}"
-        fi
-    }
-    generate ubuntu
-    generate macos
+generate(){
+   declare -rn DEFAULT_compilers=DEFAULT_${os}_compilers
+   declare -rn AVAILABLE_compilers=AVAILABLE_${os}_compilers
+   local compilers=${compilers:-$DEFAULT_compilers}
+   local cc bt op used_compilers=
+   for cc in $compilers ;do
+      if ! [[ " $AVAILABLE_compilers " = *" $cc "* ]] ;then
+         continue
+      fi
+      used_compilers+=$cc' '
+      for bt in $build_types ;do
+         for co in $cmake_opts ;do
+            MATRIX+="$os $cc $bt $co"$'\n'
+         done
+      done
+   done
+   if test "$used_compilers" = ''; then
+      echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
+   fi
 }
 
-while read comment_line;do
-    if [[ "$comment_line" =~ ^/build\ .* ]] ;then
-        # echo comment_line="$comment_line"
-        handle_line $comment_line
-    fi
+handle_user_line(){
+   # echo ----------- "$@"
+   if [[ "${1:-}" != '/build' ]] ;then
+      echowarn "Line skipped, should start with '/build' or '/test'"
+      return
+   fi
+   shift
+   local oses compilers cmake_opts build_types
+   dockerpush=yes
+
+   while [[ $# > 0 ]] ;do
+      case "$1" in
+         macos)                     oses+=" $1 " ;;
+         ubuntu|linux)              oses+=" ubuntu " ;;
+         windows)                   oses+=" $1 " ;;
+         default)                   cmake_opts+=" $1 "  ;;
+         burrow)                    cmake_opts+=" $1 "  ;;
+         ursa)                      cmake_opts+=" $1 "  ;;
+         release|Release)           build_types+=" Release " ;;
+         debug|Debug)               build_types+=" Debug"  ;;
+         gcc-9|gcc9)                compilers+=" gcc-9 " ;;
+         gcc-10|gcc10)              compilers+=" gcc-10 " ;;
+         clang-10|clang10)          compilers+=" clang-10"  ;;
+         llvm)                      compilers+=" $1 " ;;
+         clang)                     compilers+=" $1 " ;;
+         # msvc)                      compilers+=" $1 " ;;
+         # mingw)                     compilers+=" $1 " ;;
+         # notest)  ;;
+         # test)  ;;
+         dockerpush)                dockerpush=yes ;;
+         nodockerpush)              dockerpush=no ;;
+         all|everything|before_merge|before-merge)
+            oses="$ALL_oses" build_types="$ALL_build_types" cmake_opts="$ALL_cmake_opts" compilers="$ALL_compilers"
+            ;;
+         *)
+            echoerr "Unknown /build argument '$1'"
+            return 1
+            ;;
+      esac
+      shift
+   done
+
+   oses=${oses:-$DEFAULT_oses}
+   build_types=${build_types:-$DEFAULT_build_types}
+   cmake_opts=${cmake_opts:-$DEFAULT_cmake_opts}
+
+   for os in $oses ;do
+      generate
+   done
+}
+
+while read input_line ;do
+   #  if [[ "$input_line" =~ ^/build\ .* ]] ;then
+        handle_user_line $input_line #|| continue
+   #  fi
 done
 
-show_json ubuntu
-show_json macos
+to_json(){
+   echo "{
+         os:\"$1\",
+         cc:\"$2\",
+         BuildType:\"$3\",
+         CMAKE_USE:\"$( [[ "$4" = default ]] || echo "-DUSE_${4^^}=ON" )\",
+         dockerpush: \"$dockerpush\"
+      }"
+}
+to_json_multiline(){
+   echo [
+   comma=''
+   while read line ;do
+      # if [[ "" = "$line" ]] ;then continue ;fi
+      echo "$comma$(to_json $line)"
+      comma=,
+   done
+   echo ]
+}
+json_include(){
+   jq -cn ".include=$(to_json_multiline)"
+}
 
-echo "$JSON_ubuntu" >matrix_ubuntu
-echo "$JSON_macos"  >matrix_macos
+MATRIX="$(echo "$MATRIX" | sed '/^$/d' | sort -uV)"
+echo "$MATRIX" >&2
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'              | json_include >matrix_ubuntu
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/' | json_include >matrix_ubuntu_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'   | json_include >matrix_ubuntu_debug
+echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'               | json_include >matrix_macos
+echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'             | json_include >matrix_windows

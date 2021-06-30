@@ -49,29 +49,6 @@ on:
     - cron: '12 22 * * *'
 
 jobs:
-  pr_comment_reaction_rocket:
-    ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
-    if: ${{ github.event.comment &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/build') }}
-    steps:
-      - &step_show_context
-        name: Show context
-        run: |
-          cat >/dev/null <<'END'
-            ${{ toJson(github) }}
-          END
-      -
-        name: Reaction
-        run: |
-          # send reaction to comment to show build was triggered
-          curl ${{github.event.comment.url}}/reactions \
-            -X POST \
-            -d '{"content":"rocket"}' \
-            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-            -H "Authorization: token ${{github.token}}"
-
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
     name: Check if github workflows were properly made from sources
@@ -100,6 +77,85 @@ jobs:
         run: |
           set -x
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
+
+  pr_comment_reaction_rocket:
+    ## Just to react to valid comment with rocket
+    runs-on: ubuntu-latest
+    if: ${{ github.event.comment &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/build') }}
+    steps:
+      - &step_show_context
+        name: Show context
+        run: |
+          cat >/dev/null <<'END'
+            ${{ toJson(github) }}
+          END
+      -
+        name: Reaction
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+
+  generate_matrixes:
+    runs-on: ubuntu-latest
+    # if: ${{ github.event.comment &&
+    #       github.event.issue.pull_request &&
+    #       startsWith(github.event.comment.body, '/build') }}
+    steps:
+      - *step_show_context
+      - *step_checkout
+      -
+        name: Generate matrix for build triggered by chat-ops - comment to PR
+        if: github.event.comment && github.event.issue.pull_request
+        id: comment_body
+        run: echo "${{github.event.comment.body}}" >/tmp/comment_body
+      -
+        name: Generate default matrix for regular builds
+        if: ${{ steps.comment_body.outcome == 'skipped' }}
+        run: echo "/build" >/tmp/comment_body
+      -
+        name: Generate matrixes
+        id: matrixes
+        run: |
+          set -x
+          cat /tmp/comment_body | .github/chatops-gen-matrix.sh
+          echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
+          echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
+          echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
+          echo "::set-output name=matrix_macos::$(cat matrix_macos)"
+          echo "::set-output name=matrix_windows::$(cat matrix_windows)"
+      ##TODO report errors and warnings as answer to issue comments
+      -
+        name: Reaction confused
+        if: failure() && github.event.comment
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"confused"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+      -
+        name: Reaction rocket
+        if: github.event.comment
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+    outputs:
+      matrix_ubuntu:         ${{steps.matrixes.outputs.matrix_ubuntu}}
+      matrix_ubuntu_release: ${{steps.matrixes.outputs.matrix_ubuntu_release}}
+      matrix_ubuntu_debug:   ${{steps.matrixes.outputs.matrix_ubuntu_debug}}
+      matrix_macos:          ${{steps.matrixes.outputs.matrix_macos}}
+      matrix_windows:        ${{steps.matrixes.outputs.matrix_windows}}
 
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
@@ -249,23 +305,15 @@ jobs:
 
   ## Build in a docker container
   build-iroha-ubuntu-debug: &job_ubuntu
-    needs: Docker-iroha-builder
+    needs:
+      - Docker-iroha-builder
+      - generate_matrixes
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     ## Container is taken from previous job
     container: &container ${{needs.Docker-iroha-builder.outputs.container}}
-    # container: &container
-    #   ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
-    #                         )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
-    #                         fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
-    #                         )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
     strategy: &strategy_ubuntu_debug
       fail-fast: false
-      matrix: &matrix_ubuntu_debug
-        CC: [ gcc-9 ] #, gcc-10, clang-10 ]
-        CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
-        BuildType: [ Debug ]
-    # env:
-    #   VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -431,37 +479,42 @@ jobs:
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
           set -x
-          initdb --locale=C -E UTF-8 $PWD/postgres_database
+          initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
           postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
-          createuser -s postgres -p5432
+          #createuser -s postgres -p5432
 
           ## Run module_* tests in parallel and others subsequently
           cd build
           ctest --output-on-failure -R '^module_' --parallel 8
           ctest --output-on-failure -E '^module_' --repeat until-pass:3
 
+  ## Just because release is built 2..3 times faster make it a different job
   build-iroha-ubuntu-release:
     <<: *job_ubuntu
-    strategy:
+    strategy: &strategy_ubuntu_release
       fail-fast: false
-      matrix: &matrix_release
-        include:
-          - { BuildType: Release, CC: gcc-9 }
-          - { BuildType: Release, CC: gcc-9, CMAKE_USE: -DUSE_BURROW=ON }
-        # CC:         [ gcc-9 ] #, gcc-10, clang-10 ]
-        # CMAKE_USE:  [ '', -DUSE_BURROW=ON ]
-        # build_type: [ Release ]
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
+
+  ## Just to align picture
+  prepare-macos-env:
+    needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: macos-latest
+    steps:
+      - *step_show_context
 
   build-iroha-macos:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs:
+      - prepare-macos-env
+      - generate_matrixes
     runs-on: macos-latest #[ self-hosted, MacOS ] #
     strategy:
       fail-fast: false
-      matrix:
-        # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        CC: [ clang ] #, llvm ] #gcc-10
-        CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
-        BuildType: [ Debug ] #,Release, RelWithDebInfo
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
+      # matrix:
+      #   # os: [ macos-latest, macos-11.0, macos-10.15 ]
+      #   CC: [ clang ] #, llvm ] #gcc-10
+      #   CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
+      #   BuildType: [ Debug ] #,Release, RelWithDebInfo
     # ## For pull_request run only Apple-clang, no llvm
     # if: ${{ ! (github.event_name == 'pull_request' && matrix.CC == 'clang') }}
     steps:
@@ -516,17 +569,30 @@ jobs:
         ## ToDo may be optimize, i.e. cache package
       - *step_ctest
 
-  build-iroha-windows:
+  ## Just to align picture
+  prepare-windows-env:
     needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: windows-latest
+    steps:
+      - *step_show_context
+    defaults:
+      run:
+        shell: bash
+
+  build-iroha-windows:
+    needs:
+      - prepare-windows-env
+      - generate_matrixes
     if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     runs-on: windows-latest
     strategy:
       fail-fast: false
-      matrix:
-        BuildYype: [ Debug ] #,Release, RelWithDebInfo
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
+      # matrix:
+      #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
-        shell: bash  #pwshdefaults:
+        shell: bash  #pwsh
         working-directory: &workdir 'C:\github\iroha'  ## Use disk C: because D: is out of space
     steps:
       - name: Create working-directory, export WORKDIR
@@ -568,9 +634,7 @@ jobs:
   iroha-docker-image-release: &job_docker_image_release
     needs: build-iroha-ubuntu-release
     runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: *matrix_release
+    strategy: *strategy_ubuntu_release
     #if: matrix.dockerpush == '' || matrix.dockerpush == 'yes'
     env: &env_dockerhub_release
       <<: *env_dockerhub
