@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io};
+use std::{collections::HashMap, io, net::SocketAddr};
 
 use async_stream::stream;
 use futures::Stream;
@@ -8,7 +8,10 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::net::{TcpListener, TcpStream};
 use ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
 
-use crate::peer::{Peer, PeerId, State};
+use crate::{
+    peer::{Peer, PeerId, State},
+    Error,
+};
 
 /// Main network layer structure, that is holding connections, called [`Peer`]s.
 #[derive(Debug)]
@@ -21,7 +24,6 @@ where
     peers: HashMap<PeerId, Addr<Peer<T, K, E>>>,
     listener: Option<TcpListener>,
     broker: Broker,
-    //handler: AlwaysAddr<A>
 }
 
 impl<T, K, E> Network<T, K, E>
@@ -31,18 +33,26 @@ where
     E: Encryptor + Send + 'static,
 {
     /// Creates a network structure, that will hold connections to other nodes.
-    pub fn new(broker: Broker /*handler: AlwaysAddr<A>*/) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// It will return Err if it is unable to start listening on specified address:port.
+    pub async fn new(broker: Broker, listen_addr: String) -> Result<Self, Error> {
+        let addr: SocketAddr = listen_addr.parse()?;
+        let listener = TcpListener::bind(addr).await?;
+        Ok(Self {
             peers: HashMap::new(),
-            listener: None,
+            listener: Some(listener),
             broker,
-            /*handler*/
-        }
+        })
     }
 
+    /// Yields a stream of accepted peer connections.
     fn listener_stream(&mut self) -> impl Stream<Item = NewPeer> + Send + 'static {
-        #[allow(clippy::unwrap_used)]
-        let listener = self.listener.take().unwrap();
+        #[allow(clippy::expect_used)]
+        let listener = self
+            .listener
+            .take()
+            .expect("Unreachable, as it is supposed to have listener on the start");
         stream! {
             loop {
                 match listener.accept().await {
@@ -61,6 +71,7 @@ where
         }
     }
 
+    /// Starts an outgoing connection to other peer
     async fn connect_peer(&mut self, id: PeerId, addr: Addr<Network<T, K, E>>) {
         match Peer::new(id.clone(), None, State::Connecting, addr) {
             Ok(peer) => {
@@ -86,7 +97,7 @@ where
         self.broker.subscribe::<Received<T>, _>(ctx);
         // from other iroha subsystems
         self.broker.subscribe::<Post<T>, _>(ctx);
-        // from listener
+        // register for peers from listener
         ctx.notify_with_context(self.listener_stream());
     }
 }

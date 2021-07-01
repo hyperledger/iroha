@@ -2,7 +2,7 @@
 //! between blockchain nodes. Also, it provides for simple use of encryption
 //! to hide the data flowing between nodes.
 
-use std::io;
+use std::{io, net::AddrParseError};
 
 use iroha_derive::FromVariant;
 use iroha_error::{derive::Error, error};
@@ -27,6 +27,9 @@ pub enum Error {
     /// Failed to create keys
     #[error("Failed to create session key")]
     Keys,
+    /// Failed to parse address
+    #[error("Failed to parse socket address")]
+    Addr(#[source] AddrParseError),
 }
 
 /// Result to use in this crate.
