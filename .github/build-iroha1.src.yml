@@ -106,6 +106,7 @@ jobs:
     # if: ${{ github.event.comment &&
     #       github.event.issue.pull_request &&
     #       startsWith(github.event.comment.body, '/build') }}
+    # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
       - *step_show_context
       - *step_checkout
