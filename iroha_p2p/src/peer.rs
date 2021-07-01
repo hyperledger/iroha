@@ -26,6 +26,8 @@ use crate::{
 
 const MAX_MESSAGE_LENGTH: usize = 2 * 1024 * 1024;
 const MAX_HANDSHAKE_LENGTH: usize = 255;
+/// Default associated data for AEAD
+/// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
 pub const DEFAULT_AAD: &[u8; 12] = b"Iroha2Iroha2";
 
 #[derive(Debug)]
