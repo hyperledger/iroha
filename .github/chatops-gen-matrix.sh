@@ -39,7 +39,7 @@ generate(){
 handle_user_line(){
    # echo ----------- "$@"
    if [[ "${1:-}" != '/build' ]] ;then
-      echowarn "Line skipped, should start with '/build' or '/test'"
+      echowarn "Line skipped, should start with '/build'"
       return
    fi
    shift
@@ -61,10 +61,9 @@ handle_user_line(){
          clang-10|clang10)          compilers+=" clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          clang)                     compilers+=" $1 " ;;
-         # msvc)                      compilers+=" $1 " ;;
-         # mingw)                     compilers+=" $1 " ;;
-         # notest)  ;;
-         # test)  ;;
+         msvc)                      compilers+=" $1 " ;;
+         mingw)                     compilers+=" $1 " ;;
+         cygwin)                    compilers+=" $1 " ;;
          dockerpush)                dockerpush=yes ;;
          nodockerpush)              dockerpush=no ;;
          all|everything|before_merge|before-merge)
@@ -89,7 +88,7 @@ handle_user_line(){
 
 while read input_line ;do
    #  if [[ "$input_line" =~ ^/build\ .* ]] ;then
-        handle_user_line $input_line #|| continue
+        handle_user_line $input_line || continue
    #  fi
 done
 
@@ -117,7 +116,8 @@ json_include(){
 }
 
 MATRIX="$(echo "$MATRIX" | sed '/^$/d' | sort -uV)"
-echo "$MATRIX" >&2
+echo "$MATRIX"
+echo "$MATRIX"                                               | json_include >matrix
 echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'              | json_include >matrix_ubuntu
 echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/' | json_include >matrix_ubuntu_release
 echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'   | json_include >matrix_ubuntu_debug

@@ -30,6 +30,8 @@ name: Iroha1
 ## CHEAT SHEET
 ## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
 ## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
+
+## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
     branches: [main, support/1.*, test-ci]
@@ -39,15 +41,19 @@ on:
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
-      whatever:
-        description: 'some-string.'
-        required: true
-        default: 'hello world!'
+      build_spec:
+        description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
+        required: false
+        default: '/build'
   issue_comment:
     types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 jobs:
+  ## GitHub Actions Workflow does not support yaml anchors
+  ## and that is why there is a workaround with make-workflows.sh
+  ## You should `pre-commit install` or use `pre-commit.sh`,
+  ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
     name: Check if github workflows were properly made from sources
@@ -89,11 +95,16 @@ jobs:
             -d '{"content":"rocket"}' \
             -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
             -H "Authorization: token ${{github.token}}"
+  ## This job is to generate build matrixes for build jobs
+  ## The matrixes depend on what is requeted to be build
+  ## At the moment there are several options:
+  ## - default on pushes, pull requests
+  ## - on comment to pull request according to comment message (chat-ops)
+  ## - TODO on workflow_dispatch according to its build_spec
+  ## - TODO all on schedule
   generate_matrixes:
     runs-on: ubuntu-latest
-    # if: ${{ github.event.comment &&
-    #       github.event.issue.pull_request &&
-    #       startsWith(github.event.comment.body, '/build') }}
+    if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
       - name: Show context
@@ -123,7 +134,7 @@ jobs:
           echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
           echo "::set-output name=matrix_macos::$(cat matrix_macos)"
           echo "::set-output name=matrix_windows::$(cat matrix_windows)"
-      ##TODO report errors and warnings as answer to issue comments
+      ##TODO report errors and warnings as answer as issue comment (chat-ops)
       - name: Reaction confused
         if: failure() && github.event.comment
         run: |
@@ -148,6 +159,10 @@ jobs:
       matrix_ubuntu_debug: ${{steps.matrixes.outputs.matrix_ubuntu_debug}}
       matrix_macos: ${{steps.matrixes.outputs.matrix_macos}}
       matrix_windows: ${{steps.matrixes.outputs.matrix_windows}}
+  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
+  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
+  ## and conditional tags :edge (for development branches) and :latest (for git-tags)
+  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
@@ -238,15 +253,14 @@ jobs:
             type=edge,branch=test-ci
             type=sha,prefix=commit-,format=short
             type=sha,prefix=commit-,format=long
-          #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
-        ## Docker image will be pushed with tags:
-        ##  - hash of file Dockerfile.builder
-        ##  - branchname, when branch is pushed
-        ##  - pr-NUMBER, when pushed to PR
-        ##  - git tag when tag is pushed
-        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-        ##  - tag 'edge' when branch support/1.2.x is pushed
-        ##  - schedule, see the docs
+          ## Docker image will be pushed with tags:
+          ##  - hash of file Dockerfile.builder
+          ##  - branchname, when branch is pushed
+          ##  - pr-NUMBER, when pushed to PR
+          ##  - git tag when tag is pushed
+          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+          ##  - tag 'edge' when branch support/1.2.x is pushed
+          ##  - schedule, see the docs
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
       - name: Cache Docker layers
@@ -297,7 +311,10 @@ jobs:
       dockertag_already_exists: ${{steps.dockertag_already.outputs.exists}}
       container: ${{steps.dockertag_already.outputs.container}}
       container_tag: ${{steps.dockertag_already.outputs.container_tag}}
-  ## Build in a docker container
+  ## Build iroha in a container made of the image earlier prepared
+  ## Result artifacts are
+  ## - stand-alone irohad (linked statically)
+  ## - iroha.deb (with irohad inside)
   build-iroha-ubuntu-debug:
     needs:
       - Docker-iroha-builder
@@ -718,8 +735,6 @@ jobs:
       #   CC: [ clang ] #, llvm ] #gcc-10
       #   CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
       #   BuildType: [ Debug ] #,Release, RelWithDebInfo
-    # ## For pull_request run only Apple-clang, no llvm
-    # if: ${{ ! (github.event_name == 'pull_request' && matrix.CC == 'clang') }}
     steps:
       - name: Show context
         run: |
@@ -983,6 +998,13 @@ jobs:
       - name: Install Postgres on Windows
         run: choco install postgresql
     # - *step_ctest
+  ## Build and publish docker image named 'hyperledger/iroha'  with irohad and iroha tools inside.
+  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
+  ## and conditional tags :edge (for development branches) and :latest (for git-tags)
+  ## Those docker image tags could be extended with suffixes with compiler and build type like
+  ## -gcc10, -clang, -debug, -gcc10-debug.
+  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha-burrow:commit-XXXXX-debug
+  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   iroha-docker-image-release:
     needs: build-iroha-ubuntu-release
     runs-on: [self-hosted, Linux] ## or ubuntu-latest
@@ -1089,7 +1111,14 @@ jobs:
             type=edge,branch=test-ci
             type=sha,prefix=commit-,format=short
             type=sha,prefix=commit-,format=long
-          #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
+          ## Docker image will be pushed with tags:
+          ##  - hash of file Dockerfile.builder
+          ##  - branchname, when branch is pushed
+          ##  - pr-NUMBER, when pushed to PR
+          ##  - git tag when tag is pushed
+          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+          ##  - tag 'edge' when branch support/1.2.x is pushed
+          ##  - schedule, see the docs
 
           images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }} ## uses suffics could be empty, -burrow, -ursa
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
@@ -1231,7 +1260,14 @@ jobs:
             type=edge,branch=test-ci
             type=sha,prefix=commit-,format=short
             type=sha,prefix=commit-,format=long
-          #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
+          ## Docker image will be pushed with tags:
+          ##  - hash of file Dockerfile.builder
+          ##  - branchname, when branch is pushed
+          ##  - pr-NUMBER, when pushed to PR
+          ##  - git tag when tag is pushed
+          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+          ##  - tag 'edge' when branch support/1.2.x is pushed
+          ##  - schedule, see the docs
 
           images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }} ## uses suffics could be empty, -burrow, -ursa
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
