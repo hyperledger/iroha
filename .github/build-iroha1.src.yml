@@ -11,23 +11,16 @@ name: Iroha1
 ## TODO 4. [speed] Self-hosted MacOS and Windows
 ##         Need more powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache,
 ##                                                         and from 2hrs to 27min without cache
-##         GitHub's default runners also idles much time before started
-## TODO 5. [speed] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## FIXME 8. [organization] cannot push docker image iroha-builder without credentials when PR is from fork.
-##       Because GitHub secrets inaccessable when building PRs from public forks.
-##       Solution: open PR from the same repo. (Noted in job as Possible WARNING)
-## FIXME 9. [organization] change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
-## TODO [speed] cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+##         GitHub's default runners also idles much time before started when build often
+## TODO 5. [speed,optimization,resources] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
 ## TODO [prettify,documentation] update status badges in README.md
-## TODO [testing] windows postgres ctest
-## TODO [code-style] remove useless outdated files
-## TODO [legacy] Fix Jenkins pipeline
-## TODO copy terraform to devops's repo
+## TODO windows
 ## FIXME checkout issue, see https://github.com/actions/runner/issues/434
 ## TODO actions/create-release for main branch and tags
 
 ## CHEAT SHEET
 ## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
+## check if PR is from other repo: ${{ github.event.pull_request.head.repo == github.event.pull_request.base.repo }} in this case secrets are empty
 ## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
@@ -321,7 +314,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: ubuntu-latest #[ self-hosted, Linux ]
     ## Container is taken from previous job
     container: &container ${{needs.Docker-iroha-builder.outputs.container}}
     strategy: &strategy_ubuntu_debug
