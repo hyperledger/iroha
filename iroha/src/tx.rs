@@ -227,6 +227,11 @@ impl AcceptedTransaction {
         .map(TransactionRejectionReason::UnsatisfiedSignatureCondition);
 
         if let Some(reason) = option_reason {
+            iroha_logger::debug!(
+                "Unsatisfied signature condition of transaction with hash: '{}', reason: {}",
+                self.hash(),
+                reason
+            );
             return Err(reason);
         }
 
