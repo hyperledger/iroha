@@ -24,6 +24,7 @@ name: Iroha1
 ## TODO [legacy] Fix Jenkins pipeline
 ## TODO copy terraform to devops's repo
 ## FIXME checkout issue, see https://github.com/actions/runner/issues/434
+## TODO actions/create-release for main branch and tags
 
 ## CHEAT SHEET
 ## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
@@ -51,7 +52,7 @@ on:
 jobs:
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
-  ## You should `pre-commit install` or use `pre-commit.sh`,
+  ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
@@ -182,12 +183,6 @@ jobs:
       DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - *step_show_context
-      - &step_cancel_previous_runs
-        if: ${{false}}  ## TODO FIXME this must not cancel scheduled and manual runs, and almost finished runs
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2
-        with:
-          token: ${{ github.token }}
       - &step_system_info
         name: System info
         run: |
@@ -535,7 +530,6 @@ jobs:
       #   BuildType: [ Debug ] #,Release, RelWithDebInfo
     steps:
       - *step_show_context
-      - *step_cancel_previous_runs
       - *step_system_info
       - *step_build_info
       -
