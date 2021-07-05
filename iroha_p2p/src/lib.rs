@@ -7,13 +7,13 @@ use std::{io, net::AddrParseError};
 use iroha_derive::FromVariant;
 use iroha_error::{derive::Error, error};
 pub use network::{Connect, Network, Post, Received};
+use parity_scale_codec::{Decode, Encode};
 
-mod message;
 mod network;
 mod peer;
 
 /// Error types of this crate.
-#[derive(Debug, FromVariant, Error)]
+#[derive(Debug, FromVariant, Error, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
     #[error("Failed IO operation")]
@@ -34,3 +34,19 @@ pub enum Error {
 
 /// Result to use in this crate.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[derive(Debug, Clone, Encode, Decode, iroha_actor::Message)]
+pub(crate) struct Message(pub Vec<u8>);
+
+#[derive(Debug, iroha_actor::Message)]
+pub(crate) struct MessageResult(pub Result<Message, Error>);
+
+impl MessageResult {
+    pub const fn new_message(message: Message) -> Self {
+        Self(Ok(message))
+    }
+
+    pub const fn new_error(error: Error) -> Self {
+        Self(Err(error))
+    }
+}
