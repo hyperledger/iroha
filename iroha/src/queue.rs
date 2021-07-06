@@ -175,7 +175,13 @@ impl<W: WorldTrait> Queue<W> {
                 .expect("Unreachable, as queue not empty");
             let tx = &self.pending_tx_by_hash[&tx_hash];
 
-            if tx.is_expired(self.tx_time_to_live) || tx.is_in_blockchain(&*self.wsv) {
+            let expired = tx.is_expired(self.tx_time_to_live);
+
+            if expired {
+                iroha_logger::warn!("Transaction with hash {} dropped due to expired TTL. This can happen either due to signature condition being not satisfied in time or too many transactions in the queue.", tx_hash)
+            }
+
+            if expired || tx.is_in_blockchain(&*self.wsv) {
                 drop(
                     self.pending_tx_by_hash
                         .remove(&tx_hash)
