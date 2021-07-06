@@ -47,10 +47,10 @@ impl DerefMut for TelemetryFields {
     }
 }
 
-/// Telemetry which can be recieved from telemetry layer
+/// Telemetry which can be received from telemetry layer
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Telemetry {
-    /// Subsystem from which telemetry was recieved
+    /// Subsystem from which telemetry was received
     pub target: &'static str,
     /// Fields which was recorded
     pub fields: TelemetryFields,
