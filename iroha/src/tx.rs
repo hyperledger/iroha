@@ -56,7 +56,7 @@ impl VersionedAcceptedTransaction {
     /// Accepts transaction
     pub fn from_transaction(
         transaction: Transaction,
-        max_instruction_number: usize,
+        max_instruction_number: u64,
     ) -> Result<VersionedAcceptedTransaction> {
         AcceptedTransaction::from_transaction(transaction, max_instruction_number).map(Into::into)
     }
@@ -111,7 +111,7 @@ impl VersionedAcceptedTransaction {
 
     /// # Errors
     /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
         self.as_inner_v1()
             .check_instruction_len(max_instruction_len)
     }
@@ -140,7 +140,7 @@ pub struct AcceptedTransaction {
 impl AcceptedTransaction {
     /// # Errors
     /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
         self.payload.check_instruction_len(max_instruction_len)
     }
 
@@ -150,7 +150,7 @@ impl AcceptedTransaction {
     /// Can fail if verification of some signature fails
     pub fn from_transaction(
         transaction: Transaction,
-        max_instruction_number: usize,
+        max_instruction_number: u64,
     ) -> Result<AcceptedTransaction> {
         transaction
             .check_instruction_len(max_instruction_number)
@@ -413,7 +413,7 @@ impl VersionedValidTransaction {
 
     /// # Errors
     /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
         self.as_inner_v1()
             .check_instruction_len(max_instruction_len)
     }
@@ -439,7 +439,7 @@ pub struct ValidTransaction {
 impl ValidTransaction {
     /// # Errors
     /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
         self.payload.check_instruction_len(max_instruction_len)
     }
 

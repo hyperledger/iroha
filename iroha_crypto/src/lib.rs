@@ -516,6 +516,18 @@ impl Signatures {
             .cloned()
             .collect()
     }
+
+    /// Number of signatures.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn len(&self) -> usize {
+        self.signatures.len()
+    }
+
+    /// Checks if there is no signatures.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn is_empty(&self) -> bool {
+        self.signatures.is_empty()
+    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

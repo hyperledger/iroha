@@ -516,7 +516,7 @@ pub mod config {
     const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
     const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
     const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
-    const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
+    const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
     const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
@@ -533,7 +533,7 @@ pub mod config {
         /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
         pub torii_max_sumeragi_message_size: usize,
         /// Maximum number of instruction per transaction. Used to prevent from DOS attacks.
-        pub torii_max_instruction_number: usize,
+        pub torii_max_instruction_number: u64,
     }
 
     impl Default for ToriiConfiguration {

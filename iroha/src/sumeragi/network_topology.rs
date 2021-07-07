@@ -8,6 +8,7 @@ use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
+use super::view_change::{self, ProofChain as ViewChangeProofs};
 use crate::block::EmptyChainHash;
 
 /// Sorts peers based on the `hash`.
@@ -19,7 +20,7 @@ pub fn sort_peers_by_hash(peers: Vec<PeerId>, hash: Hash) -> Vec<PeerId> {
 pub fn sort_peers_by_hash_and_counter(
     mut peers: Vec<PeerId>,
     hash: Hash,
-    counter: u32,
+    counter: u64,
 ) -> Vec<PeerId> {
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
     let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
@@ -39,7 +40,7 @@ pub fn shift_peers_by_one(mut peers: Vec<PeerId>) -> Vec<PeerId> {
 }
 
 /// Shifts `sorted_peers` by `n` to the right.
-pub fn shift_peers_by_n(mut peers: Vec<PeerId>, n: u32) -> Vec<PeerId> {
+pub fn shift_peers_by_n(mut peers: Vec<PeerId>, n: u64) -> Vec<PeerId> {
     for _ in 0..n {
         peers = shift_peers_by_one(peers);
     }
@@ -65,7 +66,7 @@ pub struct GenesisBuilder {
 
     set_b: Option<HashSet<PeerId>>,
 
-    reshuffle_after_n_view_changes: Option<u32>,
+    reshuffle_after_n_view_changes: Option<u64>,
 }
 
 #[allow(clippy::missing_const_for_fn)]
@@ -94,7 +95,7 @@ impl GenesisBuilder {
     }
 
     /// Set `reshuffle_after_n_view_changes` config param.
-    pub fn reshuffle_after(mut self, n_view_changes: u32) -> Self {
+    pub fn reshuffle_after(mut self, n_view_changes: u64) -> Self {
         self.reshuffle_after_n_view_changes = Some(n_view_changes);
         self
     }
@@ -136,7 +137,7 @@ impl GenesisBuilder {
             max_faults: max_faults.try_into()?,
             reshuffle_after_n_view_changes,
             at_block: EmptyChainHash.into(),
-            n_view_changes: 0,
+            view_change_proofs: ViewChangeProofs::empty(),
         })
     }
 }
@@ -149,11 +150,11 @@ pub struct Builder {
     /// Maximum faulty peers in a network.
     max_faults: Option<u32>,
 
-    reshuffle_after_n_view_changes: Option<u32>,
+    reshuffle_after_n_view_changes: Option<u64>,
 
     at_block: Option<Hash>,
 
-    n_view_changes: u32,
+    view_change_proofs: ViewChangeProofs,
 }
 
 #[allow(clippy::missing_const_for_fn)]
@@ -176,7 +177,7 @@ impl Builder {
     }
 
     /// Set `reshuffle_after_n_view_changes` config param.
-    pub fn reshuffle_after(mut self, n_view_changes: u32) -> Self {
+    pub fn reshuffle_after(mut self, n_view_changes: u64) -> Self {
         self.reshuffle_after_n_view_changes = Some(n_view_changes);
         self
     }
@@ -188,8 +189,8 @@ impl Builder {
     }
 
     /// Set number of view changes after the latest committed block. Default: 0
-    pub fn with_view_changes(mut self, n_view_changes: u32) -> Self {
-        self.n_view_changes = n_view_changes;
+    pub fn with_view_changes(mut self, view_change_proofs: ViewChangeProofs) -> Self {
+        self.view_change_proofs = view_change_proofs;
         self
     }
 
@@ -208,18 +209,23 @@ impl Builder {
         let min_peers = 3 * max_faults + 1;
         let peers: Vec<_> = peers.into_iter().collect();
         if peers.len() >= min_peers as usize {
-            let sorted_peers = if self.n_view_changes > reshuffle_after_n_view_changes {
-                sort_peers_by_hash_and_counter(peers, at_block, self.n_view_changes)
-            } else {
-                let peers = sort_peers_by_hash(peers, at_block);
-                shift_peers_by_n(peers, self.n_view_changes)
-            };
+            let sorted_peers =
+                if self.view_change_proofs.len() as u64 > reshuffle_after_n_view_changes {
+                    sort_peers_by_hash_and_counter(
+                        peers,
+                        at_block,
+                        self.view_change_proofs.len() as u64,
+                    )
+                } else {
+                    let peers = sort_peers_by_hash(peers, at_block);
+                    shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
+                };
             Ok(Topology {
                 sorted_peers,
                 max_faults,
                 reshuffle_after_n_view_changes,
                 at_block,
-                n_view_changes: self.n_view_changes,
+                view_change_proofs: self.view_change_proofs,
             })
         } else {
             Err(error!(
@@ -239,11 +245,11 @@ pub struct Topology {
     /// Maximum faulty peers in a network.
     max_faults: u32,
 
-    reshuffle_after_n_view_changes: u32,
+    reshuffle_after_n_view_changes: u64,
 
     at_block: Hash,
 
-    n_view_changes: u32,
+    view_change_proofs: ViewChangeProofs,
 }
 
 impl Topology {
@@ -259,7 +265,7 @@ impl Topology {
             max_faults: Some(self.max_faults),
             reshuffle_after_n_view_changes: Some(self.reshuffle_after_n_view_changes),
             at_block: Some(self.at_block),
-            n_view_changes: self.n_view_changes,
+            view_change_proofs: self.view_change_proofs,
         }
     }
 
@@ -270,19 +276,20 @@ impl Topology {
             .clone()
             .into_builder()
             .at_block(block_hash)
-            .with_view_changes(0)
+            .with_view_changes(ViewChangeProofs::empty())
             .build()
             .expect("Given a valid Topology, it is impossible to have error here.")
     }
 
     /// Apply a view change - change topology in case there were faults in the consensus round.
     #[allow(clippy::expect_used)]
-    pub fn apply_view_change(&mut self) {
-        let n_view_changes = self.n_view_changes;
+    pub fn apply_view_change(&mut self, proof: view_change::Proof) {
+        let mut view_change_proofs = self.view_change_proofs.clone();
+        view_change_proofs.push(proof);
         *self = self
             .clone()
             .into_builder()
-            .with_view_changes(n_view_changes + 1)
+            .with_view_changes(view_change_proofs)
             .build()
             .expect("Given a valid Topology, it is impossible to have error here.")
     }
@@ -397,7 +404,7 @@ impl Topology {
     }
 
     /// Config param telling topology when to reshuffle at view change.
-    pub const fn reshuffle_after(&self) -> u32 {
+    pub const fn reshuffle_after(&self) -> u64 {
         self.reshuffle_after_n_view_changes
     }
 
@@ -407,8 +414,13 @@ impl Topology {
     }
 
     /// Number of view changes.
-    pub const fn n_view_changes(&self) -> u32 {
-        self.n_view_changes
+    pub const fn view_change_proofs(&self) -> &ViewChangeProofs {
+        &self.view_change_proofs
+    }
+
+    /// Number of view changes.
+    pub const fn max_faults(&self) -> u32 {
+        self.max_faults
     }
 }
 

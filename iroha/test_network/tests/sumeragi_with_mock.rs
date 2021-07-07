@@ -47,7 +47,7 @@ pub mod utils {
 
         #[async_trait::async_trait]
         impl GenesisNetworkTrait for NoGenesis {
-            fn from_configuration(_: &GenesisConfiguration, _: usize) -> Result<Option<Self>> {
+            fn from_configuration(_: &GenesisConfiguration, _: u64) -> Result<Option<Self>> {
                 Ok(None)
             }
 
@@ -211,11 +211,9 @@ pub mod utils {
             BlockCreated,
             BlockSigned,
             BlockCommitted,
-            CommitTimeout,
             TransactionReceived,
             TransactionForwarded,
-            NoTransactionReceiptReceived,
-            BlockCreationTimeout,
+            ViewChangeSuggested
         );
 
         macro_rules! impl_handler_proxy(
@@ -307,6 +305,7 @@ pub mod utils {
                 self.broker.subscribe::<SumeragiMessage, _>(ctx);
                 self.broker.subscribe::<Init, _>(ctx);
                 self.broker.subscribe::<CommitBlock, _>(ctx);
+                self.broker.subscribe::<Voting, _>(ctx);
             }
         }
 
@@ -379,6 +378,7 @@ pub mod utils {
                      + Handler<GetSortedPeers, Result = Vec<PeerId>>
                      + Handler<IsLeader, Result = bool>
                      + Handler<GetLeader, Result = PeerId>
+                     + Handler<Voting, Result = ()>
         );
 
         #[derive(Debug, Clone, Copy, Default, Message)]
@@ -581,33 +581,6 @@ where
         .await;
 }
 
-async fn get_topology_with_n_view_changes<W, G, Q, S, K, B>(
-    network: &Network<W, G, Q, S, K, B>,
-    n_view_changes: u32,
-) -> Topology
-where
-    W: WorldTrait,
-    G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W> + Handler<sumeragi::NetworkTopology>,
-    K: KuraTrait<World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
-{
-    let expected = network
-        .genesis
-        .iroha
-        .as_ref()
-        .unwrap()
-        .sumeragi
-        .send(sumeragi::NetworkTopology)
-        .await;
-    expected
-        .into_builder()
-        .with_view_changes(n_view_changes)
-        .build()
-        .expect("Failed to build topology.")
-}
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn all_peers_commit_block() {
@@ -652,7 +625,6 @@ async fn change_view_on_commit_timeout() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_n_view_changes(&network, 1).await;
 
     // send to leader
     send_tx(&network, true).await;
@@ -660,15 +632,15 @@ async fn change_view_on_commit_timeout() {
 
     blocks_applied(&mut channels, 0).await;
 
-    let got = network
+    let topologies = network
         .send(|iroha| &iroha.sumeragi, sumeragi::NetworkTopology)
         .await;
-    let blocks = network
+    let invalid_block_hashes = network
         .send(|iroha| &iroha.sumeragi, sumeragi::InvalidBlocks)
         .await;
 
-    for (got, b) in got.into_iter().zip(blocks) {
-        assert_eq!(expected.sorted_peers(), got.sorted_peers());
+    for (topology, b) in topologies.into_iter().zip(invalid_block_hashes) {
+        assert_eq!(topology.view_change_proofs().len(), 1);
         assert_eq!(b.len(), 1);
     }
 }
@@ -691,20 +663,27 @@ async fn change_view_on_tx_receipt_timeout() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_n_view_changes(&network, 1).await;
-    //
+
     // send to not leader
     send_tx(&network, false).await;
-    time::sleep(Duration::from_secs(2)).await;
+
+    // Wait while tx is gossiped
+    time::sleep(Duration::from_millis(500)).await;
+
+    // Let peers retrieve the gossiped tx and send to leader, so they can all understand the leader is unresponsive.
+    for peer in network.peers() {
+        peer.iroha.as_ref().unwrap().sumeragi.do_send(Voting).await;
+    }
+
+    time::sleep(Duration::from_secs(3)).await;
 
     blocks_applied(&mut channels, 0).await;
 
-    let got = network
+    let topologies = network
         .send(|iroha| &iroha.sumeragi, sumeragi::NetworkTopology)
         .await;
-
-    for got in got {
-        assert_eq!(expected.sorted_peers(), got.sorted_peers());
+    for topology in topologies {
+        assert_eq!(topology.view_change_proofs().len(), 1);
     }
 }
 
@@ -726,7 +705,6 @@ async fn change_view_on_block_creation_timeout() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_n_view_changes(&network, 1).await;
 
     // send to not leader
     send_tx(&network, false).await;
@@ -734,12 +712,12 @@ async fn change_view_on_block_creation_timeout() {
 
     blocks_applied(&mut channels, 0).await;
 
-    let got = network
+    let topologies = network
         .send(|iroha| &iroha.sumeragi, sumeragi::NetworkTopology)
         .await;
 
-    for got in got {
-        assert_eq!(expected.sorted_peers(), got.sorted_peers());
+    for topology in topologies {
+        assert_eq!(topology.view_change_proofs().len(), 1);
     }
 }
 
@@ -761,7 +739,6 @@ async fn not_enough_votes() {
         .peers()
         .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
-    let expected = get_topology_with_n_view_changes(&network, 1).await;
 
     // send to not leader
     send_tx(&network, true).await;
@@ -769,15 +746,15 @@ async fn not_enough_votes() {
 
     blocks_applied(&mut channels, 0).await;
 
-    let got = network
+    let topologies = network
         .send(|iroha| &iroha.sumeragi, sumeragi::NetworkTopology)
         .await;
-    let blocks = network
+    let invalid_block_hashes = network
         .send(|iroha| &iroha.sumeragi, sumeragi::InvalidBlocks)
         .await;
 
-    for (got, blocks) in got.into_iter().zip(blocks) {
-        assert_eq!(expected.sorted_peers(), got.sorted_peers());
-        assert_eq!(blocks.len(), 1);
+    for (topology, b) in topologies.into_iter().zip(invalid_block_hashes) {
+        assert_eq!(topology.view_change_proofs().len(), 1);
+        assert_eq!(b.len(), 1);
     }
 }
