@@ -19,7 +19,7 @@ Invoke-Expression "$vcpkg_path\bootstrap-vcpkg.bat"
 
 echo "Installing vcpkg packages"
 Invoke-Expression "$vcpkg_path\vcpkg.exe install --triplet x64-windows (Get-Content -Path $iroha_vcpkg_path\VCPKG_DEPS_LIST)"
-Invoke-Expression "$vcpkg_path\vcpkg.exe install --triplet x64-windows --head (Get-Content -Path $iroha_vcpkg_path\VCPKG_HEAD_DEPS_LIST)"
+#Invoke-Expression "$vcpkg_path\vcpkg.exe install --triplet x64-windows --head (Get-Content -Path $iroha_vcpkg_path\VCPKG_HEAD_DEPS_LIST)"
 
 echo "Run vcpkg.exe integrate install"
 Invoke-Expression "$vcpkg_path\vcpkg.exe integrate install"
