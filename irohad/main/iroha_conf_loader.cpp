@@ -163,7 +163,7 @@ class JsonDeserializerImpl {
     return JsonDeserializerImpl{
         common_objects_factory_,
         env_path_ ? std::make_optional(makeEnvDictChildKey(key))
-                  : decltype(env_path_){},
+                  : std::nullopt,
         json_ | [&](auto const &json) -> std::optional<ConstJsonValRef> {
           assert_fatal(json_->get().IsObject(), "must be a JSON object.");
           auto const json_obj = json_->get().GetObject();
