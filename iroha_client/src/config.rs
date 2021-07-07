@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
-const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
+const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 // TODO: design macro to load config from env.
@@ -36,7 +36,7 @@ pub struct Configuration {
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
     /// Maximum number of instructions per transaction
-    pub max_instruction_number: usize,
+    pub max_instruction_number: u64,
 }
 
 impl Default for Configuration {

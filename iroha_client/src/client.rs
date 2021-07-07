@@ -24,7 +24,7 @@ use crate::{
 pub struct Client {
     /// Url for accessing iroha node
     pub torii_url: String,
-    max_instruction_number: usize,
+    max_instruction_number: u64,
     key_pair: KeyPair,
     proposed_transaction_ttl_ms: u64,
     transaction_status_timout: Duration,

@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha::{
     prelude::*,
+    sumeragi::view_change,
     tx::AcceptedTransaction,
     wsv::{World, WorldTrait},
 };
@@ -126,9 +127,12 @@ fn chain_blocks(criterion: &mut Criterion) {
     let _ = criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block = block
-                .clone()
-                .chain(success_count, previous_block_hash, 0, Vec::new());
+            let new_block = block.clone().chain(
+                success_count,
+                previous_block_hash,
+                view_change::ProofChain::empty(),
+                Vec::new(),
+            );
             previous_block_hash = new_block.hash();
         });
     });

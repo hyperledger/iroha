@@ -1891,7 +1891,7 @@ pub mod transaction {
         ///
         /// # Errors
         /// Fails if instruction length exceeds maximum instruction number
-        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+        pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
             self.as_inner_v1()
                 .check_instruction_len(max_instruction_number)
         }
@@ -1960,7 +1960,7 @@ pub mod transaction {
         ///
         /// # Errors
         /// Fails if instruction length exceeds maximum instruction number
-        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+        pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
             self.payload.check_instruction_len(max_instruction_number)
         }
 
@@ -1989,12 +1989,12 @@ pub mod transaction {
 
         /// # Errors
         /// Asserts specific instruction number of instruction constraint
-        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
+        pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
             if self
                 .instructions
                 .iter()
                 .map(Instruction::len)
-                .sum::<usize>()
+                .sum::<usize>() as u64
                 > max_instruction_number
             {
                 return Err(error!("Too many instructions in payload"));
@@ -2141,7 +2141,7 @@ pub mod transaction {
 
         /// # Errors
         /// Asserts specific instruction number of instruction in transaction constraint
-        pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
             self.as_inner_v1()
                 .check_instruction_len(max_instruction_len)
         }
@@ -2195,7 +2195,7 @@ pub mod transaction {
     impl RejectedTransaction {
         /// # Errors
         /// Asserts specific instruction number of instruction in transaction constraint
-        pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+        pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
             self.payload.check_instruction_len(max_instruction_len)
         }
 

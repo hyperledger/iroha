@@ -20,7 +20,7 @@ use crate::{
     merkle::MerkleTree,
     prelude::*,
     smartcontracts::permissions::IsInstructionAllowedBoxed,
-    sumeragi::network_topology::Topology,
+    sumeragi::{network_topology::Topology, view_change::ProofChain as ViewChangeProofs},
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
     wsv::WorldTrait,
 };
@@ -109,7 +109,7 @@ impl PendingBlock {
         self,
         height: u64,
         previous_block_hash: Hash,
-        number_of_view_changes: u32,
+        view_change_proofs: ViewChangeProofs,
         invalidated_blocks_hashes: Vec<Hash>,
     ) -> ChainedBlock {
         ChainedBlock {
@@ -120,7 +120,7 @@ impl PendingBlock {
                 previous_block_hash,
                 transactions_merkle_root_hash: Hash([0_u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
-                number_of_view_changes,
+                view_change_proofs,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
             },
@@ -138,7 +138,7 @@ impl PendingBlock {
                 previous_block_hash: EmptyChainHash.into(),
                 transactions_merkle_root_hash: Hash([0_u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
-                number_of_view_changes: 0,
+                view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
             },
@@ -156,7 +156,7 @@ impl PendingBlock {
                 previous_block_hash: EmptyChainHash.into(),
                 transactions_merkle_root_hash: Hash([0_u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
-                number_of_view_changes: 0,
+                view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
             },
@@ -188,7 +188,7 @@ pub struct BlockHeader {
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
     pub rejected_transactions_merkle_root_hash: Hash,
     /// Number of view changes after the previous block was committed and before this block was committed.
-    pub number_of_view_changes: u32,
+    pub view_change_proofs: ViewChangeProofs,
     /// Hashes of the blocks that were rejected by consensus.
     pub invalidated_blocks_hashes: Vec<Hash>,
     /// Genesis topology
@@ -327,7 +327,7 @@ impl VersionedValidBlock {
 
     /// # Errors
     /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
         self.as_inner_v1()
             .check_instruction_len(max_instruction_len)
     }
@@ -337,14 +337,14 @@ impl VersionedValidBlock {
         &self,
         wsv: &WorldStateView<W>,
         latest_block_hash: Hash,
-        number_of_view_changes: u32,
+        latest_view_change_hash: Hash,
         block_height: u64,
-        max_instruction_number: usize,
+        max_instruction_number: u64,
     ) -> bool {
         !self.is_empty()
             && !self.has_committed_transactions(wsv)
             && latest_block_hash == self.header().previous_block_hash
-            && number_of_view_changes == self.header().number_of_view_changes
+            && latest_view_change_hash == self.header().view_change_proofs.latest_hash()
             && block_height + 1 == self.header().height
             && self.check_instruction_len(max_instruction_number).is_ok()
     }
@@ -367,7 +367,7 @@ pub struct ValidBlock {
 impl ValidBlock {
     /// # Errors
     /// Asserts specific instruction number of instruction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: usize) -> Result<()> {
+    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
         self.transactions
             .iter()
             .map(|tx| tx.check_instruction_len(max_instruction_len))
@@ -657,7 +657,10 @@ impl From<&CommittedBlock> for Vec<Event> {
 mod tests {
     use iroha_crypto::{Hash, Signatures};
 
-    use crate::block::{BlockHeader, ValidBlock};
+    use crate::{
+        block::{BlockHeader, ValidBlock},
+        sumeragi::view_change,
+    };
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -668,7 +671,7 @@ mod tests {
                 previous_block_hash: Hash([0_u8; 32]),
                 transactions_merkle_root_hash: Hash([0_u8; 32]),
                 rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
-                number_of_view_changes: 0,
+                view_change_proofs: view_change::ProofChain::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
             },

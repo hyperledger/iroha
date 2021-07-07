@@ -8,21 +8,26 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt::{self, Debug, Formatter},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
-use dashmap::DashSet;
+use dashmap::{DashMap, DashSet};
 use futures::future;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::{events::Event, peer::Id as PeerId};
 use iroha_error::{error, Result};
+use iroha_logger::Instrument;
 use network_topology::{Role, Topology};
 use tokio::{sync::RwLock, task, time};
 
 pub mod network_topology;
+pub mod view_change;
 
-use self::message::{Message, *};
+use self::{
+    message::{Message, *},
+    view_change::ProofChain as ViewChangeProofs,
+};
 use crate::{
     block::{BlockHeader, ChainedBlock, EmptyChainHash, VersionedPendingBlock},
     event::EventsSender,
@@ -94,9 +99,10 @@ where
     events_sender: EventsSender,
     wsv: Arc<WorldStateView<W>>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
-    transactions_awaiting_receipts: Arc<DashSet<Hash>>,
+    /// And time at which this transaction was sent to the leader by this peer.
+    txs_awaiting_receipts: Arc<DashMap<Hash, Instant>>,
     /// Hashes of the transactions that were accepted by the leader and are waiting to be stored in CreatedBlock.
-    transactions_awaiting_created_block: Arc<DashSet<Hash>>,
+    txs_awaiting_created_block: Arc<DashSet<Hash>>,
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
@@ -104,7 +110,7 @@ where
     /// Hashes of invalidated blocks
     pub invalidated_blocks_hashes: Vec<Hash>,
     permissions_validator: Arc<IsInstructionAllowedBoxed<W>>,
-    max_instruction_number: usize,
+    max_instruction_number: u64,
     /// Genesis network
     pub genesis_network: Option<G>,
     /// Broker
@@ -175,8 +181,8 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sum
             votes_for_blocks: BTreeMap::new(),
             events_sender,
             wsv,
-            transactions_awaiting_receipts: Arc::new(DashSet::new()),
-            transactions_awaiting_created_block: Arc::new(DashSet::new()),
+            txs_awaiting_receipts: Arc::new(DashMap::new()),
+            txs_awaiting_created_block: Arc::new(DashSet::new()),
             commit_time: Duration::from_millis(configuration.commit_time_ms),
             tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
@@ -359,8 +365,23 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
 
     /// Number of view changes.
     /// Where a view change is a change in topology made if there was some consensus misfunction during round (faulty peers).
-    pub fn number_of_view_changes(&self) -> u32 {
-        self.topology.n_view_changes()
+    pub fn number_of_view_changes(&self) -> u64 {
+        self.topology.view_change_proofs().len() as u64
+    }
+
+    /// The proofs of view changes that happened after the last block was committed.
+    pub fn view_change_proofs(&self) -> &ViewChangeProofs {
+        self.topology.view_change_proofs()
+    }
+
+    /// The hash of the latest view change.
+    pub fn latest_view_change_hash(&self) -> Hash {
+        self.view_change_proofs().latest_hash()
+    }
+
+    /// Get peers as a hash set of their ids.
+    pub fn peers(&self) -> HashSet<PeerId> {
+        self.topology.sorted_peers().iter().cloned().collect()
     }
 
     /// Assumes this peer is a leader and starts the round with the given `genesis_topology`.
@@ -413,7 +434,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
             let block = PendingBlock::new(transactions).chain(
                 self.block_height,
                 self.latest_block_hash(),
-                self.number_of_view_changes(),
+                self.view_change_proofs().clone(),
                 self.invalidated_blocks_hashes.clone(),
             );
             self.validate_and_publish_created_block(block).await?;
@@ -429,15 +450,21 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
         &mut self,
         transactions: &[VersionedAcceptedTransaction],
     ) {
-        iroha_logger::info!(
-            "{:?} - {} - Forwarding transactions to leader({}). Number of transactions to forward: {}",
-            self.topology.role(&self.peer_id),
-            self.peer_id.address,
-            self.topology.leader().address,
-            transactions.len(),
-        );
         let mut send_futures = Vec::new();
         for transaction in transactions {
+            let transaction_hash = transaction.hash();
+            if self.txs_awaiting_receipts.contains_key(&transaction_hash) {
+                // This peer has already sent this transaction to leader and is waiting for a receipt.
+                // Without this `if` depending on the round time, the peers might DOS themselves.
+                continue;
+            }
+            iroha_logger::info!(
+                "{:?} - {} - Forwarding transaction to leader({}). Transaction hash: {}",
+                self.topology.role(&self.peer_id),
+                self.peer_id.address,
+                self.topology.leader().address,
+                transaction_hash,
+            );
             send_futures.push(
                 VersionedMessage::from(Message::from(TransactionForwarded::new(
                     transaction,
@@ -446,38 +473,40 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
                 .send_to(self.topology.leader()),
             );
             // Don't require leader to submit receipts and therefore create blocks if the transaction is still waiting for more signatures.
+            #[allow(clippy::expect_used)]
             if let Ok(true) = transaction.check_signature_condition(&self.wsv) {
                 let _ = self
-                    .transactions_awaiting_receipts
-                    .insert(transaction.hash());
+                    .txs_awaiting_receipts
+                    .insert(transaction.hash(), Instant::now());
             }
-            let transactions_awaiting_receipts = Arc::clone(&self.transactions_awaiting_receipts);
-            let mut no_tx_receipt = NoTransactionReceiptReceived::new(
-                transaction,
-                self.topology.leader().clone(),
+            let transactions_awaiting_receipts = Arc::clone(&self.txs_awaiting_receipts);
+            let mut no_tx_receipt = view_change::Proof::no_transaction_receipt_received(
+                transaction_hash,
+                self.latest_view_change_hash(),
                 self.latest_block_hash(),
-                self.number_of_view_changes(),
             );
-            let role = self.topology.role(&self.peer_id);
             #[allow(clippy::expect_used)]
-            if role == Role::ValidatingPeer || role == Role::ProxyTail {
+            {
                 no_tx_receipt = no_tx_receipt
                     .sign(&self.key_pair)
                     .expect("Failed to put first signature.");
             }
             let recipient_peers = self.topology.sorted_peers().to_vec();
-            let transaction_hash = transaction.hash();
             let peer_id = self.peer_id.clone();
             let tx_receipt_time = self.tx_receipt_time;
             drop(task::spawn(async move {
                 time::sleep(tx_receipt_time).await;
-                if transactions_awaiting_receipts.contains(&transaction_hash) {
+                if transactions_awaiting_receipts.contains_key(&transaction_hash) {
+                    iroha_logger::warn!(
+                        "Transaction receipt timeout detected! Transaction hash: {}",
+                        transaction_hash
+                    );
                     let mut send_futures = Vec::new();
                     for peer in &recipient_peers {
                         if *peer != peer_id {
                             send_futures.push(
-                                VersionedMessage::from(Message::NoTransactionReceiptReceived(
-                                    no_tx_receipt.clone(),
+                                VersionedMessage::from(Message::ViewChangeSuggested(
+                                    no_tx_receipt.clone().into(),
                                 ))
                                 .send_to(peer),
                             );
@@ -489,12 +518,12 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
                         .filter_map(Result::err)
                         .for_each(|error| {
                             iroha_logger::error!(
-                                "Failed to send NoTransactionReceiptReceived message to peers: {:?}",
+                                "Failed to send ViewChangeSuggested (NoTransactionReceiptReceived) message to peers: {:?}",
                                 error
                             )
                         });
                 }
-            }));
+            }.in_current_span()));
         }
         future::join_all(send_futures)
             .await
@@ -587,7 +616,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
         self.start_commit_countdown(
             voting_block.clone(),
             self.latest_block_hash(),
-            self.number_of_view_changes(),
+            self.latest_view_change_hash(),
         )
         .await;
         Ok(())
@@ -600,7 +629,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
         &self,
         voting_block: VotingBlock,
         latest_block_hash: Hash,
-        number_of_view_changes: u32,
+        latest_view_change_hash: Hash,
     ) {
         let old_voting_block = voting_block;
         let voting_block = Arc::clone(&self.voting_block);
@@ -608,39 +637,51 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
         let recipient_peers = self.topology.sorted_peers().to_vec();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
-        drop(task::spawn(async move {
-            time::sleep(commit_time).await;
-            let voting_block = if let Some(voting_block) = voting_block.write().await.clone() {
-                voting_block
-            } else {
-                return;
-            };
+        drop(task::spawn(
+            async move {
+                time::sleep(commit_time).await;
+                let voting_block = if let Some(voting_block) = voting_block.write().await.clone() {
+                    voting_block
+                } else {
+                    return;
+                };
 
-            // If the block was not yet committed send commit timeout to other peers to initiate view change.
-            if voting_block.block.hash() != old_voting_block.block.hash() {
-                return;
-            }
-
-            #[allow(clippy::expect_used)]
-            let message = VersionedMessage::from(Message::CommitTimeout(
-                CommitTimeout::new(&voting_block, latest_block_hash, number_of_view_changes)
-                    .sign(&key_pair)
-                    .expect("Failed to sign CommitTimeout"),
-            ));
-            let mut send_futures = Vec::new();
-            for peer in &recipient_peers {
-                if *peer != peer_id {
-                    send_futures.push(message.clone().send_to(peer));
+                // If the block was not yet committed send commit timeout to other peers to initiate view change.
+                if voting_block.block.hash() != old_voting_block.block.hash() {
+                    return;
                 }
+
+                iroha_logger::warn!(
+                    "Block commit timeout detected! Voting block hash: {}",
+                    voting_block.block.hash()
+                );
+                #[allow(clippy::expect_used)]
+                let message = VersionedMessage::from(Message::ViewChangeSuggested(
+                    view_change::Proof::commit_timeout(
+                        voting_block.block.hash(),
+                        latest_view_change_hash,
+                        latest_block_hash,
+                    )
+                    .sign(&key_pair)
+                    .expect("Failed to sign CommitTimeout")
+                    .into(),
+                ));
+                let mut send_futures = Vec::new();
+                for peer in &recipient_peers {
+                    if *peer != peer_id {
+                        send_futures.push(message.clone().send_to(peer));
+                    }
+                }
+                future::join_all(send_futures)
+                    .await
+                    .into_iter()
+                    .filter_map(Result::err)
+                    .for_each(|error| {
+                        iroha_logger::error!("Failed to send CommitTimeout messages: {:?}", error)
+                    });
             }
-            future::join_all(send_futures)
-                .await
-                .into_iter()
-                .filter_map(Result::err)
-                .for_each(|error| {
-                    iroha_logger::error!("Failed to send CommitTimeout messages: {:?}", error)
-                });
-        }));
+            .in_current_span(),
+        ));
     }
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
@@ -649,8 +690,8 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
     pub async fn commit_block(&mut self, block: VersionedValidBlock) {
         let block_hash = block.hash();
         self.invalidated_blocks_hashes.clear();
-        self.transactions_awaiting_created_block.clear();
-        self.transactions_awaiting_receipts.clear();
+        self.txs_awaiting_created_block.clear();
+        self.txs_awaiting_receipts.clear();
         self.block_height = block.header().height;
 
         let block = block.commit();
@@ -677,19 +718,27 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
     }
 
     #[iroha_futures::telemetry_future]
-    async fn change_view(&mut self) {
-        self.transactions_awaiting_created_block.clear();
-        self.transactions_awaiting_receipts.clear();
+    async fn change_view(
+        &mut self,
+        proof: view_change::Proof,
+        invalidated_block_hash: Option<Hash>,
+    ) {
+        self.txs_awaiting_created_block.clear();
+        self.txs_awaiting_receipts.clear();
         let previous_role = self.topology.role(&self.peer_id);
-        self.topology.apply_view_change();
+        if let Some(invalidated_block_hash) = invalidated_block_hash {
+            self.invalidated_blocks_hashes.push(invalidated_block_hash)
+        }
+        self.topology.apply_view_change(proof.clone());
         *self.voting_block.write().await = None;
         iroha_logger::info!(
-            "{} - {:?} - Changing view at block with hash {}. New role: {:?}. Number of view changes (including this): {}",
+            "{} - {:?} - Changing view at block with hash {}. New role: {:?}. Number of view changes (including this): {}. Reason for a view change: {}",
             self.peer_id.address,
             previous_role,
             self.latest_block_hash(),
             self.topology.role(&self.peer_id),
             self.number_of_view_changes(),
+            proof.reason()
         );
     }
 
@@ -750,19 +799,22 @@ pub mod message {
     #![allow(clippy::module_name_repetitions)]
 
     use std::{
+        collections::HashSet,
         sync::Arc,
-        time::{Duration, SystemTime},
+        time::{Duration, Instant, SystemTime},
     };
 
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
     use iroha_error::{error, Result, WrapErr};
+    use iroha_logger::Instrument;
     use iroha_network::prelude::*;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use tokio::{task, time};
 
+    use super::view_change;
     use crate::{
         genesis::GenesisNetworkTrait,
         queue::QueueTrait,
@@ -840,16 +892,12 @@ pub mod message {
         BlockSigned(BlockSigned),
         /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
         BlockCommitted(BlockCommitted),
-        /// Is sent when the node votes to change view due to commit timeout.
-        CommitTimeout(CommitTimeout),
         /// Receipt of receiving tx from peer. Sent by a leader.
         TransactionReceived(TransactionReceipt),
         /// Tx forwarded from client by a peer to a leader.
         TransactionForwarded(TransactionForwarded),
-        /// Message to other peers that this peer did not receive receipt from leader for a forwarded tx.
-        NoTransactionReceiptReceived(NoTransactionReceiptReceived),
-        /// Message to other peers that the block was not created in `block_time` by the leader after receiving a transaction.
-        BlockCreationTimeout(BlockCreationTimeout),
+        /// View change is suggested due to some faulty peer or general fault in consensus.
+        ViewChangeSuggested(ViewChangeSuggested),
     }
 
     impl Message {
@@ -866,20 +914,162 @@ pub mod message {
                 Message::BlockCreated(block_created) => block_created.handle(sumeragi).await,
                 Message::BlockSigned(block_signed) => block_signed.handle(sumeragi).await,
                 Message::BlockCommitted(block_committed) => block_committed.handle(sumeragi).await,
-                Message::CommitTimeout(change_view) => change_view.handle(sumeragi).await,
                 Message::TransactionReceived(transaction_receipt) => {
                     transaction_receipt.handle(sumeragi).await
                 }
                 Message::TransactionForwarded(transaction_forwarded) => {
                     transaction_forwarded.handle(sumeragi).await
                 }
-                Message::NoTransactionReceiptReceived(no_transaction_receipt_received) => {
-                    no_transaction_receipt_received.handle(sumeragi).await
-                }
-                Message::BlockCreationTimeout(block_creation_timeout) => {
-                    block_creation_timeout.handle(sumeragi).await
+                Message::ViewChangeSuggested(view_change_suggested) => {
+                    view_change_suggested.handle(sumeragi).await
                 }
             }
+        }
+    }
+
+    /// `ViewChangeSuggested` message structure.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct ViewChangeSuggested {
+        /// Proof of view change. As part of this message handling, all peers which agree with view change should sign it.
+        pub proof: view_change::Proof,
+    }
+
+    impl ViewChangeSuggested {
+        /// Handles this message as part of `Sumeragi` consensus.
+        ///
+        /// # Errors
+        /// Can fail during signing.
+        #[iroha_futures::telemetry_future]
+        pub async fn handle<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
+            &self,
+            sumeragi: &mut Sumeragi<Q, G, W>,
+        ) -> Result<()> {
+            use view_change::Reason::*;
+
+            if !self.proof.has_same_state(
+                sumeragi.latest_block_hash(),
+                sumeragi.latest_view_change_hash(),
+            ) {
+                return Ok(());
+            }
+            let (should_vote, invalidated_block_hash) = match self.proof.reason() {
+                CommitTimeout(reason) => (
+                    Self::is_commit_timeout(reason, sumeragi).await,
+                    Some(reason.voting_block_hash),
+                ),
+                NoTransactionReceiptReceived(reason) => (
+                    Self::is_no_transaction_receipt_recieved(reason, sumeragi).await,
+                    None,
+                ),
+                BlockCreationTimeout(reason) => (
+                    Self::is_block_creation_timeout(reason, sumeragi).await,
+                    None,
+                ),
+            };
+            let already_voted = self
+                .proof
+                .signatures()
+                .contains(&sumeragi.key_pair.public_key);
+            let view_change_suggested = if should_vote && !already_voted {
+                let view_change_suggested = self.clone().sign(&sumeragi.key_pair)?;
+                let peer_id = sumeragi.peer_id.clone();
+                let peers = sumeragi.peers();
+                let view_change_suggested_cloned = view_change_suggested.clone();
+                // Sending message in parallel as it can block peer and during consensus whole blockchain.
+                drop(task::spawn(async move {
+                    view_change_suggested_cloned
+                        .send_to_all(peers, peer_id)
+                        .await
+                }));
+                view_change_suggested
+            } else {
+                self.clone()
+            };
+            if view_change_suggested
+                .proof
+                .verify(&sumeragi.peers(), sumeragi.topology.max_faults())
+            {
+                sumeragi
+                    .change_view(view_change_suggested.proof, invalidated_block_hash)
+                    .await;
+            } else {
+            }
+            Ok(())
+        }
+
+        async fn is_commit_timeout<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
+            reason: &view_change::CommitTimeout,
+            sumeragi: &Sumeragi<Q, G, W>,
+        ) -> bool {
+            let voting_block = sumeragi.voting_block.read().await.clone();
+            #[allow(clippy::expect_used)]
+            let current_time = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get System Time.");
+            voting_block.map_or(false, |voting_block| {
+                voting_block.block.hash() == reason.voting_block_hash
+                    && (current_time - voting_block.voted_at) >= sumeragi.commit_time
+            })
+        }
+
+        async fn is_block_creation_timeout<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
+            reason: &view_change::BlockCreationTimeout,
+            sumeragi: &Sumeragi<Q, G, W>,
+        ) -> bool {
+            reason.transaction_receipt.is_valid(&sumeragi.topology)
+                && reason.transaction_receipt.is_block_should_be_created(sumeragi.block_time)
+                // Block is not yet created
+                && sumeragi.voting_block.write().await.is_none()
+        }
+
+        async fn is_no_transaction_receipt_recieved<
+            Q: QueueTrait,
+            G: GenesisNetworkTrait,
+            W: WorldTrait,
+        >(
+            reason: &view_change::NoTransactionReceiptReceived,
+            sumeragi: &Sumeragi<Q, G, W>,
+        ) -> bool {
+            let current_time = Instant::now();
+            // Due to the fact that transactions are all the time gossiped -
+            // if the leader is not sending a receipt for some transaction every peer will know it.
+            // And therefore will have it in `transactions_awaiting_receipts`.
+            // If it doesn't have it then either this peer is faulty or the one sending this message is faulty.
+            let sent_at = if let Some(sent_at) =
+                sumeragi.txs_awaiting_receipts.get(&reason.transaction_hash)
+            {
+                sent_at.to_owned()
+            } else {
+                return false;
+            };
+
+            current_time.duration_since(sent_at) >= sumeragi.tx_receipt_time
+        }
+
+        fn sign(self, key_pair: &KeyPair) -> Result<Self> {
+            Ok(Self {
+                proof: self.proof.sign(key_pair)?,
+            })
+        }
+
+        async fn send_to_all(&self, peers: HashSet<PeerId>, this_peer: PeerId) {
+            let view_change_suggested =
+                VersionedMessage::from(Message::ViewChangeSuggested(self.clone()));
+            drop(
+                futures::future::join_all(
+                    peers
+                        .iter()
+                        .filter(|peer_id| peer_id != &&this_peer)
+                        .map(|peer| view_change_suggested.clone().send_to(peer)),
+                )
+                .await,
+            );
+        }
+    }
+
+    impl From<view_change::Proof> for ViewChangeSuggested {
+        fn from(proof: view_change::Proof) -> Self {
+            ViewChangeSuggested { proof }
         }
     }
 
@@ -892,10 +1082,28 @@ pub mod message {
     }
 
     impl BlockCreated {
-        /// # Errors
-        /// Asserts specific instruction number of instruction constraint
-        pub fn check_instruction_len(&self, max_instruction_number: usize) -> Result<()> {
-            self.block.check_instruction_len(max_instruction_number)
+        fn update_view_changes<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
+            &self,
+            sumeragi: &mut Sumeragi<Q, G, W>,
+        ) {
+            let leader_view_changes = self.block.header().view_change_proofs.clone();
+            #[allow(clippy::expect_used)]
+            if leader_view_changes.len() > sumeragi.topology.view_change_proofs().len()
+                && leader_view_changes.verify_with_state(
+                    &sumeragi.peers(),
+                    sumeragi.topology.max_faults(),
+                    sumeragi.latest_block_hash(),
+                )
+            {
+                iroha_logger::info!("Updating number of view changes on BlockCreated from leader. Number of view changes {} -> {}", sumeragi.topology.view_change_proofs().len(), leader_view_changes.len());
+                sumeragi.topology = sumeragi
+                    .topology
+                    .clone()
+                    .into_builder()
+                    .with_view_changes(leader_view_changes)
+                    .build()
+                    .expect("When only changing view changes it should not fail.")
+            }
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
@@ -916,6 +1124,7 @@ pub mod message {
                     iroha_logger::error!("Failed to send block created event: {}", err)
                 }
             }
+            self.update_view_changes(sumeragi);
             let network_topology =
                 sumeragi.network_topology_current_or_genesis(self.block.header());
             if network_topology
@@ -928,72 +1137,53 @@ pub mod message {
                 );
                 return Ok(());
             }
-            sumeragi.transactions_awaiting_created_block.clear();
-            match network_topology.role(&sumeragi.peer_id) {
-                Role::ValidatingPeer => {
-                    if self.block.validation_check(
-                        &sumeragi.wsv,
-                        sumeragi.latest_block_hash(),
-                        sumeragi.number_of_view_changes(),
-                        sumeragi.block_height,
-                        sumeragi.max_instruction_number,
-                    ) {
-                        let block_clone = self.block.clone();
-                        let wsv_clone = Arc::clone(&sumeragi.wsv);
-                        let permission_validator_clone =
-                            Arc::clone(&sumeragi.permissions_validator);
-                        let key_pair_clone = sumeragi.key_pair.clone();
-                        let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
-                            block_clone
-                                .revalidate(&*wsv_clone, &*permission_validator_clone)
-                                .sign(&key_pair_clone)
-                                .map(Into::into)
-                        })
-                        .await??;
-                        if let Err(e) = VersionedMessage::from(Message::BlockSigned(signed_block))
-                            .send_to(network_topology.proxy_tail())
-                            .await
-                        {
-                            iroha_logger::error!(
-                                "Failed to send BlockSigned message to the proxy tail: {:?}",
-                                e
-                            );
-                        } else {
-                            iroha_logger::info!(
-                                "{:?} - Signed block candidate with hash {}.",
-                                network_topology.role(&sumeragi.peer_id),
-                                self.block.hash(),
-                            );
-                        }
-                        //TODO: send to set b so they can observe
-                    }
-                    let voting_block = VotingBlock::new(self.block.clone());
-                    *sumeragi.voting_block.write().await = Some(voting_block.clone());
-                    sumeragi
-                        .start_commit_countdown(
-                            voting_block.clone(),
-                            sumeragi.latest_block_hash(),
-                            sumeragi.number_of_view_changes(),
-                        )
-                        .await;
+            sumeragi.txs_awaiting_created_block.clear();
+            if network_topology.role(&sumeragi.peer_id) == Role::ValidatingPeer
+                && self.block.validation_check(
+                    &sumeragi.wsv,
+                    sumeragi.latest_block_hash(),
+                    sumeragi.latest_view_change_hash(),
+                    sumeragi.block_height,
+                    sumeragi.max_instruction_number,
+                )
+            {
+                let block_clone = self.block.clone();
+                let wsv_clone = Arc::clone(&sumeragi.wsv);
+                let permission_validator_clone = Arc::clone(&sumeragi.permissions_validator);
+                let key_pair_clone = sumeragi.key_pair.clone();
+                let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
+                    block_clone
+                        .revalidate(&*wsv_clone, &*permission_validator_clone)
+                        .sign(&key_pair_clone)
+                        .map(Into::into)
+                })
+                .await??;
+                if let Err(e) = VersionedMessage::from(Message::BlockSigned(signed_block))
+                    .send_to(network_topology.proxy_tail())
+                    .await
+                {
+                    iroha_logger::error!(
+                        "Failed to send BlockSigned message to the proxy tail: {:?}",
+                        e
+                    );
+                } else {
+                    iroha_logger::info!(
+                        "{:?} - Signed block candidate with hash {}.",
+                        network_topology.role(&sumeragi.peer_id),
+                        self.block.hash(),
+                    );
                 }
-                Role::ProxyTail => {
-                    let voting_block = VotingBlock::new(self.block.clone());
-                    *sumeragi.voting_block.write().await = Some(voting_block.clone());
-                    sumeragi
-                        .start_commit_countdown(
-                            voting_block.clone(),
-                            sumeragi.latest_block_hash(),
-                            sumeragi.number_of_view_changes(),
-                        )
-                        .await;
-                }
-                Role::ObservingPeer => {
-                    *sumeragi.voting_block.write().await =
-                        Some(VotingBlock::new(self.block.clone()));
-                }
-                Role::Leader => (),
+                //TODO: send to set b so they can observe
             }
+            let voting_block = VotingBlock::new(self.block.clone());
+            *sumeragi.voting_block.write().await = Some(voting_block.clone());
+            sumeragi
+                .start_commit_countdown(
+                    voting_block,
+                    sumeragi.latest_block_hash(),
+                    sumeragi.latest_view_change_hash(),
+                )
+                .await;
             Ok(())
         }
     }
@@ -1136,257 +1326,6 @@ pub mod message {
         }
     }
 
-    /// `Message` structure showing a `transaction_receipt` from a leader as a proof that peer did not create a block
-    /// in `block_time` after receiving this transaction.
-    /// Peers validate the receipt, and sign the message to vote for changing the view.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
-    #[non_exhaustive]
-    pub struct BlockCreationTimeout {
-        /// A proof of the leader receiving and accepting a transaction.
-        pub transaction_receipt: TransactionReceipt,
-        /// Signatures of the peers who voted for changing the leader.
-        pub signatures: Signatures,
-        /// The block hash of the latest committed block.
-        pub latest_block_hash: Hash,
-        /// Number of view changes since the last commit.
-        pub number_of_view_changes: u32,
-    }
-
-    impl BlockCreationTimeout {
-        /// Construct `BlockCreationTimeout` message.
-        pub fn new(
-            transaction_receipt: TransactionReceipt,
-            latest_block_hash: Hash,
-            number_of_view_changes: u32,
-        ) -> Self {
-            BlockCreationTimeout {
-                transaction_receipt,
-                signatures: Signatures::default(),
-                latest_block_hash,
-                number_of_view_changes,
-            }
-        }
-
-        /// Signs this message with the peer's public and private key.
-        /// This way peers vote for changing the view, if the leader does not produce a block
-        /// after receiving transaction in `block_time`.
-        ///
-        /// # Errors
-        /// Can fail during creation of signature
-        pub fn sign(mut self, key_pair: &KeyPair) -> Result<BlockCreationTimeout> {
-            let signature = Signature::new(
-                key_pair.clone(),
-                &Vec::<u8>::from(self.transaction_receipt.clone()),
-            )?;
-            self.signatures.add(signature);
-            Ok(self)
-        }
-
-        /// Signatures that are verified with the `transaction_receipt` bytes as `payload`.
-        pub fn verified_signatures(&self) -> Vec<Signature> {
-            self.signatures
-                .verified(&Vec::<u8>::from(self.transaction_receipt.clone()))
-        }
-
-        fn has_same_state<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
-            &self,
-            sumeragi: &Sumeragi<Q, G, W>,
-        ) -> bool {
-            sumeragi.number_of_view_changes() == self.number_of_view_changes
-                && sumeragi.latest_block_hash() == self.latest_block_hash
-        }
-
-        /// Handles this message as part of `Sumeragi` consensus.
-        ///
-        /// # Errors
-        /// Can fail due to signing of created block
-        #[iroha_futures::telemetry_future]
-        pub async fn handle<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
-            &self,
-            sumeragi: &mut Sumeragi<Q, G, W>,
-        ) -> Result<()> {
-            if !self.has_same_state(sumeragi) {
-                return Ok(());
-            }
-            let role = sumeragi.topology.role(&sumeragi.peer_id);
-            let tx_receipt = self.transaction_receipt.clone();
-            if tx_receipt.is_valid(&sumeragi.topology)
-                && tx_receipt.is_block_should_be_created(sumeragi.block_time)
-                && (role == Role::ValidatingPeer || role == Role::ProxyTail)
-                // Block is not yet created
-                && sumeragi.voting_block.write().await.is_none()
-                && !self.signatures.contains(&sumeragi.key_pair.public_key)
-            {
-                let block_creation_timeout_message =
-                    VersionedMessage::from(Message::BlockCreationTimeout(
-                        self.clone()
-                            .sign(&sumeragi.key_pair)
-                            .wrap_err("Failed to sign.")?,
-                    ));
-                drop(
-                    futures::future::join_all(
-                        sumeragi
-                            .topology
-                            .sorted_peers()
-                            .iter()
-                            .map(|peer| block_creation_timeout_message.clone().send_to(peer)),
-                    )
-                    .await,
-                );
-            }
-            if sumeragi
-                .topology
-                .filter_signatures_by_roles(
-                    &[Role::ProxyTail, Role::ValidatingPeer],
-                    &self.verified_signatures(),
-                )
-                .len()
-                >= sumeragi.topology.min_votes_for_view_change() as usize
-            {
-                iroha_logger::info!(
-                    "{:?} - Block creation timeout verified by voting. Previous block hash: {}.",
-                    sumeragi.topology.role(&sumeragi.peer_id),
-                    sumeragi.latest_block_hash(),
-                );
-                sumeragi.change_view().await;
-            }
-            Ok(())
-        }
-    }
-
-    /// `Message` structure describing a failed attempt to forward transaction to a leader.
-    /// Peers sign it if they are not able to get a `TxReceipt` from a leader after sending the specified transaction.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
-    #[non_exhaustive]
-    pub struct NoTransactionReceiptReceived {
-        /// Transaction for which there was no `TransactionReceipt`.
-        pub transaction: VersionedAcceptedTransaction,
-        /// Signatures of the peers who voted for changing the leader.
-        pub signatures: Signatures,
-        /// The id of the leader, to determine that peer topologies are synchronized.
-        pub leader_id: PeerId,
-        /// The block hash of the latest committed block.
-        pub latest_block_hash: Hash,
-        /// Number of view changes since the last commit.
-        pub number_of_view_changes: u32,
-    }
-
-    impl NoTransactionReceiptReceived {
-        /// Constructs a new `NoTransactionReceiptReceived` message with no signatures.
-        pub fn new(
-            transaction: &VersionedAcceptedTransaction,
-            leader_id: PeerId,
-            latest_block_hash: Hash,
-            number_of_view_changes: u32,
-        ) -> NoTransactionReceiptReceived {
-            NoTransactionReceiptReceived {
-                transaction: transaction.clone(),
-                signatures: Signatures::default(),
-                leader_id,
-                latest_block_hash,
-                number_of_view_changes,
-            }
-        }
-
-        /// Signs this message with the peer's public and private key.
-        /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
-        ///
-        /// # Errors
-        /// Can fail creating new signature
-        pub fn sign(mut self, key_pair: &KeyPair) -> Result<NoTransactionReceiptReceived> {
-            let signature = Signature::new(
-                key_pair.clone(),
-                &Vec::<u8>::from(self.transaction.as_inner_v1().clone()),
-            )?;
-            self.signatures.add(signature);
-            Ok(self)
-        }
-
-        /// Signatures that are verified with the `transaction` bytes as `payload`.
-        pub fn verified_signatures(&self) -> Vec<Signature> {
-            self.signatures
-                .verified(&Vec::<u8>::from(self.transaction.as_inner_v1().clone()))
-        }
-
-        fn has_same_state<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
-            &self,
-            sumeragi: &Sumeragi<Q, G, W>,
-        ) -> bool {
-            sumeragi.number_of_view_changes() == self.number_of_view_changes
-                && sumeragi.latest_block_hash() == self.latest_block_hash
-        }
-
-        /// Handles this message as part of `Sumeragi` consensus.
-        ///
-        /// # Errors
-        /// Can fail while signing message
-        #[iroha_futures::telemetry_future]
-        pub async fn handle<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
-            &self,
-            sumeragi: &mut Sumeragi<Q, G, W>,
-        ) -> Result<()> {
-            if !self.has_same_state(sumeragi) {
-                return Ok(());
-            }
-            if sumeragi
-                .topology
-                .filter_signatures_by_roles(
-                    &[Role::ProxyTail, Role::ValidatingPeer],
-                    &self.verified_signatures(),
-                )
-                .len()
-                >= sumeragi.topology.min_votes_for_view_change() as usize
-            {
-                iroha_logger::info!(
-                    "{:?} - Faulty leader not sending tx receipts verified by voting. Previous block hash: {}.",
-                    sumeragi.topology.role(&sumeragi.peer_id),
-                    sumeragi.latest_block_hash(),
-                );
-                sumeragi.change_view().await;
-                return Ok(());
-            }
-            let role = sumeragi.topology.role(&sumeragi.peer_id);
-            if (role == Role::ValidatingPeer || role == Role::ProxyTail)
-                && !self.signatures.contains(&sumeragi.key_pair.public_key)
-            {
-                let _result =
-                    VersionedMessage::from(Message::TransactionForwarded(TransactionForwarded {
-                        transaction: self.transaction.clone(),
-                        peer: sumeragi.peer_id.clone(),
-                    }))
-                    .send_to(sumeragi.topology.leader())
-                    .await;
-                let _ = sumeragi
-                    .transactions_awaiting_receipts
-                    .insert(self.transaction.hash());
-                let pending_forwarded_tx_hashes =
-                    Arc::clone(&sumeragi.transactions_awaiting_receipts);
-                let recipient_peers = sumeragi.topology.sorted_peers().to_vec();
-                let tx_receipt_time = sumeragi.tx_receipt_time;
-                let no_tx_receipt = self
-                    .clone()
-                    .sign(&sumeragi.key_pair)
-                    .wrap_err("Failed to sign.")?;
-                drop(task::spawn(async move {
-                    time::sleep(tx_receipt_time).await;
-                    if pending_forwarded_tx_hashes.contains(&no_tx_receipt.transaction.hash()) {
-                        let mut send_futures = Vec::new();
-                        for peer in &recipient_peers {
-                            send_futures.push(
-                                VersionedMessage::from(Message::NoTransactionReceiptReceived(
-                                    no_tx_receipt.clone(),
-                                ))
-                                .send_to(peer),
-                            );
-                        }
-                        drop(futures::future::join_all(send_futures).await);
-                    }
-                }));
-            }
-            Ok(())
-        }
-    }
-
     /// `Message` structure describing a transaction that is forwarded from a client by a peer to the leader.
     #[derive(Io, Decode, Encode, Debug, Clone)]
     #[non_exhaustive]
@@ -1500,188 +1439,52 @@ pub mod message {
             sumeragi: &mut Sumeragi<Q, G, W>,
         ) -> Result<()> {
             // Implausible time in the future, means that the leader lies
-            #[allow(clippy::expect_used)]
             if sumeragi.topology.role(&sumeragi.peer_id) != Role::Leader
                 && self.received_at
                     <= SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
-                        .expect("Failed to get System Time.")
+                        .wrap_err("Failed to get System Time.")?
                 && self.is_valid(&sumeragi.topology)
                 && sumeragi
-                    .transactions_awaiting_receipts
-                    .contains(&self.transaction_hash)
+                    .txs_awaiting_receipts
+                    .contains_key(&self.transaction_hash)
             {
                 let _ = sumeragi
-                    .transactions_awaiting_receipts
+                    .txs_awaiting_receipts
                     .remove(&self.transaction_hash);
                 let block_time = sumeragi.block_time;
                 let transactions_awaiting_created_block =
-                    Arc::clone(&sumeragi.transactions_awaiting_created_block);
+                    Arc::clone(&sumeragi.txs_awaiting_created_block);
                 let tx_hash = self.transaction_hash;
-                let role = sumeragi.topology.role(&sumeragi.peer_id);
-                let mut block_creation_timeout = BlockCreationTimeout::new(
+                let mut block_creation_timeout = view_change::Proof::block_creation_timeout(
                     self.clone(),
+                    sumeragi.latest_view_change_hash(),
                     sumeragi.latest_block_hash(),
-                    sumeragi.number_of_view_changes(),
                 );
-                if role == Role::ValidatingPeer || role == Role::ProxyTail {
-                    block_creation_timeout = block_creation_timeout
-                        .sign(&sumeragi.key_pair)
-                        .wrap_err("Failed to put first signature.")?;
-                }
+                block_creation_timeout = block_creation_timeout
+                    .sign(&sumeragi.key_pair)
+                    .wrap_err("Failed to put first signature.")?;
                 let _ = transactions_awaiting_created_block.insert(tx_hash);
                 let recipient_peers = sumeragi.topology.sorted_peers().to_vec();
-                drop(task::spawn(async move {
-                    time::sleep(block_time).await;
-                    // Suspect leader if the block was not yet created
-                    if transactions_awaiting_created_block.contains(&tx_hash) {
-                        let block_creation_timeout_message = VersionedMessage::from(
-                            Message::BlockCreationTimeout(block_creation_timeout),
-                        );
-                        drop(
-                            futures::future::join_all(
-                                recipient_peers.iter().map(|peer| {
+                drop(task::spawn(
+                    async move {
+                        time::sleep(block_time).await;
+                        // Suspect leader if the block was not yet created
+                        if transactions_awaiting_created_block.contains(&tx_hash) {
+                            iroha_logger::warn!("Block creation timeout detected!");
+                            let block_creation_timeout_message = VersionedMessage::from(
+                                Message::ViewChangeSuggested(block_creation_timeout.into()),
+                            );
+                            drop(
+                                futures::future::join_all(recipient_peers.iter().map(|peer| {
                                     block_creation_timeout_message.clone().send_to(peer)
-                                }),
-                            )
-                            .await,
-                        );
-                    }
-                }));
-            }
-            Ok(())
-        }
-    }
-
-    /// `Message` structure describing a request to other peers to change view because of the commit timeout.
-    /// Peers vote on this view change by signing and forwarding this structure.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
-    #[non_exhaustive]
-    pub struct CommitTimeout {
-        /// The hash of the block in discussion in this round.
-        pub voting_block_hash: Hash,
-        /// The signatures of the peers who vote to for a view change.
-        pub signatures: Signatures,
-        /// The block hash of the latest committed block.
-        pub latest_block_hash: Hash,
-        /// Number of view changes since the last commit.
-        pub number_of_view_changes: u32,
-    }
-
-    impl CommitTimeout {
-        /// Constructs a new commit timeout message with no signatures.
-        pub fn new(
-            voting_block: &VotingBlock,
-            latest_block_hash: Hash,
-            number_of_view_changes: u32,
-        ) -> CommitTimeout {
-            CommitTimeout {
-                voting_block_hash: voting_block.block.hash(),
-                signatures: Signatures::default(),
-                latest_block_hash,
-                number_of_view_changes,
-            }
-        }
-
-        /// Signs this message with the peer's public and private key.
-        /// This way peers vote for changing the view, if the proxy tail does not send commit message in `commit_time`.
-        ///
-        /// # Errors
-        /// Can fail creating new signature
-        pub fn sign(mut self, key_pair: &KeyPair) -> Result<CommitTimeout> {
-            let signature = Signature::new(key_pair.clone(), self.voting_block_hash.as_ref())?;
-            self.signatures.add(signature);
-            Ok(self)
-        }
-
-        /// Signatures that are verified with the `voting_block_hash` bytes as `payload`.
-        pub fn verified_signatures(&self) -> Vec<Signature> {
-            self.signatures.verified(self.voting_block_hash.as_ref())
-        }
-
-        fn has_same_state<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
-            &self,
-            sumeragi: &Sumeragi<Q, G, W>,
-        ) -> bool {
-            sumeragi.number_of_view_changes() == self.number_of_view_changes
-                && sumeragi.latest_block_hash() == self.latest_block_hash
-        }
-
-        /// Handles this message as part of `Sumeragi` consensus.
-        ///
-        /// # Errors
-        /// Can fail creating new signature
-        #[iroha_futures::telemetry_future]
-        pub async fn handle<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait>(
-            &self,
-            sumeragi: &mut Sumeragi<Q, G, W>,
-        ) -> Result<()> {
-            if !self.has_same_state(sumeragi) {
-                return Ok(());
-            }
-            if sumeragi
-                .topology
-                .filter_signatures_by_roles(
-                    &[Role::Leader, Role::ValidatingPeer, Role::ProxyTail],
-                    &self.verified_signatures(),
-                )
-                .len()
-                >= sumeragi.topology.min_votes_for_view_change() as usize
-                && sumeragi
-                    .voting_block
-                    .read()
-                    .await
-                    .clone()
-                    .map(|block| block.block.hash())
-                    == Some(self.voting_block_hash)
-            {
-                sumeragi
-                    .invalidated_blocks_hashes
-                    .push(self.voting_block_hash);
-                iroha_logger::info!(
-                    "{:?} - Block commit timeout verified by voting. Previous block hash: {}.",
-                    sumeragi.topology.role(&sumeragi.peer_id),
-                    sumeragi.latest_block_hash(),
-                );
-                sumeragi.change_view().await;
-            } else {
-                let role = sumeragi.topology.role(&sumeragi.peer_id);
-                if role != Role::ObservingPeer {
-                    let voting_block = sumeragi.voting_block.read().await.clone();
-                    if let Some(voting_block) = voting_block {
-                        #[allow(clippy::expect_used)]
-                        let current_time = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .expect("Failed to get System Time.");
-                        if voting_block.block.hash() == self.voting_block_hash
-                            && (current_time - voting_block.voted_at) >= sumeragi.commit_time
-                            && !self.signatures.contains(&sumeragi.key_pair.public_key)
-                        {
-                            let message = VersionedMessage::from(Message::CommitTimeout(
-                                self.clone()
-                                    .sign(&sumeragi.key_pair)
-                                    .wrap_err("Failed to sign.")?,
-                            ));
-                            let sorted_peers = sumeragi.topology.sorted_peers().to_vec();
-                            drop(task::spawn(async move {
-                                let mut send_futures = Vec::new();
-                                for peer in &sorted_peers {
-                                    send_futures.push(message.clone().send_to(peer));
-                                }
-                                let results = futures::future::join_all(send_futures).await;
-                                results
-                                    .into_iter()
-                                    .filter_map(Result::err)
-                                    .for_each(|error| {
-                                        iroha_logger::error!(
-                                            "Failed to send CommitTimeout messages: {:?}",
-                                            error
-                                        )
-                                    });
-                            }));
+                                }))
+                                .await,
+                            );
                         }
                     }
-                }
+                    .in_current_span(),
+                ));
             }
             Ok(())
         }
@@ -1702,8 +1505,8 @@ pub mod config {
     const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
-    const DEFAULT_MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
-    const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u32 = 1;
+    const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+    const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
@@ -1728,9 +1531,9 @@ pub mod config {
         /// Amount of time Peer waits for TxReceipt from the leader.
         pub tx_receipt_time_ms: u64,
         /// After N view changes topology will change tactic from shifting by one, to reshuffle.
-        pub n_topology_shifts_before_reshuffle: u32,
+        pub n_topology_shifts_before_reshuffle: u64,
         /// Maximum instruction number per transaction
-        pub max_instruction_number: usize,
+        pub max_instruction_number: u64,
     }
 
     impl Default for SumeragiConfiguration {

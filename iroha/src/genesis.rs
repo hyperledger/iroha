@@ -44,7 +44,7 @@ pub trait GenesisNetworkTrait:
     /// Fail if genesis block loading fails
     fn from_configuration(
         genesis_config: &GenesisConfiguration,
-        max_instructions_number: usize,
+        max_instructions_number: u64,
     ) -> Result<Option<Self>>;
 
     /// Waits for a minimum number of `peers` needed for consensus to be online.
@@ -170,7 +170,7 @@ async fn check_peers_status(
 impl GenesisNetworkTrait for GenesisNetwork {
     fn from_configuration(
         genesis_config: &GenesisConfiguration,
-        max_instructions_number: usize,
+        max_instructions_number: u64,
     ) -> Result<Option<GenesisNetwork>> {
         if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
             let file = File::open(Path::new(&genesis_block_path))
@@ -240,7 +240,7 @@ impl GenesisTransaction {
     pub fn sign_and_accept(
         &self,
         genesis_key_pair: &KeyPair,
-        max_instruction_number: usize,
+        max_instruction_number: u64,
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
             self.isi.clone(),

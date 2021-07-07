@@ -37,7 +37,7 @@ pub struct BlockSynchronizer<S: SumeragiTrait, W: WorldTrait> {
     state: State,
     gossip_period: Duration,
     batch_size: u32,
-    n_topology_shifts_before_reshuffle: u32,
+    n_topology_shifts_before_reshuffle: u64,
     broker: Broker,
 }
 
@@ -54,7 +54,7 @@ pub trait BlockSynchronizerTrait: Actor + Handler<ContinueSync> + Handler<Messag
         wsv: Arc<WorldStateView<Self::World>>,
         sumeragi: AlwaysAddr<Self::Sumeragi>,
         peer_id: PeerId,
-        n_topology_shifts_before_reshuffle: u32,
+        n_topology_shifts_before_reshuffle: u64,
         broker: Broker,
     ) -> Self;
 }
@@ -68,7 +68,7 @@ impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchroniz
         wsv: Arc<WorldStateView<W>>,
         sumeragi: AlwaysAddr<S>,
         peer_id: PeerId,
-        n_topology_shifts_before_reshuffle: u32,
+        n_topology_shifts_before_reshuffle: u64,
         broker: Broker,
     ) -> Self {
         Self {
@@ -182,7 +182,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
         if !block.header().is_genesis() {
             network_topology = network_topology
                 .into_builder()
-                .with_view_changes(block.header().number_of_view_changes)
+                .with_view_changes(block.header().view_change_proofs.clone())
                 .build()
                 .expect(
                     "Unreachable as doing view changes on valid topology will not raise an error.",

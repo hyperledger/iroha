@@ -389,7 +389,7 @@ Has type `u32`. Can be configured via environment variable `SUMERAGI_MAX_FAULTY_
 
 Maximum instruction number per transaction
 
-Has type `usize`. Can be configured via environment variable `SUMERAGI_MAX_INSTRUCTION_NUMBER`
+Has type `u64`. Can be configured via environment variable `SUMERAGI_MAX_INSTRUCTION_NUMBER`
 
 ```json
 4096
@@ -399,7 +399,7 @@ Has type `usize`. Can be configured via environment variable `SUMERAGI_MAX_INSTR
 
 After N view changes topology will change tactic from shifting by one, to reshuffle.
 
-Has type `u32`. Can be configured via environment variable `SUMERAGI_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE`
+Has type `u64`. Can be configured via environment variable `SUMERAGI_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE`
 
 ```json
 1
@@ -488,7 +488,7 @@ Has type `String`. Can be configured via environment variable `TORII_API_URL`
 
 Maximum number of instruction per transaction. Used to prevent from DOS attacks.
 
-Has type `usize`. Can be configured via environment variable `TORII_MAX_INSTRUCTION_NUMBER`
+Has type `u64`. Can be configured via environment variable `TORII_MAX_INSTRUCTION_NUMBER`
 
 ```json
 4096

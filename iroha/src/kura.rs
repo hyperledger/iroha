@@ -313,7 +313,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::wsv::World;
+    use crate::{sumeragi::view_change, wsv::World};
 
     #[tokio::test]
     async fn strict_init_kura() {
@@ -380,7 +380,7 @@ mod tests {
                 .await
                 .expect("Failed to write block to file.");
             block = PendingBlock::new(Vec::new())
-                .chain(height, hash, 0, Vec::new())
+                .chain(height, hash, view_change::ProofChain::empty(), Vec::new())
                 .validate(&WorldStateView::new(World::new()), &AllowAll.into())
                 .sign(&keypair)
                 .expect("Failed to sign blocks.")
