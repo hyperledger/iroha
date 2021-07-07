@@ -310,7 +310,9 @@ jobs:
       - generate_matrixes
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
     ## Container is taken from previous job
-    container: ${{needs.Docker-iroha-builder.outputs.container}}
+    container: #&container
+      image: ${{needs.Docker-iroha-builder.outputs.container}}
+      options: --user root
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
@@ -509,7 +511,9 @@ jobs:
       - generate_matrixes
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
     ## Container is taken from previous job
-    container: ${{needs.Docker-iroha-builder.outputs.container}}
+    container: #&container
+      image: ${{needs.Docker-iroha-builder.outputs.container}}
+      options: --user root
     steps:
       - name: Show context
         run: |
