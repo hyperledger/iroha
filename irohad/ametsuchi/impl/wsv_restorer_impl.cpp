@@ -271,10 +271,10 @@ namespace iroha::ametsuchi {
           };
 
           if (new_last_block > last_block_in_storage) {
-            last_block_in_storage = new_last_block;
             log_->info("Blockstore has new blocks from {} to {}, restore them.",
                        last_block_in_storage,
                        new_last_block);
+            last_block_in_storage = new_last_block;
             break;
           }
         }
