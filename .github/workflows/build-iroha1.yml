@@ -159,7 +159,7 @@ jobs:
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest #[ self-hosted, Linux ]
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
