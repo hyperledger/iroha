@@ -43,7 +43,6 @@ parts:
       - rapidjson
       - libpq
       - soci
-      - tbb
       - ed25519
   cmake:
     source: https://gitlab.kitware.com/cmake/cmake.git
@@ -138,19 +137,6 @@ parts:
      - -DWITH_SQLITE3=OFF
      - -DCMAKE_INSTALL_PREFIX=/
     after: [cmake, boost, libpq]
-  tbb:
-    source: https://github.com/01org/tbb.git
-    source-commit: eb6336ad29450f2a64af5123ca1b9429ff6bc11d
-    plugin: make
-    make-parameters: [tbb_build_prefix=build]
-    artifacts:
-      - include
-    install: |
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/local/lib
-      cp build/build_debug/*.so* $SNAPCRAFT_PART_INSTALL/usr/local/lib
-      cp build/build_release/*.so* $SNAPCRAFT_PART_INSTALL/usr/local/lib
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/local
-      mv $SNAPCRAFT_PART_INSTALL/include $SNAPCRAFT_PART_INSTALL/usr/local/include
   ed25519:
     source: https://github.com/hyperledger/iroha-ed25519.git
     source-commit: b61a1e77af5dc458ed6a5aee395d5b22775a4917
