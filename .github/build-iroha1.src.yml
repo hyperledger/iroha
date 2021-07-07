@@ -487,10 +487,17 @@ jobs:
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
           set -x
-          initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
-          postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
-          #createuser -s postgres -p5432
-
+          if [[ $(uname) = Darwin ]] ;then
+            ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
+            initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
+            postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
+          else
+            ## Need to go debian-specific way because
+            ## initdb is not allowed to be run as root, but we need to run as root
+            ## because GitHub actions runners have much issues with permissions.
+            pg_createcluster --start 12 iroha -- --locale=C --encoding=UTF-8
+            #pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+          fi
           ## Run module_* tests in parallel and others subsequently
           cd build
           ctest --output-on-failure -R '^module_' --parallel 8
