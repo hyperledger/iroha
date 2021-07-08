@@ -86,9 +86,16 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       -
         name: Reaction
         run: |
@@ -123,7 +130,15 @@ jobs:
       -
         name: Generate default matrix for regular builds
         if: ${{ steps.comment_body.outcome == 'skipped' }}
-        run: echo "/build" >/tmp/comment_body
+        run: |
+          case ${{github.event_name}} in
+            pull_request)       echo >/tmp/comment_body "/build debug" ;;
+            push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
+            schedule)           echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos windows debug" ;;  ##TODO arm64
+            workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
+            #issue_comment)      echo >/tmp/comment_body "${{github.event.comment.body}}" ;;
+            *)                  echo >&2 "::error::Unexpected event"; false ;;
+          esac
       -
         name: Generate matrixes
         id: matrixes
@@ -322,6 +337,7 @@ jobs:
     strategy: &strategy_ubuntu_debug
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
+    if: &if_ubuntu_debug ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -432,7 +448,7 @@ jobs:
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - &step_cpack
         name: CPack (linux only)
-        run: cd build; cpack;
+        run: cd build; cpack;  ## cmake --build build --target package
       - &step_always_after_build
         name: Show free space and disk usage
         if: ${{ always() }}
@@ -509,6 +525,7 @@ jobs:
     strategy: &strategy_ubuntu_release
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
+    if: &if_ubuntu_release ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
 
   ## Just to align picture
   prepare-macos-env:
@@ -525,6 +542,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
       # matrix:
       #   # os: [ macos-latest, macos-11.0, macos-10.15 ]
       #   CC: [ clang ] #, llvm ] #gcc-10
@@ -595,11 +613,12 @@ jobs:
     needs:
       - prepare-windows-env
       - generate_matrixes
-    if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
+    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
+    if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
       # matrix:
       #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
@@ -651,10 +670,12 @@ jobs:
   ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha-burrow:commit-XXXXX-debug
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   iroha-docker-image-release: &job_docker_image_release
-    needs: build-iroha-ubuntu-release
+    needs:
+      - build-iroha-ubuntu-release
+      - generate_matrixes
     runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
     strategy: *strategy_ubuntu_release
-    #if: matrix.dockerpush == '' || matrix.dockerpush == 'yes'
+    if: *if_ubuntu_release
     env: &env_dockerhub_release
       <<: *env_dockerhub
       IMAGE_NAME: iroha
@@ -697,13 +718,16 @@ jobs:
         with:
           <<: *step_docker_build_and_push_with
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' }}
+          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
       - *step_docker_move_cache
 
   iroha-docker-image-debug:
     <<: *job_docker_image_release
-    needs: build-iroha-ubuntu-debug
+    needs:
+      - build-iroha-ubuntu-debug
+      - generate_matrixes
     strategy: *strategy_ubuntu_debug
+    if: *if_ubuntu_debug
     # env:
     #   <<: *env_dockerhub_release
     #   IMAGE_NAME: iroha-debug
