@@ -27,7 +27,7 @@ Let's go line-by-line and understand what every parameter means in configuration
 Deployment-specific parameters
 ==============================
 
-- ``block_store_path`` sets path to the folder where blocks are stored.
+- ``block_store_path`` (optional) sets path to the folder where blocks are stored. If this parameter is not specified, blocks will be stored in the database.
 - ``torii_port`` sets the port for external communications. Queries and
   transactions are sent here.
 - ``internal_port`` sets the port for internal communications: ordering
