@@ -78,9 +78,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: Reaction
         run: |
           # send reaction to comment to show build was triggered
@@ -103,9 +110,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: Checkout
         uses: actions/checkout@v2
         with:
@@ -117,7 +131,15 @@ jobs:
         run: echo "${{github.event.comment.body}}" >/tmp/comment_body
       - name: Generate default matrix for regular builds
         if: ${{ steps.comment_body.outcome == 'skipped' }}
-        run: echo "/build" >/tmp/comment_body
+        run: |
+          case ${{github.event_name}} in
+            pull_request)       echo >/tmp/comment_body "/build debug" ;;
+            push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
+            schedule)           echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos windows debug" ;;  ##TODO arm64
+            workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
+            #issue_comment)      echo >/tmp/comment_body "${{github.event.comment.body}}" ;;
+            *)                  echo >&2 "::error::Unexpected event"; false ;;
+          esac
       - name: Generate matrixes
         id: matrixes
         run: |
@@ -167,9 +189,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: System info
         run: |
           set -x
@@ -316,12 +345,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: Show needs
         run: |
           cat >/dev/null <<'END'
@@ -447,7 +484,7 @@ jobs:
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - name: CPack (linux only)
-        run: cd build; cpack;
+        run: cd build; cpack; ## cmake --build build --target package
       - name: Show free space and disk usage
         if: ${{ always() }}
         run: |
@@ -524,9 +561,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: Show needs
         run: |
           cat >/dev/null <<'END'
@@ -652,7 +696,7 @@ jobs:
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - name: CPack (linux only)
-        run: cd build; cpack;
+        run: cd build; cpack; ## cmake --build build --target package
       - name: Show free space and disk usage
         if: ${{ always() }}
         run: |
@@ -719,6 +763,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
   ## Just to align picture
   prepare-macos-env:
     needs: check_workflow_yaml_coressponds_to_src_yaml
@@ -726,9 +771,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
   build-iroha-macos:
     needs:
       - prepare-macos-env
@@ -737,17 +789,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
-      # matrix:
-      #   # os: [ macos-latest, macos-11.0, macos-10.15 ]
-      #   CC: [ clang ] #, llvm ] #gcc-10
-      #   CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
-      #   BuildType: [ Debug ] #,Release, RelWithDebInfo
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
+    # matrix:
+    #   # os: [ macos-latest, macos-11.0, macos-10.15 ]
+    #   CC: [ clang ] #, llvm ] #gcc-10
+    #   CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
+    #   BuildType: [ Debug ] #,Release, RelWithDebInfo
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: System info
         run: |
           set -x
@@ -922,9 +982,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
     defaults:
       run:
         shell: bash
@@ -932,13 +999,14 @@ jobs:
     needs:
       - prepare-windows-env
       - generate_matrixes
-    if: ${{ false }} ##FIXME Somehow cmake fails to find GTest and others
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
-      # matrix:
-      #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
+    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
+    if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    # matrix:
+    #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
         shell: bash #pwsh
@@ -1015,12 +1083,14 @@ jobs:
   ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha-burrow:commit-XXXXX-debug
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   iroha-docker-image-release:
-    needs: build-iroha-ubuntu-release
+    needs:
+      - build-iroha-ubuntu-release
+      - generate_matrixes
     runs-on: [self-hosted, Linux] ## or ubuntu-latest
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    #if: matrix.dockerpush == '' || matrix.dockerpush == 'yes'
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1029,9 +1099,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: System info
         run: |
           set -x
@@ -1159,7 +1236,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' }}
+          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
@@ -1169,7 +1246,6 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
   iroha-docker-image-debug:
     runs-on: [self-hosted, Linux] ## or ubuntu-latest
-    #if: matrix.dockerpush == '' || matrix.dockerpush == 'yes'
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1178,9 +1254,16 @@ jobs:
     steps:
       - name: Show context
         run: |
+          echo "::group::GitHub context"
           cat >/dev/null <<'END'
             ${{ toJson(github) }}
           END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
       - name: System info
         run: |
           set -x
@@ -1308,7 +1391,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' }}
+          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
@@ -1316,10 +1399,13 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-    needs: build-iroha-ubuntu-debug
+    needs:
+      - build-iroha-ubuntu-debug
+      - generate_matrixes
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     # env:
     #   <<: *env_dockerhub_release
     #   IMAGE_NAME: iroha-debug
