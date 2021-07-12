@@ -38,7 +38,7 @@ def create_contract() :
     # bytecode was generated using remix editor  https://remix.ethereum.org/
     #bytecode of iroha.sol contract
     tx = iroha.transaction([
-        iroha.command('CallEngine', caller='admin@test', input=bytecode)
+        iroha.command('CallEngine', caller= ADMIN_ACCOUNT_ID, input=bytecode)
     ])
     IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
     net.send_tx(tx)
@@ -55,11 +55,10 @@ def get_eng_rec(hash):
     response = net.send_query(query)
     print(response)
     contract_add = response.engine_receipts_response.engine_receipts [0].contract_address
-    print (contract_add)
     return contract_add
 
 @trace
-def addasset(address) :
+def add_asset(address) :
     params = ("37410dfa"   # the first 4 bytes of the keccak256 hash of the function signature:‘addAsset(string,string)’
             "0000000000000000000000000000000000000000000000000000000000000040" # the location of the data part of the first parameter
             "0000000000000000000000000000000000000000000000000000000000000080" # the location of the data part of the second parameter
@@ -69,7 +68,7 @@ def addasset(address) :
             "3530300000000000000000000000000000000000000000000000000000000000" # encoding of "500"
          )
     tx = iroha.transaction([
-        iroha.command('CallEngine', caller='admin@test', callee=address, input=params)
+        iroha.command('CallEngine', caller=ADMIN_ACCOUNT_ID, callee=address, input=params)
     ])
     IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
     response=net.send_tx(tx)
@@ -93,7 +92,7 @@ def account(address) :
             "37653030343035656365343737626236646439623033613738656565346537303861666332663562636463653339393537336135393538393432663461333930" # encoding of "key"
          )
     tx = iroha.transaction([
-        iroha.command('CallEngine', caller='admin@test', callee=address, input=params)
+        iroha.command('CallEngine', caller=ADMIN_ACCOUNT_ID, callee=address, input=params)
     ])
     IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
     response=net.send_tx(tx)
@@ -120,7 +119,7 @@ def transfer(address) :
             "3130300000000000000000000000000000000000000000000000000000000000" # encoding of 100
          )
     tx = iroha.transaction([
-        iroha.command('CallEngine', caller='admin@test', callee=address, input=params)
+        iroha.command('CallEngine', caller=ADMIN_ACCOUNT_ID, callee=address, input=params)
     ])
     IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
     response=net.send_tx(tx)
@@ -141,7 +140,7 @@ def balance(address) :
             "636F696E23646F6D61696E000000000000000000000000000000000000000000" # encoding of "coin#domain"
          )
     tx = iroha.transaction([
-        iroha.command('CallEngine', caller='admin@test', callee=address, input=params)
+        iroha.command('CallEngine', caller=ADMIN_ACCOUNT_ID, callee=address, input=params)
     ])
     IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
     response=net.send_tx(tx)
@@ -158,7 +157,7 @@ hash =create_contract()
 address=get_eng_rec(hash)
 hash=balance(address)
 get_eng_rec(hash)
-addasset(address)
+add_asset(address)
 hash=balance(address)
 get_eng_rec(hash)
 transfer(address)
