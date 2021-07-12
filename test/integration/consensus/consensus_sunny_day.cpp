@@ -82,7 +82,7 @@ class ConsensusSunnyDayTest : public ::testing::Test {
         async_call,
         std::make_unique<
             iroha::network::ClientFactoryImpl<NetworkImpl::Service>>(
-            iroha::network::getTestInsecureClientFactory()),
+            iroha::network::getTestInsecureClientFactory(std::nullopt)),
         getTestLogger("YacNetwork"));
     crypto = std::make_shared<MockYacCryptoProvider>(
         shared_model::interface::types::PublicKeyHexStringView{

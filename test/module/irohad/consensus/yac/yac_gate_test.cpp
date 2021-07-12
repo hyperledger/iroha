@@ -3,11 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "consensus/yac/impl/yac_gate_impl.hpp"
-
 #include <memory>
 
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/yac/impl/yac_gate_impl.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
@@ -59,7 +58,6 @@ class YacGateTest : public ::testing::Test {
             A<shared_model::interface::types::PublicKeyHexStringView>()))
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(round.block_round));
-    EXPECT_CALL(*block, txsNumber()).WillRepeatedly(Return(0));
     EXPECT_CALL(*block, createdTime()).WillRepeatedly(Return(1));
     EXPECT_CALL(*block, transactions())
         .WillRepeatedly(
@@ -68,8 +66,8 @@ class YacGateTest : public ::testing::Test {
     EXPECT_CALL(*block, signatures())
         .WillRepeatedly(
             Return<shared_model::interface::types::SignatureRangeType>({}));
-    auto prev_hash = Hash("prev hash");
-    auto current_hash = Hash("current hash");
+    auto prev_hash = Hash(std::string("prev hash"));
+    auto current_hash = Hash(std::string("current hash"));
     EXPECT_CALL(*block, prevHash())
         .WillRepeatedly(testing::ReturnRefOfCopy(prev_hash));
     EXPECT_CALL(*block, hash())
@@ -113,7 +111,7 @@ class YacGateTest : public ::testing::Test {
   iroha::consensus::Round round{2, 1};
   boost::optional<ClusterOrdering> alternative_order;
   std::string expected_signed{"expected_signed"};
-  Hash prev_hash{"prev hash"};
+  Hash prev_hash{std::string{"prev hash"}};
   YacHash expected_hash;
   std::shared_ptr<const shared_model::interface::Proposal> expected_proposal;
   std::shared_ptr<shared_model::interface::Block> expected_block;
@@ -159,7 +157,7 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
 
   // verify that yac gate emit expected block
   auto outcome = *gate->processOutcome(expected_commit);
-  auto block = boost::get<iroha::consensus::PairValid>(outcome).block;
+  auto block = std::get<iroha::consensus::PairValid>(outcome).block;
   ASSERT_EQ(block, expected_block);
 
   // verify that gate has put to cache block received from consensus
@@ -263,7 +261,7 @@ TEST_F(YacGateTest, DifferentCommit) {
   // create another block, which will be "received", and generate a commit
   // message with it
   decltype(expected_block) actual_block = std::make_shared<MockBlock>();
-  Hash actual_hash("actual_hash");
+  Hash actual_hash(std::string("actual_hash"));
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey()).WillRepeatedly(ReturnRef(kActualPubkey));
 
@@ -282,7 +280,7 @@ TEST_F(YacGateTest, DifferentCommit) {
 
   // verify that yac gate emit expected block
   auto outcome = *gate->processOutcome(expected_commit);
-  auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
+  auto concrete_outcome = std::get<iroha::consensus::VoteOther>(outcome);
   auto public_keys = concrete_outcome.public_keys;
   auto hash = concrete_outcome.hash;
 
@@ -321,7 +319,7 @@ TEST_F(YacGateTest, Future) {
 
   // verify that yac gate emit expected block
   auto outcome = *gate->processOutcome(FutureMessage{future_message});
-  auto concrete_outcome = boost::get<iroha::consensus::Future>(outcome);
+  auto concrete_outcome = std::get<iroha::consensus::Future>(outcome);
 
   ASSERT_EQ(future_round, concrete_outcome.round);
 }
@@ -374,7 +372,7 @@ class CommitFromTheFuture : public YacGateTest {
     gate->vote(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
 
-    Hash actual_hash("actual_hash");
+    Hash actual_hash(std::string("actual_hash"));
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
         .WillRepeatedly(ReturnRef(kActualPubkey));
@@ -389,7 +387,7 @@ class CommitFromTheFuture : public YacGateTest {
   void validate() {
     // verify that yac gate emit expected block
     auto outcome = *gate->processOutcome(expected_commit);
-    auto concrete_outcome = boost::get<CommitType>(outcome);
+    auto concrete_outcome = std::get<CommitType>(outcome);
 
     ASSERT_EQ(future_round, concrete_outcome.round);
   }

@@ -147,6 +147,12 @@ const Matcher<shared_model::interface::EngineReceipt const &> receiptIs(
 }
 
 struct GetEngineReceiptsTest : public ExecutorTestBase {
+  void SetUp() {
+    ExecutorTestBase::SetUp();
+    if (type_ == ExecutorTestParam::ExecutorType::kRocksDb)
+      GTEST_SKIP();
+  }
+
   QueryExecutorResult getEngineReceipts(std::string const &tx_hash,
                                         AccountIdType const &issuer) {
     iroha::protocol::Query proto_query;

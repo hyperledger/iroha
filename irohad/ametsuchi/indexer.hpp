@@ -31,11 +31,13 @@ namespace iroha {
 
       /// Store a committed tx hash.
       virtual void committedTxHash(
+          const TxPosition &position,
           const shared_model::interface::types::HashType
               &committed_tx_hash) = 0;
 
       /// Store a rejected tx hash.
       virtual void rejectedTxHash(
+          const TxPosition &position,
           const shared_model::interface::types::HashType &rejected_tx_hash) = 0;
 
       /// Index tx info.

@@ -1,0 +1,105 @@
+diff --git a/ports/prometheus-cpp/portfile.cmake b/ports/prometheus-cpp/portfile.cmake
+index 4a9a749d5..4b49237c3 100644
+--- a/ports/prometheus-cpp/portfile.cmake
++++ b/ports/prometheus-cpp/portfile.cmake
+@@ -8,7 +8,7 @@ vcpkg_from_github(
+     REF 2412990ee9ad89245e7d1df9ec85ab19b24674d3 # v0.12.2
+     SHA512 52ecf1984c709dab749f2b4b0010796be49b9db5416678baf77f645054f85b1cae4d67f06ffb1643c0fbcfbf2e65c81f2157a22c0b75a346f9b1feba6537b87d
+     HEAD_REF master
+-    PATCHES Add-CivetCallbacks-to-Exposer.patch
++    PATCHES Add-CivetCallbacks-to-Exposer.patch remove-handler-self-metrics.patch
+ )
+ 
+ macro(feature FEATURENAME OPTIONNAME)
+diff --git a/ports/prometheus-cpp/remove-handler-self-metrics.patch b/ports/prometheus-cpp/remove-handler-self-metrics.patch
+new file mode 100644
+index 000000000..a26427035
+--- /dev/null
++++ b/ports/prometheus-cpp/remove-handler-self-metrics.patch
+@@ -0,0 +1,86 @@
++diff --git a/pull/src/handler.cc b/pull/src/handler.cc
++index cec37f3..d0b0bdf 100644
++--- a/pull/src/handler.cc
+++++ b/pull/src/handler.cc
++@@ -23,25 +23,25 @@
++ namespace prometheus {
++ namespace detail {
++ 
++-MetricsHandler::MetricsHandler(Registry& registry)
++-    : bytes_transferred_family_(
++-          BuildCounter()
++-              .Name("exposer_transferred_bytes_total")
++-              .Help("Transferred bytes to metrics services")
++-              .Register(registry)),
++-      bytes_transferred_(bytes_transferred_family_.Add({})),
++-      num_scrapes_family_(BuildCounter()
++-                              .Name("exposer_scrapes_total")
++-                              .Help("Number of times metrics were scraped")
++-                              .Register(registry)),
++-      num_scrapes_(num_scrapes_family_.Add({})),
++-      request_latencies_family_(
++-          BuildSummary()
++-              .Name("exposer_request_latencies")
++-              .Help("Latencies of serving scrape requests, in microseconds")
++-              .Register(registry)),
++-      request_latencies_(request_latencies_family_.Add(
++-          {}, Summary::Quantiles{{0.5, 0.05}, {0.9, 0.01}, {0.99, 0.001}})) {}
+++MetricsHandler::MetricsHandler(Registry& registry) {}
+++    // : bytes_transferred_family_(
+++    //       BuildCounter()
+++    //           .Name("exposer_transferred_bytes_total")
+++    //           .Help("Transferred bytes to metrics services")
+++    //           .Register(registry)),
+++    //   bytes_transferred_(bytes_transferred_family_.Add({})),
+++    //   num_scrapes_family_(BuildCounter()
+++    //                           .Name("exposer_scrapes_total")
+++    //                           .Help("Number of times metrics were scraped")
+++    //                           .Register(registry)),
+++    //   num_scrapes_(num_scrapes_family_.Add({})),
+++    //   request_latencies_family_(
+++    //       BuildSummary()
+++    //           .Name("exposer_request_latencies")
+++    //           .Help("Latencies of serving scrape requests, in microseconds")
+++    //           .Register(registry)),
+++    //   request_latencies_(request_latencies_family_.Add(
+++    //       {}, Summary::Quantiles{{0.5, 0.05}, {0.9, 0.01}, {0.99, 0.001}})) {}
++ 
++ #ifdef HAVE_ZLIB
++ static bool IsEncodingAccepted(struct mg_connection* conn,
++@@ -158,10 +158,10 @@ bool MetricsHandler::handleGet(CivetServer*, struct mg_connection* conn) {
++   auto stop_time_of_request = std::chrono::steady_clock::now();
++   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
++       stop_time_of_request - start_time_of_request);
++-  request_latencies_.Observe(duration.count());
+++  // request_latencies_.Observe(duration.count());
++ 
++-  bytes_transferred_.Increment(bodySize);
++-  num_scrapes_.Increment();
+++  // bytes_transferred_.Increment(bodySize);
+++  // num_scrapes_.Increment();
++   return true;
++ }
++ 
++diff --git a/pull/src/handler.h b/pull/src/handler.h
++index 10c90f9..94c433c 100644
++--- a/pull/src/handler.h
+++++ b/pull/src/handler.h
++@@ -28,12 +28,12 @@ class MetricsHandler : public CivetHandler {
++ 
++   std::mutex collectables_mutex_;
++   std::vector<std::weak_ptr<Collectable>> collectables_;
++-  Family<Counter>& bytes_transferred_family_;
++-  Counter& bytes_transferred_;
++-  Family<Counter>& num_scrapes_family_;
++-  Counter& num_scrapes_;
++-  Family<Summary>& request_latencies_family_;
++-  Summary& request_latencies_;
+++  // Family<Counter>& bytes_transferred_family_;
+++  // Counter& bytes_transferred_;
+++  // Family<Counter>& num_scrapes_family_;
+++  // Counter& num_scrapes_;
+++  // Family<Summary>& request_latencies_family_;
+++  // Summary& request_latencies_;
++ };
++ }  // namespace detail
++ }  // namespace prometheus

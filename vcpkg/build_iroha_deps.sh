@@ -58,7 +58,7 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
             git clone https://github.com/microsoft/vcpkg-tool.git $vcpkg_tool_path
          cd $vcpkg_tool_path
          git -c advice.detachedHead=false checkout $VCPKG_TOOL_REF
-         cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_TESTING=OFF -DVCPKG_DEVELOPMENT_WARNINGS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+         cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_TESTING=OFF -DVCPKG_DEVELOPMENT_WARNINGS=OFF -DRULE_LAUNCH_COMPILE=ccache
          cmake --build build
          cp build/vcpkg $vcpkg_path/vcpkg
       )
@@ -69,7 +69,7 @@ bootstrap
 
 case usual-mode in
    usual-mode)
-      ## The old lamp way to install
+      ## The old lamp way to install without manifests
       $vcpkg_path/vcpkg install \
          --feature-flags=-manifests \
          $(cat $script_dir/VCPKG_DEPS_LIST | tr -d '\r')

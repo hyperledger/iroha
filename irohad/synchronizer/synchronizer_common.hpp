@@ -22,7 +22,6 @@ namespace iroha {
       kCommit,
       kReject,
       kNothing,
-      kError
     };
 
     /**

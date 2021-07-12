@@ -16,6 +16,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
+#include "ametsuchi/impl/executor_common.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -53,19 +54,25 @@
  *                |                |            |             |            +-<height_index, value:tx_hash_3>
  *                |                |            |             |
  *                |                |            |             +-|TIMESTAMP|-+-<ts_1, value:tx_hash_1>
- *                |                |            |                           +-<ts_2, value:tx_hash_2>
- *                |                |            |                           +-<ts_3, value:tx_hash_3>
+ *                |                |            |             |             +-<ts_2, value:tx_hash_2>
+ *                |                |            |             |             +-<ts_3, value:tx_hash_3>
+ *                |                |            |             |
+ *                |                |            |             +-<tx_total_count>
  *                |                |            |
  *                |                |            +-<account_2>-+-|POSITION|-+-<height_index, value:tx_hash_4>
  *                |                |                          |            +-<height_index, value:tx_hash_5>
  *                |                |                          |            +-<height_index, value:tx_hash_6>
  *                |                |                          |
  *                |                |                          +-|TIMESTAMP|-+-<ts_1, value:tx_hash_4>
- *                |                |                                        +-<ts_2, value:tx_hash_5>
- *                |                |                                        +-<ts_3, value:tx_hash_6>
+ *                |                |                          |             +-<ts_2, value:tx_hash_5>
+ *                |                |                          |             +-<ts_3, value:tx_hash_6>
+ *                |                |                          |
+ *                |                |                          +-<tx_total_count>
  *                |                |
  *                |                +-|STATUSES|-+-<tx_hash_1, value:status_height_index>
- *                |                             +-<tx_hash_2, value:status_height_index>
+ *                |                |            +-<tx_hash_2, value:status_height_index>
+ *                |                |
+ *                |                +-<tx_total_count>
  *                |
  *                +-|DOMAIN|-+-|DOMAIN_1|-+-|ASSETS|-+-<asset_1, value:precision>
  *                           |            |          +-<asset_2, value:precision>
@@ -75,8 +82,9 @@
  *                           |                                  |
  *                           |                                  +-|OPTIONS|-+-<quorum>
  *                           |                                  |           +-<asset_size>
+ *                           |                                  |           +-<total, value: count>
  *                           |                                  |
- *                           |                                  +-|DETAILS|-+-<domain>-<account>-<key>
+ *                           |                                  +-|DETAILS|-+-<writer>-<key, value>
  *                           |                                  |
  *                           |                                  +-|ROLES|-+-<role_1, value:flag>
  *                           |                                  |         +-<role_2, value:flag>
@@ -88,6 +96,7 @@
  *                           |                                                  +-<signatory_2>
  *                           |
  *                           +-<domain_1, value: default_role>
+ *                           +-<total_count, value>
  *
  *
  *
@@ -128,6 +137,7 @@
  * ### F_ASSET SIZE  ##       I       ###
  * ### F_TOP BLOCK   ##       Q       ###
  * ### F_PEERS COUNT ##       Z       ###
+ * ### F_TOTAL COUNT ##       V       ###
  * ######################################
  *
  * ######################################
@@ -167,6 +177,7 @@
 #define RDB_F_ASSET_SIZE "I"
 #define RDB_F_TOP_BLOCK "Q"
 #define RDB_F_PEERS_COUNT "Z"
+#define RDB_F_TOTAL_COUNT "V"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -217,20 +228,24 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kPathAccountDetail{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_DETAILS)};
 
+  // account_domain_id/account_name/asset_id
+  static auto constexpr kPathAccountAssets{
+      FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ASSETS)};
+
   /**
    * ######################################
    * ############# FOLDERS ################
    * ######################################
    */
-  // account/height/index ➡️ tx_hash
+  // account/height/index/ts ➡️ tx_hash
   static auto constexpr kTransactionByPosition{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
-          RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX /**/ RDB_XXX)};
+          RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX /**/ RDB_XXX /**/ RDB_XXX)};
 
-  // account/ts ➡️ tx_hash
+  // account/ts/height/index ➡️ tx_hash
   static auto constexpr kTransactionByTs{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
-          RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX)};
+          RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX /**/ RDB_XXX /**/ RDB_XXX)};
 
   // tx_hash ➡️ status
   static auto constexpr kTransactionStatus{
@@ -307,6 +322,23 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
                      RDB_F_PEERS_COUNT)};
 
+  // account ➡️ txs total count
+  static auto constexpr kTxsTotalCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
+                     RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_TOTAL_COUNT)};
+
+  // ➡️ txs total count
+  static auto constexpr kAllTxsTotalCount{FMT_STRING(
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_F_TOTAL_COUNT)};
+
+  // ➡️ domains total count
+  static auto constexpr kDomainsTotalCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_F_TOTAL_COUNT)};
+
+  // domain_id/account_name/ ➡️ value
+  static auto constexpr kAccountDetailsCount{
+      FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_OPTIONS /**/ RDB_F_TOTAL_COUNT)};
+
 }  // namespace iroha::ametsuchi::fmtstrings
 
 #undef RDB_ADDRESS
@@ -337,14 +369,13 @@ namespace iroha::ametsuchi::fmtstrings {
 #undef RDB_ITEM
 #undef RDB_F_TOP_BLOCK
 #undef RDB_F_PEERS_COUNT
+#undef RDB_F_TOTAL_COUNT
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
 }
 
 namespace iroha::ametsuchi {
-
-  static constexpr uint32_t kErrorNoPermissions = 2;
 
   struct RocksDBPort;
   class RocksDbCommon;
@@ -384,6 +415,18 @@ namespace iroha::ametsuchi {
     RocksDBContext &operator=(RocksDBContext const &) = delete;
   };
 
+  enum DbErrorCode {
+    kOk = 0,
+    kErrorNoPermissions = 2,
+    kNotFound = 3,
+    kNoAccount = 3,
+    kMustNotExist = 4,
+    kNoRoles = 4,
+    kInvalidPagination = 4,
+    kInvalidStatus = 12,
+    kInitializeFailed = 15,
+  };
+
   /// Db errors structure
   struct DbError final {
     uint32_t code;
@@ -397,6 +440,11 @@ namespace iroha::ametsuchi {
     assert(format != nullptr);
     return expected::makeError(
         DbError{code, fmt::format(format, std::forward<Args>(args)...)});
+  }
+
+  template <typename T>
+  inline expected::Result<T, DbError> makeError(uint32_t code, DbError &&e) {
+    return expected::makeError(DbError{code, std::move(e.description)});
   }
 
   /**
@@ -418,7 +466,7 @@ namespace iroha::ametsuchi {
 
       std::unique_ptr<rocksdb::OptimisticTransactionDB> tdb(transaction_db);
       if (!status.ok())
-        return makeError<void>(15,
+        return makeError<void>(DbErrorCode::kInitializeFailed,
                                "Db {} initialization failed with status: {}.",
                                db_name,
                                status.ToString());
@@ -635,24 +683,26 @@ namespace iroha::ametsuchi {
       return {};
 
     if (!status.ok())
-      return makeError<void>(12,
+      return makeError<void>(DbErrorCode::kInvalidStatus,
                              "{}. Failed with status: {}.",
                              std::forward<F>(op_formatter)(),
                              status.ToString());
 
-    return makeError<void>(
-        4, "{}. Must not exist.", std::forward<F>(op_formatter)());
+    return makeError<void>(DbErrorCode::kMustNotExist,
+                           "{}. Must not exist.",
+                           std::forward<F>(op_formatter)());
   }
 
   template <typename F>
   inline expected::Result<void, DbError> mustExist(
       rocksdb::Status const &status, F &&op_formatter) {
     if (status.IsNotFound())
-      return makeError<void>(
-          3, "{}. Was not found.", std::forward<F>(op_formatter)());
+      return makeError<void>(DbErrorCode::kNotFound,
+                             "{}. Was not found.",
+                             std::forward<F>(op_formatter)());
 
     if (!status.ok())
-      return makeError<void>(15,
+      return makeError<void>(DbErrorCode::kInvalidStatus,
                              "{}. Failed with status: {}.",
                              std::forward<F>(op_formatter)(),
                              status.ToString());
@@ -666,7 +716,7 @@ namespace iroha::ametsuchi {
     if (status.IsNotFound() || status.ok())
       return {};
 
-    return makeError<void>(18,
+    return makeError<void>(DbErrorCode::kInvalidStatus,
                            "{}. Failed with status: {}.",
                            std::forward<F>(op_formatter)(),
                            status.ToString());
@@ -712,6 +762,130 @@ namespace iroha::ametsuchi {
     return status;
   }
 
+  template <kDbOperation kOp,
+            typename T,
+            typename = std::enable_if_t<std::is_same<T, uint64_t>::value>>
+  inline std::optional<uint64_t> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<uint64_t> value;
+    if constexpr (kOp == kDbOperation::kGet)
+      assert(expected::hasValue(status));
+    if (status.assumeValue().ok()) {
+      uint64_t _;
+      common.decode(_);
+      value = _;
+    }
+    return value;
+  }
+
+  template <
+      kDbOperation kOp,
+      typename T,
+      typename = std::enable_if_t<std::is_same<T, std::string_view>::value>>
+  inline std::optional<std::string_view> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<std::string_view> value;
+    if constexpr (kOp == kDbOperation::kGet)
+      assert(expected::hasValue(status));
+    if (status.assumeValue().ok())
+      value = common.valueBuffer();
+    return value;
+  }
+
+  template <
+      kDbOperation kOp,
+      typename T,
+      typename = std::enable_if_t<
+          std::is_same<T, shared_model::interface::RolePermissionSet>::value>>
+  inline std::optional<shared_model::interface::RolePermissionSet> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<shared_model::interface::RolePermissionSet> value;
+    if constexpr (kOp == kDbOperation::kGet)
+      assert(expected::hasValue(status));
+    if (status.assumeValue().ok())
+      value = shared_model::interface::RolePermissionSet{common.valueBuffer()};
+    return value;
+  }
+
+  template <kDbOperation kOp,
+            typename T,
+            typename = std::enable_if_t<
+                std::is_same<T, shared_model::interface::Amount>::value>>
+  inline std::optional<shared_model::interface::Amount> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<shared_model::interface::Amount> value;
+    if constexpr (kOp == kDbOperation::kGet)
+      assert(expected::hasValue(status));
+    if (status.assumeValue().ok())
+      value.emplace(common.valueBuffer());
+    return value;
+  }
+
+  template <kDbOperation kOp,
+            typename T,
+            typename = std::enable_if_t<std::is_same<
+                T,
+                shared_model::interface::GrantablePermissionSet>::value>>
+  inline std::optional<shared_model::interface::GrantablePermissionSet>
+  loadValue(RocksDbCommon &common,
+            expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<shared_model::interface::GrantablePermissionSet> value;
+    if constexpr (kOp == kDbOperation::kGet)
+      assert(expected::hasValue(status));
+    if (status.assumeValue().ok())
+      value =
+          shared_model::interface::GrantablePermissionSet{common.valueBuffer()};
+    return value;
+  }
+
+  template <kDbOperation kOp,
+            typename T,
+            typename = std::enable_if_t<std::is_same<T, bool>::value>>
+  inline std::optional<bool> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<bool> value;
+    if constexpr (kOp == kDbOperation::kGet)
+      assert(expected::hasValue(status));
+    if (status.assumeValue().ok())
+      value = true;
+    return value;
+  }
+
+  template <typename RetT, kDbOperation kOp, kDbEntry kSc, typename... Args>
+  inline expected::Result<std::optional<RetT>, DbError> dbCall(
+      RocksDbCommon &common, Args &&... args) {
+    auto status = executeOperation<kOp, kSc>(
+        common,
+        [&] { return fmt::format(std::forward<Args>(args)...); },
+        std::forward<Args>(args)...);
+    RDB_ERROR_CHECK(status);
+    return loadValue<kOp, RetT>(common, status);
+  }
+
+  /**
+   * Access to account details count.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param domain id
+   * @param account name
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError>
+  forAccountDetailsCount(RocksDbCommon &common,
+                         std::string_view account,
+                         std::string_view domain) {
+    return dbCall<uint64_t, kOp, kSc>(
+        common, fmtstrings::kAccountDetailsCount, domain, account);
+  }
+
   /**
    * Access to account quorum file.
    * @tparam kOp @see kDbOperation
@@ -727,25 +901,52 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       std::string_view account,
       std::string_view domain) {
-    assert(!domain.empty());
-    assert(!account.empty());
+    return dbCall<uint64_t, kOp, kSc>(
+        common, fmtstrings::kQuorum, domain, account);
+  }
 
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Account {}@{}", account, domain); },
-        fmtstrings::kQuorum,
-        domain,
-        account);
-    RDB_ERROR_CHECK(status);
+  /**
+   * Access to account's txs total count.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param account_id name
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forTxsTotalCount(
+      RocksDbCommon &common, std::string_view account_id) {
+    return dbCall<uint64_t, kOp, kSc>(
+        common, fmtstrings::kTxsTotalCount, account_id);
+  }
 
-    std::optional<uint64_t> quorum;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok()) {
-        uint64_t _;
-        common.decode(_);
-        quorum = _;
-      }
-    return quorum;
+  /**
+   * Access to all txs total count.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forTxsTotalCount(
+      RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kAllTxsTotalCount);
+  }
+
+  /**
+   * Access to domains total count.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError>
+  forDomainsTotalCount(RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kDomainsTotalCount);
   }
 
   /**
@@ -778,21 +979,8 @@ namespace iroha::ametsuchi {
   inline expected::
       Result<std::optional<shared_model::interface::RolePermissionSet>, DbError>
       forRole(RocksDbCommon &common, std::string_view role) {
-    assert(!role.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Find role {}", role); },
-        fmtstrings::kRole,
-        role);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<shared_model::interface::RolePermissionSet> perm;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        perm = shared_model::interface::RolePermissionSet{common.valueBuffer()};
-
-    return perm;
+    return dbCall<shared_model::interface::RolePermissionSet, kOp, kSc>(
+        common, fmtstrings::kRole, role);
   }
 
   /**
@@ -806,21 +994,7 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forPeersCount(
       RocksDbCommon &common) {
-    auto status =
-        executeOperation<kOp, kSc>(common,
-                                   [&] { return fmt::format("Peers count"); },
-                                   fmtstrings::kPeersCount);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<uint64_t> count;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok()) {
-        uint64_t _;
-        common.decode(_);
-        count = _;
-      }
-
-    return count;
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kPeersCount);
   }
 
   /**
@@ -835,21 +1009,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
   forTransactionStatus(RocksDbCommon &common, std::string_view tx_hash) {
-    assert(!tx_hash.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Transaction {}", tx_hash); },
-        fmtstrings::kTransactionStatus,
-        tx_hash);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> tx;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        tx = common.valueBuffer();
-
-    return tx;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kTransactionStatus, tx_hash);
   }
 
   /**
@@ -867,28 +1028,11 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<std::string_view>, DbError>
   forTransactionByPosition(RocksDbCommon &common,
                            std::string_view account,
+                           uint64_t ts,
                            uint64_t height,
                            uint64_t index) {
-    assert(!account.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format(
-              "Transaction from {} by position {}:{}", account, height, index);
-        },
-        fmtstrings::kTransactionByPosition,
-        account,
-        height,
-        index);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> tx;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        tx = common.valueBuffer();
-
-    return tx;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kTransactionByPosition, account, height, index, ts);
   }
 
   /**
@@ -905,26 +1049,11 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<std::string_view>, DbError>
   forTransactionByTimestamp(RocksDbCommon &common,
                             std::string_view account,
-                            uint64_t ts) {
-    assert(!account.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format(
-              "Transaction from {} by timestamp {}", account, ts);
-        },
-        fmtstrings::kTransactionByTs,
-        account,
-        ts);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> tx;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        tx = common.valueBuffer();
-
-    return tx;
+                            uint64_t ts,
+                            uint64_t height,
+                            uint64_t index) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kTransactionByTs, account, ts, height, index);
   }
 
   /**
@@ -939,19 +1068,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError> forSettings(
       RocksDbCommon &common, std::string_view key) {
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Setting {}", key); },
-        fmtstrings::kSetting,
-        key);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> value;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        value = common.valueBuffer();
-
-    return value;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kSetting, key);
   }
 
   /**
@@ -966,21 +1084,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
   forPeerAddress(RocksDbCommon &common, std::string_view pubkey) {
-    assert(!pubkey.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Peer {} address", pubkey); },
-        fmtstrings::kPeerAddress,
-        pubkey);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> address;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        address = common.valueBuffer();
-
-    return address;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kPeerAddress, pubkey);
   }
 
   /**
@@ -995,21 +1100,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError> forPeerTLS(
       RocksDbCommon &common, std::string_view pubkey) {
-    assert(!pubkey.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Peer {} TLS", pubkey); },
-        fmtstrings::kPeerTLS,
-        pubkey);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> tls;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        tls = common.valueBuffer();
-
-    return tls;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kPeerTLS, pubkey);
   }
 
   /**
@@ -1025,26 +1117,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forAsset(
       RocksDbCommon &common, std::string_view asset, std::string_view domain) {
-    assert(!domain.empty());
-    assert(!asset.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Asset {}#{}", asset, domain); },
-        fmtstrings::kAsset,
-        domain,
-        asset);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<uint64_t> precision;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok()) {
-        uint64_t _;
-        common.decode(_);
-        precision = _;
-      }
-
-    return precision;
+    return dbCall<uint64_t, kOp, kSc>(
+        common, fmtstrings::kAsset, domain, asset);
   }
 
   /**
@@ -1060,18 +1134,7 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   expected::Result<std::optional<std::string_view>, DbError> forTopBlockInfo(
       RocksDbCommon &common) {
-    auto status =
-        executeOperation<kOp, kSc>(common,
-                                   [&] { return fmt::format("Top block"); },
-                                   fmtstrings::kTopBlock);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> info;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        info = common.valueBuffer();
-
-    return info;
+    return dbCall<std::string_view, kOp, kSc>(common, fmtstrings::kTopBlock);
   }
 
   /**
@@ -1086,28 +1149,13 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<void, DbError> forAccountRole(
+  inline expected::Result<std::optional<bool>, DbError> forAccountRole(
       RocksDbCommon &common,
       std::string_view account,
       std::string_view domain,
       std::string_view role) {
-    assert(!domain.empty());
-    assert(!account.empty());
-    assert(!role.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format(
-              "Get account {}@{} role {}", account, domain, role);
-        },
-        fmtstrings::kAccountRole,
-        domain,
-        account,
-        role);
-    RDB_ERROR_CHECK(status);
-
-    return {};
+    return dbCall<bool, kOp, kSc>(
+        common, fmtstrings::kAccountRole, domain, account, role);
   }
 
   /**
@@ -1130,33 +1178,8 @@ namespace iroha::ametsuchi {
                    std::string_view domain,
                    std::string_view creator_id,
                    std::string_view key) {
-    assert(!domain.empty());
-    assert(!account.empty());
-    assert(!creator_id.empty());
-    assert(!key.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format("Account {} detail for {}@{} with key {}",
-                             creator_id,
-                             account,
-                             domain,
-                             key);
-        },
-        fmtstrings::kAccountDetail,
-        domain,
-        account,
-        creator_id,
-        key);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> value;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        value = common.valueBuffer();
-
-    return value;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kAccountDetail, domain, account, creator_id, key);
   }
 
   /**
@@ -1171,26 +1194,13 @@ namespace iroha::ametsuchi {
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<void, DbError> forSignatory(RocksDbCommon &common,
-                                                      std::string_view account,
-                                                      std::string_view domain,
-                                                      std::string_view pubkey) {
-    assert(!domain.empty());
-    assert(!account.empty());
-    assert(!pubkey.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format(
-              "Signatory {} for account {}@{}", pubkey, account, domain);
-        },
-        fmtstrings::kSignatory,
-        domain,
-        account,
-        pubkey);
-    RDB_ERROR_CHECK(status);
-    return {};
+  inline expected::Result<std::optional<bool>, DbError> forSignatory(
+      RocksDbCommon &common,
+      std::string_view account,
+      std::string_view domain,
+      std::string_view pubkey) {
+    return dbCall<bool, kOp, kSc>(
+        common, fmtstrings::kSignatory, domain, account, pubkey);
   }
 
   /**
@@ -1205,21 +1215,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError> forDomain(
       RocksDbCommon &common, std::string_view domain) {
-    assert(!domain.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] { return fmt::format("Domain {}", domain); },
-        fmtstrings::kDomain,
-        domain);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<std::string_view> default_role;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        default_role = common.valueBuffer();
-
-    return default_role;
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kDomain, domain);
   }
 
   /**
@@ -1237,28 +1234,8 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       std::string_view account,
       std::string_view domain) {
-    assert(!domain.empty());
-    assert(!account.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format("Account {}@{} asset size", account, domain);
-        },
-        fmtstrings::kAccountAssetSize,
-        domain,
-        account);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<uint64_t> account_asset_size;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok()) {
-        uint64_t _;
-        common.decode(_);
-        account_asset_size = _;
-      }
-
-    return account_asset_size;
+    return dbCall<uint64_t, kOp, kSc>(
+        common, fmtstrings::kAccountAssetSize, domain, account);
   }
 
   /**
@@ -1279,27 +1256,8 @@ namespace iroha::ametsuchi {
                   std::string_view account,
                   std::string_view domain,
                   std::string_view asset) {
-    assert(!domain.empty());
-    assert(!account.empty());
-    assert(!asset.empty());
-
-    auto status = executeOperation<kOp, kSc>(
-        common,
-        [&] {
-          return fmt::format("Account {}@{} assets {}", account, domain, asset);
-        },
-        fmtstrings::kAccountAsset,
-        domain,
-        account,
-        asset);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<shared_model::interface::Amount> amount;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        amount.emplace(common.valueBuffer());
-
-    return amount;
+    return dbCall<shared_model::interface::Amount, kOp, kSc>(
+        common, fmtstrings::kAccountAsset, domain, account, asset);
   }
 
   /**
@@ -1323,35 +1281,13 @@ namespace iroha::ametsuchi {
                           std::string_view domain,
                           std::string_view grantee_account,
                           std::string_view grantee_domain) {
-    assert(!domain.empty());
-    assert(!account.empty());
-    assert(!grantee_domain.empty());
-    assert(!grantee_account.empty());
-
-    auto status = executeOperation<kOp, kSc>(
+    return dbCall<shared_model::interface::GrantablePermissionSet, kOp, kSc>(
         common,
-        [&] {
-          return fmt::format(
-              "Get account {}@{} grantable permissions for {}@{}",
-              account,
-              domain,
-              grantee_account,
-              grantee_domain);
-        },
         fmtstrings::kGranted,
         domain,
         account,
         grantee_domain,
         grantee_account);
-    RDB_ERROR_CHECK(status);
-
-    std::optional<shared_model::interface::GrantablePermissionSet> permissions;
-    if constexpr (kOp == kDbOperation::kGet)
-      if (status.assumeValue().ok())
-        permissions = shared_model::interface::GrantablePermissionSet{
-            common.valueBuffer()};
-
-    return permissions;
   }
 
   /**
@@ -1386,7 +1322,7 @@ namespace iroha::ametsuchi {
 
     if (!status.ok())
       return makeError<shared_model::interface::RolePermissionSet>(
-          3,
+          DbErrorCode::kNoAccount,
           "Enumerate account {}@{} roles failed with status: {}.",
           account,
           domain,
@@ -1394,7 +1330,10 @@ namespace iroha::ametsuchi {
 
     if (roles.empty())
       return makeError<shared_model::interface::RolePermissionSet>(
-          4, "Account {}@{} have ho roles.", account, domain);
+          DbErrorCode::kNoRoles,
+          "Account {}@{} have ho roles.",
+          account,
+          domain);
 
     shared_model::interface::RolePermissionSet permissions;
     for (auto &role : roles) {
@@ -1413,7 +1352,7 @@ namespace iroha::ametsuchi {
     if (permissions.isSet(to_check))
       return {};
 
-    return makeError<void>(kErrorNoPermissions, "No permissions.");
+    return makeError<void>(DbErrorCode::kErrorNoPermissions, "No permissions.");
   }
 
   inline expected::Result<void, DbError> checkPermissions(
@@ -1428,7 +1367,19 @@ namespace iroha::ametsuchi {
     if (domain_id == creator_domain_id && permissions.isSet(domain))
       return {};
 
-    return makeError<void>(kErrorNoPermissions, "No permissions.");
+    return makeError<void>(DbErrorCode::kErrorNoPermissions, "No permissions.");
+  }
+
+  inline expected::Result<void, DbError> checkGrantablePermissions(
+      shared_model::interface::RolePermissionSet const &permissions,
+      shared_model::interface::GrantablePermissionSet const
+          &grantable_permissions,
+      shared_model::interface::permissions::Grantable const granted) {
+    if (grantable_permissions.isSet(granted)
+        || permissions.isSet(shared_model::interface::permissions::Role::kRoot))
+      return {};
+
+    return makeError<void>(DbErrorCode::kErrorNoPermissions, "No permissions.");
   }
 
   inline expected::Result<void, DbError> checkPermissions(
@@ -1443,7 +1394,122 @@ namespace iroha::ametsuchi {
     if (grantable_permissions.isSet(granted))
       return {};
 
-    return makeError<void>(kErrorNoPermissions, "No permissions.");
+    return makeError<void>(DbErrorCode::kErrorNoPermissions, "No permissions.");
+  }
+
+  inline expected::Result<void, DbError> checkPermissions(
+      std::string_view domain_id,
+      std::string_view creator_domain_id,
+      std::string_view qry_account_id,
+      std::string_view creator_id,
+      shared_model::interface::RolePermissionSet const &permissions,
+      shared_model::interface::permissions::Role const all,
+      shared_model::interface::permissions::Role const domain,
+      shared_model::interface::permissions::Role const my) {
+    if (permissions.isSet(all))
+      return {};
+
+    if (domain_id == creator_domain_id && permissions.isSet(domain))
+      return {};
+
+    if (qry_account_id == creator_id && permissions.isSet(my))
+      return {};
+
+    return makeError<void>(DbErrorCode::kErrorNoPermissions, "No permissions.");
+  }
+
+  struct PaginationContext {
+    struct FirstEntry {
+      std::string writer_from;
+      std::string key_from;
+    };
+
+    std::optional<FirstEntry> first;
+    uint64_t page_size;
+  };
+
+  inline expected::Result<std::string, DbError> aggregateAccountDetails(
+      RocksDbCommon &common,
+      std::string_view account,
+      std::string_view domain,
+      uint64_t &total,
+      std::string_view writer_filter = std::string_view{},
+      std::string_view key_filter = std::string_view{},
+      std::optional<PaginationContext> pagination = std::nullopt,
+      std::string *next_writer = nullptr,
+      std::string *next_key = nullptr) {
+    std::string result = "{";
+    std::string prev_writer;
+
+    auto remains = pagination ? pagination->page_size + 1ull
+                              : std::numeric_limits<uint64_t>::max();
+    bool found = !pagination || !pagination->first;
+    bool have_entries = false;
+
+    // TODO(iceseer): find first entry by log(N)
+    total = 0ull;
+    auto status = ametsuchi::enumerateKeysAndValues(
+        common,
+        [&](auto path, auto value) {
+          auto const &[cur_writer, _, cur_key] =
+              staticSplitId<3>(path.ToStringView(), fmtstrings::kDelimiter);
+
+          have_entries = true;
+          if (!writer_filter.empty() && cur_writer != writer_filter)
+            return true;
+          if (!key_filter.empty() && cur_key != key_filter)
+            return true;
+
+          ++total;
+          if (!found) {
+            if (cur_writer != pagination->first->writer_from
+                || cur_key != pagination->first->key_from)
+              return true;
+            found = true;
+          }
+
+          if (remains == 0ull) {
+            return true;
+          } else if (remains-- == 1ull) {
+            if (next_writer != nullptr)
+              *next_writer = cur_writer;
+            if (next_key != nullptr)
+              *next_key = cur_key;
+            return true;
+          }
+
+          if (prev_writer != cur_writer) {
+            if (prev_writer.empty())
+              result += '\"';
+            else
+              result += "},\"";
+            result += cur_writer;
+            result += "\": {";
+            prev_writer = cur_writer;
+          } else
+            result += ", ";
+
+          result += '\"';
+          result += cur_key;
+          result += "\": \"";
+          result += value.ToStringView();
+          result += '\"';
+
+          return true;
+        },
+        fmtstrings::kPathAccountDetail,
+        domain,
+        account);
+    RDB_ERROR_CHECK(canExist(status, [&]() {
+      return fmt::format("Aggregate account {}@{} data", account, domain);
+    }));
+
+    if (!found && have_entries)
+      return makeError<std::string>(DbErrorCode::kInvalidPagination,
+                                    "Invalid pagination.");
+
+    result += result.size() == 1ull ? "}" : "}}";
+    return result;
   }
 
 }  // namespace iroha::ametsuchi

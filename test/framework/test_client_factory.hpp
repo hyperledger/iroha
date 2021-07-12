@@ -6,7 +6,8 @@
 #ifndef IROHA_TEST_CLIENT_FACTORY_HPP
 #define IROHA_TEST_CLIENT_FACTORY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "interfaces/common_objects/types.hpp"
 #include "network/impl/client_factory_impl.hpp"
 #include "network/impl/generic_client_factory.hpp"
@@ -15,11 +16,8 @@
 
 namespace iroha {
   namespace network {
-    std::unique_ptr<GrpcChannelParams> getDefaultTestChannelParams();
-
     std::unique_ptr<GenericClientFactory> getTestInsecureClientFactory(
-        std::shared_ptr<const GrpcChannelParams> params =
-            getDefaultTestChannelParams());
+        std::optional<std::shared_ptr<const GrpcChannelParams>> maybe_params);
 
     template <typename Transport>
     auto makeTransportClientFactory(
@@ -36,23 +34,24 @@ namespace iroha {
      * @param port port to connect to
      * @param peer_cert the certificate to authenticate the peer
      * @param my_creds the private key and certificate to authenticate myself
-     * @param params grpc channel params
+     * @param maybe_params grpc channel params
      * @return gRPC stub of parametrized type
      */
     template <typename Service>
     std::unique_ptr<typename Service::StubInterface> createSecureClient(
         const std::string &ip,
         size_t port,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
+        std::optional<shared_model::interface::types::TLSCertificateType>
             peer_cert,
-        boost::optional<TlsCredentials> my_creds,
-        const GrpcChannelParams &params) {
+        std::optional<TlsCredentials> my_creds,
+        std::optional<std::reference_wrapper<GrpcChannelParams const>>
+            maybe_params) {
       return Service::NewStub(
           createSecureChannel(ip + ":" + std::to_string(port),
                               Service::service_full_name(),
                               std::move(peer_cert),
                               std::move(my_creds),
-                              params));
+                              maybe_params));
     }
 
     /**
@@ -62,16 +61,17 @@ namespace iroha {
      *  e.g. iroha.consensus.yac.proto.Yac
      * @param peer_cert the certificate to authenticate the peer
      * @param my_creds the private key and certificate to authenticate myself
-     * @param params grpc channel params
+     * @param maybe_params grpc channel params
      * @return grpc channel with provided params
      */
     std::shared_ptr<grpc::Channel> createSecureChannel(
         const shared_model::interface::types::AddressType &address,
         const std::string &service_full_name,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
+        std::optional<shared_model::interface::types::TLSCertificateType>
             peer_cert,
-        boost::optional<TlsCredentials> my_creds,
-        const GrpcChannelParams &params);
+        std::optional<TlsCredentials> my_creds,
+        std::optional<std::reference_wrapper<GrpcChannelParams const>>
+            maybe_params);
 
   }  // namespace network
 }  // namespace iroha

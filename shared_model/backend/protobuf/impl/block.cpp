@@ -6,6 +6,7 @@
 #include "backend/protobuf/block.hpp"
 
 #include <boost/range/adaptors.hpp>
+
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "backend/protobuf/util.hpp"
@@ -128,10 +129,6 @@ namespace shared_model {
 
     interface::types::TimestampType Block::createdTime() const {
       return impl_->payload_.created_time();
-    }
-
-    interface::types::TransactionsNumberType Block::txsNumber() const {
-      return impl_->payload_.tx_number();
     }
 
     interface::types::HashCollectionType Block::rejected_transactions_hashes()

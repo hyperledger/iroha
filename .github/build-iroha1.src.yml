@@ -11,24 +11,19 @@ name: Iroha1
 ## TODO 4. [speed] Self-hosted MacOS and Windows
 ##         Need more powerful Mac machine to reduce build time from 40min to 10min with hot vcpkg cache,
 ##                                                         and from 2hrs to 27min without cache
-##         GitHub's default runners also idles much time before started
-## TODO 5. [speed] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## FIXME 8. [organization] cannot push docker image iroha-builder without credentials when PR is from fork.
-##       Because GitHub secrets inaccessable when building PRs from public forks.
-##       Solution: open PR from the same repo. (Noted in job as Possible WARNING)
-## FIXME 9. [organization] change :container: to hyperledger/iroha-builder after first one pushed instead of ikyb/iroha-builder
-## TODO [speed] cache between builds -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+##         GitHub's default runners also idles much time before started when build often
+## TODO 5. [speed,optimization,resources] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
 ## TODO [prettify,documentation] update status badges in README.md
-## TODO [testing] windows postgres ctest
-## TODO [code-style] remove useless outdated files
-## TODO [legacy] Fix Jenkins pipeline
-## TODO copy terraform to devops's repo
+## TODO windows
+## FIXME checkout issue, see https://github.com/actions/runner/issues/434
+## TODO actions/create-release for main branch and tags
 
 ## CHEAT SHEET
-## ${{ github.event.pull_request.head.repo.fork }}   ## check if PR head repo is fork
-## ternary ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
+## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
+## check if PR is from other repo: ${{ github.event.pull_request.head.repo == github.event.pull_request.base.repo }} in this case secrets are empty
+## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
-
+## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
     branches: [ main, support/1.*, test-ci ]
@@ -38,78 +33,24 @@ on:
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
-      whatever:
-        description: 'some-string.'
-        required: true
-        default: 'hello world!'
+      build_spec:
+        description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
+        required: false
+        default: '/build'
   issue_comment:
     types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 
 jobs:
-  pr_comment_reaction_rocket:
-    ## Just to react to valid comment with rocket
+  ## GitHub Actions Workflow does not support yaml anchors
+  ## and that is why there is a workaround with make-workflows.sh
+  ## You should `pre-commit install` or use `pre-commit-hook.sh`,
+  ## anyway please read .github/README.md
+  check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
-    if: ${{ github.event.comment &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/build') }}
+    name: Check if github workflows were properly made from sources
     steps:
-      - &step_show_context
-        name: Show context
-        run: |
-          cat >/dev/null <<'END'
-            ${{ toJson(github) }}
-          END
-      -
-        name: Reaction
-        run: |
-          # send reaction to comment to show build was triggered
-          curl ${{github.event.comment.url}}/reactions \
-            -X POST \
-            -d '{"content":"rocket"}' \
-            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-            -H "Authorization: token ${{github.token}}"
-
-
-  Docker-iroha-builder:
-    # ## Check if PR same repo, so GitHub secrets are available, without them nothing to do
-    # if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
-    # runs-on: ubuntu-latest
-    runs-on: [ self-hosted, Linux ]
-    # continue-on-error: true  ##FIXME  ##Sets needs.job_id.result always to success
-    env: &env_dockerhub
-      DOCKERHUB_ORG:      iroha1 ##ToDo hypeledger   #cannot use ${{ secrets.DOCKERHUB_ORG }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
-    steps:
-      - *step_show_context
-      - &step_cancel_previous_runs
-        if: ${{false}}  ## TODO FIXME this must not cancel scheduled and manual runs, and almost finished runs
-        name: Cancel Previous Workflow Runs
-        uses: n1hility/cancel-previous-runs@v2
-        with:
-          token: ${{ github.token }}
-      - &step_system_info
-        name: System info
-        run: |
-          set -x
-          whoami
-          free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
-            /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
-          df -h
-        #  ccache --show-stats
-      - &step_build_info
-        name: Build info
-        run: |
-          cat << 'END'
-          ref:${{github.ref}}
-          sha:${{github.sha}}
-          run_number:${{github.run_number}}
-          event_name:${{github.event_name}}
-          event.action:${{github.event.action}}
-          event.issue.number:${{ github.event.issue.number }}
-          END
       - &step_detect_commented_pr
         name: REF and SHA of commented PR to ENV
         if: github.event.comment
@@ -127,6 +68,152 @@ jobs:
         with: &step_checkout_with
           ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      -
+        run: sudo snap install yq
+      -
+        name: Check if .github/workflows/*.yml correspond to *.src.yml
+        run: |
+          set -x
+          [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
+
+  pr_comment_reaction_rocket:
+    ## Just to react to valid comment with rocket
+    runs-on: ubuntu-latest
+    if: ${{ github.event.comment &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/build') }}
+    steps:
+      - &step_show_context
+        name: Show context
+        run: |
+          echo "::group::GitHub context"
+          cat >/dev/null <<'END'
+            ${{ toJson(github) }}
+          END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat >/dev/null <<'END'
+            ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
+      -
+        name: Reaction
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+
+  ## This job is to generate build matrixes for build jobs
+  ## The matrixes depend on what is requeted to be build
+  ## At the moment there are several options:
+  ## - default on pushes, pull requests
+  ## - on comment to pull request according to comment message (chat-ops)
+  ## - TODO on workflow_dispatch according to its build_spec
+  ## - TODO all on schedule
+  generate_matrixes:
+    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/build') ) }}
+    # needs: check_workflow_yaml_coressponds_to_src_yaml
+    steps:
+      - *step_show_context
+      - *step_checkout
+      -
+        name: Generate matrix for build triggered by chat-ops - comment to PR
+        if: github.event.comment && github.event.issue.pull_request
+        id: comment_body
+        run: echo "${{github.event.comment.body}}" >/tmp/comment_body
+      -
+        name: Generate default matrix for regular builds
+        if: ${{ steps.comment_body.outcome == 'skipped' }}
+        run: |
+          case ${{github.event_name}} in
+            pull_request)       echo >/tmp/comment_body "/build debug" ;;
+            push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
+            schedule)           echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos windows debug" ;;  ##TODO arm64
+            workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
+            #issue_comment)      echo >/tmp/comment_body "${{github.event.comment.body}}" ;;
+            *)                  echo >&2 "::error::Unexpected event"; false ;;
+          esac
+      -
+        name: Generate matrixes
+        id: matrixes
+        run: |
+          set -x
+          cat /tmp/comment_body | .github/chatops-gen-matrix.sh
+          echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
+          echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
+          echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
+          echo "::set-output name=matrix_macos::$(cat matrix_macos)"
+          echo "::set-output name=matrix_windows::$(cat matrix_windows)"
+      ##TODO report errors and warnings as answer as issue comment (chat-ops)
+      -
+        name: Reaction confused
+        if: failure() && github.event.comment
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"confused"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+      -
+        name: Reaction rocket
+        if: github.event.comment
+        run: |
+          # send reaction to comment to show build was triggered
+          curl ${{github.event.comment.url}}/reactions \
+            -X POST \
+            -d '{"content":"rocket"}' \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+    outputs:
+      matrix_ubuntu:         ${{steps.matrixes.outputs.matrix_ubuntu}}
+      matrix_ubuntu_release: ${{steps.matrixes.outputs.matrix_ubuntu_release}}
+      matrix_ubuntu_debug:   ${{steps.matrixes.outputs.matrix_ubuntu_debug}}
+      matrix_macos:          ${{steps.matrixes.outputs.matrix_macos}}
+      matrix_windows:        ${{steps.matrixes.outputs.matrix_windows}}
+
+  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
+  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
+  ## and conditional tags :edge (for development branches) and :latest (for git-tags)
+  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
+  Docker-iroha-builder:
+    needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    env: &env_dockerhub
+      DOCKERHUB_ORG:      hyperledger   ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - *step_show_context
+      - &step_system_info
+        name: System info
+        run: |
+          set -x
+          whoami
+          id $(whoami)
+          free  ||  vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;
+            /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
+          df -h
+          ccache --show-stats || true
+      - &step_build_info
+        name: Build info
+        run: |
+          cat << 'END'
+          ref:${{github.ref}}
+          sha:${{github.sha}}
+          run_number:${{github.run_number}}
+          event_name:${{github.event_name}}
+          event.action:${{github.event.action}}
+          event.issue.number:${{ github.event.issue.number }}
+          END
+      - *step_detect_commented_pr
+      - *step_checkout
       - &step_docker_tag
         name: Determine dockertag
         id: dockertag
@@ -166,7 +253,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=schedule
             type=edge,branch=support/1.2.x
-          #flavor: prefix=builder-  ## In case creating repository hyperledger/iroha-builder denied, Use tag prefix hyperledger/iroha:builder-xxxx
+            type=edge,branch=develop
+            type=edge,branch=test-ci
+            type=sha,prefix=commit-,format=short
+            type=sha,prefix=commit-,format=long
         ## Docker image will be pushed with tags:
         ##  - hash of file Dockerfile.builder
         ##  - branchname, when branch is pushed
@@ -226,34 +316,28 @@ jobs:
       ## if dockertag is already pushed then use it. But let it be empty when tag does not exist remotely.
       dockertag:   ${{steps.dockertag.outputs.dockertag}}
       _dockertag: :${{steps.dockertag.outputs.dockertag}}
-      # login_failed: ${{steps.login_failed.outputs.result}}
       pushed: ${{ steps.docker_login.outcome == 'success' && steps.build_and_push.outcome == 'success' }}
       dockertag_already_exists: ${{steps.dockertag_already.outputs.exists}}
       container:                ${{steps.dockertag_already.outputs.container}}
       container_tag:            ${{steps.dockertag_already.outputs.container_tag}}
 
-  ## Build in a docker container
+  ## Build iroha in a container made of the image earlier prepared
+  ## Result artifacts are
+  ## - stand-alone irohad (linked statically)
+  ## - iroha.deb (with irohad inside)
   build-iroha-ubuntu-debug: &job_ubuntu
-    needs: Docker-iroha-builder
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    needs:
+      - Docker-iroha-builder
+      - generate_matrixes
+    runs-on: [ self-hosted, Linux ]
     ## Container is taken from previous job
-    container: &container ${{needs.Docker-iroha-builder.outputs.container}}
-    # container: &container
-    #   ${{ fromJSON( format('["iroha1", "{0}"]', needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG)
-    #                         )[needs.Docker-iroha-builder.outputs.DOCKERHUB_ORG != ''] }}/iroha-builder${{
-    #                         fromJSON(format('[":edge", "{0}"]', needs.Docker-iroha-builder.outputs._dockertag)
-    #                         )[needs.Docker-iroha-builder.outputs._dockertag != ''] }}
-    strategy:
+    container: #&container
+      image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
+      options: --user root
+    strategy: &strategy_ubuntu_debug
       fail-fast: false
-      matrix:
-        cc: [ gcc-9 ] #, gcc-10, clang-10 ]
-        CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
-        build_type: [ Debug ]
-        # include:
-        #   - { build_type: Release, cc: gcc-9 }
-        #   - { build_type: Release, cc: gcc-9, CMAKE_USE: -DUSE_BURROW=ON }
-    # env:
-    #   VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
+    if: &if_ubuntu_debug ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -265,15 +349,13 @@ jobs:
       -
         run: test -n "$container"
         env:
-          container: *container
+          container: *container_image
       -
-        # if: ${{ (needs.Docker-iroha-builder.result != 'success' || needs.Docker-iroha-builder.outputs.login_failed == 'true') &&
-        #          needs.Docker-iroha-builder.outputs._dockertag == '' }}
-        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag || 
+        if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag ||
             needs.Docker-iroha-builder.outputs.container == '' }}
         name: Possible WARNING
         env:
-          container: *container
+          container: *container_image
           dockertag: ${{needs.Docker-iroha-builder.outputs.dockertag}}
         run: |
           cat <<END
@@ -301,18 +383,19 @@ jobs:
       - *step_checkout
       - &step_export_cxx
         name: export CC and CXX
+        env: &step_export_cxx_env
+          CC: ${{matrix.CC}}
+          CCACHE_PATH: /usr/lib/ccache
         run: |
           set -xeu   #o pipefail
           if test $CC = llvm ;then CC=/usr/local/opt/llvm/bin/clang ;fi
-          echo >>$GITHUB_ENV CC=$CC                                               
+          echo >>$GITHUB_ENV CC=$CC
           echo >>$GITHUB_ENV CXX=$(echo $CC | sed -es,gcc,g++, -es,clang,clang++,)
           echo >>$GITHUB_PATH $CCACHE_PATH
           ls -lA $CCACHE_PATH
-          $(realpath $CCACHE_PATH/cc) --show-config
-          echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/cc) --show-config | sed -nE 's,.*cache_dir = ,,p')
-        env: &step_export_cxx_env
-          CC: ${{matrix.cc}}
-          CCACHE_PATH: /usr/lib/ccache
+          $(realpath $CCACHE_PATH/gcc) --show-config
+          echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
+          echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
       - &step_restore_ccache
         name: Restore cache ccache
         uses: actions/cache@v2
@@ -330,9 +413,9 @@ jobs:
           #  $HOME/.cache/vcpkg
           #  build-vcpkg/installed
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
-          key: ${{ runner.os }}-${{matrix.cc}}-vcpkg
-          # key:          ${{ runner.os }}-vcpkg-${{matrix.cc}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.cc}}-
+          key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
+          # key:          ${{ runner.os }}-vcpkg-${{matrix.CC}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
+          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.CC}}-
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg; test -f $PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -351,18 +434,21 @@ jobs:
       - &step_cmake_configure
         name: CMake configure
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
-          -GNinja ${{ matrix.CMAKE_USE }}  $(test ${{matrix.build_type}} = Release && echo -DPACKAGE_DEB=ON)
+          -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - &step_cmake_build
         name: CMake build
         run: |
           set -x
-          cmake --build build --config ${{ matrix.build_type }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
-          if test ${{matrix.build_type}} = 'Release' ;then ( cd build; cpack; ) ;fi
+          ## reduce memory usage to do not overflow
+          cmake --build build --config ${{ matrix.BuildType }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
+      - &step_cpack
+        name: CPack (linux only)
+        run: cd build; cpack;  ## cmake --build build --target package
       - &step_always_after_build
         name: Show free space and disk usage
         if: ${{ always() }}
@@ -370,18 +456,24 @@ jobs:
           df -h || true
       - &step_artifact_suffix
         name: Generate artifact suffix depending on matrix
-        run: |
-          cc=$(echo $cc | sed -Ee's,[-/],,g' )
-          build_type=$(echo $build_type | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
-          uses=$(echo $CMAKE_USE |
-            tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
-          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=-$os${cc:+-$cc}${build_type:+-$build_type}${uses:+-$uses}
-          echo >>$GITHUB_ENV  USES_SUFFIX=${uses:+-$uses}
         env: &step_artifact_suffix_env
           os:         ubuntu  ## maybe ${{ run.os }}
-          cc:         ${{ matrix.cc }}
-          build_type: ${{ matrix.build_type }}
+          CC:         ${{ matrix.CC }}
+          BuildType:  ${{ matrix.BuildType }}
           CMAKE_USE:  ${{ matrix.CMAKE_USE }}
+        run: |
+          set -x
+          cc=$(echo $CC | sed -Ee's,[-/],,g' )
+          build_type=$(echo $BuildType | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
+          test $build_type = dbg -o $build_type = rel
+          uses=$(echo $CMAKE_USE |
+            tr ' ' '\n' | sed -nE -e's,.*USE_([a-zA-Z]+)=ON.*,\1,gp ; s, ,-, ;' | xargs | tr ' ' - | tr A-Z a-z )
+          _os=${os:+-$os}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
+          echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
+          echo >>$GITHUB_ENV  _uses_suffix=$_uses
+          echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
+          echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
+        #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
       - &step_artifact_irohad
         name: Upload artifact irohad
         uses: actions/upload-artifact@v2
@@ -391,7 +483,6 @@ jobs:
             build/bin/irohad
             build/bin/iroha-cli
       - &step_artifact_iroha_deb
-        if: ${{ matrix.build_type == 'Release' }}
         name: Upload artifact iroha-deb
         uses: actions/upload-artifact@v2
         with:
@@ -412,45 +503,53 @@ jobs:
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
           set -x
-          initdb --locale=C -E UTF-8 $PWD/postgres_database
-          postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
-          createuser -s postgres -p5432
-
+          if [[ $(uname) = Darwin ]] ;then
+            ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
+            initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
+            postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
+          else
+            ## Need to go debian-specific way because
+            ## initdb is not allowed to be run as root, but we need to run as root
+            ## because GitHub actions runners have much issues with permissions.
+            pg_createcluster --start 12 iroha -- --locale=C --encoding=UTF-8
+            #pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+          fi
+          ## Run module_* tests in parallel and others subsequently
           cd build
-          ##FIXME enable yac when it were fixed lag
-          ctest --output-on-failure -R '^module_' --parallel 4 --exclude-regex yac_
-          ctest --output-on-failure -R '^module_yac_'
-          ctest --output-on-failure -R '^integration_' --repeat until-pass:3 -E '^integration_fake_peer_example_test$'
-          ctest --output-on-failure -R '^integration_fake_peer_example_test$' || true
-        #FIXME do not CTEST_EXCLUDE
+          ctest --output-on-failure -R '^module_' --parallel 8
+          ctest --output-on-failure -E '^module_' --repeat until-pass:3
 
+  ## Just because release is built 2..3 times faster make it a different job
   build-iroha-ubuntu-release:
     <<: *job_ubuntu
-    strategy:
+    strategy: &strategy_ubuntu_release
       fail-fast: false
-      matrix: &matrix_release
-        include:
-          - { build_type: Release, cc: gcc-9 }
-          - { build_type: Release, cc: gcc-9, CMAKE_USE: -DUSE_BURROW=ON }
-        # cc:         [ gcc-9 ] #, gcc-10, clang-10 ]
-        # CMAKE_USE:  [ '', -DUSE_BURROW=ON ]
-        # build_type: [ Release ]
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
+    if: &if_ubuntu_release ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+
+  ## Just to align picture
+  prepare-macos-env:
+    needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: macos-latest
+    steps:
+      - *step_show_context
 
   build-iroha-macos:
+    needs:
+      - prepare-macos-env
+      - generate_matrixes
     runs-on: macos-latest #[ self-hosted, MacOS ] #
     strategy:
       fail-fast: false
-      matrix:
-        cc: [ clang ] #, llvm ] #gcc-10
-        # os: [ macos-latest, macos-11.0, macos-10.15 ]
-        CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
-        ## FIXME USE_BURROW=ON Fails on macos https://github.com/kuvaldini/iroha/runs/2489119287?check_suite_focus=true
-        build_type: [ Debug ] #,Release, RelWithDebInfo
-    # ## For pull_request run only Apple-clang, no llvm
-    # if: ${{ ! (github.event_name == 'pull_request' && matrix.cc == 'clang') }}
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
+      # matrix:
+      #   # os: [ macos-latest, macos-11.0, macos-10.15 ]
+      #   CC: [ clang ] #, llvm ] #gcc-10
+      #   CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
+      #   BuildType: [ Debug ] #,Release, RelWithDebInfo
     steps:
       - *step_show_context
-      - *step_cancel_previous_runs
       - *step_system_info
       - *step_build_info
       -
@@ -458,11 +557,11 @@ jobs:
         run: brew install cmake ninja coreutils ccache
         ## Takes 22 seconds with default github runner
       -
-        if: ${{ contains(matrix.cc, 'gcc-10') }}
+        if: ${{ contains(matrix.CC, 'gcc-10') }}
         name: Homebrew GCC
         run: brew install gcc@10
       -
-        if: ${{ contains(matrix.cc, 'llvm') }}
+        if: ${{ contains(matrix.CC, 'llvm') }}
         name: Homebrew LLVM
         run: brew install llvm
       -
@@ -474,7 +573,7 @@ jobs:
       - *step_detect_commented_pr
       - *step_checkout
       - <<: *step_export_cxx
-        env: 
+        env:
           <<: *step_export_cxx_env
           CCACHE_PATH: /usr/local/opt/ccache/libexec
       - *step_restore_ccache
@@ -484,7 +583,7 @@ jobs:
       - *step_cmake_build
       - *step_always_after_build
       - <<: *step_artifact_suffix
-        name: Generate artifact suffix gcc9 >> env.ARTIFACT_SUFFIX
+        name: Generate artifact suffix >> env.ARTIFACT_SUFFIX
         #run: inherited
         env:
           <<: *step_artifact_suffix_env
@@ -500,16 +599,31 @@ jobs:
         ## ToDo may be optimize, i.e. cache package
       - *step_ctest
 
+  ## Just to align picture
+  prepare-windows-env:
+    needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: windows-latest
+    steps:
+      - *step_show_context
+    defaults:
+      run:
+        shell: bash
+
   build-iroha-windows:
-    if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
+    needs:
+      - prepare-windows-env
+      - generate_matrixes
     runs-on: windows-latest
     strategy:
       fail-fast: false
-      matrix:
-        build_type: [ Debug ] #,Release, RelWithDebInfo
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
+    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
+    if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+      # matrix:
+      #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
-        shell: bash  #pwshdefaults:
+        shell: bash  #pwsh
         working-directory: &workdir 'C:\github\iroha'  ## Use disk C: because D: is out of space
     steps:
       - name: Create working-directory, export WORKDIR
@@ -548,14 +662,23 @@ jobs:
         run: choco install postgresql
       # - *step_ctest
 
-  release-iroha-docker-image:
-    needs: build-iroha-ubuntu-release
+  ## Build and publish docker image named 'hyperledger/iroha'  with irohad and iroha tools inside.
+  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
+  ## and conditional tags :edge (for development branches) and :latest (for git-tags)
+  ## Those docker image tags could be extended with suffixes with compiler and build type like
+  ## -gcc10, -clang, -debug, -gcc10-debug.
+  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha-burrow:commit-XXXXX-debug
+  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
+  iroha-docker-image-release: &job_docker_image_release
+    needs:
+      - build-iroha-ubuntu-release
+      - generate_matrixes
     runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: *matrix_release
-    #if: matrix.dockerpush == '' || matrix.dockerpush == 'yes'
-    env: *env_dockerhub
+    strategy: *strategy_ubuntu_release
+    if: *if_ubuntu_release
+    env: &env_dockerhub_release
+      <<: *env_dockerhub
+      IMAGE_NAME: iroha
     steps:
       - *step_show_context
       - *step_system_info
@@ -568,18 +691,20 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
-      -
+      - &rename_artifact_deb
         name: Rename artifact debs
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
           mv *irohad.deb         docker/release/iroha.deb
-      - <<: *step_docker_tag
+      - &step_dockertag_release
+        <<: *step_docker_tag
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
       - <<: *step_docker_meta
         with:
           <<: *step_docker_meta_with
-          images: ${{ env.DOCKERHUB_ORG }}/iroha${{ env.USES_SUFFIX }}  ## uses suffecs could be empty, -burrow, -ursa
+          images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}  ## uses suffics could be empty, -burrow, -ursa
+          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - *step_docker_login
       - *step_warn_docker_no_push
@@ -593,5 +718,16 @@ jobs:
         with:
           <<: *step_docker_build_and_push_with
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' }}
+          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
       - *step_docker_move_cache
+
+  iroha-docker-image-debug:
+    <<: *job_docker_image_release
+    needs:
+      - build-iroha-ubuntu-debug
+      - generate_matrixes
+    strategy: *strategy_ubuntu_debug
+    if: *if_ubuntu_debug
+    # env:
+    #   <<: *env_dockerhub_release
+    #   IMAGE_NAME: iroha-debug
