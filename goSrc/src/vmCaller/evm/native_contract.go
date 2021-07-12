@@ -38,10 +38,10 @@ var (
 		},
 		native.Function{
 			Comment: `
-				* @notice Creates a new iroha ccount
+				* @notice Creates a new iroha account
 				* @param Name account name
 				* @param Domain domain of account
-				* @param Key key of account
+				* @param Key Public key of account
 				* @return 'true' if successful, 'false' otherwise
 				`,
 			PermFlag: permission.Call,
