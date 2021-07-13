@@ -39,21 +39,21 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocketStream) -> Result<Self> {
-        if let WebSocketMessage::Text(message) = time::timeout(TIMEOUT, stream.next())
+        if let WebSocketMessage::Binary(message) = time::timeout(TIMEOUT, stream.next())
             .await
             .wrap_err("Read message timeout")?
             .ok_or_else(|| error!("Failed to read message: no message"))?
             .wrap_err("Web Socket failure")?
         {
             let request: SubscriptionRequest =
-                VersionedEventSocketMessage::from_versioned_json_str(&message)?
+                VersionedEventSocketMessage::decode_versioned(&message)?
                     .into_inner_v1()
                     .try_into()?;
             time::timeout(
                 TIMEOUT,
-                stream.send(WebSocketMessage::Text(
+                stream.send(WebSocketMessage::Binary(
                     VersionedEventSocketMessage::from(EventSocketMessage::SubscriptionAccepted)
-                        .to_versioned_json_str()?,
+                        .encode_versioned()?,
                 )),
             )
             .await
@@ -74,23 +74,23 @@ impl Consumer {
     pub async fn consume(mut self, event: &Event) -> Result<Self> {
         if self.filter.apply(event) {
             let event = VersionedEventSocketMessage::from(EventSocketMessage::from(event.clone()))
-                .to_versioned_json_str()
+                .encode_versioned()
                 .wrap_err("Failed to serialize event")?;
-            time::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Text(event)))
+            time::timeout(TIMEOUT, self.stream.send(WebSocketMessage::Binary(event)))
                 .await
                 .wrap_err("Send message timeout")?
                 .wrap_err("Failed to send message")?;
-            if let WebSocketMessage::Text(receipt) = time::timeout(TIMEOUT, self.stream.next())
+            if let WebSocketMessage::Binary(receipt) = time::timeout(TIMEOUT, self.stream.next())
                 .await
                 .wrap_err("Failed to read receipt")?
                 .ok_or_else(|| error!("Failed to read receipt: no receipt"))?
                 .wrap_err("Web Socket failure")?
             {
                 if let EventSocketMessage::EventReceived =
-                    VersionedEventSocketMessage::from_versioned_json_str(&receipt)?.into_inner_v1()
+                    VersionedEventSocketMessage::decode_versioned(&receipt)?.into_inner_v1()
                 {
                 } else {
-                    return Err(error!("Expected `EventReceived` got {}", receipt));
+                    return Err(error!("Expected `EventReceived`."));
                 }
             } else {
                 return Err(error!("Unexpected message type"));

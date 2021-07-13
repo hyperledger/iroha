@@ -384,22 +384,21 @@ impl EventIterator {
     /// Fails if connecting and sending subscription to web socket fails
     pub fn new(url: &str, event_filter: EventFilter) -> Result<EventIterator> {
         let mut stream = http_client::web_socket_connect(url)?;
-        stream.write_message(WebSocketMessage::Text(
+        stream.write_message(WebSocketMessage::Binary(
             VersionedEventSocketMessage::from(EventSocketMessage::from(SubscriptionRequest(
                 event_filter,
             )))
-            .to_versioned_json_str()?,
+            .encode_versioned()?,
         ))?;
         loop {
             match stream.read_message() {
-                Ok(WebSocketMessage::Text(message)) => {
+                Ok(WebSocketMessage::Binary(message)) => {
                     if let EventSocketMessage::SubscriptionAccepted =
-                        VersionedEventSocketMessage::from_versioned_json_str(&message)?
-                            .into_inner_v1()
+                        VersionedEventSocketMessage::decode_versioned(&message)?.into_inner_v1()
                     {
                         break;
                     }
-                    return Err(error!("Expected `SubscriptionAccepted` got: {}", message));
+                    return Err(error!("Expected `SubscriptionAccepted`."));
                 }
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed) | Err(WebSocketError::AlreadyClosed) => {
@@ -418,9 +417,9 @@ impl Iterator for EventIterator {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.stream.read_message() {
-                Ok(WebSocketMessage::Text(message)) => {
+                Ok(WebSocketMessage::Binary(message)) => {
                     let event_socket_message =
-                        match VersionedEventSocketMessage::from_versioned_json_str(&message) {
+                        match VersionedEventSocketMessage::decode_versioned(&message) {
                             Ok(event_socket_message) => event_socket_message.into_inner_v1(),
                             Err(err) => return Some(Err(err.into())),
                         };
@@ -432,13 +431,13 @@ impl Iterator for EventIterator {
                     };
                     let message =
                         match VersionedEventSocketMessage::from(EventSocketMessage::EventReceived)
-                            .to_versioned_json_str()
+                            .encode_versioned()
                             .wrap_err("Failed to serialize receipt.")
                         {
                             Ok(message) => message,
                             Err(e) => return Some(Err(e)),
                         };
-                    return match self.stream.write_message(WebSocketMessage::Text(message)) {
+                    return match self.stream.write_message(WebSocketMessage::Binary(message)) {
                         Ok(_) => Some(Ok(event)),
                         Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
                     };
