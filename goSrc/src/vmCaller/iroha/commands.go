@@ -52,6 +52,8 @@ func TransferAsset(src, dst, asset, amount string) error {
 	return nil
 }
 
+//Added commands
+
 func CreateAccount(name string, domain string, key string) error {
 	command := &pb.Command{Command: &pb.Command_CreateAccount{
 		CreateAccount: &pb.CreateAccount{
