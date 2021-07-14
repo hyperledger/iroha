@@ -19,6 +19,12 @@ name: Iroha1
 ## TODO windows
 ## FIXME checkout issue, see https://github.com/actions/runner/issues/434
 ## TODO actions/create-release for main branch and tags
+## TODO handle or report an issue. If PR has changed workflows/*.yml they are not affected when triggered by PR comment
+##      report this by checking if workflows/*.yml are same in checked out (pr) branch and main(default) branch.
+## FIXME Chat-ops triggered pipelines should not push docker images with tag 'main', NEVER.
+
+## LINKS
+## https://github.community/t/triggering-a-new-workflow-from-another-workflow/16250/34
 
 ## CHEAT SHEET
 ## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
@@ -51,51 +57,39 @@ jobs:
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
     name: Check if github workflows were properly made from sources
+    if: (github.event_name != 'issue_comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') )
     steps:
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      - name: Possible warning when workflows/${{github.workflow}}.yml was changed in PR
+        if: github.event.comment
+        run: |
+          git diff "${{github.repository.default_branch}}" HEAD -- .github/workflows/${{github.workflow}}.yml ||
+            echo ::warning:: Running using workflow from branch 'main' but ${{github.workflow}}.yml was changed in current PR#$PR_NUM
       - run: sudo snap install yq
       - name: Check if .github/workflows/*.yml correspond to *.src.yml
         run: |
           set -x
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
-  pr_comment_reaction_rocket:
-    ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
-    if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') }}
-    steps:
-      - name: Show context
-        run: |
-          echo "::group::GitHub context"
-          cat >/dev/null <<'END'
-            ${{ toJson(github) }}
-          END
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          cat >/dev/null <<'END'
-            ${{ toJson(needs) }}
-          END
-          echo "::endgroup::"
-      - name: Reaction
-        run: |
-          # send reaction to comment to show build was triggered
-          curl ${{github.event.comment.url}}/reactions \
-            -X POST \
-            -d '{"content":"rocket"}' \
-            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-            -H "Authorization: token ${{github.token}}"
   ## This job is to generate build matrixes for build jobs
   ## The matrixes depend on what is requeted to be build
   ## At the moment there are several options:
@@ -105,8 +99,9 @@ jobs:
   ## - TODO all on schedule
   generate_matrixes:
     runs-on: ubuntu-latest
-    if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
+    if: (github.event_name != 'issue_comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') )
     # needs: check_workflow_yaml_coressponds_to_src_yaml
+    # continue-on-error: true  ## Because Chat-ops reacts only on PRs with base branches 'main|support/1.*|develop|edge'
     steps:
       - name: Show context
         run: |
@@ -123,12 +118,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      # - *step_detect_commented_pr
+      - name: Chat-ops reacts only to PRs with special base branches
+        if: github.event.comment
+        run: |
+          pr_base_ref=$(curl -fsSL ${{github.event.issue.pull_request.url}} \
+              -H "Authorization: token ${{github.token}}" |
+            jq -r .base.ref)
+          case "$pr_base_ref" in
+            main|support/1.*|develop|edge) ;;
+            *)
+              echo "::error Chat-ops reacts only to PRs with base branches 'main|support/1.*|develop|edge'"
+              false
+              ;;
+          esac
       - name: Generate matrix for build triggered by chat-ops - comment to PR
-        if: github.event.comment && github.event.issue.pull_request
+        if: github.event.comment
         id: comment_body
-        run: echo "${{github.event.comment.body}}" >/tmp/comment_body
+        run: echo "${{github.event.comment.body}}" | sed 's,\r,,g' >/tmp/comment_body
       - name: Generate default matrix for regular builds
         if: ${{ steps.comment_body.outcome == 'skipped' }}
         run: |
@@ -137,37 +147,62 @@ jobs:
             push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
             schedule)           echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos windows debug" ;;  ##TODO arm64
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
-            #issue_comment)      echo >/tmp/comment_body "${{github.event.comment.body}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
           esac
       - name: Generate matrixes
         id: matrixes
+        # continue-on-error: true
         run: |
           set -x
-          cat /tmp/comment_body | .github/chatops-gen-matrix.sh
-          echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
-          echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
-          echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
-          echo "::set-output name=matrix_macos::$(cat matrix_macos)"
-          echo "::set-output name=matrix_windows::$(cat matrix_windows)"
-      ##TODO report errors and warnings as answer as issue comment (chat-ops)
+          cat /tmp/comment_body | .github/chatops-gen-matrix.sh \
+            2> >(tee >&2 errors)  1> >(tee will-build) || { failed=true; }
+          empty_include(){ echo '{"include":[]}' ; }
+          # echo "::set-output name=matrix_ubuntu::"'{"include":[]}'
+          # echo "::set-output name=matrix_ubuntu_release::"'{"include":[]}'
+          # echo "::set-output name=matrix_ubuntu_debug::"'{"include":[]}'
+          # echo "::set-output name=matrix_macos::"'{"include":[]}'
+          # echo "::set-output name=matrix_windows::"'{"include":[]}'
+          # test -z "$failed" || false
+          echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu || empty_include)"
+          echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release || empty_include)"
+          echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug || empty_include)"
+          echo "::set-output name=matrix_macos::$(cat matrix_macos || empty_include)"
+          echo "::set-output name=matrix_windows::$(cat matrix_windows || empty_include)"
+          for m in matrix_* ;do test -s $m ;done  ## assert not empty
+          for m in matrix_* ;do cat $m | jq ;done  ## assert is json
       - name: Reaction confused
-        if: failure() && github.event.comment
+        if: github.event.comment && steps.matrixes.outcome == 'failure'
         run: |
           # send reaction to comment to show build was triggered
-          curl ${{github.event.comment.url}}/reactions \
+          curl -fsSL ${{github.event.comment.url}}/reactions \
             -X POST \
             -d '{"content":"confused"}' \
             -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
             -H "Authorization: token ${{github.token}}"
-      - name: Reaction rocket
-        if: github.event.comment
+      - name: Reaction rocket and link to the current workflow Run
+        if: github.event.comment && steps.matrixes.outcome == 'success'
         run: |
-          # send reaction to comment to show build was triggered
-          curl ${{github.event.comment.url}}/reactions \
+          ## send reaction to comment to show build was triggered
+          curl -fsSL ${{github.event.comment.url}}/reactions \
             -X POST \
             -d '{"content":"rocket"}' \
             -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            -H "Authorization: token ${{github.token}}"
+      - name: Edit comment adding link to workflow run and matrix generation report
+        if: github.event.comment
+        run: |
+          new_comment_body="${{github.event.comment.body}}  "$'\n'
+          new_comment_body+=$'\n'"Triggered workflow run ${{github.event.repository.html_url}}/actions/runs/${{github.run_id}}"
+          new_comment_body+=$'\n\n'"**Will build:**  "
+          test -s will-build && new_comment_body+=$'\n'"$(cat will-build)" || new_comment_body+=NOTHING
+          test -s errors && new_comment_body+=$'\n\n'"**Errors:**"$'\n'"$(cat errors)" || true
+          new_comment_body+=$'\n\n'"TODO **Status:** report status here"
+          new_comment_body="$(echo "$new_comment_body" | jq -Rs . )"
+          echo "{\"body\":$new_comment_body}" | jq || echo new_comment_body="$new_comment_body"
+          curl -fsSL ${{github.event.comment.url}} \
+            -X PATCH \
+            -d "{\"body\":$new_comment_body}" \
+            -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{github.token}}"
     outputs:
       matrix_ubuntu: ${{steps.matrixes.outputs.matrix_ubuntu}}
@@ -180,13 +215,28 @@ jobs:
   ## and conditional tags :edge (for development branches) and :latest (for git-tags)
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs:
+      - check_workflow_yaml_coressponds_to_src_yaml
+      - generate_matrixes
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu ).include[0] }}
+    # if: (
+    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' &&
+    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
+    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    #     ) || (
+    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' &&
+    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
+    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    #     )
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
+      # - run: echo "${{ needs.generate_matrixes.outputs.matrix_ubuntu_debug }}" | jq
+      # - run: echo "${{ toJSON(fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0]) }}"
+      # - run: echo "${{ toJSON(fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include) }}"
       - name: Show context
         run: |
           echo "::group::GitHub context"
@@ -219,19 +269,26 @@ jobs:
           event.issue.number:${{ github.event.issue.number }}
           END
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Determine dockertag
         id: dockertag
         env:
@@ -345,7 +402,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_debug && needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' && needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     steps:
       - name: Show context
         run: |
@@ -412,19 +469,26 @@ jobs:
           event.issue.number:${{ github.event.issue.number }}
           END
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
         env:
           CC: ${{matrix.CC}}
@@ -624,19 +688,26 @@ jobs:
           event.issue.number:${{ github.event.issue.number }}
           END
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
         env:
           CC: ${{matrix.CC}}
@@ -763,10 +834,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
   ## Just to align picture
   prepare-macos-env:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs:
+      - check_workflow_yaml_coressponds_to_src_yaml
+      - generate_matrixes
+    # if: &build_macos_if ${{ fromJSON('[]')[0] }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
+    # needs.generate_matrixes.outputs.matrix_macos != '' &&
+    #     needs.generate_matrixes.outputs.matrix_macos != 'empty' &&
     runs-on: macos-latest
     steps:
       - name: Show context
@@ -842,19 +919,26 @@ jobs:
           go get github.com/golang/protobuf/protoc-gen-go
           echo >>$GITHUB_PATH $HOME/go/bin
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: export CC and CXX
         run: |
           set -xeu   #o pipefail
@@ -977,7 +1061,9 @@ jobs:
           ctest --output-on-failure -E '^module_' --repeat until-pass:3
   ## Just to align picture
   prepare-windows-env:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs:
+      - check_workflow_yaml_coressponds_to_src_yaml
+      - generate_matrixes
     runs-on: windows-latest
     steps:
       - name: Show context
@@ -995,6 +1081,7 @@ jobs:
     defaults:
       run:
         shell: bash
+    if: ${{ false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
   build-iroha-windows:
     needs:
       - prepare-windows-env
@@ -1004,7 +1091,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
     #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
-    if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    if: ${{ false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
     # matrix:
     #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
@@ -1031,8 +1118,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: move to workdir
         run: |
           set -x
@@ -1090,7 +1178,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1129,19 +1217,26 @@ jobs:
           event.issue.number:${{ github.event.issue.number }}
           END
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Generate artifact suffix depending on matrix
         env:
           os: ubuntu ## maybe ${{ run.os }}
@@ -1284,19 +1379,26 @@ jobs:
           event.issue.number:${{ github.event.issue.number }}
           END
       - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
+        if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}}
+
+            -H "Authorization: token ${{github.token}}" |
+          jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+            "PR_REPO="+.head.repo.full_name,
+            "PR_BASE_REF="+.base.ref  ' >>$GITHUB_ENV
+          echo >>$GITHUB_ENV  PR_PULL_HEAD=refs/pull/${{github.event.issue.number}}/head
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{env.PR_PULL_HEAD}} ## somehow
+          # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Generate artifact suffix depending on matrix
         env:
           os: ubuntu ## maybe ${{ run.os }}
@@ -1405,7 +1507,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_debug && needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' && needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     # env:
     #   <<: *env_dockerhub_release
     #   IMAGE_NAME: iroha-debug
