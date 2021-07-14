@@ -21,11 +21,11 @@ use tokio::{sync::RwLock, task};
 use crate::{
     block_sync::message::VersionedMessage as BlockSyncVersionedMessage,
     config::Configuration,
-    event::{Consumer, EventsReceiver, EventsSender},
+    event::{Consumer, EventsReceiver},
     maintenance::{Health, System},
     prelude::*,
     queue::{GetPendingTransactions, QueueTrait},
-    smartcontracts::isi::query::VerifiedQueryRequest,
+    smartcontracts::{isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed},
     sumeragi::{
         message::VersionedMessage as SumeragiVersionedMessage, GetLeader, IsLeader, SumeragiTrait,
     },
@@ -33,13 +33,12 @@ use crate::{
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
-#[derive(Debug)]
 pub struct Torii<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
     system: Arc<RwLock<System>>,
-    events_sender: EventsSender,
     events_receiver: EventsReceiver,
+    query_validator: Option<IsQueryAllowedBoxed<W>>,
     transactions_queue: AlwaysAddr<Q>,
     sumeragi: AlwaysAddr<S>,
     broker: Broker,
@@ -57,6 +56,9 @@ pub enum Error {
     /// Failed to execute query
     #[error("Failed to execute query")]
     ExecuteQuery(iroha_error::Error),
+    /// Failed to validate query
+    #[error("Failed to validate query")]
+    ValidateQuery(iroha_error::Error),
     /// Failed to get pending transaction
     #[error("Failed to get pending transactions")]
     RequestPendingTransactions(iroha_error::Error),
@@ -85,7 +87,7 @@ impl iroha_http_server::http::HttpResponseError for Error {
             | EncodePendingTransactions(_) => {
                 iroha_http_server::http::HTTP_CODE_INTERNAL_SERVER_ERROR
             }
-            TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) => {
+            TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | ValidateQuery(_) => {
                 iroha_http_server::http::HTTP_CODE_BAD_REQUEST
             }
             Config(_) => iroha_http_server::http::HTTP_CODE_NOT_FOUND,
@@ -109,22 +111,24 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
         system: System,
         transactions_queue: AlwaysAddr<Q>,
         sumeragi: AlwaysAddr<S>,
-        (events_sender, events_receiver): (EventsSender, EventsReceiver),
+        query_validator: IsQueryAllowedBoxed<W>,
+        events_receiver: EventsReceiver,
         broker: Broker,
     ) -> Self {
         Self {
             config,
             wsv,
             system: Arc::new(RwLock::new(system)),
-            events_sender,
             events_receiver,
+            query_validator: Some(query_validator),
             transactions_queue,
             sumeragi,
             broker,
         }
     }
 
-    fn create_state(&self) -> ToriiState<Q, S, W> {
+    #[allow(clippy::expect_used)]
+    fn create_state(&mut self) -> ToriiState<Q, S, W> {
         let wsv = Arc::clone(&self.wsv);
         let transactions_queue = self.transactions_queue.clone();
         let sumeragi = self.sumeragi.clone();
@@ -132,14 +136,15 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
         let consumers = Arc::new(RwLock::new(Vec::new()));
         let config = self.config.clone();
         let broker = self.broker.clone();
+        let query_validator = self.query_validator.take().expect("Unreachable.");
 
         ToriiState {
             config,
             wsv,
             system,
             consumers,
-            events_sender: self.events_sender.clone(),
             transactions_queue,
+            query_validator,
             sumeragi,
             broker,
         }
@@ -150,10 +155,11 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(self) -> iroha_error::Result<Infallible> {
+    pub async fn start(mut self) -> iroha_error::Result<Infallible> {
         let state = self.create_state();
         let connections = Arc::clone(&state.consumers);
         let state = Arc::new(RwLock::new(state));
+
         let mut server = Server::new(Arc::clone(&state));
         server.at(uri::INSTRUCTIONS_URI).post(handle_instructions);
         server.at(uri::QUERY_URI).get(handle_queries);
@@ -182,14 +188,13 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
     }
 }
 
-#[derive(Debug)]
 struct ToriiState<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
     consumers: Arc<RwLock<Vec<Consumer>>>,
     system: Arc<RwLock<System>>,
-    events_sender: EventsSender,
     transactions_queue: AlwaysAddr<Q>,
+    query_validator: IsQueryAllowedBoxed<W>,
     sumeragi: AlwaysAddr<S>,
     broker: Broker,
 }
@@ -223,8 +228,13 @@ async fn handle_queries<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<QueryResult> {
-    let result = request
-        .query
+    let valid_request = request
+        .validate(
+            &*state.read().await.wsv,
+            &state.read().await.query_validator,
+        )
+        .map_err(Error::ValidateQuery)?;
+    let result = valid_request
         .execute(&*state.read().await.wsv)
         .map_err(Error::ExecuteQuery)?;
     let result = QueryResult(if let Value::Vec(value) = result {
@@ -419,7 +429,6 @@ async fn consume_events(
 }
 
 #[iroha_futures::telemetry_future]
-#[iroha_logger::log("TRACE")]
 async fn handle_request<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
     state: State<ToriiState<Q, S, W>>,
     request: Request,
@@ -553,7 +562,7 @@ pub mod config {
 mod tests {
     #![allow(clippy::default_trait_access, clippy::restriction)]
 
-    use std::{convert::TryInto, time::Duration};
+    use std::{convert::TryInto, iter, time::Duration};
 
     use futures::future::FutureExt;
     use iroha_actor::broker::Broker;
@@ -576,8 +585,10 @@ mod tests {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")
     }
 
-    async fn create_torii(
-    ) -> Torii<Queue<World>, Sumeragi<Queue<World>, GenesisNetwork, World>, World> {
+    async fn create_torii() -> (
+        Torii<Queue<World>, Sumeragi<Queue<World>, GenesisNetwork, World>, World>,
+        KeyPair,
+    ) {
         let broker = Broker::new();
         let mut config = get_config();
         config
@@ -590,6 +601,17 @@ mod tests {
                 .map(|name| (name.clone(), Domain::new(&name))),
             vec![],
         )));
+        let keys = KeyPair::generate().expect("Failed to generate keys");
+        drop(wsv.world.domains.insert(
+            "wonderland".to_owned(),
+            Domain::with_accounts(
+                "wonderland",
+                iter::once(Account::with_signatory(
+                    AccountId::new("alice", "wonderland"),
+                    keys.public_key.clone(),
+                )),
+            ),
+        ));
         let queue = Queue::from_configuration(
             &config.queue_configuration,
             Arc::clone(&wsv),
@@ -600,7 +622,7 @@ mod tests {
         .expect_running();
         let sumeragi = Sumeragi::from_configuration(
             &config.sumeragi_configuration,
-            events_sender.clone(),
+            events_sender,
             Arc::clone(&wsv),
             AllowAll.into(),
             None,
@@ -612,20 +634,24 @@ mod tests {
         .await
         .expect_running();
 
-        Torii::from_configuration(
-            config.torii_configuration.clone(),
-            wsv,
-            System::new(&config),
-            queue,
-            sumeragi,
-            (events_sender, events_receiver),
-            broker,
+        (
+            Torii::from_configuration(
+                config.torii_configuration.clone(),
+                wsv,
+                System::new(&config),
+                queue,
+                sumeragi,
+                AllowAll.into(),
+                events_receiver,
+                broker,
+            ),
+            keys,
         )
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn create_and_start_torii() {
-        let torii = create_torii().await;
+        let (torii, _) = create_torii().await;
 
         let result = time::timeout(Duration::from_millis(50), torii.start()).await;
 
@@ -634,7 +660,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn torii_big_transaction() {
-        let torii = create_torii().await;
+        let (mut torii, _) = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));
         let id = Id {
             name: Default::default(),
@@ -680,18 +706,18 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn torii_pagination() {
-        let torii = create_torii().await;
+        let (mut torii, keys) = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));
 
-        let keys = KeyPair::generate().expect("Failed to generate keys");
-
         let get_domains = |start, limit| {
-            let query: VerifiedQueryRequest =
-                QueryRequest::new(QueryBox::FindAllDomains(Default::default()))
-                    .sign(&keys)
-                    .expect("Failed to sign query with keys")
-                    .try_into()
-                    .expect("Failed to verify");
+            let query: VerifiedQueryRequest = QueryRequest::new(
+                QueryBox::FindAllDomains(Default::default()),
+                AccountId::new("alice", "wonderland"),
+            )
+            .sign(&keys)
+            .expect("Failed to sign query with keys")
+            .try_into()
+            .expect("Failed to verify");
 
             let pagination = Pagination { start, limit };
             handle_queries(state.clone(), Default::default(), pagination, query).map(|result| {
@@ -704,10 +730,30 @@ mod tests {
             })
         };
 
-        assert_eq!(get_domains(None, None).await.len(), 25);
-        assert_eq!(get_domains(Some(0), None).await.len(), 25);
+        assert_eq!(get_domains(None, None).await.len(), 26);
+        assert_eq!(get_domains(Some(0), None).await.len(), 26);
         assert_eq!(get_domains(Some(15), Some(5)).await.len(), 5);
         assert_eq!(get_domains(None, Some(10)).await.len(), 10);
         assert_eq!(get_domains(Some(1), Some(15)).await.len(), 15);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn query_signed_by_keys_not_associated_with_account() {
+        let (mut torii, keys) = create_torii().await;
+        let state = Arc::new(RwLock::new(torii.create_state()));
+
+        let query: VerifiedQueryRequest = QueryRequest::new(
+            QueryBox::FindAllDomains(Default::default()),
+            AccountId::new("bob", "wonderland"),
+        )
+        .sign(&keys)
+        .expect("Failed to sign query with keys")
+        .try_into()
+        .expect("Failed to verify");
+
+        let query_result =
+            handle_queries(state.clone(), Default::default(), Default::default(), query).await;
+
+        assert!(matches!(query_result, Err(Error::ValidateQuery(_))));
     }
 }

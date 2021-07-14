@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "roles")]
 use self::role::*;
 use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
-use crate::Value;
+use crate::{account::Account, Identifiable, Value};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::pub_enum_variant_names)]
@@ -97,20 +97,31 @@ impl QueryOutput for QueryBox {
     type Output = Value;
 }
 
-/// I/O ready structure to send queries.
-#[derive(Debug, Io, Encode, Decode, Clone)]
-pub struct QueryRequest {
+/// Payload of a query.
+#[derive(Debug, Io, Encode, Decode, Clone, IntoSchema)]
+pub struct Payload {
     /// Timestamp of the query creation.
     #[codec(compact)]
     pub timestamp_ms: u128,
     /// Query definition.
     pub query: QueryBox,
+    /// Account id of the user who will sign this query.
+    pub account_id: <Account as Identifiable>::Id,
 }
 
-impl<Q: Into<QueryBox>> From<Q> for QueryRequest {
-    fn from(query: Q) -> QueryRequest {
-        QueryRequest::new(query.into())
+impl Payload {
+    /// [`Hash`] of this payload.
+    pub fn hash(&self) -> Hash {
+        let payload: Vec<u8> = self.clone().into();
+        Hash::new(&payload)
     }
+}
+
+/// I/O ready structure to send queries.
+#[derive(Debug, Io, Encode, Decode, Clone)]
+pub struct QueryRequest {
+    /// Payload
+    pub payload: Payload,
 }
 
 declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
@@ -123,13 +134,10 @@ declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, ir
 )]
 #[derive(Debug, Clone, Io, Encode, Decode, IntoSchema)]
 pub struct SignedQueryRequest {
-    /// Timestamp of the query creation.
-    #[codec(compact)]
-    pub timestamp_ms: u128,
+    /// Payload
+    pub payload: Payload,
     /// Signature of the client who sends this query.
     pub signature: Signature,
-    /// Query definition.
-    pub query: QueryBox,
 }
 
 declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
@@ -160,33 +168,34 @@ impl From<QueryResult> for HttpResponse {
 impl QueryRequest {
     /// Constructs a new request with the `query`.
     #[allow(clippy::expect_used)]
-    pub fn new(query: QueryBox) -> Self {
+    pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
         let timestamp_ms = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get System Time.")
             .as_millis();
         QueryRequest {
-            timestamp_ms,
-            query,
+            payload: Payload {
+                timestamp_ms,
+                query,
+                account_id,
+            },
         }
     }
 
     /// `Hash` of this request.
     pub fn hash(&self) -> Hash {
-        let mut payload: Vec<u8> = self.query.clone().into();
-        payload.extend_from_slice(&self.timestamp_ms.to_le_bytes());
-        Hash::new(&payload)
+        self.payload.hash()
     }
 
     /// Consumes self and returns a signed `QueryReuest`.
     ///
     /// # Errors
-    /// Fails if signature creation fails
+    /// Fails if signature creation fails.
     pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest> {
+        let hash = self.hash();
         Ok(SignedQueryRequest {
-            timestamp_ms: self.timestamp_ms,
-            signature: Signature::new(key_pair.clone(), self.hash().as_ref())?,
-            query: self.query,
+            payload: self.payload,
+            signature: Signature::new(key_pair.clone(), hash.as_ref())?,
         })
     }
 }
@@ -194,9 +203,7 @@ impl QueryRequest {
 impl SignedQueryRequest {
     /// `Hash` of this request.
     pub fn hash(&self) -> Hash {
-        let mut payload: Vec<u8> = self.query.clone().into();
-        payload.extend_from_slice(&self.timestamp_ms.to_le_bytes());
-        Hash::new(&payload)
+        self.payload.hash()
     }
 }
 

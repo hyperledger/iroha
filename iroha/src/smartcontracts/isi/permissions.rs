@@ -64,7 +64,6 @@ impl<W: WorldTrait, O: NeedsPermission, V: Into<IsAllowedBoxed<W, O>>> Validator
 }
 
 /// `check` will succeed if either `first` or `second` validator succeeds.
-#[allow(missing_debug_implementations)]
 pub struct Or<W: WorldTrait, O: NeedsPermission> {
     first: IsAllowedBoxed<W, O>,
     second: IsAllowedBoxed<W, O>,
@@ -100,7 +99,6 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<Or<W, O>> for IsAllowedBo
 
 /// Wraps validator to check nested permissions.
 /// Pay attention to wrap only validators that do not check nested intructions by themselves.
-#[allow(missing_debug_implementations)]
 pub struct CheckNested<W: WorldTrait> {
     validator: IsAllowedBoxed<W, Instruction>,
 }
@@ -154,7 +152,6 @@ impl<W: WorldTrait> From<CheckNested<W>> for IsInstructionAllowedBoxed<W> {
 }
 
 /// A container for multiple permissions validators. It will succeed if all validators succeed.
-#[allow(missing_debug_implementations)]
 pub struct AllShouldSucceed<W: WorldTrait, O: NeedsPermission> {
     validators: Vec<IsAllowedBoxed<W, O>>,
 }
@@ -182,7 +179,6 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<AllShouldSucceed<W, O>>
 }
 
 /// A container for multiple permissions validators. It will succeed if any validator succeeds.
-#[allow(missing_debug_implementations)]
 pub struct AnyShouldSucceed<W: WorldTrait, O: NeedsPermission> {
     name: String,
     validators: Vec<IsAllowedBoxed<W, O>>,
@@ -216,7 +212,6 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<AnyShouldSucceed<W, O>>
 }
 
 /// Builder to combine multiple validation checks into one.
-#[allow(missing_debug_implementations)]
 #[derive(Default)]
 pub struct ValidatorBuilder<W: WorldTrait, O: NeedsPermission> {
     validators: Vec<IsAllowedBoxed<W, O>>,

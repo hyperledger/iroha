@@ -25,7 +25,7 @@ use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result, WrapErr};
-use smartcontracts::permissions::IsInstructionAllowedBoxed;
+use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
 use tokio::{sync::mpsc, task::JoinHandle};
 use wsv::{World, WorldTrait};
 
@@ -47,7 +47,6 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
-#[derive(Debug)]
 pub struct Iroha<
     W = World,
     G = GenesisNetwork,
@@ -96,10 +95,11 @@ where
     /// - Initialization of sumeragi
     pub async fn new(
         config: &Configuration,
-        validator: IsInstructionAllowedBoxed<K::World>,
+        instruction_validator: IsInstructionAllowedBoxed<K::World>,
+        query_validator: IsQueryAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
-        Self::with_broker(config, validator, broker).await
+        Self::with_broker(config, instruction_validator, query_validator, broker).await
     }
 
     /// Creates Iroha with specified broker
@@ -110,7 +110,8 @@ where
     /// - Initialization of sumeragi
     pub async fn with_broker(
         config: &Configuration,
-        validator: IsInstructionAllowedBoxed<K::World>,
+        instruction_validator: IsInstructionAllowedBoxed<K::World>,
+        query_validator: IsQueryAllowedBoxed<K::World>,
         broker: Broker,
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
@@ -153,9 +154,9 @@ where
 
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi_configuration,
-            events_sender.clone(),
+            events_sender,
             Arc::clone(&wsv),
-            validator,
+            instruction_validator,
             genesis_network,
             queue.clone(),
             broker.clone(),
@@ -193,7 +194,8 @@ where
             System::new(config),
             queue.clone(),
             sumeragi.clone(),
-            (events_sender, events_receiver),
+            query_validator,
+            events_receiver,
             broker.clone(),
         );
         let torii = Some(torii);

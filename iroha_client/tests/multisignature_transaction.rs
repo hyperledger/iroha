@@ -77,31 +77,31 @@ mod tests {
         thread::sleep(pipeline_time);
         //Then
         client_configuration.torii_api_url = network.peers.last().unwrap().api_address.clone();
-        let mut iroha_client = Client::new(&client_configuration);
+        let mut iroha_client_1 = Client::new(&client_configuration);
         let request = client::asset::by_account_id(account_id);
-        assert!(iroha_client
+        assert!(iroha_client_1
             .request(request.clone())
             .expect("Query failed.")
             .is_empty());
         client_configuration.public_key = key_pair_2.public_key;
         client_configuration.private_key = key_pair_2.private_key;
-        let mut iroha_client = Client::new(&client_configuration);
-        let transaction = iroha_client
+        let mut iroha_client_2 = Client::new(&client_configuration);
+        let transaction = iroha_client_2
             .build_transaction(vec![mint_asset.into()], UnlimitedMetadata::new())
             .expect("Failed to create transaction.");
-        let transaction = iroha_client
+        let transaction = iroha_client_2
             .get_original_transaction(&transaction, 3, Duration::from_millis(100))
             .expect("Failed to query pending transactions.")
             .expect("Found no pending transaction for this account.");
-        iroha_client
+        iroha_client_2
             .submit_transaction(
-                iroha_client
+                iroha_client_2
                     .sign_transaction(transaction)
                     .expect("Failed to sign transaction."),
             )
             .expect("Failed to submit transaction.");
         thread::sleep(pipeline_time * 2);
-        let assets = iroha_client.request(request).expect("Query failed.");
+        let assets = iroha_client_1.request(request).expect("Query failed.");
         assert!(!assets.is_empty());
         assert_eq!(AssetValue::Quantity(quantity), assets[0].value);
     }

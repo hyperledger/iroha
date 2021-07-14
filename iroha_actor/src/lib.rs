@@ -186,7 +186,6 @@ where
     }
 }
 
-#[allow(missing_debug_implementations)]
 /// Address of actor. Can be used to send messages to it.
 pub struct Recipient<M: Message<Result = ()>>(Box<dyn Sender<M> + Sync + Send + 'static>);
 
