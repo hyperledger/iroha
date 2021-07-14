@@ -2,9 +2,9 @@
 
 use std::{convert::TryFrom, error::Error as StdError, fmt};
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, query};
 use iroha_derive::Io;
-use iroha_error::{derive::Error, Error, Result};
+use iroha_error::{derive::Error, error, Error, Result};
 use iroha_http_server::http::{
     HttpResponseError, RawHttpRequest, StatusCode, HTTP_CODE_BAD_REQUEST,
     HTTP_CODE_INTERNAL_SERVER_ERROR,
@@ -12,30 +12,70 @@ use iroha_http_server::http::{
 use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
 
+use super::permissions::IsQueryAllowedBoxed;
 use crate::{prelude::*, WorldTrait};
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Io, Encode, Decode)]
-#[non_exhaustive]
 pub struct VerifiedQueryRequest {
-    /// Timestamp of the query creation.
-    #[codec(compact)]
-    pub timestamp_ms: u128,
+    /// Payload.
+    payload: query::Payload,
     /// Signature of the client who sends this query.
-    pub signature: Signature,
-    /// Query definition.
-    pub query: QueryBox,
+    signature: Signature,
+}
+
+impl VerifiedQueryRequest {
+    /// Statefully validate query.
+    /// Checks whether account exists and has the corresponding public key, also check permissions based on this account.
+    ///
+    /// # Errors
+    /// Returns and error if one of the previously mentioned checks did not pass.
+    pub fn validate<W: WorldTrait>(
+        self,
+        wsv: &WorldStateView<W>,
+        query_validator: &IsQueryAllowedBoxed<W>,
+    ) -> Result<ValidQueryRequest> {
+        let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
+            account.signatories.contains(&self.signature.public_key)
+        })?;
+        if !account_has_public_key {
+            return Err(error!(
+                "Public key used for the signature does not correspond to the account."
+            ));
+        }
+        query_validator
+            .check(&self.payload.account_id, &self.payload.query, wsv)
+            .map_err(|denial_reason| error!(denial_reason))?;
+        Ok(ValidQueryRequest {
+            query: self.payload.query,
+        })
+    }
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
     type Error = Error;
 
-    fn try_from(sr: SignedQueryRequest) -> Result<Self> {
-        sr.signature.verify(sr.hash().as_ref()).map(|_| Self {
-            timestamp_ms: sr.timestamp_ms,
-            signature: sr.signature,
-            query: sr.query,
+    fn try_from(query: SignedQueryRequest) -> Result<Self> {
+        query.signature.verify(query.hash().as_ref()).map(|_| Self {
+            payload: query.payload,
+            signature: query.signature,
         })
+    }
+}
+
+/// Query Request statefully validated on the Iroha node side.
+#[derive(Debug, Io, Encode, Decode)]
+pub struct ValidQueryRequest {
+    query: QueryBox,
+}
+
+impl ValidQueryRequest {
+    /// Execute contained query on the [`WorldStateView`].
+    ///
+    /// # Errors
+    /// Returns an error if the query execution fails.
+    pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value> {
+        self.query.execute(wsv)
     }
 }
 
@@ -67,7 +107,7 @@ impl fmt::Display for UnsupportedVersionError {
     }
 }
 
-/// Decode verified query error
+/// Accept query error.
 #[derive(Error, Debug)]
 pub enum AcceptQueryError {
     /// Transaction has unsupported version

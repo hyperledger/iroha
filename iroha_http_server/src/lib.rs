@@ -26,7 +26,6 @@ use web_socket::{WebSocketEndpoint, WebSocketHandler};
 const BUFFER_SIZE: usize = 2_usize.pow(18);
 
 /// Http and websocket server
-#[allow(missing_debug_implementations)]
 pub struct Server<State> {
     state: State,
     router: Arc<Router<Endpoint<State>>>,
@@ -119,7 +118,6 @@ impl<State: Clone + Send + Sync + 'static> Server<State> {
 }
 
 /// Endpoint structure
-#[allow(missing_debug_implementations)]
 pub enum Endpoint<State> {
     /// websocket
     WebSocket(WebSocketEndpoint<State>),
@@ -203,7 +201,6 @@ pub mod http {
     type HttpParseHttpVersion = u8;
 
     /// Http endpoint
-    #[allow(missing_debug_implementations)]
     pub enum HttpEndpoint<State> {
         /// Get method
         Get(Box<dyn HttpHandler<State>>),
@@ -363,7 +360,6 @@ pub mod http {
     }
 
     /// Preprocessed request, which should be handled either as request or web socket upgrade.
-    #[allow(missing_debug_implementations)]
     pub enum PreprocessedHttpRequest<'a, State> {
         /// Handle this request as ordinary http.
         Request(HttpRequest<'a, State>),
@@ -431,7 +427,6 @@ pub mod http {
     }
 
     /// Preprocessed http request.
-    #[allow(missing_debug_implementations)]
     pub struct HttpRequest<'a, State> {
         raw: RawHttpRequest,
         endpoint: &'a HttpEndpoint<State>,
@@ -801,7 +796,6 @@ pub mod web_socket {
     pub type WebSocketEndpoint<State> = Box<dyn WebSocketHandler<State>>;
 
     /// Web Socket Upgrade preprocessed request.
-    #[allow(missing_debug_implementations)]
     pub struct WebSocketUpgrade<'a, State> {
         endpoint: &'a WebSocketEndpoint<State>,
         state: State,
@@ -849,7 +843,6 @@ pub mod web_socket {
 }
 
 /// Builder for server route handlers.
-#[allow(missing_debug_implementations)]
 pub struct RouteBuilder<'s, State> {
     path: String,
     server: &'s mut Server<State>,

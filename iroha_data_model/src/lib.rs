@@ -1655,6 +1655,19 @@ pub mod domain {
                 ))
             }
         }
+
+        /// Domain constructor with presetup accounts. Useful for testing purposes.
+        pub fn with_accounts(name: &str, accounts: impl IntoIterator<Item = Account>) -> Self {
+            let accounts_map = accounts
+                .into_iter()
+                .map(|account| (account.id.clone(), account))
+                .collect();
+            Domain {
+                name: name.to_owned(),
+                accounts: accounts_map,
+                asset_definitions: AssetDefinitionsMap::new(),
+            }
+        }
     }
 
     impl Identifiable for Domain {

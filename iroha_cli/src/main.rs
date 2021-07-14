@@ -1,7 +1,7 @@
 //! Iroha peer command line
 
 use clap::{App, Arg};
-use iroha::{config::Configuration, Iroha};
+use iroha::{config::Configuration, prelude::AllowAll, Iroha};
 use iroha_error::Reporter;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Reporter> {
         configuration.add_genesis_block_path(genesis_path);
     }
 
-    <Iroha>::new(&configuration, default_permissions())
+    <Iroha>::new(&configuration, default_permissions(), AllowAll.into())
         .await?
         .start()
         .await?;

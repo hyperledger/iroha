@@ -15,8 +15,7 @@ fn client_add_account_with_name_length_more_than_limit_should_not_commit_transac
 
     let pipeline_time = Configuration::pipeline_time();
 
-    // Given
-    let normal_account_id = AccountId::new("alice", "wonderland");
+    let normal_account_id = AccountId::new("bob", "wonderland");
     let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::new(
         normal_account_id.clone(),
     )));

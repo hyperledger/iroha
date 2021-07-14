@@ -47,7 +47,6 @@ use tokio::{
 struct ShutdownRuntime;
 
 /// Network of peers
-#[derive(Debug)]
 pub struct Network<
     W = World,
     G = GenesisNetwork,
@@ -70,7 +69,6 @@ pub struct Network<
 }
 
 /// Peer structure
-#[derive(Debug)]
 pub struct Peer<
     W = World,
     G = GenesisNetwork,
@@ -378,6 +376,7 @@ where
                 let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
                     &configuration,
                     permissions.into(),
+                    AllowAll.into(),
                     broker,
                 )
                 .await
@@ -419,6 +418,7 @@ where
                 let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
                     &configuration,
                     permissions.into(),
+                    AllowAll.into(),
                     broker,
                 )
                 .await
@@ -548,7 +548,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 
@@ -560,14 +560,14 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 
@@ -580,7 +580,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug;
 }
@@ -663,7 +663,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {
@@ -679,7 +679,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {
@@ -696,7 +696,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {
@@ -713,7 +713,7 @@ impl TestClient for Client {
 
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
-        R: Query<World> + Into<QueryRequest> + Debug + Clone,
+        R: Query<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
         R::Output: Clone + Debug,
     {

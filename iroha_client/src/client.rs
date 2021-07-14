@@ -252,11 +252,12 @@ impl Client {
         pagination: Pagination,
     ) -> Result<R::Output>
     where
-        R: Query<World> + Into<QueryRequest> + Debug,
+        R: Query<World> + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
     {
         let pagination: Vec<_> = pagination.into();
-        let request: VersionedSignedQueryRequest = request.into().sign(&self.key_pair)?.into();
+        let request = QueryRequest::new(request.into(), self.account_id.clone());
+        let request: VersionedSignedQueryRequest = request.sign(&self.key_pair)?.into();
         let response = http_client::get(
             &format!("http://{}{}", self.torii_url, uri::QUERY_URI),
             request.encode_versioned()?,
@@ -282,7 +283,7 @@ impl Client {
     #[log]
     pub fn request<R>(&mut self, request: R) -> Result<R::Output>
     where
-        R: Query<World> + Into<QueryRequest> + Debug,
+        R: Query<World> + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
