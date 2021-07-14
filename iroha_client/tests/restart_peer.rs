@@ -59,10 +59,11 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     assert_eq!(AssetValue::Quantity(quantity), asset.value);
 
     thread::sleep(Duration::from_millis(2000));
-    peer.stop();
+    drop(rt);
 
     thread::sleep(Duration::from_millis(2000));
 
+    let rt = Runtime::test();
     rt.block_on(peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir));
 
     let account_asset = iroha_client

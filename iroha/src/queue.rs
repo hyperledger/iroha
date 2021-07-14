@@ -160,8 +160,8 @@ impl<W: WorldTrait> Queue<W> {
     /// For MST transactions if on leader, waits for them to gather enough signatures before, showing them as output of this function.
     ///
     /// The reason for not dropping transaction when getting them, is that in the case of a view change this peer might become a leader,
-    /// or might need to froward transaction to the leader to check if the leader is not faulty.
-    /// If there is no view change and the block is commited then the transactions will simply drop because they are in a blockchain already.
+    /// or might need to forward transaction to the leader to check if the leader is not faulty.
+    /// If there is no view change and the block is committed then the transactions will simply drop because they are in a blockchain already.
     #[allow(clippy::expect_used)]
     pub fn get_pending_txs(&mut self, is_leader: bool) -> Vec<VersionedAcceptedTransaction> {
         let mut output_txs = Vec::new();

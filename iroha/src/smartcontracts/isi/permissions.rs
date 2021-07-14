@@ -510,7 +510,7 @@ impl<W: WorldTrait, O: NeedsPermission> From<DenyAll> for IsAllowedBoxed<W, O> {
     }
 }
 
-/// Boxed validator implementing [`GrantedTokenValidator`] trait.
+/// Boxed validator implementing [`HasToken`] validator trait.
 pub type HasTokenBoxed<W> = Box<dyn HasToken<W> + Send + Sync>;
 
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.

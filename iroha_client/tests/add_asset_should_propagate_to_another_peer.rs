@@ -17,7 +17,7 @@ mod tests {
         let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
-        thread::sleep(pipeline_time * 3);
+        thread::sleep(pipeline_time * 5);
 
         let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
         let account_id = AccountId::new("account", "domain");
@@ -43,6 +43,7 @@ mod tests {
                 account_id.clone(),
             )),
         ))?;
+        thread::sleep(pipeline_time);
 
         //Then
         Client::test(&network.peers.last().unwrap().api_address).poll_request(

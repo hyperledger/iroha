@@ -100,7 +100,7 @@ mod tests {
                     .expect("Failed to sign transaction."),
             )
             .expect("Failed to submit transaction.");
-        thread::sleep(pipeline_time * 2);
+        thread::sleep(pipeline_time);
         let assets = iroha_client_1.request(request).expect("Query failed.");
         assert!(!assets.is_empty());
         assert_eq!(AssetValue::Quantity(quantity), assets[0].value);

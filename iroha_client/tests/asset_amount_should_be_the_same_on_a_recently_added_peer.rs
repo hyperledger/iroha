@@ -32,7 +32,7 @@ mod tests {
             create_account.into(),
             create_asset.into(),
         ])?;
-        thread::sleep(pipeline_time * 2);
+        thread::sleep(pipeline_time * 5);
         //When
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
@@ -43,7 +43,7 @@ mod tests {
             )),
         );
         iroha_client.submit(mint_asset)?;
-        thread::sleep(pipeline_time * 2);
+        thread::sleep(pipeline_time * 5);
 
         let (_peer, mut iroha_client) = rt.block_on(network.add_peer());
 

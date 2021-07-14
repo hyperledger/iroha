@@ -54,6 +54,7 @@ jobs:
   test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.54-buster
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -69,11 +70,12 @@ jobs:
             clang \
             llvm-dev
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace -- --test-threads=1
 
   test-iroha_network-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.54-buster
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -92,7 +94,7 @@ jobs:
         run: cargo test --features mock -- --ignored --test-threads=1
         working-directory: iroha/test_network
       - name: Run iroha_network mock tests
-        run: cargo test --features mock
+        run: cargo test --features mock -- --test-threads=1
         working-directory: iroha_network
 
   test-deadlock_detection:
@@ -119,6 +121,7 @@ jobs:
   test-docker:
     #runs-on: [ self-hosted, Linux ] #ubuntu-latest
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2

@@ -281,6 +281,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
     async fn single_threaded_async() {
         #[allow(clippy::unused_async)]
         async fn handle_request(_state: (), _request: Request) -> Result<Response> {
@@ -306,6 +307,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
     async fn single_threaded_async_stateful() {
         #[allow(clippy::integer_arithmetic)]
         async fn handle_request(state: Arc<RwLock<usize>>, _request: Request) -> Result<Response> {

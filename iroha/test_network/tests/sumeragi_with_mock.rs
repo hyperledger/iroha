@@ -25,6 +25,7 @@ use iroha::{
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_data_model::prelude::*;
 use iroha_error::Result;
+use iroha_p2p::network::StopSelf;
 use test_network::*;
 use tokio::{sync::mpsc, time};
 use utils::{genesis, kura, kura::*, sumeragi, world};
@@ -33,6 +34,8 @@ pub mod utils {
     use super::*;
 
     pub mod genesis {
+        use iroha::IrohaNetwork;
+
         use super::*;
 
         #[derive(Debug, Clone, Copy, Default)]
@@ -51,7 +54,12 @@ pub mod utils {
                 Ok(None)
             }
 
-            async fn wait_for_peers(&self, _: PeerId, _: Topology) -> Result<Topology> {
+            async fn wait_for_peers(
+                &self,
+                _: PeerId,
+                _: Topology,
+                _: Addr<IrohaNetwork>,
+            ) -> Result<Topology> {
                 unreachable!()
             }
         }
@@ -107,7 +115,9 @@ pub mod utils {
     pub mod sumeragi {
         use std::{fmt::Debug, marker::PhantomData, ops::DerefMut};
 
-        use iroha::smartcontracts::permissions::IsQueryAllowedBoxed;
+        use iroha::{
+            smartcontracts::permissions::IsQueryAllowedBoxed, IrohaNetwork, NetworkMessage,
+        };
         use iroha_actor::Message;
 
         use super::*;
@@ -303,10 +313,12 @@ pub mod utils {
         {
             async fn on_start(&mut self, ctx: &mut Context<Self>) {
                 self.broker.subscribe::<UpdateNetworkTopology, _>(ctx);
-                self.broker.subscribe::<SumeragiMessage, _>(ctx);
+                self.broker.subscribe::<sumeragi::message::Message, _>(ctx);
                 self.broker.subscribe::<Init, _>(ctx);
                 self.broker.subscribe::<CommitBlock, _>(ctx);
+                self.broker.subscribe::<NetworkMessage, _>(ctx);
                 self.broker.subscribe::<Voting, _>(ctx);
+                ctx.notify_every::<ConnectPeers>(PEERS_CONNECT_INTERVAL);
             }
         }
 
@@ -331,6 +343,7 @@ pub mod utils {
                 genesis_network: Option<Self::GenesisNetwork>,
                 queue: AlwaysAddr<Self::Queue>,
                 broker: Broker,
+                network: Addr<IrohaNetwork>,
             ) -> Result<Self> {
                 Sumeragi::from_configuration(
                     configuration,
@@ -341,6 +354,7 @@ pub mod utils {
                     genesis_network,
                     queue,
                     broker,
+                    network,
                 )
                 .map(Self::new)
             }
@@ -363,10 +377,13 @@ pub mod utils {
                     height,
                 }: Init,
             ) {
+                self.connect_peers().await;
+
                 if height != 0 && latest_block_hash != Hash([0; 32]) {
                     self.init(latest_block_hash, height);
                 } else if let Some(genesis_network) = self.genesis_network.take() {
-                    if let Err(err) = genesis_network.submit_transactions(&mut self).await {
+                    let addr = self.network.clone();
+                    if let Err(err) = genesis_network.submit_transactions(&mut self, addr).await {
                         iroha_logger::error!("Failed to submit genesis transactions: {}", err)
                     }
                 }
@@ -382,6 +399,8 @@ pub mod utils {
                      + Handler<IsLeader, Result = bool>
                      + Handler<GetLeader, Result = PeerId>
                      + Handler<Voting, Result = ()>
+                     + Handler<ConnectPeers, Result = ()>
+                     + Handler<NetworkMessage, Result = ()>
         );
 
         #[derive(Debug, Clone, Copy, Default, Message)]
@@ -641,6 +660,8 @@ async fn change_view_on_commit_timeout() {
     let invalid_block_hashes = network
         .send(|iroha| &iroha.sumeragi, sumeragi::InvalidBlocks)
         .await;
+
+    network.send_all(StopSelf::Network).await;
 
     for (topology, b) in topologies.into_iter().zip(invalid_block_hashes) {
         assert_eq!(topology.view_change_proofs().len(), 1);

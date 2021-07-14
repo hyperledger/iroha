@@ -78,7 +78,7 @@ impl Configuration {
             private_key: configuration.private_key.clone(),
         };
         configuration.sumeragi_configuration.peer_id = PeerId::new(
-            &configuration.torii_configuration.torii_p2p_url,
+            &configuration.torii_configuration.torii_p2p_addr,
             &configuration.public_key,
         );
         Ok(configuration)
@@ -94,7 +94,7 @@ impl Configuration {
             private_key: self.private_key.clone(),
         };
         self.sumeragi_configuration.peer_id = PeerId::new(
-            &self.torii_configuration.torii_p2p_url,
+            &self.torii_configuration.torii_p2p_addr,
             &self.public_key.clone(),
         );
         Ok(())
@@ -137,7 +137,7 @@ mod tests {
             .wrap_err("Failed to read configuration from example config")?;
         assert_eq!(
             "127.0.0.1:1337",
-            configuration.torii_configuration.torii_p2p_url
+            configuration.torii_configuration.torii_p2p_addr
         );
         assert_eq!(1000, configuration.sumeragi_configuration.block_time_ms);
         Ok(())
@@ -155,29 +155,50 @@ mod tests {
                     e
                 )
             })?;
-        let public_key = PublicKey {
+        let public_key1 = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(
                 "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
             )
             .expect("Failed to decode"),
         };
+        let public_key2 = PublicKey {
+            digest_function: iroha_crypto::ED_25519.to_string(),
+            payload: hex::decode(
+                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c1",
+            )
+            .expect("Failed to decode"),
+        };
+        let public_key3 = PublicKey {
+            digest_function: iroha_crypto::ED_25519.to_string(),
+            payload: hex::decode(
+                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c2",
+            )
+            .expect("Failed to decode"),
+        };
+        let public_key4 = PublicKey {
+            digest_function: iroha_crypto::ED_25519.to_string(),
+            payload: hex::decode(
+                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c3",
+            )
+            .expect("Failed to decode"),
+        };
         let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
-                public_key: public_key.clone(),
+                public_key: public_key1,
             },
             PeerId {
                 address: "localhost:1338".to_string(),
-                public_key: public_key.clone(),
+                public_key: public_key2,
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: public_key.clone(),
+                public_key: public_key3,
             },
             PeerId {
                 address: "195.162.0.1:24".to_string(),
-                public_key,
+                public_key: public_key4,
             },
         ]
         .into_iter()

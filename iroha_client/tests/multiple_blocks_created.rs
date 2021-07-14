@@ -18,7 +18,7 @@ mod tests {
         let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
-        thread::sleep(pipeline_time);
+        thread::sleep(pipeline_time * 2);
 
         let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
         let account_id = AccountId::new("account", "domain");
@@ -61,13 +61,13 @@ mod tests {
                 .submit(mint_asset)
                 .expect("Failed to create asset.");
             account_has_quantity += quantity;
-            thread::sleep(pipeline_time);
+            thread::sleep(pipeline_time / 4);
         }
 
-        thread::sleep(pipeline_time);
+        thread::sleep(pipeline_time * 5);
 
         //Then
-        Client::test(&network.peers().last().unwrap().id.address).poll_request(
+        Client::test(&network.peers().last().unwrap().api_address).poll_request(
             client::asset::by_account_id(account_id),
             |result| {
                 result.iter().any(|asset| {

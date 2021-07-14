@@ -1707,7 +1707,10 @@ pub mod peer {
 
     #![allow(clippy::missing_inline_in_public_items)]
 
-    use std::iter::FromIterator;
+    use std::{
+        hash::{Hash, Hasher},
+        iter::FromIterator,
+    };
 
     use dashmap::DashSet;
     use iroha_derive::Io;
@@ -1742,19 +1745,7 @@ pub mod peer {
 
     /// Peer's identification.
     #[derive(
-        Clone,
-        Debug,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
-        Hash,
-        IntoSchema,
+        Clone, Debug, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
     pub struct Id {
         /// Address of the Peer's entrypoint.
@@ -1781,6 +1772,18 @@ pub mod peer {
                 address: address.to_owned(),
                 public_key: public_key.clone(),
             }
+        }
+    }
+
+    impl PartialEq for Id {
+        fn eq(&self, other: &Self) -> bool {
+            self.public_key.eq(&other.public_key)
+        }
+    }
+
+    impl Hash for Id {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.public_key.hash(state);
         }
     }
 

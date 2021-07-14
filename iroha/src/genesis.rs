@@ -1,18 +1,14 @@
 //! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
 #![allow(clippy::module_name_repetitions)]
 
-use std::{
-    collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path,
-    time::Duration,
-};
+use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
-use futures::future;
+use iroha_actor::Addr;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_error::{error, Result, WrapErr};
-use iroha_network::{Network, Request, Response};
 use serde::Deserialize;
-use tokio::time;
+use tokio::{time, time::Duration};
 
 use self::config::GenesisConfiguration;
 use crate::{
@@ -21,10 +17,9 @@ use crate::{
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
         Sumeragi,
     },
-    torii::uri,
     tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,
-    Identifiable,
+    Identifiable, IrohaNetwork,
 };
 
 type Online = Vec<PeerId>;
@@ -48,11 +43,12 @@ pub trait GenesisNetworkTrait:
     ) -> Result<Option<Self>>;
 
     /// Waits for a minimum number of `peers` needed for consensus to be online.
-    /// Returns [`InitializedNetworkTopology`] with the set A consisting of online peers.
+    /// Returns initialized network [`Topology`] with the set A consisting of online peers.
     async fn wait_for_peers(
         &self,
         this_peer_id: PeerId,
         network_topology: Topology,
+        network: Addr<IrohaNetwork>,
     ) -> Result<Topology>;
 
     /// Submits genesis transactions.
@@ -62,9 +58,10 @@ pub trait GenesisNetworkTrait:
     async fn submit_transactions<Q: QueueTrait, W: WorldTrait>(
         &self,
         sumeragi: &mut Sumeragi<Q, Self, W>,
+        network: Addr<IrohaNetwork>,
     ) -> Result<()> {
         let genesis_topology = self
-            .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone())
+            .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
             .await?;
         iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
@@ -94,8 +91,10 @@ impl Deref for GenesisNetwork {
 async fn try_get_online_topology(
     this_peer_id: &PeerId,
     network_topology: &Topology,
+    network: Addr<IrohaNetwork>,
 ) -> Result<Topology> {
-    let (online_peers, offline_peers) = check_peers_status(this_peer_id, network_topology).await;
+    let (online_peers, offline_peers) =
+        check_peers_status(this_peer_id, network_topology, network).await;
     let set_a_len = network_topology.min_votes_for_commit() as usize;
     if online_peers.len() < set_a_len {
         return Err(error!("Not enough online peers for consensus."));
@@ -127,41 +126,22 @@ async fn try_get_online_topology(
 async fn check_peers_status(
     this_peer_id: &PeerId,
     network_topology: &Topology,
+    network: Addr<IrohaNetwork>,
 ) -> (Online, Offline) {
-    let futures = network_topology
+    #[allow(clippy::expect_used)]
+    let peers = network
+        .send(iroha_p2p::network::GetConnectedPeers)
+        .await
+        .expect("Could not get connected peers from Network!")
+        .peers;
+    iroha_logger::info!("Got {} peers", peers.len());
+
+    let (online, offline): (Vec<_>, Vec<_>) = network_topology
         .sorted_peers()
         .iter()
         .cloned()
-        .map(|peer| async {
-            let reached = if &peer == this_peer_id {
-                true
-            } else {
-                match Network::send_request_to(&peer.address, Request::empty(uri::HEALTH)).await {
-                    Ok(Response::Ok(_)) => true,
-                    Ok(Response::InternalError) => {
-                        iroha_logger::info!(
-                            "Failed to send message - Internal Error on peer: {}.",
-                            &peer.address.as_str()
-                        );
-                        false
-                    }
-                    Err(_) => {
-                        iroha_logger::info!(
-                            "Failed to send message - Peer offline: {}.",
-                            &peer.address.as_str(),
-                        );
-                        false
-                    }
-                }
-            };
-            (peer, reached)
-        });
-    let (online, offline): (Vec<_>, Vec<_>) = future::join_all(futures)
-        .await
-        .into_iter()
-        .partition(|&(_, reached)| reached);
-    let online = online.into_iter().map(|(peer, _)| peer).collect();
-    let offline = offline.into_iter().map(|(peer, _)| peer).collect();
+        .partition(|id| peers.contains(&id.public_key) || this_peer_id.public_key == id.public_key);
+
     (online, offline)
 }
 
@@ -205,10 +185,14 @@ impl GenesisNetworkTrait for GenesisNetwork {
         &self,
         this_peer_id: PeerId,
         network_topology: Topology,
+        network: Addr<IrohaNetwork>,
     ) -> Result<Topology> {
         iroha_logger::info!("Waiting for active peers.",);
         for i in 0..self.wait_for_peers_retry_count {
-            if let Ok(topology) = try_get_online_topology(&this_peer_id, &network_topology).await {
+            if let Ok(topology) =
+                try_get_online_topology(&this_peer_id, &network_topology, network.clone()).await
+            {
+                iroha_logger::info!("Got topology");
                 return Ok(topology);
             }
 

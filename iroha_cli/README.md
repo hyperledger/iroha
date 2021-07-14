@@ -60,7 +60,7 @@ Depending on how many peers you plan to run, update the config:
 - 1 Peer - set `"MAX_FAULTY_PEERS": 0`, and set `trusted_peers.json` to only contain this peer id.
 - N Peer - set `"MAX_FAULTY_PEERS": F`, where 0 < F <= (N - 1)/3, and set `trusted_peers.json` to contain ids of the peers you are planning to start.
 
-Also update the `PUBLIC_KEY`, `PRIVATE_KEY`, `TORII_P2P_URL` and `TORII_API_URL` correspondingly, they should be unique for each of the peers. `trusted_peers.json` address fields should correspond to `TORII_P2P_URL`s of peers.
+Also update the `PUBLIC_KEY`, `PRIVATE_KEY`, `TORII_P2P_ADDR` and `TORII_API_URL` correspondingly, they should be unique for each of the peers. `trusted_peers.json` address fields should correspond to `TORII_P2P_URL`s of peers.
 
 #### Start Iroha
 
