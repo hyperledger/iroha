@@ -129,9 +129,9 @@ handle_user_line(){
             done
          done
       done
-      if test "$used_compilers" = ''; then
-         echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
-      fi
+      # if test "$used_compilers" = ''; then
+      #    echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
+      # fi
    done
 }
 
@@ -158,6 +158,9 @@ fi
 rm -f $ignored
 ############# END fixme remove this after build fixed #########
 
+
+test -n "${MATRIX:-}" ||
+   { echoerr "MATRIX is empty!"; false; }
 
 to_json(){
    # echo "{
