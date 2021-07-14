@@ -30,7 +30,7 @@ sphinx-rtd-theme
 sphinxcontrib-websupport
 tornado==4.5.3
 typing==3.6.2
-urllib3==1.24.2
+urllib3==1.26.5
 watchdog==0.8.3
 yarg==0.1.9
 m2r2
