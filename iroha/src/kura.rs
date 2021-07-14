@@ -46,7 +46,7 @@ pub trait KuraTrait: Actor + Handler<StoreBlock> {
     type World: WorldTrait;
 
     /// Default [`Kura`] constructor.
-    /// Kura will not be ready to work with before [`init`] method invocation.
+    /// Kura will not be ready to work with before `init()` method invocation.
     /// # Errors
     /// Fails if reading from disk while initing fails
     fn new(

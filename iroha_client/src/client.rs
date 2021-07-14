@@ -299,7 +299,7 @@ impl Client {
         )
     }
 
-    /// Tries to find the original transaction in the pending tx queue on the leader peer.
+    /// Tries to find the original transaction in the pending local tx queue.
     /// Should be used for an MST case.
     /// Takes pagination as parameter.
     ///
@@ -315,11 +315,7 @@ impl Client {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = http_client::get(
-                &format!(
-                    "http://{}{}",
-                    self.torii_url,
-                    uri::PENDING_TRANSACTIONS_ON_LEADER
-                ),
+                &format!("http://{}{}", self.torii_url, uri::PENDING_TRANSACTIONS),
                 Vec::new(),
                 pagination.clone(),
             )?;
@@ -351,7 +347,7 @@ impl Client {
         Ok(None)
     }
 
-    /// Tries to find the original transaction in the pending tx queue on the leader peer.
+    /// Tries to find the original transaction in the local pending tx queue.
     /// Should be used for an MST case.
     ///
     /// # Errors
@@ -550,6 +546,6 @@ pub mod uri {
     pub const BLOCK_SYNC: &str = "/block";
     /// The web socket uri used to subscribe to pipeline and data events.
     pub const SUBSCRIPTION: &str = "/events";
-    /// Get pending transactions on leader.
-    pub const PENDING_TRANSACTIONS_ON_LEADER: &str = "/pending_transactions_on_leader";
+    /// Get pending transactions.
+    pub const PENDING_TRANSACTIONS: &str = "/pending_transactions";
 }

@@ -7,7 +7,7 @@ use config::ToriiConfiguration;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{derive::Error as ConfigError, Configurable};
 use iroha_data_model::prelude::*;
-use iroha_error::{derive::Error, error, WrapErr};
+use iroha_error::{derive::Error, error};
 use iroha_logger::InstrumentFutures;
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
@@ -33,21 +33,18 @@ use crate::{
     prelude::*,
     queue::{GetPendingTransactions, QueueTrait},
     smartcontracts::{isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed},
-    sumeragi::{
-        message::VersionedMessage as SumeragiVersionedMessage, GetLeader, IsLeader, SumeragiTrait,
-    },
+    sumeragi::message::VersionedMessage as SumeragiVersionedMessage,
     wsv::WorldTrait,
     Configuration,
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
-pub struct Torii<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> {
+pub struct Torii<Q: QueueTrait, W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     transactions_queue: AlwaysAddr<Q>,
-    sumeragi: AlwaysAddr<S>,
     broker: Broker,
 }
 
@@ -109,14 +106,13 @@ impl Reply for Error {
 /// Result type
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
+impl<Q: QueueTrait, W: WorldTrait> Torii<Q, W> {
     /// Construct `Torii` from `ToriiConfiguration`.
     #[allow(clippy::too_many_arguments, clippy::missing_const_for_fn)]
     pub fn from_configuration(
         config: ToriiConfiguration,
         wsv: Arc<WorldStateView<W>>,
         transactions_queue: AlwaysAddr<Q>,
-        sumeragi: AlwaysAddr<S>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
         broker: Broker,
@@ -127,16 +123,14 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
             events,
             query_validator,
             transactions_queue,
-            sumeragi,
             broker,
         }
     }
 
     #[allow(clippy::expect_used)]
-    fn create_state(&self) -> ToriiState<Q, S, W> {
+    fn create_state(&self) -> ToriiState<Q, W> {
         let wsv = Arc::clone(&self.wsv);
         let transactions_queue = self.transactions_queue.clone();
-        let sumeragi = self.sumeragi.clone();
         let config = self.config.clone();
         let broker = self.broker.clone();
         let query_validator = Arc::clone(&self.query_validator);
@@ -146,7 +140,6 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
             wsv,
             transactions_queue,
             query_validator,
-            sumeragi,
             broker,
         })
     }
@@ -156,14 +149,14 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(self) -> iroha_error::Result<Infallible> {
+    pub async fn start(self) -> iroha_error::Result<()> {
         let state = self.create_state();
 
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
             .or(endpoint2(
-                handle_pending_transactions_on_leader,
-                warp::path(uri::PENDING_TRANSACTIONS_ON_LEADER)
+                handle_pending_transactions,
+                warp::path(uri::PENDING_TRANSACTIONS)
                     .and(add_state(Arc::clone(&state)))
                     .and(paginate()),
             ))
@@ -208,41 +201,34 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
             .or(ws_router)
             .with(warp::trace::request());
 
-        #[allow(clippy::unwrap_used)]
-        let addr = self
-            .config
-            .torii_api_url
-            .to_socket_addrs()
-            .wrap_err("Failed to get socket addr")?
-            .next()
-            .unwrap();
-
-        let (handle_requests_result, _) = tokio::join!(
-            Network::listen(
-                Arc::clone(&state),
-                &self.config.torii_p2p_url,
-                handle_requests
-            ),
-            warp::serve(router).run(addr),
-        );
-        handle_requests_result
+        match self.config.torii_api_url.to_socket_addrs() {
+            Ok(mut i) => {
+                #[allow(clippy::expect_used)]
+                let addr = i.next().expect("Failed to get socket addr");
+                warp::serve(router).run(addr).await;
+                Ok(())
+            }
+            Err(e) => {
+                iroha_logger::error!("Failed to get socket addr");
+                Err(iroha_error::Error::new(e))
+            }
+        }
     }
 }
 
-struct InnerToriiState<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> {
+struct InnerToriiState<Q: QueueTrait, W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
     transactions_queue: AlwaysAddr<Q>,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
-    sumeragi: AlwaysAddr<S>,
     broker: Broker,
 }
 
-type ToriiState<Q, S, W> = Arc<InnerToriiState<Q, S, W>>;
+type ToriiState<Q, W> = Arc<InnerToriiState<Q, W>>;
 
 #[iroha_futures::telemetry_future]
-async fn handle_instructions<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
-    state: ToriiState<Q, S, W>,
+async fn handle_instructions<Q: QueueTrait, W: WorldTrait>(
+    state: ToriiState<Q, W>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
     let transaction: Transaction = transaction.into_inner_v1();
@@ -256,8 +242,8 @@ async fn handle_instructions<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_queries<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
-    state: ToriiState<Q, S, W>,
+async fn handle_queries<Q: QueueTrait, W: WorldTrait>(
+    state: ToriiState<Q, W>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<QueryResult>> {
@@ -287,27 +273,13 @@ async fn handle_health() -> Json {
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_pending_transactions_on_leader<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
-    state: ToriiState<Q, S, W>,
+async fn handle_pending_transactions<Q: QueueTrait, W: WorldTrait>(
+    state: ToriiState<Q, W>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
     #[allow(clippy::unwrap_used)]
-    let PendingTransactions(pending_transactions) = if state.sumeragi.send(IsLeader).await {
-        state.transactions_queue.send(GetPendingTransactions).await
-    } else {
-        let bytes = Network::send_request_to(
-            state.sumeragi.send(GetLeader).await.address.as_ref(),
-            Request::empty(uri::PENDING_TRANSACTIONS),
-        )
-        .await
-        .map_err(Error::RequestPendingTransactions)?
-        .into_result()
-        .map_err(Error::RequestPendingTransactions)?;
-
-        VersionedPendingTransactions::decode_versioned(&bytes)
-            .map_err(Error::DecodeRequestPendingTransactions)?
-            .into_inner_v1()
-    };
+    let PendingTransactions(pending_transactions) =
+        state.transactions_queue.send(GetPendingTransactions).await;
 
     Ok(Scale(
         PendingTransactions(
@@ -374,8 +346,8 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> iroha_e
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_requests<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
-    state: ToriiState<Q, S, W>,
+async fn handle_requests<Q: QueueTrait, W: WorldTrait>(
+    state: ToriiState<Q, W>,
     stream: Box<dyn AsyncStream>,
 ) -> iroha_error::Result<()> {
     let state_arc = Arc::clone(&state);
@@ -391,8 +363,8 @@ async fn handle_requests<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_request<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
-    state: ToriiState<Q, S, W>,
+async fn handle_request<Q: QueueTrait, W: WorldTrait>(
+    state: ToriiState<Q, W>,
     request: Request,
 ) -> iroha_error::Result<iroha_network::Response> {
     use iroha_network::Response;
@@ -400,7 +372,7 @@ async fn handle_request<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
     #[allow(clippy::pattern_type_mismatch)]
     match request.uri_path.as_ref() {
         uri::CONSENSUS if request.payload.len() > state.config.torii_max_sumeragi_message_size => {
-            iroha_logger::error!("Message is too big. Droping");
+            iroha_logger::error!("Message is too big. Dropping");
             Ok(Response::InternalError)
         }
         uri::CONSENSUS => {
@@ -462,8 +434,6 @@ pub mod uri {
     pub const SUBSCRIPTION: &str = "events";
     /// Get pending transactions.
     pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
-    /// Get pending transactions on leader.
-    pub const PENDING_TRANSACTIONS_ON_LEADER: &str = "pending_transactions_on_leader";
     /// The URI for local config changing inspecting
     pub const CONFIGURATION: &str = "configure";
 }
@@ -473,7 +443,7 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_TORII_P2P_URL: &str = "127.0.0.1:1337";
+    const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
     const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
     const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
     const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -485,7 +455,7 @@ pub mod config {
     #[serde(default)]
     pub struct ToriiConfiguration {
         /// Torii URL for p2p communication for consensus and block synchronization purposes.
-        pub torii_p2p_url: String,
+        pub torii_p2p_addr: String,
         /// Torii URL for client API.
         pub torii_api_url: String,
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
@@ -500,7 +470,7 @@ pub mod config {
         fn default() -> Self {
             Self {
                 torii_api_url: DEFAULT_TORII_API_URL.to_owned(),
-                torii_p2p_url: DEFAULT_TORII_P2P_URL.to_owned(),
+                torii_p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
                 torii_max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
                 torii_max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
                 torii_max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
@@ -522,9 +492,7 @@ mod tests {
     use super::*;
     use crate::{
         config::Configuration,
-        genesis::GenesisNetwork,
         queue::{Queue, QueueTrait},
-        sumeragi::{Sumeragi, SumeragiTrait},
         wsv::World,
     };
 
@@ -535,10 +503,7 @@ mod tests {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")
     }
 
-    async fn create_torii() -> (
-        Torii<Queue<World>, Sumeragi<Queue<World>, GenesisNetwork, World>, World>,
-        KeyPair,
-    ) {
+    async fn create_torii() -> (Torii<Queue<World>, World>, KeyPair) {
         let broker = Broker::new();
         let mut config = get_config();
         config
@@ -570,27 +535,12 @@ mod tests {
         .start()
         .await
         .expect_running();
-        let sumeragi = Sumeragi::from_configuration(
-            &config.sumeragi_configuration,
-            events.clone(),
-            Arc::clone(&wsv),
-            AllowAll.into(),
-            Arc::new(AllowAll.into()),
-            None,
-            queue.clone(),
-            broker.clone(),
-        )
-        .expect("Failed to initialize sumeragi.")
-        .start()
-        .await
-        .expect_running();
 
         (
             Torii::from_configuration(
                 config.torii_configuration.clone(),
                 wsv,
                 queue,
-                sumeragi,
                 Arc::new(AllowAll.into()),
                 events,
                 broker,
@@ -605,7 +555,7 @@ mod tests {
 
         let result = time::timeout(Duration::from_millis(50), torii.start()).await;
 
-        assert!(result.is_err() || result.unwrap().is_ok());
+        assert!(result.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread")]

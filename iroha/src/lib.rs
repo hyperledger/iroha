@@ -18,30 +18,47 @@ pub mod torii;
 pub mod tx;
 pub mod wsv;
 
-use std::{convert::Infallible, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result, WrapErr};
+use parity_scale_codec::{Decode, Encode};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
 use tokio::{sync::broadcast, task::JoinHandle};
 use wsv::{World, WorldTrait};
 
 use crate::{
     block::VersionedValidBlock,
-    block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
+    block_sync::{
+        message::VersionedMessage as BlockSyncMessage, BlockSynchronizer, BlockSynchronizerTrait,
+    },
     config::Configuration,
     genesis::GenesisNetwork,
     kura::{Kura, KuraTrait},
     prelude::*,
     queue::{Queue, QueueTrait},
-    sumeragi::{Sumeragi, SumeragiTrait},
+    sumeragi::{message::VersionedMessage as SumeragiMessage, Sumeragi, SumeragiTrait},
     torii::Torii,
 };
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Specialized type of Iroha Network
+pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
+
+/// The network message
+#[derive(Clone, Debug, Encode, Decode, iroha_actor::Message)]
+pub enum NetworkMessage {
+    /// Blockchain message
+    SumeragiMessage(Box<SumeragiMessage>),
+    /// Block sync message
+    BlockSync(Box<BlockSyncMessage>),
+    /// Health check message
+    Health,
+}
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
@@ -71,7 +88,7 @@ pub struct Iroha<
     /// Block synchronization actor
     pub block_sync: AlwaysAddr<B>,
     /// Torii web server
-    pub torii: Option<Torii<Q, S, W>>,
+    pub torii: Option<Torii<Q, W>>,
 }
 
 impl<W, G, Q, S, K, B> Iroha<W, G, Q, S, K, B>
@@ -118,6 +135,14 @@ where
 
         //iroha_logger::info!(?config, "Loaded configuration");
 
+        let listen_addr = config.torii_configuration.torii_p2p_addr.clone();
+        iroha_logger::info!("Starting peer on {}", &listen_addr);
+        #[allow(clippy::expect_used)]
+        let network = IrohaNetwork::new(broker.clone(), listen_addr, config.public_key.clone())
+            .await
+            .expect("Unable to start P2P-network");
+        let network_addr = network.start().await;
+
         let (events_sender, _) = broadcast::channel(100);
         let wsv = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
@@ -157,6 +182,7 @@ where
             genesis_network,
             queue.clone(),
             broker.clone(),
+            network_addr.clone(),
         )
         .wrap_err("Failed to initialize Sumeragi.")?
         .start()
@@ -173,7 +199,7 @@ where
             Arc::clone(&wsv),
             sumeragi.clone(),
             PeerId::new(
-                &config.torii_configuration.torii_p2p_url,
+                &config.torii_configuration.torii_p2p_addr,
                 &config.public_key,
             ),
             config
@@ -189,7 +215,6 @@ where
             config.torii_configuration.clone(),
             Arc::clone(&wsv),
             queue.clone(),
-            sumeragi.clone(),
             query_validator,
             events_sender,
             broker.clone(),
@@ -211,7 +236,7 @@ where
     /// # Errors
     /// Can fail if initing kura fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(&mut self) -> Result<Infallible> {
+    pub async fn start(&mut self) -> Result<()> {
         iroha_logger::info!("Starting Iroha.");
         self.torii
             .take()
@@ -224,8 +249,8 @@ where
     /// Starts iroha in separate tokio task.
     /// # Errors
     /// Can fail if initing kura fails
-    pub fn start_as_task(&mut self) -> Result<JoinHandle<Result<Infallible>>> {
-        iroha_logger::info!("Starting Iroha.");
+    pub fn start_as_task(&mut self) -> Result<JoinHandle<iroha_error::Result<()>>> {
+        iroha_logger::info!("Starting Iroha as task.");
         let torii = self
             .torii
             .take()

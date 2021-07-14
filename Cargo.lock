@@ -3141,6 +3141,7 @@ dependencies = [
  "iroha_error",
  "iroha_logger",
  "iroha_network",
+ "iroha_p2p",
  "once_cell",
  "rand 0.7.3",
  "tempfile",

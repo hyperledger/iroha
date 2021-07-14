@@ -89,7 +89,7 @@ impl<A: Actor> Addr<A> {
 
     /// Send a message and wait for an answer.
     /// # Errors
-    /// Fails if noone will send message
+    /// Fails if no one will send message
     /// # Panics
     /// If queue is full
     #[allow(unused_variables, clippy::expect_used)]
@@ -99,7 +99,7 @@ impl<A: Actor> Addr<A> {
         M::Result: Send,
         A: ContextHandler<M>,
     {
-        let (sender, reciever) = oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
         let envelope = SyncEnvelopeProxy::pack(message, Some(sender));
         #[cfg(feature = "deadlock_detection")]
         let from_actor_id_option = deadlock::task_local_actor_id();
@@ -111,7 +111,7 @@ impl<A: Actor> Addr<A> {
             .send(envelope)
             .await
             .map_err(|_err| Error::SendError)?;
-        let result = reciever.await.map_err(Error::RecvError);
+        let result = receiver.await.map_err(Error::RecvError);
         #[cfg(feature = "deadlock_detection")]
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::out(self.actor_id, from_actor_id).await;
@@ -132,8 +132,13 @@ impl<A: Actor> Addr<A> {
         A: ContextHandler<M>,
     {
         let envelope = SyncEnvelopeProxy::pack(message, None);
-        // TODO: propagate the error.
-        let _error = self.sender.send(envelope).await;
+        let sender = self.sender.clone();
+        tokio::task::spawn(async move {
+            // TODO: propagate the error.
+            if let Err(error) = sender.send(envelope).await {
+                iroha_logger::error!("Error sending actor message: {}", &error);
+            }
+        });
     }
 
     /// Constructs recipient for sending only specific messages (without answers)
@@ -480,7 +485,7 @@ impl<A: Actor> Context<A> {
     pub fn notify_later<M>(&self, message: M, later: Duration)
     where
         M: Message<Result = ()> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         task::spawn(
@@ -496,7 +501,7 @@ impl<A: Actor> Context<A> {
     pub fn notify_every<M>(&self, every: Duration)
     where
         M: Message<Result = ()> + Default + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         task::spawn(
@@ -515,7 +520,7 @@ impl<A: Actor> Context<A> {
     where
         M: Message<Result = ()> + Send + 'static,
         S: Stream<Item = M> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         task::spawn(

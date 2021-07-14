@@ -108,7 +108,7 @@ pub struct Payload {
 }
 
 impl Payload {
-    /// [`Hash`] of this payload.
+    /// Hash of this payload.
     pub fn hash(&self) -> Hash {
         let payload: Vec<u8> = self.clone().into();
         Hash::new(&payload)

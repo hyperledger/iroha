@@ -216,7 +216,7 @@ where
         (peer, client)
     }
 
-    /// Creates new network with some ofline peers
+    /// Creates new network with some offline peers
     /// # Panics
     /// Panics if fails to find or decode default configuration
     pub async fn new_with_offline_peers(
@@ -238,18 +238,20 @@ where
             .map(|peer| peer.id.clone())
             .collect();
 
-        {
-            let mut configuration = configuration.clone();
-            configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-            genesis.start_with_config(configuration).await;
-        }
-
         let rng = &mut rand::thread_rng();
         let online_peers = n_peers - offline_peers;
 
-        for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
-            peer.start_with_config(configuration.clone()).await;
+        let mut futures = Vec::new();
+        {
+            let mut configuration = configuration.clone();
+            configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
+            futures.push(genesis.start_with_config(configuration));
         }
+
+        for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
+            futures.push(peer.start_with_config(configuration.clone()));
+        }
+        futures::future::join_all(futures).await;
 
         time::sleep(Duration::from_millis(500) * (n_peers + 1)).await;
 
@@ -333,7 +335,7 @@ where
                 ..configuration.sumeragi_configuration
             },
             torii_configuration: ToriiConfiguration {
-                torii_p2p_url: self.p2p_address.clone(),
+                torii_p2p_addr: self.p2p_address.clone(),
                 torii_api_url: self.api_address.clone(),
                 ..configuration.torii_configuration
             },
@@ -412,7 +414,7 @@ where
             &self.api_address
         );
         let broker = self.broker.clone();
-        let (sender, reciever) = std::sync::mpsc::sync_channel(1);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let join_handle = tokio::spawn(
             async move {
                 let _temp_dir = temp_dir;
@@ -431,8 +433,8 @@ where
             .instrument(info_span),
         );
 
-        self.iroha = Some(reciever.recv().unwrap());
-        time::sleep(Duration::from_millis(1000)).await;
+        self.iroha = Some(receiver.recv().unwrap());
+        time::sleep(Duration::from_millis(300)).await;
         self.shutdown = Some(join_handle);
     }
 
@@ -612,6 +614,9 @@ impl TestConfiguration for Configuration {
         configuration
             .load_environment()
             .expect("Failed to load configuration from environment");
+        let keypair = KeyPair::generate().unwrap();
+        configuration.public_key = keypair.public_key;
+        configuration.private_key = keypair.private_key;
         configuration
     }
 

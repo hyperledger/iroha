@@ -113,14 +113,8 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchroni
             self.wsv.latest_block_hash(),
             self.peer_id.clone(),
         ));
-        futures::future::join_all(
-            self.sumeragi
-                .send(GetSortedPeers)
-                .await
-                .iter()
-                .map(|peer| message.clone().send_to(peer)),
-        )
-        .await;
+        let peers = self.sumeragi.send(GetSortedPeers).await;
+        message.send_to_peers(self.broker.clone(), &peers).await;
     }
 }
 
@@ -159,15 +153,12 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             (block, blocks)
         } else {
             self.state = State::Idle;
-            if let Err(e) = Message::GetBlocksAfter(GetBlocksAfter::new(
+            Message::GetBlocksAfter(GetBlocksAfter::new(
                 self.wsv.latest_block_hash(),
                 self.peer_id.clone(),
             ))
-            .send_to(&peer_id)
-            .await
-            {
-                iroha_logger::error!("Failed to request next batch of blocks. {}", e)
-            }
+            .send_to(self.broker.clone(), peer_id.clone())
+            .await;
             return;
         };
 
@@ -208,21 +199,21 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
 
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
+    use iroha_actor::broker::Broker;
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
-    use iroha_error::{error, Result};
     use iroha_logger::log;
-    use iroha_network::prelude::*;
+    use iroha_p2p::Post;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
 
     use super::{BlockSynchronizer, State};
     use crate::{
-        block::VersionedCommittedBlock, sumeragi::SumeragiTrait, torii::uri, wsv::WorldTrait,
+        block::VersionedCommittedBlock, sumeragi::SumeragiTrait, wsv::WorldTrait, NetworkMessage,
     };
 
-    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant);
+    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant, iroha_actor::Message);
 
     impl VersionedMessage {
         /// Same as [`as_v1`](`VersionedMessage::as_v1()`) but also does conversion
@@ -319,15 +310,12 @@ pub mod message {
                 Message::LatestBlock(LatestBlock { hash, peer_id }) => {
                     let latest_block_hash = block_sync.wsv.latest_block_hash();
                     if *hash != latest_block_hash {
-                        if let Err(err) = Message::GetBlocksAfter(GetBlocksAfter::new(
+                        Message::GetBlocksAfter(GetBlocksAfter::new(
                             latest_block_hash,
                             block_sync.peer_id.clone(),
                         ))
-                        .send_to(peer_id)
-                        .await
-                        {
-                            iroha_logger::warn!("Failed to request blocks: {:?}", err)
-                        }
+                        .send_to(block_sync.broker.clone(), peer_id.clone())
+                        .await;
                     }
                 }
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
@@ -340,15 +328,12 @@ pub mod message {
 
                     match block_sync.wsv.blocks_after(*hash, block_sync.batch_size) {
                         Ok(blocks) if !blocks.is_empty() => {
-                            if let Err(err) = Message::ShareBlocks(ShareBlocks::new(
+                            Message::ShareBlocks(ShareBlocks::new(
                                 blocks.clone(),
                                 block_sync.peer_id.clone(),
                             ))
-                            .send_to(peer_id)
-                            .await
-                            {
-                                iroha_logger::error!("Failed to send blocks: {:?}", err)
-                            }
+                            .send_to(block_sync.broker.clone(), peer_id.clone())
+                            .await;
                         }
                         Ok(_) => (),
                         Err(error) => iroha_logger::error!(%error),
@@ -366,20 +351,28 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         #[iroha_futures::telemetry_future]
         #[log("TRACE")]
-        pub async fn send_to(self, peer: &PeerId) -> Result<()> {
-            let message: VersionedMessage = self.into();
-            match Network::send_request_to(
-                &peer.address,
-                Request::new(uri::BLOCK_SYNC, message.encode_versioned()?),
-            )
-            .await?
-            {
-                Response::Ok(_) => Ok(()),
-                Response::InternalError => Err(error!(
-                    "Failed to send message - Internal Error on peer: {:?}",
-                    peer
-                )),
+        pub async fn send_to(self, broker: Broker, peer: PeerId) {
+            let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
+            let message = Post {
+                data,
+                id: peer.clone(),
+            };
+            broker.issue_send(message).await;
+        }
+
+        /// Send this message over the network to the specified `peer`.
+        #[iroha_futures::telemetry_future]
+        #[log("TRACE")]
+        pub async fn send_to_peers(self, broker: Broker, peers: &[PeerId]) {
+            let mut futures = Vec::new();
+            for peer in peers {
+                let message = self.clone();
+                let peer = peer.clone();
+                let broker = broker.clone();
+                futures.push(message.send_to(broker, peer));
             }
+
+            tokio::task::spawn(futures::future::join_all(futures));
         }
     }
 }

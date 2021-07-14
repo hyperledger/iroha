@@ -281,7 +281,7 @@ impl Debug for PublicKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("PublicKey")
             .field("digest_function", &self.digest_function)
-            .field("payload", &format!("{:X?}", self.payload))
+            .field("payload", &hex::encode_upper(self.payload.as_slice()))
             .finish()
     }
 }
@@ -463,7 +463,7 @@ impl Debug for Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Signature")
             .field("public_key", &self.public_key)
-            .field("signature", &format!("{:X?}", self.signature.clone()))
+            .field("signature", &hex::encode_upper(self.signature.as_slice()))
             .finish()
     }
 }

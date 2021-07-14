@@ -15,7 +15,7 @@
 **Expects**: Body: `Transaction`
 
 **Responses**:
-- 200 OK - Transaction Acccepted (But not guaranteed to have passed consensus yet)
+- 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
 - 500 Internal Server Error - Transaction Rejected (Malformed or improperly signed)
 
 ### Submit Query
