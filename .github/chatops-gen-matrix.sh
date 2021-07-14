@@ -9,11 +9,11 @@ echoerr(){
    echo >&2 '::error::'"$@"
 }
 
-readonly DEFAULT_oses="ubuntu macos windows" DEFAULT_build_types="Debug" DEFAULT_cmake_opts="default burrow ursa"
+readonly ALL_oses="ubuntu macos windows" ALL_build_types="Debug Release" ALL_cmake_opts="normal burrow ursa" ALL_compilers="gcc-9 gcc-10 clang-10 clang llvm msvc"
+readonly DEFAULT_oses="ubuntu macos windows" DEFAULT_build_types="Debug" DEFAULT_cmake_opts="normal burrow ursa"
 readonly DEFAULT_ubuntu_compilers="gcc-9" AVAILABLE_ubuntu_compilers="gcc-9 gcc-10 clang-10"
 readonly DEFAULT_macos_compilers="clang"  AVAILABLE_macos_compilers="clang llvm gcc-10"
 readonly DEFAULT_windows_compilers="msvc" AVAILABLE_windows_compilers="msvc mingw cygwin"
-readonly ALL_oses="ubuntu macos windows" ALL_build_types="Debug Release" ALL_cmake_opts="default burrow ursa" ALL_compilers="gcc-9 gcc-10 clang-10 clang llvm msvc"
 
 generate(){
    declare -rn DEFAULT_compilers=DEFAULT_${os}_compilers
@@ -37,7 +37,9 @@ generate(){
 }
 
 handle_user_line(){
-   # echo ----------- "$@"
+   if [[ "$@" = '' ]] ;then
+      return
+   fi
    if [[ "${1:-}" != '/build' ]] ;then
       echowarn "Line skipped, should start with '/build'"
       return
@@ -51,7 +53,7 @@ handle_user_line(){
          macos)                     oses+=" $1 " ;;
          ubuntu|linux)              oses+=" ubuntu " ;;
          windows)                   oses+=" $1 " ;;
-         default)                   cmake_opts+=" $1 "  ;;
+         normal)                    cmake_opts+=" $1 "  ;;
          burrow)                    cmake_opts+=" $1 "  ;;
          ursa)                      cmake_opts+=" $1 "  ;;
          release|Release)           build_types+=" Release " ;;
@@ -92,12 +94,15 @@ while read input_line ;do
    #  fi
 done
 
+test -n "${MATRIX:-}" ||
+   { echoerr "MATRIX is empty!"; false; }
+
 to_json(){
    echo "{
          os:\"$1\",
          cc:\"$2\",
          BuildType:\"$3\",
-         CMAKE_USE:\"$( [[ "$4" = default ]] || echo "-DUSE_${4^^}=ON" )\",
+         CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\",
          dockerpush: \"$dockerpush\"
       }"
 }
