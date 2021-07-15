@@ -18,7 +18,7 @@
 
 <!-- What benefits will be realized by the code change? -->
 
-### Possible Drawbacks 
+### Possible Drawbacks
 
 <!-- What are the possible side-effects or negative impacts of the code change? -->
 <!-- If no drawbacks, explicitly mention this (write None) -->
@@ -30,3 +30,9 @@
 ### Alternate Designs *[optional]*
 
 <!-- Explain what other alternates were considered and why the proposed version was selected -->
+
+<!--
+NOTE: User may want skip pull request and push workflows with [skip ci]
+https://github.blog/changelog/2021-02-08-github-actions-skip-pull-request-and-push-workflows-with-skip-ci/
+Phrases: [skip ci], [ci skip], [no ci], [skip actions], or [actions skip]
+-->
