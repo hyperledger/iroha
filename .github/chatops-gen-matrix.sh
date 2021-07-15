@@ -15,6 +15,40 @@ readonly DEFAULT_ubuntu_compilers="gcc-9" AVAILABLE_ubuntu_compilers="gcc-9 gcc-
 readonly DEFAULT_macos_compilers="clang"  AVAILABLE_macos_compilers="clang llvm gcc-10"
 readonly DEFAULT_windows_compilers="msvc" AVAILABLE_windows_compilers="msvc mingw cygwin"
 
+--help-buildspec(){
+   cat <<END
+EXAMPLE build_spec:
+   /build ubuntu release gcc10
+   /build macos llvm release
+   /build all
+AVAILABLE build_spec keywords:
+END
+   awk '/^\s*## BUILDSPEC ARGUMENTS/,/^\s*## END BUILDSPEC ARGUMENTS/ ' .github/chatops-gen-matrix.sh | sed -nE 's,).*,,gp' | sed /\*/d | sed -E 's,^ +,   ,'
+}
+
+--help(){
+   cat <<END
+USAGE:
+   $(basename $0) --help
+   echo /build [build_spec...] | $(basename $0)
+END
+   --help-buildspec
+}
+
+while [[ $# > 0 ]] ;do
+   case "$1" in
+      ## ARGUMENTS
+      help|--help|-h)
+         --help; exit
+         ;;
+      ## END ARGUMENTS
+      *)
+         echoerr "Unknown argument '$1'"
+         exit 1
+         ;;
+   esac
+done
+
 generate(){
    declare -rn DEFAULT_compilers=DEFAULT_${os}_compilers
    declare -rn AVAILABLE_compilers=AVAILABLE_${os}_compilers
@@ -50,17 +84,18 @@ handle_user_line(){
 
    while [[ $# > 0 ]] ;do
       case "$1" in
-         macos)                     oses+=" $1 " ;;
+         ## BUILDSPEC ARGUMENTS
          ubuntu|linux)              oses+=" ubuntu " ;;
+         macos)                     oses+=" $1 " ;;
          windows)                   oses+=" $1 " ;;
          normal)                    cmake_opts+=" $1 "  ;;
          burrow)                    cmake_opts+=" $1 "  ;;
          ursa)                      cmake_opts+=" $1 "  ;;
          release|Release)           build_types+=" Release " ;;
          debug|Debug)               build_types+=" Debug"  ;;
-         gcc-9|gcc9)                compilers+=" gcc-9 " ;;
+         gcc|gcc-9|gcc9)            compilers+=" gcc-9 " ;;
          gcc-10|gcc10)              compilers+=" gcc-10 " ;;
-         clang-10|clang10)          compilers+=" clang-10"  ;;
+         clang|clang-10|clang10)    compilers+=" clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          clang)                     compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
@@ -71,6 +106,7 @@ handle_user_line(){
          all|everything|before_merge|before-merge)
             oses="$ALL_oses" build_types="$ALL_build_types" cmake_opts="$ALL_cmake_opts" compilers="$ALL_compilers"
             ;;
+         ## END BUILDSPEC ARGUMENTS
          *)
             echoerr "Unknown /build argument '$1'"
             return 1
@@ -95,7 +131,7 @@ while read input_line ;do
 done
 
 test -n "${MATRIX:-}" ||
-   { echoerr "MATRIX is empty!"; false; }
+   { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
 
 to_json(){
    echo "{
