@@ -119,8 +119,6 @@ func transferAsset(ctx native.Context, args transferAssetArgs) (transferAssetRet
 	return transferAssetRets{Result: true}, nil
 }
 
-//Added commands
-
 type createAccountArgs struct {
 	Name   string
 	Domain string
@@ -168,8 +166,6 @@ func addAsset(ctx native.Context, args addAssetArgs) (addAssetRets, error) {
 
 	return addAssetRets{Result: true}, nil
 }
-
-//End
 
 func MustCreateNatives() *native.Natives {
 	ns, err := createNatives()
