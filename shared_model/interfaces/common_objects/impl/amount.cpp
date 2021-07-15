@@ -37,7 +37,7 @@ struct Amount::Impl {
       }
     }
 
-    if (dot_pos == start or dot_pos == end - 1) {
+    if (dot_pos == start) {
       // not allowed to start or end with a dot
       return;
     }
