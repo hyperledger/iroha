@@ -53,7 +53,7 @@ namespace integration_framework {
 
     void OnDemandOsNetworkNotifier::forCachedBatches(
         std::function<void(const iroha::ordering::OnDemandOrderingService::
-                               BatchesSetType &)> const &f) {}
+                               BatchesSetType &)> const &f) const {}
 
     bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() const {
       return true;

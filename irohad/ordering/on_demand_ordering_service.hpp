@@ -89,7 +89,7 @@ namespace iroha {
        * @param f - callback function
        */
       virtual void forCachedBatches(
-          std::function<void(const BatchesSetType &)> const &f) = 0;
+          std::function<void(const BatchesSetType &)> const &f) const = 0;
 
       virtual bool isEmptyBatchesCache() const = 0;
 
