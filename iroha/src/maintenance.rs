@@ -48,9 +48,7 @@ pub enum Health {
 /// systems.
 #[derive(Clone, Debug, Default, Io, Encode, Decode)]
 pub struct Metrics {
-    cpu: cpu::Cpu,
     disk: disk::Disk,
-    memory: memory::Memory,
 }
 
 impl Metrics {
@@ -58,18 +56,15 @@ impl Metrics {
     pub fn new(configuration: &Configuration) -> Self {
         Metrics {
             disk: disk::Disk::new(&configuration.kura_configuration),
-            ..Metrics::default()
         }
     }
 
     /// Update current `Metrics` state with new data.
     ///
     /// # Errors
-    /// Can fail during cpu and memory usage calculations
+    /// Can fail during used disk space calculation
     pub async fn calculate(&mut self) -> Result<()> {
         self.disk.calculate().await?;
-        self.cpu.calculate().await?;
-        self.memory.calculate().await?;
         Ok(())
     }
 }
@@ -102,7 +97,7 @@ mod disk {
             let mut stream = ReadDirStream::new(
                 read_dir(&self.block_storage_path)
                     .await
-                    .wrap_err("Failed to read block storage directoru")?,
+                    .wrap_err("Failed to read block storage directory")?,
             );
             while let Some(entry) = stream.next().await {
                 let path = entry.wrap_err("Failed to retrieve entry path")?.path();
@@ -115,102 +110,6 @@ mod disk {
             }
             self.block_storage_size = total_size;
             Ok(())
-        }
-    }
-}
-
-mod cpu {
-    use heim::cpu;
-    use iroha_derive::Io;
-    use iroha_error::Result;
-    use parity_scale_codec::{Decode, Encode};
-
-    #[derive(Clone, Debug, Default, Io, Encode, Decode)]
-    pub struct Cpu {
-        load: Load,
-    }
-
-    impl Cpu {
-        pub fn new() -> Self {
-            Cpu::default()
-        }
-
-        #[iroha_futures::telemetry_future]
-        pub async fn calculate(&mut self) -> Result<()> {
-            self.load.calculate().await
-        }
-    }
-
-    #[derive(Clone, Debug, Default, Io, Encode, Decode)]
-    pub struct Load {
-        frequency: String,
-        stats: String,
-        time: String,
-    }
-
-    impl Load {
-        pub fn new() -> Self {
-            Load::default()
-        }
-
-        /// Calculates cpu usage
-        ///
-        /// # Errors
-        /// Can fail during computing metrics
-        #[iroha_futures::telemetry_future]
-        pub async fn calculate(&mut self) -> Result<()> {
-            self.frequency = format!("{:?}", cpu::frequency().await);
-            self.stats = format!("{:?}", cpu::stats().await);
-            self.time = format!("{:?}", cpu::time().await);
-            Ok(())
-        }
-    }
-}
-
-mod memory {
-    use heim::memory;
-    use iroha_derive::Io;
-    use iroha_error::Result;
-    use parity_scale_codec::{Decode, Encode};
-
-    #[derive(Clone, Debug, Default, Io, Encode, Decode)]
-    pub struct Memory {
-        memory: String,
-        swap: String,
-    }
-
-    impl Memory {
-        pub fn new() -> Self {
-            Memory::default()
-        }
-
-        /// Calculates memory usage
-        ///
-        /// # Errors
-        /// Can fail during computing memory metrics
-        #[iroha_futures::telemetry_future]
-        pub async fn calculate(&mut self) -> Result<()> {
-            self.memory = format!("{:?}", memory::memory().await);
-            self.swap = format!("{:?}", memory::swap().await);
-            Ok(())
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        #![allow(clippy::restriction)]
-
-        use super::*;
-
-        #[tokio::test]
-        async fn test_calculate_memory() {
-            let mut memory = Memory::default();
-            memory
-                .calculate()
-                .await
-                .expect("Failed to calculate memory.");
-            assert!(!memory.memory.is_empty());
-            assert!(!memory.swap.is_empty());
         }
     }
 }
