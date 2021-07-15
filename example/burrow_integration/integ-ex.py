@@ -84,7 +84,7 @@ def get_engine_receipts(hash):
 
 @trace
 def add_asset(address) :
-    params = get_first_four_bytes_of_keccak(b'addAsset(string,string)')  # returns the first 4 bytes of the keccak256 hash of the function signature:‘addAsset(string,string)’       
+    params = get_first_four_bytes_of_keccak(b'addAsset(string,string)')  
     no_of_param=2
     for x in range(no_of_param) :
         params=params+left_padded_address_of_param(x,no_of_param)
@@ -100,7 +100,7 @@ def add_asset(address) :
 
 @trace
 def create_account(address) :
-    params = get_first_four_bytes_of_keccak(b'createAccount(string,string,string)') # returns the first 4 bytes of the keccak256 hash of the function signature:‘createAccount(string,string,string)’
+    params = get_first_four_bytes_of_keccak(b'createAccount(string,string,string)') 
     no_of_param=3
     for x in range(no_of_param) :
         params=params+left_padded_address_of_param(x,no_of_param)
@@ -119,7 +119,7 @@ def create_account(address) :
 
 @trace
 def transfer(address) :
-    params = get_first_four_bytes_of_keccak(b'transferAsset(string,string,string,string)') # returns the first 4 bytes of the keccak256 hash of the function signature:‘transferAsset(string,string,string,string)’
+    params = get_first_four_bytes_of_keccak(b'transferAsset(string,string,string,string)') 
     no_of_param=4
     for x in range(no_of_param) :
         params=params+left_padded_address_of_param(x,no_of_param)
@@ -137,7 +137,7 @@ def transfer(address) :
 
 @trace
 def balance(address) :
-    params = get_first_four_bytes_of_keccak(b'queryBalance(string,string)') # returns the first 4 bytes of the keccak256 hash of the function signature:‘queryBalance(string,string)’
+    params = get_first_four_bytes_of_keccak(b'queryBalance(string,string)')
     no_of_param=2
     for x in range(no_of_param) :
         params=params+left_padded_address_of_param(x,no_of_param)
