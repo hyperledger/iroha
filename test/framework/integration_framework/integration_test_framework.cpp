@@ -6,8 +6,8 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 
 #include <boost/assert.hpp>
-#include <boost/thread/barrier.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/thread/barrier.hpp>
 #include <limits>
 #include <memory>
 #include <rxcpp/operators/rx-filter.hpp>
@@ -240,22 +240,19 @@ namespace integration_framework {
     config_.max_proposal_size = 10;
     config_.mst_support = mst_support;
 
-          db_wsv_path_ = (fs::temp_directory_path() / fs::unique_path()).string();
-          db_store_path_ = (fs::temp_directory_path() / fs::unique_path()).string();
+    db_wsv_path_ = (fs::temp_directory_path() / fs::unique_path()).string();
+    db_store_path_ = (fs::temp_directory_path() / fs::unique_path()).string();
 
     switch (db_type) {
       case iroha::StorageType::kPostgres: {
         config_.block_store_path = block_store_path;
-      }
-        break;
+      } break;
       case iroha::StorageType::kRocksDb: {
-        config_.database_config = IrohadConfig::DbConfig {
-          "rocksdb",
-          db_wsv_path_
-        };
-        config_.block_store_path = !block_store_path ? db_store_path_ : block_store_path;
-      }
-        break;
+        config_.database_config =
+            IrohadConfig::DbConfig{"rocksdb", db_wsv_path_};
+        config_.block_store_path =
+            !block_store_path ? db_store_path_ : block_store_path;
+      } break;
       default:
         assert(!"Unexpected database type.");
         break;

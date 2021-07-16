@@ -24,7 +24,6 @@ namespace iroha {
 
       MOCK_METHOD0(skipChanges, void());
       MOCK_METHOD0(dbSession, DatabaseTransaction &());
-
     };
 
   }  // namespace ametsuchi

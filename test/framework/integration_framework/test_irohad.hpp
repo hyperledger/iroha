@@ -6,11 +6,11 @@
 #ifndef IROHA_TESTIROHAD_HPP
 #define IROHA_TESTIROHAD_HPP
 
+#include "ametsuchi/impl/rocksdb_options.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/test_client_factory.hpp"
 #include "main/application.hpp"
 #include "main/server_runner.hpp"
-#include "ametsuchi/impl/rocksdb_options.hpp"
 
 namespace integration_framework {
   /**

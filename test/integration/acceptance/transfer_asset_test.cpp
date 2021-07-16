@@ -74,7 +74,8 @@ class TransferAsset : public AcceptanceFixture {
     return makeTransfer(kAmount);
   }
 
-  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
   const std::string kAmount = "1.0";
   const std::string kDesc = "description";
@@ -115,16 +116,17 @@ TEST_F(TransferAsset, Basic) {
  */
 TEST_F(TransferAsset, WithoutCanTransfer) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser({}), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(makeTransfer())
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(CHECK_TXS_QUANTITY(0));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser({}), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(makeTransfer())
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -138,18 +140,19 @@ TEST_F(TransferAsset, WithoutCanTransfer) {
  */
 TEST_F(TransferAsset, WithoutCanReceive) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      // TODO(@l4l) 23/06/18: remove permission with IR-1367
-      .sendTxAwait(makeSecondUser({interface::permissions::Role::kAddPeer}),
-                   CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(makeTransfer())
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(CHECK_TXS_QUANTITY(0));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        // TODO(@l4l) 23/06/18: remove permission with IR-1367
+        .sendTxAwait(makeSecondUser({interface::permissions::Role::kAddPeer}),
+                     CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(makeTransfer())
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -163,16 +166,17 @@ TEST_F(TransferAsset, WithoutCanReceive) {
 TEST_F(TransferAsset, NonexistentDest) {
   std::string nonexistent = "inexist@test";
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(complete(baseTx().transferAsset(
-          kUserId, nonexistent, kAssetId, kDesc, kAmount)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(CHECK_TXS_QUANTITY(0));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(complete(baseTx().transferAsset(
+            kUserId, nonexistent, kAssetId, kDesc, kAmount)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -186,17 +190,18 @@ TEST_F(TransferAsset, NonexistentDest) {
 TEST_F(TransferAsset, NonexistentAsset) {
   std::string nonexistent = "inexist#test";
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(complete(baseTx().transferAsset(
-          kUserId, kUser2Id, nonexistent, kDesc, kAmount)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(CHECK_TXS_QUANTITY(0));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(complete(baseTx().transferAsset(
+            kUserId, kUser2Id, nonexistent, kDesc, kAmount)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -209,12 +214,12 @@ TEST_F(TransferAsset, NonexistentAsset) {
  */
 TEST_F(TransferAsset, ZeroAmount) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(makeTransfer("0.0"), CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(makeTransfer("0.0"), CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -226,14 +231,14 @@ TEST_F(TransferAsset, ZeroAmount) {
  */
 TEST_F(TransferAsset, EmptyDesc) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(complete(baseTx().transferAsset(
-                       kUserId, kUser2Id, kAssetId, "", kAmount)),
-                   CHECK_TXS_QUANTITY(1));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(complete(baseTx().transferAsset(
+                         kUserId, kUser2Id, kAssetId, "", kAmount)),
+                     CHECK_TXS_QUANTITY(1));
 }
 
 /**
@@ -247,19 +252,20 @@ TEST_F(TransferAsset, EmptyDesc) {
  */
 TEST_F(TransferAsset, LongDescStateless) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(complete(baseTx().transferAsset(
-                  kUserId,
-                  kUser2Id,
-                  kAssetId,
-                  std::string(
-                      validation::FieldValidator::kMaxDescriptionSize + 1, 'a'),
-                  kAmount)),
-              CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(
+            complete(baseTx().transferAsset(
+                kUserId,
+                kUser2Id,
+                kAssetId,
+                std::string(validation::FieldValidator::kMaxDescriptionSize + 1,
+                            'a'),
+                kAmount)),
+            CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -332,16 +338,17 @@ TEST_F(TransferAsset, LongDescStateful) {
  */
 TEST_F(TransferAsset, MoreThanHas) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets("50.0"), CHECK_TXS_QUANTITY(1))
-      .sendTx(makeTransfer("100.0"))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(CHECK_TXS_QUANTITY(0));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets("50.0"), CHECK_TXS_QUANTITY(1))
+        .sendTx(makeTransfer("100.0"))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -357,23 +364,24 @@ TEST_F(TransferAsset, MoreThanHas) {
  */
 TEST_F(TransferAsset, DestOverflowPrecision1) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(kAmountPrec1Max.toStringRepr()),
-                   CHECK_TXS_QUANTITY(1))
-      // Send the largest possible quantity
-      .sendTxAwait(makeTransfer(kAmountPrec1Max.toStringRepr()),
-                   CHECK_TXS_QUANTITY(1))
-      // Restore sender's balance
-      .sendTxAwait(addAssets("0.1"), CHECK_TXS_QUANTITY(1))
-      // Send the smallest possible quantity
-      .sendTx(makeTransfer("0.1"))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(CHECK_TXS_QUANTITY(0));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(kAmountPrec1Max.toStringRepr()),
+                     CHECK_TXS_QUANTITY(1))
+        // Send the largest possible quantity
+        .sendTxAwait(makeTransfer(kAmountPrec1Max.toStringRepr()),
+                     CHECK_TXS_QUANTITY(1))
+        // Restore sender's balance
+        .sendTxAwait(addAssets("0.1"), CHECK_TXS_QUANTITY(1))
+        // Send the smallest possible quantity
+        .sendTx(makeTransfer("0.1"))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -387,13 +395,13 @@ TEST_F(TransferAsset, DestOverflowPrecision1) {
  */
 TEST_F(TransferAsset, SourceIsDest) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(complete(baseTx().transferAsset(
-                  kUserId, kUserId, kAssetId, kDesc, kAmount)),
-              CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+        .sendTx(complete(baseTx().transferAsset(
+                    kUserId, kUserId, kAssetId, kDesc, kAmount)),
+                CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -427,12 +435,12 @@ TEST_F(TransferAsset, InterDomain) {
       baseTx().transferAsset(kUserId, kUser2Id, kNewAssetId, kDesc, kAmount));
 
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(make_second_user, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(add_assets, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(make_transfer, CHECK_TXS_QUANTITY(1));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(make_second_user, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(add_assets, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(make_transfer, CHECK_TXS_QUANTITY(1));
 }
 
 /**
@@ -484,13 +492,13 @@ TEST_F(TransferAsset, BigPrecision) {
   };
 
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(create_asset, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(add_assets, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(make_transfer, CHECK_TXS_QUANTITY(1))
-      .sendQuery(make_query(kUserId), check_balance(kUserId, kLeft))
-      .sendQuery(make_query(kUser2Id), check_balance(kUser2Id, kForTransfer));
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(create_asset, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(add_assets, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(make_transfer, CHECK_TXS_QUANTITY(1))
+        .sendQuery(make_query(kUserId), check_balance(kUserId, kLeft))
+        .sendQuery(make_query(kUser2Id), check_balance(kUser2Id, kForTransfer));
 }

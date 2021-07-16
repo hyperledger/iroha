@@ -183,7 +183,7 @@ namespace iroha::ametsuchi {
     }
   }
 
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers(){
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers() {
     RocksDbCommon common(db_context_);
     RDB_TRY_GET_VALUE_TO_STR(
         opt_count,
@@ -191,8 +191,8 @@ namespace iroha::ametsuchi {
 
     return *opt_count;
   }
-  
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countDomains(){
+
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countDomains() {
     RocksDbCommon common(db_context_);
     RDB_TRY_GET_VALUE_TO_STR(
         opt_count,
@@ -200,9 +200,9 @@ namespace iroha::ametsuchi {
 
     return opt_count ? *opt_count : 0ull;
   }
-  
-  iroha::expected::Result<size_t, std::string> 
-      RocksDBWsvQuery::countTransactions() {
+
+  iroha::expected::Result<size_t, std::string>
+  RocksDBWsvQuery::countTransactions() {
     RocksDbCommon common(db_context_);
     RDB_TRY_GET_VALUE_TO_STR(
         opt_count,

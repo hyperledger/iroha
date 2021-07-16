@@ -61,7 +61,8 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
 bool OnDemandOrderingServiceImpl::insertBatchToCache(
     std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
   std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
-  if (cached_txs_size_ + boost::size(batch->transactions()) > (transaction_limit_ * 1000ull)) {
+  if (cached_txs_size_ + boost::size(batch->transactions())
+      > (transaction_limit_ * 1000ull)) {
     log_->warn("Transactions cache overload. Batch {} skipped.", *batch);
     return false;
   }

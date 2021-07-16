@@ -45,7 +45,8 @@ RocksDBExecutorTestParam::RocksDBExecutorTestParam() {
   executor_itf_target_ = createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
 
   block_indexer_ = std::make_shared<BlockIndexImpl>(
-      std::make_unique<RocksDBIndexer>(std::make_shared<RocksDBContext>(db_port_)),
+      std::make_unique<RocksDBIndexer>(
+          std::make_shared<RocksDBContext>(db_port_)),
       getTestLogger("RocksDBIndexer"));
 }
 
@@ -65,7 +66,8 @@ void RocksDBExecutorTestParam::clearBackendState() {
   executor_itf_target_ = createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
 
   block_indexer_ = std::make_shared<BlockIndexImpl>(
-      std::make_unique<RocksDBIndexer>(std::make_shared<RocksDBContext>(db_port_)),
+      std::make_unique<RocksDBIndexer>(
+          std::make_shared<RocksDBContext>(db_port_)),
       getTestLogger("RocksDBIndexer"));
 }
 

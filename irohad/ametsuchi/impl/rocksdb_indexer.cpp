@@ -29,8 +29,7 @@ void RocksDBIndexer::txHashStatus(const TxPosition &position,
   std::string h_hex;
   h_hex.reserve(tx_hash.hex().size());
 
-  for (auto const c : tx_hash.hex())
-    h_hex += std::tolower(c);
+  for (auto const c : tx_hash.hex()) h_hex += std::tolower(c);
 
   forTransactionStatus<kDbOperation::kPut>(common, h_hex);
 }
@@ -56,8 +55,7 @@ void RocksDBIndexer::txPositions(
   std::string h_hex;
   h_hex.reserve(hash.hex().size());
 
-  for (auto const c : hash.hex())
-    h_hex += std::tolower(c);
+  for (auto const c : hash.hex()) h_hex += std::tolower(c);
 
   common.valueBuffer().assign(
       fmt::format("{}#{}", asset_id ? *asset_id : "", h_hex));

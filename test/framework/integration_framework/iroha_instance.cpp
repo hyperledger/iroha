@@ -17,7 +17,6 @@
 #include "logger/logger.hpp"
 #include "main/impl/pg_connection_init.hpp"
 
-
 namespace fs = boost::filesystem;
 using namespace std::chrono_literals;
 static constexpr std::chrono::milliseconds kMstEmissionPeriod = 100ms;
@@ -33,7 +32,8 @@ namespace integration_framework {
       const boost::optional<std::string> &dbname)
       : config_(config),
         working_dbname_(dbname.value_or(getRandomDbName())),
-        rocksdb_filepath_((fs::temp_directory_path() / fs::unique_path()).string()),
+        rocksdb_filepath_(
+            (fs::temp_directory_path() / fs::unique_path()).string()),
         listen_ip_(listen_ip),
         opt_mst_gossip_params_(boost::make_optional(
             config_.mst_support,
