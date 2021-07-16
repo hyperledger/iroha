@@ -12,6 +12,8 @@ using namespace shared_model::interface;
 using namespace shared_model::interface::permissions;
 using namespace common_constants;
 
+  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
 /**
  * TODO mboldyrev 18.01.2019 IR-216 remove, covered by
  * postgres_executor_test GrantPermissions.NoAccount
@@ -22,7 +24,8 @@ using namespace common_constants;
  * @then this transaction is stateful invalid
  */
 TEST_F(GrantablePermissionsFixture, GrantToInexistingAccount) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types) {
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeAccountWithPerms(
           kAccount1, kAccount1Keypair, kCanGrantAll, kRole1))
@@ -37,7 +40,7 @@ TEST_F(GrantablePermissionsFixture, GrantToInexistingAccount) {
       .checkVerifiedProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
       .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });}
 }
 
 /**
@@ -54,12 +57,13 @@ TEST_F(GrantablePermissionsFixture, GrantToInexistingAccount) {
  * AND there is a signatory added by the permittee
  */
 TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
+  for (auto const type : storage_types) {
   auto expected_number_of_signatories = 2;
   auto is_contained = true;
   auto check_if_signatory_is_contained = checkSignatorySet(
       kAccount2Keypair, expected_number_of_signatories, is_contained);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   auto &x = createTwoAccounts(
       itf, {Role::kAddMySignatory, Role::kGetMySignatories}, {Role::kReceive});
@@ -73,7 +77,7 @@ TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
           permitteeAddSignatory(kAccount2, kAccount2Keypair, kAccount1),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(querySignatories(kAccount1, kAccount1Keypair),
-                 check_if_signatory_is_contained);
+                 check_if_signatory_is_contained);}
 }
 
 /**
@@ -91,12 +95,13 @@ TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
  * written AND there is no signatory added by the permittee
  */
 TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
+  for (auto const type : storage_types) {
   auto expected_number_of_signatories = 1;
   auto is_contained = false;
   auto check_if_signatory_is_not_contained = checkSignatorySet(
       kAccount2Keypair, expected_number_of_signatories, is_contained);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf,
                     {Role::kAddMySignatory,
@@ -123,7 +128,7 @@ TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
           permitteeRemoveSignatory(kAccount2, kAccount2Keypair, kAccount1),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(querySignatories(kAccount1, kAccount1Keypair),
-                 check_if_signatory_is_not_contained);
+                 check_if_signatory_is_not_contained);}
 }
 
 /**
@@ -141,10 +146,11 @@ TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
  * AND the quorum number of account equals to the number, set by permittee
  */
 TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
+  for (auto const type : storage_types) {
   auto quorum_quantity = 2;
   auto check_quorum_quantity = checkQuorum(quorum_quantity);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(
       itf,
@@ -172,7 +178,7 @@ TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
           setQuorum(kAccount2, kAccount2Keypair, kAccount1, 2),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(queryAccount(kAccount1, kAccount1Keypair),
-                 check_quorum_quantity);
+                 check_quorum_quantity);}
 }
 
 /**
@@ -189,10 +195,11 @@ TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
  * AND the account is able to read the data
  */
 TEST_F(GrantablePermissionsFixture, GrantSetAccountDetailPermission) {
+  for (auto const type : storage_types) {
   auto check_account_detail =
       checkAccountDetail(kAccountDetailKey, kAccountDetailValue);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(
       itf, {Role::kSetMyAccountDetail, Role::kGetMyAccDetail}, {Role::kReceive})
@@ -210,7 +217,7 @@ TEST_F(GrantablePermissionsFixture, GrantSetAccountDetailPermission) {
                            kAccountDetailValue),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(queryAccountDetail(kAccount1, kAccount1Keypair),
-                 check_account_detail);
+                 check_account_detail);}
 }
 
 /**
@@ -229,9 +236,10 @@ TEST_F(GrantablePermissionsFixture, GrantSetAccountDetailPermission) {
  * AND the transfer is made
  */
 TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
+  for (auto const type : storage_types) {
   auto amount_of_asset = "1000.0";
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf,
                     {Role::kTransferMyAssets, Role::kReceive},
@@ -254,7 +262,7 @@ TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
                                   amount_of_asset,
                                   kAccount2),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .done();
+      .done();}
 }
 
 /**
@@ -268,8 +276,9 @@ TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
  * @then this transaction is statefully invalid
  */
 TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
+  for (auto const type : storage_types) {
   for (auto &perm : kAllGrantable) {
-    IntegrationTestFramework itf(1);
+    IntegrationTestFramework itf(1, type);
     itf.setInitialState(kAdminKeypair);
     createTwoAccounts(itf, {Role::kReceive}, {Role::kReceive})
         .sendTx(grantPermission(kAccount1, kAccount1Keypair, kAccount2, perm))
@@ -279,7 +288,7 @@ TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
         })
         .checkBlock(
             [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
-  }
+  }}
 }
 
 /**
@@ -294,7 +303,8 @@ TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
  */
 
 TEST_F(GrantablePermissionsFixture, GrantMoreThanOnce) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {kCanGrantAll}, {Role::kReceive})
       .sendTx(grantPermission(kAccount1,
@@ -312,5 +322,5 @@ TEST_F(GrantablePermissionsFixture, GrantMoreThanOnce) {
       .checkVerifiedProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
       .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });}
 }

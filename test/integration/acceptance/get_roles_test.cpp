@@ -17,6 +17,8 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
+static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
  * common acceptance test
@@ -26,6 +28,7 @@ using namespace common_constants;
  * @then the query returns list of roles
  */
 TEST_F(AcceptanceFixture, CanGetRoles) {
+  for (auto const type : storage_types) {
   auto checkQuery = [](auto &query_response) {
     ASSERT_NO_THROW(boost::get<const shared_model::interface::RolesResponse &>(
         query_response.get()));
@@ -40,14 +43,14 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
                    .signAndAddSignature(kUserKeypair)
                    .finish();
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms(
           {shared_model::interface::permissions::Role::kGetRoles}))
       .skipProposal()
       .checkBlock(
           [](auto &block) { ASSERT_EQ(boost::size(block->transactions()), 1); })
-      .sendQuery(query, checkQuery);
+      .sendQuery(query, checkQuery); }
 }
 
 /**
@@ -59,6 +62,7 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
  * @then there is no way to to get roles due to user hasn't permissions enough
  */
 TEST_F(AcceptanceFixture, CanNotGetRoles) {
+  for (auto const type : storage_types) {
   auto checkQuery = [](auto &query_response) {
     ASSERT_NO_THROW({
       const auto &error_rsp =
@@ -78,7 +82,7 @@ TEST_F(AcceptanceFixture, CanNotGetRoles) {
                    .signAndAddSignature(kUserKeypair)
                    .finish();
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({}))
       .skipProposal()
@@ -87,4 +91,5 @@ TEST_F(AcceptanceFixture, CanNotGetRoles) {
       .checkBlock(
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(query, checkQuery);
+    }
 }

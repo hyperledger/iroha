@@ -18,6 +18,8 @@ using namespace common_constants;
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
+static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
  * common acceptance test
@@ -30,7 +32,8 @@ using shared_model::interface::types::PublicKeyHexStringView;
  * @then transaction would not be committed
  */
 TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
-  IntegrationTestFramework(1)
+    for (auto const type : storage_types) {
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeAccountWithPerms(
           kAccount1, kAccount1Keypair, {Role::kSetMyQuorum}, kRole1))
@@ -48,7 +51,7 @@ TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
           // transaction is not stateful valid (kAccount2 does not exist)
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
       .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });}
 }
 
 /**
@@ -62,7 +65,8 @@ TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
  * @then the second revoke does not pass stateful validation
  */
 TEST_F(GrantablePermissionsFixture, RevokeTwice) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
       .sendTx(grantPermission(kAccount1,
@@ -89,7 +93,7 @@ TEST_F(GrantablePermissionsFixture, RevokeTwice) {
           // permission cannot be revoked twice
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
       .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });}
 }
 
 /**
@@ -105,7 +109,8 @@ TEST_F(GrantablePermissionsFixture, RevokeTwice) {
  * @then revoke fails
  */
 TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {}, {Role::kReceive})
       .sendTxAwait(
@@ -123,7 +128,7 @@ TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
                            kAccount2,
                            permissions::Grantable::kSetMyQuorum),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
-      .done();
+      .done();}
 }
 
 /**
@@ -137,6 +142,7 @@ TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
  */
 TEST_F(GrantablePermissionsFixture,
        RevokeTheGrantedPermissionWithoutPermission) {
+  for (auto const type : storage_types) {
   auto detach_role_tx = GrantablePermissionsFixture::TxBuilder()
                             .createdTime(getUniqueTime())
                             .creatorAccountId(kAdminId)
@@ -146,7 +152,7 @@ TEST_F(GrantablePermissionsFixture,
                             .signAndAddSignature(kAdminKeypair)
                             .finish();
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
       .sendTxAwait(
@@ -168,7 +174,7 @@ TEST_F(GrantablePermissionsFixture,
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
       .checkBlock(
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .done();
+      .done();}
 }
 
 namespace grantables {
@@ -337,7 +343,8 @@ namespace grantables {
    * - checks that the last transaction was failed due to a missing permission
    */
   TYPED_TEST(GrantRevokeFixture, GrantAndRevokePermission) {
-    IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+    IntegrationTestFramework itf(1, type);
     itf.setInitialState(kAdminKeypair);
 
     gpf::createTwoAccounts(itf,
@@ -385,6 +392,7 @@ namespace grantables {
         .checkBlock(
             [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
         .done();
+      }
   }
 
 }  // namespace grantables

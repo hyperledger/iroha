@@ -15,18 +15,24 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class QuorumFixture : public AcceptanceFixture {
  public:
-  QuorumFixture() : itf(1) {}
+  QuorumFixture() {}
 
   void SetUp() override {
+  }
+
+  template<typename F>
+  void executeForItf(F &&f) {
+    for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+      IntegrationTestFramework itf(1, type);
     auto add_public_key_tx = complete(
         baseTx(kAdminId).addSignatory(
             kAdminId, PublicKeyHexStringView{kUserKeypair.publicKey()}),
         kAdminKeypair);
     itf.setInitialState(kAdminKeypair)
         .sendTxAwait(add_public_key_tx, CHECK_TXS_QUANTITY(1));
+      std::forward<F>(f)(itf);
+    }
   }
-
-  IntegrationTestFramework itf;
 };
 
 /**
@@ -39,10 +45,11 @@ class QuorumFixture : public AcceptanceFixture {
  * @then the transaction is committed
  */
 TEST_F(QuorumFixture, CanRaiseQuorum) {
+    executeForItf([&](auto &itf) {
   const auto new_quorum = 2;
   auto raise_quorum_tx = complete(
       baseTx(kAdminId).setAccountQuorum(kAdminId, new_quorum), kAdminKeypair);
-  itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(1));
+  itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(1));});
 }
 
 /**
@@ -55,10 +62,11 @@ TEST_F(QuorumFixture, CanRaiseQuorum) {
  * @then the transaction did not pass stateful validation
  */
 TEST_F(QuorumFixture, CannotRaiseQuorumMoreThanSignatures) {
+  executeForItf([&](auto &itf) {
   const auto new_quorum = 3;
   auto raise_quorum_tx = complete(
       baseTx(kAdminId).setAccountQuorum(kAdminId, new_quorum), kAdminKeypair);
-  itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(0));
+  itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(0));});
 }
 
 /**
@@ -70,6 +78,7 @@ TEST_F(QuorumFixture, CannotRaiseQuorumMoreThanSignatures) {
  * @then all the transactions are committed
  */
 TEST_F(QuorumFixture, CanLowerQuorum) {
+  executeForItf([&](auto &itf) {
   const auto first_quorum = 2;
   const auto second_quorum = 1;
   auto raise_quorum_tx = complete(
@@ -82,7 +91,7 @@ TEST_F(QuorumFixture, CanLowerQuorum) {
                              .signAndAddSignature(kUserKeypair)
                              .finish();
   itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(1));
-  itf.sendTxAwait(lower_quorum_tx, CHECK_TXS_QUANTITY(1));
+  itf.sendTxAwait(lower_quorum_tx, CHECK_TXS_QUANTITY(1));});
 }
 
 /**
@@ -93,8 +102,9 @@ TEST_F(QuorumFixture, CanLowerQuorum) {
  * @then the transaction did not pass stateless validation
  */
 TEST_F(QuorumFixture, CannotSetZeroQuorum) {
+  executeForItf([&](auto &itf) {
   const auto quorum = 0;
   auto quorum_tx = complete(baseTx(kAdminId).setAccountQuorum(kAdminId, quorum),
                             kAdminKeypair);
-  itf.sendTx(quorum_tx, CHECK_STATELESS_INVALID);
+  itf.sendTx(quorum_tx, CHECK_STATELESS_INVALID);});
 }

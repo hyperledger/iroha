@@ -18,6 +18,8 @@ using namespace common_constants;
 
 class HeavyTransactionTest : public AcceptanceFixture {
  public:
+static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
   /**
    * Creates the transaction with the user creation commands
    * @param perms are the permissions of the user
@@ -65,7 +67,8 @@ class HeavyTransactionTest : public AcceptanceFixture {
  */
 TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
   auto number_of_txes = 4u;
-  IntegrationTestFramework itf(number_of_txes + 1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(number_of_txes + 1, type);
 
   itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
 
@@ -77,6 +80,7 @@ TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
     ASSERT_EQ(b->transactions().size(), number_of_txes + 1);
   });
 }
+}
 
 /**
  * TODO: enable the test when performance issues are solved
@@ -86,12 +90,13 @@ TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
  * @then transaction is passed
  */
 TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
+  for (auto const type : storage_types) {
   auto big_data = generateData(3 * 1024 * 1024);
   auto large_tx_builder = setAcountDetailTx("foo_1", big_data)
                               .setAccountDetail(kUserId, "foo_2", big_data)
                               .setAccountDetail(kUserId, "foo_3", big_data);
 
-  IntegrationTestFramework(2)
+  IntegrationTestFramework(2, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -99,7 +104,7 @@ TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
       .skipBlock()
       .sendTxAwait(complete(large_tx_builder), [](auto &block) {
         ASSERT_EQ(block->transactions().size(), 2);
-      });
+      });}
 }
 
 /**
@@ -113,6 +118,7 @@ TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
  * @then query executed successfully
  */
 TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
+  for (auto const type : storage_types) {
   auto number_of_times = 15u;
   auto size_of_data = 3 * 1024 * 1024u;
   auto data = generateData(size_of_data);
@@ -137,7 +143,7 @@ TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
     });
   };
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
 
   for (auto i = 0u; i < number_of_times; ++i) {
@@ -149,4 +155,5 @@ TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
   // The query works fine only with ITF. It doesn't work in production version
   // of Iroha
   itf.sendQuery(complete(baseQuery().getAccount(kUserId)), query_checker);
+}
 }
