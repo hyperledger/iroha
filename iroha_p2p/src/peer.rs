@@ -5,7 +5,8 @@ use std::{
 
 use async_stream::stream;
 use futures::Stream;
-use iroha_actor::{Actor, Context, Handler, Recipient};
+use iroha_actor::{broker::Broker, Actor, Context, Handler};
+use iroha_data_model::peer::Id;
 use iroha_logger::{debug, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
@@ -16,6 +17,8 @@ use tokio::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
         TcpStream,
     },
+    time,
+    time::Duration,
 };
 use ursa::{
     encryption::symm::{Encryptor, SymmetricEncryptor},
@@ -24,12 +27,14 @@ use ursa::{
 };
 
 use crate::{
-    network::{Post, Received},
+    network::{PeerMessage, Post},
     Error, Message, MessageResult,
 };
 
 const MAX_MESSAGE_LENGTH: usize = 2 * 1024 * 1024;
 const MAX_HANDSHAKE_LENGTH: usize = 255;
+const MAX_CONNECTION_RETRY_COUNT: u64 = 100;
+const CONNECTION_RETRY_PERIOD: u64 = 500;
 /// Default associated data for AEAD
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
@@ -55,10 +60,12 @@ where
     pub public_key: PublicKey,
     /// Encryptor created from session key, that we got by Diffie-Hellman scheme
     pub cipher: Option<SymmetricEncryptor<E>>,
-    /// The handle to [`Network`], to be able to send received messages upstairs
-    pub network: Recipient<Received<T>>,
+    /// The to send received messages upstairs
+    pub broker: Broker,
     /// Phantom
     pub _key_exchange: PhantomData<K>,
+    /// Phantom2
+    pub _post_type: PhantomData<T>,
 }
 
 impl<T, K, E> Peer<T, K, E>
@@ -74,7 +81,7 @@ where
         id: PeerId,
         stream: Option<TcpStream>,
         state: State,
-        network: Recipient<Received<T>>,
+        broker: Broker,
     ) -> Result<Self, Error> {
         // P2P encryption primitives
         let dh = K::new();
@@ -99,27 +106,24 @@ where
             secret_key,
             public_key,
             cipher: None,
-            network,
+            broker,
             _key_exchange: PhantomData::default(),
+            _post_type: PhantomData::default(),
         })
     }
 
     /// Creates an incoming peer
     /// # Errors
     /// If `new_inner()` errors.
-    pub fn new_from(
-        id: PeerId,
-        stream: TcpStream,
-        network: Recipient<Received<T>>,
-    ) -> Result<Self, Error> {
-        Self::new_inner(id, Some(stream), State::ConnectedFrom, network)
+    pub fn new_from(id: PeerId, stream: TcpStream, broker: Broker) -> Result<Self, Error> {
+        Self::new_inner(id, Some(stream), State::ConnectedFrom, broker)
     }
 
     /// Creates an outgoing peer
     /// # Errors
     /// If `new_inner()` errors.
-    pub fn new_to(id: PeerId, network: Recipient<Received<T>>) -> Result<Self, Error> {
-        Self::new_inner(id, None, State::Connecting, network)
+    pub fn new_to(id: PeerId, broker: Broker) -> Result<Self, Error> {
+        Self::new_inner(id, None, State::Connecting, broker)
     }
 
     fn stream(mut read: OwnedReadHalf) -> impl Stream<Item = MessageResult> + Send + 'static {
@@ -143,7 +147,7 @@ where
         let state = self.state;
         debug!(%state, "Attempting handshake");
         match &self.state {
-            State::Connecting => self.connect().await,
+            State::Connecting => self.connect().await?,
             State::ConnectedTo => self.send_client_hello().await?,
             State::ConnectedFrom => self.read_client_hello().await?,
             State::Ready => warn!("Not doing handshake, already ready."),
@@ -208,7 +212,7 @@ where
     }
 
     /// Creates a connection to other peer
-    async fn connect(&mut self) {
+    async fn connect(&mut self) -> Result<(), Error> {
         let addr = self.id.address.clone();
         let stream = TcpStream::connect(addr.clone()).await;
         match stream {
@@ -217,9 +221,11 @@ where
                 self.read = Some(read);
                 self.write = Some(write);
                 self.state = State::ConnectedTo;
+                Ok(())
             }
-            Err(e) => {
-                warn!(%e, "Could not connect to peer on {}!", addr);
+            Err(error) => {
+                debug!(%error, "Could not connect to peer on {}!", addr);
+                Err(Error::Io(error))
             }
         }
     }
@@ -247,18 +253,36 @@ where
 #[async_trait::async_trait]
 impl<T, K, E> Actor for Peer<T, K, E>
 where
-    T: Encode + Decode + Send + Clone + 'static,
+    T: Encode + Decode + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
+        debug!(
+            "Starting actor for connection with peer {}",
+            &self.id.address
+        );
+        let mut count = 0;
         while self.state != State::Ready {
             if let Err(e) = self.handshake().await {
-                warn!(%e, "Error connecting to peer {}, bailing.", &self.id.address);
-                break;
+                warn!("Error connecting to peer {}. {}", &self.id.address, e);
+                if count < MAX_CONNECTION_RETRY_COUNT {
+                    count += 1;
+                    let delay = CONNECTION_RETRY_PERIOD * count;
+                    debug!(%e, "Error connecting to peer {}, waiting {}ms before retry.", &self.id.address, delay);
+                    time::sleep(Duration::from_millis(delay)).await;
+                    continue;
+                }
+                debug!(%e, "Error connecting to peer {}, bailing.", &self.id.address);
+                let message = PeerMessage::<T>::Disconnected(self.id.clone());
+                self.broker.issue_send(message).await;
+                return;
             }
         }
         debug!("Handshake with {:?} finished", &self.id);
+        let message = PeerMessage::<T>::Connected(self.id.clone());
+        self.broker.issue_send(message).await;
+
         #[allow(clippy::unwrap_used)]
         let read: OwnedReadHalf = self.read.take().unwrap();
 
@@ -270,7 +294,7 @@ where
 #[async_trait::async_trait]
 impl<T, K, E> Handler<MessageResult> for Peer<T, K, E>
 where
-    T: Encode + Decode + Send + Clone + 'static,
+    T: Encode + Decode + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
@@ -298,13 +322,11 @@ where
                 }
             },
         };
-        match Decode::decode(&mut data.as_slice()) {
+        let decoded: Result<T, _> = Decode::decode(&mut data.as_slice());
+        match decoded {
             Ok(data) => {
-                let msg = Received {
-                    data,
-                    id: self.id.clone(),
-                };
-                self.network.send(msg).await;
+                let message = PeerMessage::Message(self.id.clone(), data);
+                self.broker.issue_send(message).await;
             }
             Err(e) => warn!(%e, "Error parsing message!"),
         }
@@ -314,7 +336,7 @@ where
 #[async_trait::async_trait]
 impl<T, K, E> Handler<Post<T>> for Peer<T, K, E>
 where
-    T: Encode + Decode + Send + Clone + 'static,
+    T: Encode + Decode + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
@@ -455,6 +477,15 @@ pub struct PeerId {
     pub public_key: Option<iroha_crypto::PublicKey>,
 }
 
+impl From<iroha_data_model::peer::Id> for PeerId {
+    fn from(id: Id) -> Self {
+        Self {
+            address: id.address,
+            public_key: Some(id.public_key),
+        }
+    }
+}
+
 /// Just a placeholder, that can skip garbage bytes and generate them.
 struct Garbage {
     garbage: Vec<u8>,
@@ -483,115 +514,5 @@ impl Garbage {
         let mut buf = vec![0_u8; size];
         let _ = stream.read_exact(&mut buf).await?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use std::{fmt::Debug, time::Duration};
-
-    use iroha_actor::Addr;
-    use iroha_logger::{config::LoggerConfiguration, info};
-    use tokio::{
-        net::TcpListener,
-        sync::mpsc::{self, Receiver},
-        time,
-    };
-    use ursa::{encryption::symm::chacha20poly1305::ChaCha20Poly1305, kex::x25519::X25519Sha256};
-
-    use super::*;
-
-    #[derive(iroha_actor::Message, Clone, Debug, Decode, Encode)]
-    struct TestMessage(String);
-
-    fn peer_id() -> PeerId {
-        #[allow(clippy::expect_used)]
-        let port = unique_port::get_unique_free_port().expect("Unable to create free port");
-        let address = format!("127.0.0.1:{}", port);
-        PeerId {
-            address,
-            public_key: None,
-        }
-    }
-
-    fn peer_to<T, K, E>(id: PeerId) -> (Peer<T, K, E>, Receiver<Received<T>>)
-    where
-        T: Encode + Decode + Send + Clone + 'static + Debug,
-        K: KeyExchangeScheme + Send + 'static,
-        E: Encryptor + Send + 'static,
-    {
-        let (sender, receiver) = mpsc::channel(100);
-        (Peer::new_to(id, sender.into()).unwrap(), receiver)
-    }
-
-    fn peer_from<T, K, E>(id: PeerId, stream: TcpStream) -> (Peer<T, K, E>, Receiver<Received<T>>)
-    where
-        T: Encode + Decode + Send + Clone + 'static + Debug,
-        K: KeyExchangeScheme + Send + 'static,
-        E: Encryptor + Send + 'static,
-    {
-        let (sender, receiver) = mpsc::channel(100);
-        (Peer::new_from(id, stream, sender.into()).unwrap(), receiver)
-    }
-
-    async fn peer_ping_pong<T, K, E>() -> (
-        (Addr<Peer<T, K, E>>, Receiver<Received<T>>),
-        (Addr<Peer<T, K, E>>, Receiver<Received<T>>),
-    )
-    where
-        T: Encode + Decode + Send + Clone + 'static + Debug,
-        K: KeyExchangeScheme + Send + 'static,
-        E: Encryptor + Send + 'static,
-    {
-        let id = peer_id();
-        let listener = TcpListener::bind(&id.address).await.unwrap();
-        let jh = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            stream
-        });
-
-        let (to, to_recv) = peer_to(id.clone());
-        let to = to.start().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let (from, from_recv) = peer_from(id, jh.await.unwrap());
-        let from = from.start().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        ((to, to_recv), (from, from_recv))
-    }
-
-    #[tokio::test]
-    async fn message_ping_pong() {
-        drop(iroha_logger::init(LoggerConfiguration::default()).unwrap());
-        info!("Starting network tests...");
-
-        let ((to, mut to_recv), (from, mut from_recv)) = time::timeout(
-            Duration::from_secs(1),
-            peer_ping_pong::<TestMessage, X25519Sha256, ChaCha20Poly1305>(),
-        )
-        .await
-        .unwrap();
-
-        let text = String::from("Some data to send to peer");
-
-        // Sending message in one direction...
-        let post = Post {
-            data: TestMessage(text.clone()),
-            id: peer_id(),
-        };
-        to.do_send(post).await;
-        let message = from_recv.recv().await.unwrap();
-        assert_eq!(message.data.0, text.clone());
-
-        // Sending message to other direction...
-        let post = Post {
-            data: TestMessage(text.clone()),
-            id: peer_id(),
-        };
-        from.do_send(post).await;
-        let message = to_recv.recv().await.unwrap();
-        assert_eq!(message.data.0, text.clone());
     }
 }

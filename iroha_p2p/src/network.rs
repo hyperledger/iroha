@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{Debug, Formatter},
     io,
     net::SocketAddr,
@@ -9,7 +9,7 @@ use async_stream::stream;
 use futures::Stream;
 use iroha_actor::{
     broker::{Broker, BrokerMessage},
-    Actor, Addr, Context, ContextHandler, Handler,
+    Actor, Addr, Context, Handler,
 };
 use iroha_logger::{info, warn};
 use parity_scale_codec::{Decode, Encode};
@@ -24,12 +24,14 @@ use crate::{
 /// Main network layer structure, that is holding connections, called [`Peer`]s.
 pub struct NetworkBase<T, K, E>
 where
-    T: Encode + Decode + BrokerMessage + Send + Clone + 'static,
+    T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
     /// Current peers in any state
     pub peers: HashMap<PeerId, Addr<Peer<T, K, E>>>,
+    /// A set of connected peers, ready to work with
+    pub connected_peers: HashSet<PeerId>,
     /// `TcpListener` that is accepting peers' connections
     pub listener: Option<TcpListener>,
     /// Broker doing internal communication
@@ -38,7 +40,7 @@ where
 
 impl<T, K, E> NetworkBase<T, K, E>
 where
-    T: Encode + Decode + BrokerMessage + Send + Clone + 'static,
+    T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
@@ -51,6 +53,7 @@ where
         let listener = TcpListener::bind(addr).await?;
         Ok(Self {
             peers: HashMap::new(),
+            connected_peers: HashSet::new(),
             listener: Some(listener),
             broker,
         })
@@ -102,7 +105,7 @@ where
         // to start connections
         self.broker.subscribe::<Connect, _>(ctx);
         // from peer
-        self.broker.subscribe::<Received<T>, _>(ctx);
+        self.broker.subscribe::<PeerMessage<T>, _>(ctx);
         // from other iroha subsystems
         self.broker.subscribe::<Post<T>, _>(ctx);
         // register for peers from listener
@@ -116,7 +119,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<T, K, E> ContextHandler<Connect> for NetworkBase<T, K, E>
+impl<T, K, E> Handler<Connect> for NetworkBase<T, K, E>
 where
     T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
@@ -124,9 +127,8 @@ where
 {
     type Result = ();
 
-    async fn handle(&mut self, ctx: &mut Context<Self>, Connect { id }: Connect) {
-        let addr = ctx.recipient();
-        match Peer::new_to(id.clone(), addr) {
+    async fn handle(&mut self, Connect { id }: Connect) {
+        match Peer::new_to(id.clone(), self.broker.clone()) {
             Ok(peer) => {
                 let peer = peer.start().await;
                 drop(self.peers.insert(id, peer));
@@ -152,6 +154,30 @@ where
 }
 
 #[async_trait::async_trait]
+impl<T, K, E> Handler<PeerMessage<T>> for NetworkBase<T, K, E>
+where
+    T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
+    K: KeyExchangeScheme + Send + 'static,
+    E: Encryptor + Send + 'static,
+{
+    type Result = ();
+
+    async fn handle(&mut self, msg: PeerMessage<T>) {
+        match msg {
+            PeerMessage::Connected(id) => {
+                let _ = self.connected_peers.insert(id);
+            }
+            PeerMessage::Disconnected(id) => {
+                let _ = self.connected_peers.remove(&id);
+            }
+            PeerMessage::Message(_id, msg) => {
+                self.broker.issue_send(msg).await;
+            }
+        };
+    }
+}
+
+#[async_trait::async_trait]
 impl<T, K, E> Handler<Received<T>> for NetworkBase<T, K, E>
 where
     T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
@@ -161,13 +187,28 @@ where
     type Result = ();
 
     async fn handle(&mut self, msg: Received<T>) {
-        // TODO: send peer id to Torii?
         self.broker.issue_send(msg.data).await;
     }
 }
 
 #[async_trait::async_trait]
-impl<T, K, E> ContextHandler<NewPeer> for NetworkBase<T, K, E>
+impl<T, K, E> Handler<GetConnectedPeers> for NetworkBase<T, K, E>
+where
+    T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
+    K: KeyExchangeScheme + Send + 'static,
+    E: Encryptor + Send + 'static,
+{
+    type Result = ConnectedPeers;
+
+    async fn handle(&mut self, GetConnectedPeers: GetConnectedPeers) -> Self::Result {
+        ConnectedPeers {
+            peers: self.connected_peers.clone(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<T, K, E> Handler<NewPeer> for NetworkBase<T, K, E>
 where
     T: Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
@@ -175,7 +216,7 @@ where
 {
     type Result = ();
 
-    async fn handle(&mut self, ctx: &mut Context<Self>, NewPeer(peer): NewPeer) {
+    async fn handle(&mut self, NewPeer(peer): NewPeer) {
         let (stream, id) = match peer {
             Ok(peer) => peer,
             Err(error) => {
@@ -183,7 +224,7 @@ where
                 return;
             }
         };
-        match Peer::new_from(id.clone(), stream, ctx.recipient()) {
+        match Peer::new_from(id.clone(), stream, self.broker.clone()) {
             Ok(peer) => {
                 let peer = peer.start().await;
                 drop(self.peers.insert(id, peer));
@@ -198,6 +239,29 @@ where
 pub struct Connect {
     /// Peer identification
     pub id: PeerId,
+}
+
+/// The message that is sent to [`Network`] to get connected peers' ids.
+#[derive(Clone, Copy, Debug, iroha_actor::Message)]
+#[message(result = "ConnectedPeers")]
+pub struct GetConnectedPeers;
+
+/// The message that is sent from [`Network`] back as an answer to [`GetConnectedPeers`] message.
+#[derive(Clone, Debug, iroha_actor::Message)]
+pub struct ConnectedPeers {
+    /// Connected peers' ids
+    pub peers: HashSet<PeerId>,
+}
+
+/// Variants of messages from [`Peer`] - connection state changes and data messages
+#[derive(Clone, Debug, iroha_actor::Message, Decode)]
+pub enum PeerMessage<T: Encode + Decode> {
+    /// Peer just connected and finished handshake
+    Connected(PeerId),
+    /// Peer disconnected
+    Disconnected(PeerId),
+    /// Peer sent some message
+    Message(PeerId, T),
 }
 
 /// The message received from other peer.
