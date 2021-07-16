@@ -21,8 +21,9 @@ using namespace iroha::network;
  */
 TEST(MstNetInteraction, TypelessCommand) {
   bool enable_mst = true;
+  for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
   IntegrationTestFramework itf(
-      1, {}, iroha::StartupWsvDataPolicy::kDrop, true, enable_mst);
+      1, type, {}, iroha::StartupWsvDataPolicy::kDrop, true, enable_mst);
   itf.setInitialState(kAdminKeypair);
   auto internal_port = itf.internalPort();
 
@@ -37,4 +38,5 @@ TEST(MstNetInteraction, TypelessCommand) {
   transaction->mutable_payload()->mutable_reduced_payload()->add_commands();
 
   client->SendState(&context, state, &response);
+}
 }

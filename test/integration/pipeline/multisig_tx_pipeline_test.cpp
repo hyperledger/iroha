@@ -22,8 +22,7 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class MstPipelineTest : public AcceptanceFixture {
  public:
-  MstPipelineTest()
-      : mst_itf_{1, {}, iroha::StartupWsvDataPolicy::kDrop, true, true} {}
+  MstPipelineTest() = default;
 
   /**
    * Creates a mst user
@@ -193,14 +192,17 @@ class MstPipelineTest : public AcceptanceFixture {
 
   /**
    * Prepares an instance of ITF with MST turned on
+   * @and different DB types
    * @return reference to the MST ITF
    */
-  IntegrationTestFramework &prepareMstItf() {
-    mst_itf_.setInitialState(kAdminKeypair);
-    return makeMstUser(mst_itf_);
+  template<typename F>
+  void executeForItf(F &&f) {
+    for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+      IntegrationTestFramework mst_itf(1, type, {}, iroha::StartupWsvDataPolicy::kDrop, true, true);
+      mst_itf.setInitialState(kAdminKeypair);
+      std::forward<F>(f)(makeMstUser(mst_itf));
+    }
   }
-
-  IntegrationTestFramework mst_itf_;
 
   const std::string kNewRole = "rl"s;
   static const size_t kSignatories = 2;
@@ -218,12 +220,13 @@ TEST_F(MstPipelineTest, OnePeerSendsTest) {
                 .quorum(kSignatories + 1);
   auto hash = tx.build().hash();
 
-  auto &mst_itf = prepareMstItf();
+  executeForItf([&](auto &mst_itf) {
   mst_itf.sendTx(complete(tx, kUserKeypair))
       .sendTx(complete(tx, signatories[0]))
       .sendTxAwait(complete(tx, signatories[1]), [](auto &block) {
         ASSERT_EQ(block->transactions().size(), 1);
       });
+    });
 }
 
 /**
@@ -238,7 +241,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsAwaitingForThisPeer) {
                         .setAccountDetail(kUserId, "fav_meme", "doge")
                         .quorum(kSignatories + 1);
 
-  auto &mst_itf = prepareMstItf();
+executeForItf([&](auto &mst_itf) {
   auto signed_tx = complete(pending_tx, kUserKeypair);
 
   auto pending_tx_check = [pending_hash = signed_tx.hash()](auto &response) {
@@ -251,7 +254,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsAwaitingForThisPeer) {
 
   // send pending transaction, signing it only with one signatory
   mst_itf.sendTx(signed_tx).sendQuery(
-      makeGetPendingTxsQuery(kUserId, kUserKeypair), pending_tx_check);
+      makeGetPendingTxsQuery(kUserId, kUserKeypair), pending_tx_check);});
 }
 
 /**
@@ -271,11 +274,12 @@ TEST_F(MstPipelineTest, OldGetPendingTxsLatestSignatures) {
   // make the same queries have different hashes with help of timestamps
   const auto q1 = makeGetPendingTxsQuery(kUserId, kUserKeypair);
   const auto q2 = makeGetPendingTxsQuery(kUserId, kUserKeypair);
-  auto &mst_itf = prepareMstItf();
+
+  executeForItf([&](auto &mst_itf) {
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
       .sendQuery(q1, oldSignatoryCheck(1))
       .sendTx(complete(pending_tx, signatories[1]))
-      .sendQuery(q2, oldSignatoryCheck(2));
+      .sendQuery(q2, oldSignatoryCheck(2));});
 }
 
 /**
@@ -292,7 +296,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
                         .quorum(kSignatories + 1);
   auto user_tx = complete(pending_tx, kUserKeypair);
 
-  auto &mst_itf = prepareMstItf();
+  executeForItf([&](auto &mst_itf) {
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
       .sendTx(complete(pending_tx, signatories[1]))
       .sendTx(user_tx)
@@ -302,7 +306,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
       })
       .skipVerifiedProposal()
       .skipBlock()
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
+      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);});
 }
 
 /**
@@ -314,7 +318,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
  * @then there should be no pending transactions
  */
 TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
-  auto &mst_itf = prepareMstItf();
+  executeForItf([&](auto &mst_itf) {
   auto pending_tx =
       baseTx().setAccountDetail(kUserId, "age", "10").quorum(kSignatories + 1);
 
@@ -332,7 +336,7 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
       })
       .skipVerifiedProposal()
       .skipBlock()
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
+      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);});
 }
 
 /**
@@ -346,7 +350,7 @@ TEST_F(MstPipelineTest, GetPendingTxsAwaitingForThisPeer) {
                         .setAccountDetail(kUserId, "fav_meme", "doge")
                         .quorum(kSignatories + 1);
 
-  auto &mst_itf = prepareMstItf();
+  executeForItf([&](auto &mst_itf) {
   auto signed_tx = complete(pending_tx, kUserKeypair);
 
   auto pending_tx_check = [pending_hash = signed_tx.hash()](auto &response) {
@@ -361,7 +365,7 @@ TEST_F(MstPipelineTest, GetPendingTxsAwaitingForThisPeer) {
   // send pending transaction, signing it only with one signatory
   mst_itf.sendTx(signed_tx).sendQuery(
       makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-      pending_tx_check);
+      pending_tx_check);});
 }
 
 /**
@@ -380,11 +384,12 @@ TEST_F(MstPipelineTest, GetPendingTxsLatestSignatures) {
   // make the same queries have different hashes with the help of timestamps
   const auto q1 = makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize);
   const auto q2 = makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize);
-  auto &mst_itf = prepareMstItf();
+
+  executeForItf([&](auto &mst_itf) {
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
       .sendQuery(q1, signatoryCheck(1))
       .sendTx(complete(pending_tx, signatories[1]))
-      .sendQuery(q2, signatoryCheck(2));
+      .sendQuery(q2, signatoryCheck(2));});
 }
 
 /**
@@ -400,7 +405,7 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
                         .quorum(kSignatories + 1);
   auto user_tx = complete(pending_tx, kUserKeypair);
 
-  auto &mst_itf = prepareMstItf();
+    executeForItf([&](auto &mst_itf) {
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
       .sendTx(complete(pending_tx, signatories[1]))
       .sendTx(user_tx)
@@ -411,7 +416,7 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
       .skipVerifiedProposal()
       .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-                 noTxsCheck);
+                 noTxsCheck);});
 }
 
 /**
@@ -422,7 +427,7 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
  */
 TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
   const auto kPageSize = 100u;
-  auto &mst_itf = prepareMstItf();
+    executeForItf([&](auto &mst_itf) {
   auto pending_tx =
       baseTx().setAccountDetail(kUserId, "age", "10").quorum(kSignatories + 1);
 
@@ -441,5 +446,5 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
       .skipVerifiedProposal()
       .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-                 noTxsCheck);
+                 noTxsCheck);});
 }

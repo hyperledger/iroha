@@ -22,6 +22,8 @@ using shared_model::interface::permissions::Role;
 
 class EngineCall : public AcceptanceFixture {
  public:
+  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres};
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms =
                              shared_model::interface::RolePermissionSet()) {
     return AcceptanceFixture::makeUserWithPerms(perms);
@@ -283,7 +285,8 @@ class EngineCall : public AcceptanceFixture {
  * @then there is the tx in proposal
  */
 TEST_F(EngineCall, Basic) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(
           makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
@@ -323,10 +326,12 @@ TEST_F(EngineCall, Basic) {
       .sendTxAwait(
           complete(baseTx().callEngine(kUserId, callee, inputCallGetter)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    }
 }
 
 TEST_F(EngineCall, CreatorStorageSmartContract) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(
           makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
@@ -366,6 +371,7 @@ TEST_F(EngineCall, CreatorStorageSmartContract) {
       .sendTxAwait(
           complete(baseTx().callEngine(kUserId, callee, getMsgSender)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    }
 }
 
 /**
@@ -375,7 +381,8 @@ TEST_F(EngineCall, CreatorStorageSmartContract) {
  * @then the tx successfully makes it into the proposal
  */
 TEST_F(EngineCall, QueryAccountBalance) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
@@ -422,6 +429,7 @@ TEST_F(EngineCall, QueryAccountBalance) {
       complete(baseTx().callEngine(kUserId, callee, getBalance)),
       [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
+}
 
 /**
  * @given some user in Iroha in possession of some asset
@@ -429,7 +437,8 @@ TEST_F(EngineCall, QueryAccountBalance) {
  * @then the tx gets to the block and the resulting accounts balances tally
  */
 TEST_F(EngineCall, TransferAsset) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
@@ -481,6 +490,7 @@ TEST_F(EngineCall, TransferAsset) {
       complete(baseTx().callEngine(kUserId, callee, transferAsset)),
       [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
+}
 
 /**
  * @given some user in Iroha in possession of some asset
@@ -488,7 +498,8 @@ TEST_F(EngineCall, TransferAsset) {
  * @then the tx is not included in the block
  */
 TEST_F(EngineCall, AccountMissingError) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
@@ -537,6 +548,7 @@ TEST_F(EngineCall, AccountMissingError) {
       complete(baseTx().callEngine(kUserId, callee, transferAsset)),
       [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
+}
 
 /**
  * @given some user in Iroha without a permission for transfer
@@ -544,7 +556,8 @@ TEST_F(EngineCall, AccountMissingError) {
  * @then the tx is discarded
  */
 TEST_F(EngineCall, PermissionError) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
@@ -595,6 +608,7 @@ TEST_F(EngineCall, PermissionError) {
       complete(baseTx().callEngine(kUserId, callee, transferAsset)),
       [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
+}
 
 /**
  * @given some user in Iroha holding some asset
@@ -602,7 +616,8 @@ TEST_F(EngineCall, PermissionError) {
  * @then the tx is discarded
  */
 TEST_F(EngineCall, InsufficientBalanceError) {
-  IntegrationTestFramework itf(1);
+  for (auto const type : storage_types) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
@@ -652,4 +667,5 @@ TEST_F(EngineCall, InsufficientBalanceError) {
   itf.sendTxAwait(
       complete(baseTx().callEngine(kUserId, callee, transferAsset)),
       [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+}
 }

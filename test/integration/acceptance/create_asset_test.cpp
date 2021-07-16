@@ -15,6 +15,8 @@ using namespace common_constants;
 
 class CreateAssetFixture : public AcceptanceFixture {
  public:
+  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateAsset}) {
     return AcceptanceFixture::makeUserWithPerms(perms);
@@ -45,7 +47,9 @@ class CreateAssetFixture : public AcceptanceFixture {
 TEST_F(CreateAssetFixture, Basic) {
   const auto asset_id = kAnotherAssetName + "#" + kDomain;
   const auto asset_amount = "100.0";
-  IntegrationTestFramework(1)
+
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kCreateAsset,
                                  interface::permissions::Role::kAddAssetQty}))
@@ -75,7 +79,8 @@ TEST_F(CreateAssetFixture, Basic) {
  * @then stateful validation failed
  */
 TEST_F(CreateAssetFixture, ExistingName) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -103,7 +108,8 @@ TEST_F(CreateAssetFixture, ExistingName) {
  * @then stateful validation failed
  */
 TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -132,7 +138,8 @@ TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
  * @then stateful validation is failed
  */
 TEST_F(CreateAssetFixture, WithoutPermission) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms({}),
@@ -159,7 +166,8 @@ TEST_F(CreateAssetFixture, WithoutPermission) {
  * @then stateful validation will be failed
  */
 TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),

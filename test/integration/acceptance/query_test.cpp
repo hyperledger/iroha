@@ -73,7 +73,8 @@ TEST_F(QueryAcceptanceTest, ParallelBlockQuery) {
     });
   };
 
-  IntegrationTestFramework itf(1);
+  for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+  IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -103,4 +104,5 @@ TEST_F(QueryAcceptanceTest, ParallelBlockQuery) {
   }
 
   itf.done();
+}
 }

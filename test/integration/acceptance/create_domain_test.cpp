@@ -13,6 +13,8 @@ using namespace common_constants;
 
 class CreateDomain : public AcceptanceFixture {
  public:
+  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateDomain}) {
     return AcceptanceFixture::makeUserWithPerms(perms);
@@ -30,7 +32,8 @@ class CreateDomain : public AcceptanceFixture {
  * @then there is the tx in proposal
  */
 TEST_F(CreateDomain, Basic) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -49,7 +52,8 @@ TEST_F(CreateDomain, Basic) {
  * @then verified proposal is empty
  */
 TEST_F(CreateDomain, NoPermissions) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kGetMyTxs}))
       .skipProposal()
@@ -73,7 +77,8 @@ TEST_F(CreateDomain, NoPermissions) {
  */
 TEST_F(CreateDomain, NoRole) {
   const std::string nonexistent_role = "asdf";
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -96,7 +101,8 @@ TEST_F(CreateDomain, NoRole) {
  * @then verified proposal is empty
  */
 TEST_F(CreateDomain, ExistingName) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -124,7 +130,8 @@ TEST_F(CreateDomain, MaxLenName) {
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad";
-  IntegrationTestFramework(1)
+      for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -143,7 +150,8 @@ TEST_F(CreateDomain, MaxLenName) {
  *       (aka skipProposal throws)
  */
 TEST_F(CreateDomain, TooLongName) {
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -162,7 +170,8 @@ TEST_F(CreateDomain, TooLongName) {
  */
 TEST_F(CreateDomain, EmptyName) {
   std::string empty_name = "";
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -181,7 +190,8 @@ TEST_F(CreateDomain, EmptyName) {
  */
 TEST_F(CreateDomain, DISABLED_EmptyRoleName) {
   std::string empty_name = "";
-  IntegrationTestFramework(1)
+  for (auto const type : storage_types)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()

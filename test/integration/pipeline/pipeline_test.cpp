@@ -22,6 +22,8 @@ using namespace common_constants;
 
 class PipelineIntegrationTest : public AcceptanceFixture {
  public:
+  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
   /**
    * prepares signed transaction with CreateDomain command
    * @param domain_name name of the domain
@@ -90,7 +92,9 @@ TEST_F(PipelineIntegrationTest, SendQuery) {
             shared_model::interface::StatefulFailedErrorResponse>(),
         status.get()));
   };
-  integration_framework::IntegrationTestFramework(1)
+
+  for (auto const type : storage_types)
+  integration_framework::IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendQuery(query, check);
 }
@@ -121,7 +125,8 @@ TEST_F(PipelineIntegrationTest, SendTx) {
     ASSERT_EQ(block->transactions().size(), 1);
   };
 
-  integration_framework::IntegrationTestFramework(1)
+for (auto const type : storage_types)
+  integration_framework::IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, check_stateless_valid_status)
       .checkProposal(check_proposal)
@@ -158,8 +163,9 @@ TEST_F(PipelineIntegrationTest, DISABLED_SendTxSequence) {
     ASSERT_EQ(block->transactions().size(), tx_size);
   };
 
+for (auto const type : storage_types)
   integration_framework::IntegrationTestFramework(
-      tx_size)  // make all transactions to fit into a single proposal
+      tx_size, type)  // make all transactions to fit into a single proposal
       .setInitialState(kAdminKeypair)
       .sendTxSequence(tx_sequence, check_stateless_valid)
       .checkProposal(check_proposal)
@@ -181,8 +187,10 @@ TEST_F(PipelineIntegrationTest, DISABLED_SendTxSequenceAwait) {
   auto check_block = [&tx_size](auto &block) {
     ASSERT_EQ(block->transactions().size(), tx_size);
   };
+
+  for (auto const type : storage_types)
   integration_framework::IntegrationTestFramework(
-      tx_size)  // make all transactions to fit into a single proposal
+      tx_size, type)  // make all transactions to fit into a single proposal
       .setInitialState(kAdminKeypair)
       .sendTxSequenceAwait(tx_sequence, check_block);
 }
@@ -204,7 +212,8 @@ TEST_F(PipelineIntegrationTest, SuccessfulCommitAfterEmptyBlock) {
     return prepareCreateDomainTransaction("domain2");
   };
 
-  integration_framework::IntegrationTestFramework(1)
+for (auto const type : storage_types)
+  integration_framework::IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           createFirstDomain(),
