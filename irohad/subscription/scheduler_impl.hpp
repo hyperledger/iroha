@@ -142,10 +142,14 @@ namespace iroha::subscription {
     }
 
     void addDelayed(std::chrono::microseconds timeout, Task &&t) override {
+      if (timeout == std::chrono::microseconds(0ull))
+        is_busy_.store(true, std::memory_order_relaxed);
+
 #ifdef SE_SYNC_CALL_IF_SAME_THREAD
       if (timeout == std::chrono::microseconds(0ull)
           && id_ == std::this_thread::get_id())
         std::forward<F>(f)();
+      is_busy_.store(false, std::memory_order_relaxed);
       else {
 #endif  // SE_SYNC_CALL_IF_SAME_THREAD
         auto const tp = now() + timeout;
