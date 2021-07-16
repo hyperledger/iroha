@@ -145,6 +145,7 @@ namespace integration_framework {
      */
     explicit IntegrationTestFramework(
         size_t maximum_proposal_size,
+        iroha::StorageType db_type,
         const boost::optional<std::string> &dbname = boost::none,
         iroha::StartupWsvDataPolicy startup_wsv_data_policy =
             iroha::StartupWsvDataPolicy::kDrop,
@@ -544,6 +545,8 @@ namespace integration_framework {
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers_;
     std::vector<std::unique_ptr<iroha::network::ServerRunner>>
         fake_peers_servers_;
+    std::string db_wsv_path_;
+    std::string db_store_path_;
   };
 
 }  // namespace integration_framework
