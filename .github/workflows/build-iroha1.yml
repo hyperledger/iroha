@@ -28,10 +28,10 @@ name: Iroha1
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
-    branches: [main, support/1.*, test-ci]
+    branches: [main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha]
     tags: ['v*']
   pull_request:
-    branches: [main, support/1.*, test-ci] ## target branches
+    branches: [main, support/1.*, edge, develop] ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
@@ -472,7 +472,7 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
@@ -684,7 +684,7 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
@@ -902,7 +902,7 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
@@ -1057,7 +1057,7 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
       - name: CMake build
