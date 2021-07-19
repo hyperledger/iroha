@@ -332,11 +332,11 @@ RocksDbSpecificQueryExecutor::readTxs(
   bool first_hash_found = !query.paginationMeta().firstTxHash();
   std::string target_hash;
 
-  if (query.paginationMeta().firstTxHash())
-    std::transform(query.paginationMeta().firstTxHash()->toString().begin(),
-                   query.paginationMeta().firstTxHash()->toString().end(),
-                   target_hash.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+  if (query.paginationMeta().firstTxHash()) {
+    auto const str = query.paginationMeta().firstTxHash()->toString();
+    target_hash.reserve(str.size());
+    for (auto const c : str) target_hash += std::tolower(c);
+  }
 
   RDB_TRY_GET_VALUE(opt_txs_total,
                     forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
@@ -454,10 +454,8 @@ operator()(
 
   for (auto const &hash : query.transactionHashes()) {
     h_hex.clear();
-    std::transform(hash.hex().begin(),
-                   hash.hex().end(),
-                   h_hex.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    h_hex.reserve(hash.hex().size());
+    for (auto const c : hash.hex()) h_hex += std::tolower(c);
 
     RDB_TRY_GET_VALUE(
         opt,
