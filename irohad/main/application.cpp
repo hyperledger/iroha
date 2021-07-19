@@ -253,7 +253,8 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
-    StartupWsvDataPolicy startup_wsv_data_policy) {
+    StartupWsvDataPolicy startup_wsv_data_policy,
+    iroha::StorageType type) {
   query_response_factory_ =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 

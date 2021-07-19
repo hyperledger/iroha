@@ -88,6 +88,8 @@ iroha::initStorage(
     boost::optional<std::string> block_storage_dir,
     std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
         vm_caller_ref,
+    std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+    callback,
     logger::LoggerManagerTreePtr log_manager) {
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
@@ -98,8 +100,7 @@ iroha::initStorage(
               shared_model::interface::Block>>(),
           std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
-  std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
-      std::make_unique<InMemoryBlockStorageFactory>();
+  std::unique_ptr<ametsuchi::BlockStorageFactory> temporary_block_storage_factory = std::make_unique<ametsuchi::InMemoryBlockStorageFactory>();
 
   if (!block_storage_dir)
     return iroha::expected::makeError(
@@ -107,13 +108,14 @@ iroha::initStorage(
 
   auto persistent_block_storage =
       makeFlatFileBlockStorage(block_storage_dir.value(), log_manager);
-  return RocksDbStorageImpl::create(db_context,
+  return ametsuchi::RocksDbStorageImpl::create(db_context,
                                     perm_converter,
                                     std::move(pending_txs_storage),
                                     std::move(query_response_factory),
                                     std::move(temporary_block_storage_factory),
                                     std::move(persistent_block_storage),
                                     vm_caller_ref,
+                                    std::move(callback),
                                     log_manager->getChild("Storage"));
 }
 

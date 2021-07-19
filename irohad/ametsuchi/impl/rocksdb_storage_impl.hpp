@@ -39,6 +39,8 @@ namespace iroha {
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           std::shared_ptr<BlockStorage> persistent_block_storage,
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager);
 
       expected::Result<std::unique_ptr<CommandExecutor>, std::string>
@@ -95,6 +97,8 @@ namespace iroha {
               query_response_factory,
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager);
 
      private:

@@ -113,10 +113,6 @@ namespace iroha {
         return pending_txs_storage_;
       }
 
-      auto &notifier() {
-        return notifier_;
-      }
-
       auto &temporaryBlockStorageFactory() {
         return temporary_block_storage_factory_;
       }

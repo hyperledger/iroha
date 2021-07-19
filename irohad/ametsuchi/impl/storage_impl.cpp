@@ -325,13 +325,13 @@ iroha::expected::Result<void, std::string> StorageImpl::resetPeers() {
   void StorageImpl::tryRollback(soci::session &session) {
   // TODO 17.06.2019 luckychess IR-568 split connection and schema
   // initialisation
-  if (block_is_prepared_) {
+  if (blockIsPrepared()) {
     auto result =
         PgConnectionInit::rollbackPrepared(session, prepared_block_name_);
     if (iroha::expected::hasError(result)) {
-      log_->info("Block rollback  error: {}", result.assumeError());
+      log()->info("Block rollback  error: {}", result.assumeError());
     } else {
-      block_is_prepared_ = false;
+      blockIsPrepared() = false;
     }
   }
   }

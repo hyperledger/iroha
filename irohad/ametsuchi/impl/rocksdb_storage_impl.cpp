@@ -41,6 +41,8 @@ namespace iroha::ametsuchi {
           query_response_factory,
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller,
+      std::function<void(
+          std::shared_ptr<shared_model::interface::Block const>)> callback,
       logger::LoggerManagerTreePtr log_manager)
       : StorageBase(std::move(ledger_state),
                     std::move(block_store),
@@ -51,6 +53,7 @@ namespace iroha::ametsuchi {
                     std::move(vm_caller),
                     std::move(log_manager),
                     "prepared_block_",
+                    std::move(callback),
                     false),
         db_context_(std::move(db_context)) {}
 
@@ -137,6 +140,7 @@ namespace iroha::ametsuchi {
 
   iroha::expected::Result<void, std::string> RocksDbStorageImpl::resetPeers() {
     log()->info("Remove everything from peers table. [UNUSED]");
+    return {};
   }
 
   void RocksDbStorageImpl::freeConnections() {
@@ -154,24 +158,22 @@ namespace iroha::ametsuchi {
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
       std::shared_ptr<BlockStorage> persistent_block_storage,
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+      std::function<void(
+          std::shared_ptr<shared_model::interface::Block const>)> callback,
       logger::LoggerManagerTreePtr log_manager) {
     boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
     {
       RocksDBWsvQuery wsv_query(db_context,
                                 log_manager->getChild("WsvQuery")->getLogger());
 
-      ledger_state =
-          expected::resultToOptionalValue(wsv_query.getTopBlockInfo()) |
-          [&](auto &&top_block_info) {
-            return wsv_query.getPeers() |
-                [&top_block_info](auto &&ledger_peers) {
-                  return boost::make_optional(
-                      std::make_shared<const iroha::LedgerState>(
-                          std::move(ledger_peers),
-                          top_block_info.height,
-                          top_block_info.top_hash));
-                };
-          };
+      auto maybe_top_block_info = wsv_query.getTopBlockInfo();
+      auto maybe_ledger_peers = wsv_query.getPeers();
+
+      if (expected::hasValue(maybe_top_block_info) and maybe_ledger_peers)
+        ledger_state = std::make_shared<const iroha::LedgerState>(
+            std::move(*maybe_ledger_peers),
+            maybe_top_block_info.assumeValue().height,
+            maybe_top_block_info.assumeValue().top_hash);
     }
 
     return expected::makeValue(std::shared_ptr<RocksDbStorageImpl>(
@@ -183,6 +185,7 @@ namespace iroha::ametsuchi {
                                std::move(query_response_factory),
                                std::move(temporary_block_storage_factory),
                                std::move(vm_caller_ref),
+                               std::move(callback),
                                std::move(log_manager))));
   }
 

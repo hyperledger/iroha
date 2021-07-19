@@ -35,6 +35,7 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/subscription.hpp"
+#include "common/result_try.hpp"
 
 namespace iroha::ametsuchi {
 
@@ -76,7 +77,6 @@ namespace iroha::ametsuchi {
       bool prepared_blocks_enabled)
       : block_store_(std::move(block_store)),
         callback_(std::move(callback)),
-        notifier_(notifier_lifetime_),
         perm_converter_(std::move(perm_converter)),
         pending_txs_storage_(std::move(pending_txs_storage)),
         query_response_factory_(std::move(query_response_factory)),
@@ -122,13 +122,13 @@ namespace iroha::ametsuchi {
 
   CommitResult StorageBase::commit(
       std::unique_ptr<MutableStorage> mutable_storage) {
-    auto old_height = block_store()->size();
+    auto old_height = blockStore()->size();
     IROHA_EXPECTED_TRY_GET_VALUE(
-        result, std::move(*mutable_storage).commit(*block_store()));
-    ledger_state(result.ledger_state);
-    auto new_height = block_store()->size();
+        result, std::move(*mutable_storage).commit(*blockStore()));
+    ledgerState(result.ledger_state);
+    auto new_height = blockStore()->size();
     for (auto height = old_height + 1; height <= new_height; ++height) {
-      auto maybe_block = block_store()->fetch(height);
+      auto maybe_block = blockStore()->fetch(height);
       if (not maybe_block) {
         return fmt::format("Failed to fetch block {}", height);
       }
