@@ -1,0 +1,6 @@
+name: Iroha1 on push
+
+on:
+  push:
+    branches: [ main, support/1.*, test-ci ]
+    tags: [ 'v*' ]

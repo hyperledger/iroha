@@ -30,26 +30,27 @@ name: Iroha1
 ## check if PR is from other repo: ${{ github.event.pull_request.head.repo == github.event.pull_request.base.repo }} in this case secrets are empty
 ## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
-## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
+# ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
+# on:
+#   push:
+#     branches: [ main, support/1.*, test-ci ]
+#     tags: [ 'v*' ]
+#   pull_request:
+#     branches: [ main, support/1.*, test-ci ]  ## target branches
+#   workflow_dispatch:
+#     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
+#     inputs:
+#       build_spec:
+#         description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
+#         required: false
+#         default: '/build'
+#   issue_comment:
+#     types: [created, edited]
+#   schedule:
+#     - cron: '12 22 * * *'
 on:
-  push:
-    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main, support/1.*, edge, develop ]  ## target branches
-  workflow_dispatch:
-    ## NOTE: Able to run via cmdline: gh workflow run Iroha1
-    inputs:
-      build_spec:
-        description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
-        required: false
-        default: '/build'
-  issue_comment:
-    types: [created, edited]
-  schedule:
-    - cron: '12 22 * * *'
 
-jobs:
+jobs: &jobs
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
@@ -89,7 +90,9 @@ jobs:
           git diff "${{github.repository.default_branch}}" HEAD -- .github/workflows/${{github.workflow}}.yml ||
             echo ::warning:: Running using workflow from branch 'main' but ${{github.workflow}}.yml was changed in current PR#$PR_NUM
       -
-        run: sudo snap install yq
+        name: Install yq-3
+        run: sudo wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_linux_amd64 -O /usr/local/bin/yq-3 &&
+            sudo chmod +x /usr/local/bin/yq-3
       -
         name: Check if .github/workflows/*.yml correspond to *.src.yml
         run: |
