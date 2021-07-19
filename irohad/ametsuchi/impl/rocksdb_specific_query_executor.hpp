@@ -51,6 +51,7 @@ namespace iroha::ametsuchi {
       kFetchBlockFailed = 1,
       kQueryHeightOverflow = 3,
       kAssetNotFound = 4,
+      kNoTransaction = 4,
       kRetrieveTransactionsFailed = 1010,
     };
 

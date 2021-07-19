@@ -452,20 +452,35 @@ operator()(
   std::vector<std::unique_ptr<shared_model::interface::Transaction>>
       response_txs;
 
+  bool const canRequestAll = creator_permissions.isSet(Role::kGetAllTxs);
   for (auto const &hash : query.transactionHashes()) {
     h_hex.clear();
     h_hex.reserve(hash.hex().size());
     for (auto const c : hash.hex()) h_hex += std::tolower(c);
 
-    RDB_TRY_GET_VALUE(
-        opt,
-        forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(common,
-                                                                       h_hex));
-    auto const tx_data = staticSplitId<3ull>(*opt, "#");
+    std::optional<std::string_view> opt;
+    if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(common,
+                                                                                h_hex);
+        expected::hasError(r))
+      return query_response_factory_->createErrorQueryResponse(
+          ErrorQueryType::kStatefulFailed,
+          fmt::format("Query: {}, message: {}",
+                      query.toString(),
+                      r.assumeError().description),
+          ErrorCodes::kNoTransaction,
+          query_hash);
+    else
+      opt = std::move(r.assumeValue());
+
+    auto const &[tx_status, tx_height, tx_index, tx_ts] = staticSplitId<4ull>(*opt, "#");
 
     TxPosition tx_position = {0ull, 0ull, 0ull};
     decodePosition(
-        std::string_view{}, tx_data.at(1), tx_data.at(2), tx_position);
+        tx_ts, tx_height, tx_index, tx_position);
+
+    if (auto r = forTransactionByPosition<kDbOperation::kGet, kDbEntry::kMustExist>(common, creator_id, tx_position.ts, tx_position.height, tx_position.index);
+        !canRequestAll && (expected::hasError(r) || staticSplitId<2ull>(*r.assumeValue()).at(1) != h_hex))
+      continue;
 
     auto txs_result =
         getTransactionsFromBlock(tx_position.height,

@@ -21,11 +21,13 @@ void PostgresIndexer::txHashStatus(const HashType &tx_hash, bool is_committed) {
 }
 
 void PostgresIndexer::committedTxHash(const TxPosition &position,
+                                      shared_model::interface::types::TimestampType const ts,
                                       const HashType &committed_tx_hash) {
   txHashStatus(committed_tx_hash, true);
 }
 
 void PostgresIndexer::rejectedTxHash(const TxPosition &position,
+                                     shared_model::interface::types::TimestampType const ts,
                                      const HashType &rejected_tx_hash) {
   txHashStatus(rejected_tx_hash, false);
 }

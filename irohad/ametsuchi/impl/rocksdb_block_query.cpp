@@ -34,8 +34,10 @@ namespace iroha::ametsuchi {
                   status.assumeError().description,
                   status.assumeError().code);
       return std::nullopt;
-    } else if (status.assumeValue())
-      res = *status.assumeValue() == "TRUE" ? 1 : 0;
+    } else if (status.assumeValue()) {
+      auto const &[tx_status] = staticSplitId<1ull>(*status.assumeValue(), "#");
+      res = tx_status == "TRUE" ? 1 : 0;
+    }
 
     return res;
   }
