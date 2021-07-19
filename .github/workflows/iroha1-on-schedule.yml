@@ -1,7 +1,7 @@
 ## DO NOT EDIT
-## Generated from build-iroha1.src.yml with make-workflows.sh
+## Generated from iroha1-on-schedule.src.yml with make-workflows.sh
 
-name: Iroha1
+name: Iroha1 on schedule
 ## TODO 1. [vcpkg] build only Debug or only Release - reduce vcpkg build duration and output size 2times
 ##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
 ## TODO 2. [vcpkg] Do not rebuild vcpkg-tool every time [takes about 1min], see build_iroha_deps.sh
@@ -34,20 +34,6 @@ name: Iroha1
 
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
-  push:
-    branches: [main, support/1.*, test-ci]
-    tags: ['v*']
-  pull_request:
-    branches: [main, support/1.*, test-ci] ## target branches
-  workflow_dispatch:
-    ## NOTE: Able to run via cmdline: gh workflow run Iroha1
-    inputs:
-      build_spec:
-        description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
-        required: false
-        default: '/build'
-  issue_comment:
-    types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 jobs:
@@ -937,7 +923,7 @@ jobs:
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
         env:
           CC: ${{matrix.CC}}
-          CCACHE_PATH: /usr/local/opt/ccache/libexec
+          CCACHE_PATH: /usr/lib/ccache
       - name: Restore cache ccache
         uses: actions/cache@v2
         with:
@@ -1000,17 +986,17 @@ jobs:
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
         #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
 
-        name: Generate artifact suffix >> env.ARTIFACT_SUFFIX
+        name: Generate artifact suffix depending on matrix
         #run: inherited
         env:
+          os: ubuntu ## maybe ${{ run.os }}
           CC: ${{ matrix.CC }}
           BuildType: ${{ matrix.BuildType }}
           CMAKE_USE: ${{ matrix.CMAKE_USE }}
-          os: macos ##${{run.os}}
       - name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
-          name: irohad-macos${{env.ARTIFACT_SUFFIX}}
+          name: irohad${{env.ARTIFACT_SUFFIX}}
           path: |
             build/bin/irohad
             build/bin/iroha-cli
@@ -1258,11 +1244,12 @@ jobs:
           echo >>$GITHUB_ENV  dockertag=$dockertag
           echo "::set-output name=dockertag::$dockertag"
         env:
-          dockertag: ${{ hashFiles('docker/release/**') }}
+          dockertag: ${{ hashFiles('docker/iroha-builder/**') }}
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
         with:
+          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
             ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
@@ -1287,10 +1274,6 @@ jobs:
           ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
           ##  - tag 'edge' when branch support/1.2.x is pushed
           ##  - schedule, see the docs
-
-          images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }} ## uses suffics could be empty, -burrow, -ursa
-          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
-          #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
         id: docker_login
@@ -1307,18 +1290,18 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys: ${{ runner.os }}-buildx-release
+          key: ${{ runner.os }}-buildx-${{env.dockertag}}
+          restore-keys: ${{ runner.os }}-buildx-
       - id: build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
         with:
+          context: docker/iroha-builder/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
+          push: ${{ steps.docker_login.outcome == 'success' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
@@ -1422,11 +1405,12 @@ jobs:
           echo >>$GITHUB_ENV  dockertag=$dockertag
           echo "::set-output name=dockertag::$dockertag"
         env:
-          dockertag: ${{ hashFiles('docker/release/**') }}
+          dockertag: ${{ hashFiles('docker/iroha-builder/**') }}
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v3
         with:
+          images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
             ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
@@ -1451,10 +1435,6 @@ jobs:
           ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
           ##  - tag 'edge' when branch support/1.2.x is pushed
           ##  - schedule, see the docs
-
-          images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }} ## uses suffics could be empty, -burrow, -ursa
-          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
-          #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
         id: docker_login
@@ -1471,18 +1451,18 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys: ${{ runner.os }}-buildx-release
+          key: ${{ runner.os }}-buildx-${{env.dockertag}}
+          restore-keys: ${{ runner.os }}-buildx-
       - id: build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
         with:
+          context: docker/iroha-builder/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
+          push: ${{ steps.docker_login.outcome == 'success' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896

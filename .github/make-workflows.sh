@@ -11,6 +11,7 @@ make-workflows:
     Deals only with Git cached/indexed files until --no-git-index passed.
     DEBUG: use option -x
     NOTE: spaces in filenames are not allowed to keep code simplicity
+    TODO: report "xxx.yaml in output directory 'workflows' has no source"
 END
     cat<<END
 Usage:
@@ -27,7 +28,7 @@ END
 }
 
 files_list(){
-    git diff --cached --name-only --relative -- "$@"
+    git diff --cached --name-only --relative --diff-filter=d -- "$@"
 }
 file_contents(){
     git show $(printf ":%s " $@)
@@ -77,8 +78,10 @@ readonly dir_to=$(realpath $dir_to)
 edited_files=
 
 for dir_from in $dirs_from ;do
+    #echo >&2 "-- make-workflows: Processing directory '$dir_from'"
     pushd $dir_from >/dev/null
     for f in $(files_list '*.src.yml') ;do
+        echo >&2 "-- make-workflows: Processing file '$f'"
         out=$(echo $f | sed 's|.src.yml$|.yml|')
         wout=$dir_to/$out
         tempout=$(mktemp)
@@ -87,7 +90,9 @@ for dir_from in $dirs_from ;do
         echo >>$tempout "## Generated from $f with $(basename $0)"
         echo >>$tempout ""
         ## Take cached content from index
-        file_contents ./$f | yq eval 'explode(.)' - >>$tempout
+        file_contents ./$f |
+            yq eval-all '. as $item ireduce ({}; (. * $item) | .on = $item.on) | explode(.)' \
+                    *.inc.yml - >>$tempout
         if ! diff -q $wout $tempout &>/dev/null ;then
             mv $tempout $wout
             edited_files+="'$(realpath --relative-to=$OLDPWD $wout)' "

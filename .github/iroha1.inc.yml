@@ -49,7 +49,7 @@ on:
   schedule:
     - cron: '12 22 * * *'
 
-jobs:
+jobs: &jobs
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
