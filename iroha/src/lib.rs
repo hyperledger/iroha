@@ -151,12 +151,13 @@ where
                     .wrap_err("Failed to setup telemetry")?,
             );
         }
-
+        let query_validator = Arc::new(query_validator);
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi_configuration,
             events_sender,
             Arc::clone(&wsv),
             instruction_validator,
+            Arc::clone(&query_validator),
             genesis_network,
             queue.clone(),
             broker.clone(),

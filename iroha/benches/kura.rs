@@ -26,9 +26,11 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     .expect("Failed to sign.");
     let tx = VersionedAcceptedTransaction::from_transaction(tx, 4096)
         .expect("Failed to accept Transaction.");
-    let mut block = PendingBlock::new(vec![tx])
-        .chain_first()
-        .validate(&WorldStateView::new(World::new()), &AllowAll.into());
+    let mut block = PendingBlock::new(vec![tx]).chain_first().validate(
+        &WorldStateView::new(World::new()),
+        &AllowAll.into(),
+        &AllowAll.into(),
+    );
     for _ in 0..n_validators {
         block = block
             .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))

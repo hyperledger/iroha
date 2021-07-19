@@ -35,7 +35,7 @@ use crate::{
     kura::StoreBlock,
     prelude::*,
     queue::{PopPendingTransactions, QueueTrait},
-    smartcontracts::permissions::IsInstructionAllowedBoxed,
+    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     wsv::WorldTrait,
     VersionedValidBlock,
 };
@@ -109,7 +109,8 @@ where
     block_height: u64,
     /// Hashes of invalidated blocks
     pub invalidated_blocks_hashes: Vec<Hash>,
-    permissions_validator: Arc<IsInstructionAllowedBoxed<W>>,
+    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
     max_instruction_number: u64,
     /// Genesis network
     pub genesis_network: Option<G>,
@@ -141,11 +142,13 @@ pub trait SumeragiTrait:
     ///
     /// # Errors
     /// Can fail during initing network topology
+    #[allow(clippy::too_many_arguments)]
     fn from_configuration(
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<Self::World>>,
-        permissions_validator: IsInstructionAllowedBoxed<Self::World>,
+        is_instruction_allowed: IsInstructionAllowedBoxed<Self::World>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed<Self::World>>,
         genesis_network: Option<Self::GenesisNetwork>,
         queue: AlwaysAddr<Self::Queue>,
         broker: Broker,
@@ -162,7 +165,8 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sum
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<W>>,
-        permissions_validator: IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: IsInstructionAllowedBoxed<W>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
         genesis_network: Option<G>,
         queue: AlwaysAddr<Self::Queue>,
         broker: Broker,
@@ -188,7 +192,8 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sum
             block_time: Duration::from_millis(configuration.block_time_ms),
             block_height: 0,
             invalidated_blocks_hashes: Vec::new(),
-            permissions_validator: Arc::new(permissions_validator),
+            is_instruction_allowed: Arc::new(is_instruction_allowed),
+            is_query_allowed,
             max_instruction_number: configuration.max_instruction_number,
             genesis_network,
             queue,
@@ -572,7 +577,11 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
     /// Can fail signing block
     #[iroha_futures::telemetry_future]
     pub async fn validate_and_publish_created_block(&mut self, block: ChainedBlock) -> Result<()> {
-        let block = block.validate(&*self.wsv, &self.permissions_validator);
+        let block = block.validate(
+            &*self.wsv,
+            &self.is_instruction_allowed,
+            &self.is_query_allowed,
+        );
         let network_topology = self.network_topology_current_or_genesis(block.header());
         iroha_logger::info!(
             "{:?} - Created a block with hash {}.",
@@ -1149,11 +1158,16 @@ pub mod message {
             {
                 let block_clone = self.block.clone();
                 let wsv_clone = Arc::clone(&sumeragi.wsv);
-                let permission_validator_clone = Arc::clone(&sumeragi.permissions_validator);
+                let is_instruction_allowed_clone = Arc::clone(&sumeragi.is_instruction_allowed);
+                let is_query_allowed_clone = Arc::clone(&sumeragi.is_query_allowed);
                 let key_pair_clone = sumeragi.key_pair.clone();
                 let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
                     block_clone
-                        .revalidate(&*wsv_clone, &*permission_validator_clone)
+                        .revalidate(
+                            &*wsv_clone,
+                            &*is_instruction_allowed_clone,
+                            &*is_query_allowed_clone,
+                        )
                         .sign(&key_pair_clone)
                         .map(Into::into)
                 })

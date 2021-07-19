@@ -107,6 +107,7 @@ pub mod utils {
     pub mod sumeragi {
         use std::{fmt::Debug, marker::PhantomData, ops::DerefMut};
 
+        use iroha::smartcontracts::permissions::IsQueryAllowedBoxed;
         use iroha_actor::Message;
 
         use super::*;
@@ -325,7 +326,8 @@ pub mod utils {
                 configuration: &config::SumeragiConfiguration,
                 events_sender: EventsSender,
                 wsv: Arc<WorldStateView<W>>,
-                permissions_validator: IsInstructionAllowedBoxed<W>,
+                is_instruction_allowed: IsInstructionAllowedBoxed<W>,
+                is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
                 genesis_network: Option<Self::GenesisNetwork>,
                 queue: AlwaysAddr<Self::Queue>,
                 broker: Broker,
@@ -334,7 +336,8 @@ pub mod utils {
                     configuration,
                     events_sender,
                     wsv,
-                    permissions_validator,
+                    is_instruction_allowed,
+                    is_query_allowed,
                     genesis_network,
                     queue,
                     broker,
