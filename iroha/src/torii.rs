@@ -38,7 +38,7 @@ pub struct Torii<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> {
     wsv: Arc<WorldStateView<W>>,
     system: Arc<RwLock<System>>,
     events_receiver: EventsReceiver,
-    query_validator: Option<IsQueryAllowedBoxed<W>>,
+    query_validator: Arc<IsQueryAllowedBoxed<W>>,
     transactions_queue: AlwaysAddr<Q>,
     sumeragi: AlwaysAddr<S>,
     broker: Broker,
@@ -111,7 +111,7 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
         system: System,
         transactions_queue: AlwaysAddr<Q>,
         sumeragi: AlwaysAddr<S>,
-        query_validator: IsQueryAllowedBoxed<W>,
+        query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events_receiver: EventsReceiver,
         broker: Broker,
     ) -> Self {
@@ -120,7 +120,7 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
             wsv,
             system: Arc::new(RwLock::new(system)),
             events_receiver,
-            query_validator: Some(query_validator),
+            query_validator,
             transactions_queue,
             sumeragi,
             broker,
@@ -128,7 +128,7 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
     }
 
     #[allow(clippy::expect_used)]
-    fn create_state(&mut self) -> ToriiState<Q, S, W> {
+    fn create_state(&self) -> ToriiState<Q, S, W> {
         let wsv = Arc::clone(&self.wsv);
         let transactions_queue = self.transactions_queue.clone();
         let sumeragi = self.sumeragi.clone();
@@ -136,7 +136,7 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
         let consumers = Arc::new(RwLock::new(Vec::new()));
         let config = self.config.clone();
         let broker = self.broker.clone();
-        let query_validator = self.query_validator.take().expect("Unreachable.");
+        let query_validator = Arc::clone(&self.query_validator);
 
         ToriiState {
             config,
@@ -155,7 +155,7 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(mut self) -> iroha_error::Result<Infallible> {
+    pub async fn start(self) -> iroha_error::Result<Infallible> {
         let state = self.create_state();
         let connections = Arc::clone(&state.consumers);
         let state = Arc::new(RwLock::new(state));
@@ -194,7 +194,7 @@ struct ToriiState<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> {
     consumers: Arc<RwLock<Vec<Consumer>>>,
     system: Arc<RwLock<System>>,
     transactions_queue: AlwaysAddr<Q>,
-    query_validator: IsQueryAllowedBoxed<W>,
+    query_validator: Arc<IsQueryAllowedBoxed<W>>,
     sumeragi: AlwaysAddr<S>,
     broker: Broker,
 }
@@ -625,6 +625,7 @@ mod tests {
             events_sender,
             Arc::clone(&wsv),
             AllowAll.into(),
+            Arc::new(AllowAll.into()),
             None,
             queue.clone(),
             broker.clone(),
@@ -641,7 +642,7 @@ mod tests {
                 System::new(&config),
                 queue,
                 sumeragi,
-                AllowAll.into(),
+                Arc::new(AllowAll.into()),
                 events_receiver,
                 broker,
             ),
@@ -660,7 +661,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn torii_big_transaction() {
-        let (mut torii, _) = create_torii().await;
+        let (torii, _) = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));
         let id = Id {
             name: Default::default(),
@@ -706,7 +707,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn torii_pagination() {
-        let (mut torii, keys) = create_torii().await;
+        let (torii, keys) = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));
 
         let get_domains = |start, limit| {
@@ -739,7 +740,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn query_signed_by_keys_not_associated_with_account() {
-        let (mut torii, keys) = create_torii().await;
+        let (torii, keys) = create_torii().await;
         let state = Arc::new(RwLock::new(torii.create_state()));
 
         let query: VerifiedQueryRequest = QueryRequest::new(

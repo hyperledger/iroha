@@ -19,7 +19,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     merkle::MerkleTree,
     prelude::*,
-    smartcontracts::permissions::IsInstructionAllowedBoxed,
+    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{network_topology::Topology, view_change::ProofChain as ViewChangeProofs},
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
     wsv::WorldTrait,
@@ -213,12 +213,18 @@ impl ChainedBlock {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
     ) -> VersionedValidBlock {
         let mut transactions = Vec::new();
         let mut rejected_transactions = Vec::new();
         for transaction in self.transactions {
-            match transaction.validate(wsv, permissions_validator, self.header.is_genesis()) {
+            match transaction.validate(
+                wsv,
+                is_instruction_allowed,
+                is_query_allowed,
+                self.header.is_genesis(),
+            ) {
                 Ok(transaction) => transactions.push(transaction),
                 Err(transaction) => {
                     iroha_logger::warn!(
@@ -293,10 +299,11 @@ impl VersionedValidBlock {
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
     ) -> VersionedValidBlock {
         self.into_inner_v1()
-            .revalidate(wsv, permissions_validator)
+            .revalidate(wsv, is_instruction_allowed, is_query_allowed)
             .into()
     }
 
@@ -397,7 +404,8 @@ impl ValidBlock {
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
     ) -> ValidBlock {
         ValidBlock {
             signatures: self.signatures,
@@ -410,7 +418,7 @@ impl ValidBlock {
                     .chain(self.rejected_transactions.into_iter().map(Into::into))
                     .collect(),
             }
-            .validate(wsv, permissions_validator)
+            .validate(wsv, is_instruction_allowed, is_query_allowed)
             .into_inner_v1()
         }
     }

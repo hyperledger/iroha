@@ -19,6 +19,9 @@ impl NeedsPermission for Instruction {}
 
 impl NeedsPermission for QueryBox {}
 
+// Expression might contain a query, therefore needs to be checked.
+impl NeedsPermission for Expression {}
+
 /// Reason for prohibiting the execution of the particular instruction.
 pub type DenialReason = String;
 
@@ -99,18 +102,18 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<Or<W, O>> for IsAllowedBo
 
 /// Wraps validator to check nested permissions.
 /// Pay attention to wrap only validators that do not check nested intructions by themselves.
-pub struct CheckNested<W: WorldTrait> {
-    validator: IsAllowedBoxed<W, Instruction>,
+pub struct CheckNested<W: WorldTrait, O: NeedsPermission> {
+    validator: IsAllowedBoxed<W, O>,
 }
 
-impl<W: WorldTrait> CheckNested<W> {
+impl<W: WorldTrait, O: NeedsPermission> CheckNested<W, O> {
     /// Wraps `validator` to check nested permissions.
-    pub fn new(validator: IsAllowedBoxed<W, Instruction>) -> Self {
+    pub fn new(validator: IsAllowedBoxed<W, O>) -> Self {
         CheckNested { validator }
     }
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W> {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
     fn check(
         &self,
         authority: &AccountId,
@@ -145,8 +148,209 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W> {
     }
 }
 
-impl<W: WorldTrait> From<CheckNested<W>> for IsInstructionAllowedBoxed<W> {
-    fn from(validator: CheckNested<W>) -> Self {
+/// Checks an expression recursively to evaluate if there is a query inside of it and if
+/// the user has permission to execute this query.
+///
+/// As the function is recursive, caution should be exercised to have a limit of nestedness, that would not cause stack overflow.
+/// Up to 2^13 calls were tested and are ok. This is within default instruction limit.
+///
+/// # Errors
+/// Returns an error if a user is not allowed to execute one of the inner queries, given the current `validator`.
+pub fn check_query_in_expression<W: WorldTrait>(
+    authority: &AccountId,
+    expression: &Expression,
+    wsv: &WorldStateView<W>,
+    validator: &IsQueryAllowedBoxed<W>,
+) -> Result<(), DenialReason> {
+    macro_rules! check_binary_expression {
+        ($e:ident) => {
+            check_query_in_expression(authority, &($e).left.expression, wsv, validator).and(
+                check_query_in_expression(authority, &($e).right.expression, wsv, validator),
+            )
+        };
+    }
+
+    match expression {
+        Expression::Add(expression) => check_binary_expression!(expression),
+        Expression::Subtract(expression) => check_binary_expression!(expression),
+        Expression::Multiply(expression) => check_binary_expression!(expression),
+        Expression::Divide(expression) => check_binary_expression!(expression),
+        Expression::Mod(expression) => check_binary_expression!(expression),
+        Expression::RaiseTo(expression) => check_binary_expression!(expression),
+        Expression::Greater(expression) => check_binary_expression!(expression),
+        Expression::Less(expression) => check_binary_expression!(expression),
+        Expression::Equal(expression) => check_binary_expression!(expression),
+        Expression::Not(expression) => {
+            check_query_in_expression(authority, &expression.expression.expression, wsv, validator)
+        }
+        Expression::And(expression) => check_binary_expression!(expression),
+        Expression::Or(expression) => check_binary_expression!(expression),
+        Expression::If(expression) => {
+            check_query_in_expression(authority, &expression.condition.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &expression.then_expression.expression,
+                    wsv,
+                    validator,
+                ))
+                .and(check_query_in_expression(
+                    authority,
+                    &expression.else_expression.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Expression::Query(query) => validator.check(authority, query, wsv),
+        Expression::Contains(expression) => {
+            check_query_in_expression(authority, &expression.collection.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &expression.element.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Expression::ContainsAll(expression) => {
+            check_query_in_expression(authority, &expression.collection.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &expression.elements.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Expression::ContainsAny(expression) => {
+            check_query_in_expression(authority, &expression.collection.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &expression.elements.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Expression::Where(expression) => {
+            check_query_in_expression(authority, &expression.expression.expression, wsv, validator)
+        }
+        Expression::ContextValue(_) | Expression::Raw(_) => Ok(()),
+    }
+}
+
+/// Checks an instruction recursively to evaluate if there is a query inside of it and if
+/// the user has permission to execute this query.
+///
+/// As the function is recursive, caution should be exercised to have a limit of nestedness, that would not cause stack overflow.
+/// Up to 2^13 calls were tested and are ok. This is within default instruction limit.
+///
+/// # Errors
+/// Returns an error if a user is not allowed to execute one of the inner queries, given the current `validator`.
+pub fn check_query_in_instruction<W: WorldTrait>(
+    authority: &AccountId,
+    instruction: &Instruction,
+    wsv: &WorldStateView<W>,
+    validator: &IsQueryAllowedBoxed<W>,
+) -> Result<(), DenialReason> {
+    match instruction {
+        Instruction::Register(instruction) => {
+            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
+        }
+        Instruction::Unregister(instruction) => {
+            check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
+        }
+        Instruction::Mint(instruction) => {
+            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.destination_id.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::Burn(instruction) => {
+            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.destination_id.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::Transfer(instruction) => {
+            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.destination_id.expression,
+                    wsv,
+                    validator,
+                ))
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.source_id.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::Fail(_) => Ok(()),
+        Instruction::SetKeyValue(instruction) => {
+            check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.key.expression,
+                    wsv,
+                    validator,
+                ))
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.value.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::RemoveKeyValue(instruction) => {
+            check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.key.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::Grant(instruction) => {
+            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.destination_id.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::If(if_box) => {
+            check_query_in_instruction(authority, &if_box.then, wsv, validator).and_then(|_| {
+                match &if_box.otherwise {
+                    Some(instruction) => {
+                        check_query_in_instruction(authority, instruction, wsv, validator)
+                    }
+                    None => Ok(()),
+                }
+            })
+        }
+        Instruction::Pair(pair_box) => {
+            check_query_in_instruction(authority, &pair_box.left_instruction, wsv, validator).and(
+                check_query_in_instruction(authority, &pair_box.right_instruction, wsv, validator),
+            )
+        }
+        Instruction::Sequence(sequence_box) => {
+            sequence_box
+                .instructions
+                .iter()
+                .try_for_each(|instruction| {
+                    check_query_in_instruction(authority, instruction, wsv, validator)
+                })
+        }
+    }
+}
+
+impl<W: WorldTrait> From<CheckNested<W, Instruction>> for IsAllowedBoxed<W, Instruction> {
+    fn from(validator: CheckNested<W, Instruction>) -> Self {
         Box::new(validator)
     }
 }
@@ -264,9 +468,13 @@ impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
     }
 }
 
-/// Allows all ISI to be executed for all possible values. Mostly for tests and simple cases.
+/// Allows all operations to be executed for all possible values. Mostly for tests and simple cases.
 #[derive(Debug, Clone, Copy)]
 pub struct AllowAll;
+
+/// Disallows all operations to be executed for all possible values. Mostly for tests and simple cases.
+#[derive(Debug, Clone, Copy)]
+pub struct DenyAll;
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     fn check(
@@ -279,9 +487,26 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     }
 }
 
+impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for DenyAll {
+    fn check(
+        &self,
+        _authority: &AccountId,
+        _instruction: &O,
+        _wsv: &WorldStateView<W>,
+    ) -> Result<(), DenialReason> {
+        Err("All operations are denied.".to_owned())
+    }
+}
+
 impl<W: WorldTrait, O: NeedsPermission> From<AllowAll> for IsAllowedBoxed<W, O> {
     fn from(AllowAll: AllowAll) -> Self {
         Box::new(AllowAll)
+    }
+}
+
+impl<W: WorldTrait, O: NeedsPermission> From<DenyAll> for IsAllowedBoxed<W, O> {
+    fn from(DenyAll: DenyAll) -> Self {
+        Box::new(DenyAll)
     }
 }
 
@@ -425,7 +650,7 @@ mod tests {
 
     use std::collections::{BTreeMap, BTreeSet};
 
-    use iroha_data_model::isi::*;
+    use iroha_data_model::{expression::prelude::*, isi::*};
 
     use super::*;
     use crate::wsv::World;
@@ -564,5 +789,36 @@ mod tests {
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
+    }
+
+    #[test]
+    pub fn check_query_permissions_nested() {
+        let instruction: Instruction = Pair::new(
+            TransferBox::new(
+                IdBox::AssetId(AssetId::from_names("btc", "crypto", "seller", "company")),
+                Expression::Add(Add::new(
+                    Expression::Query(
+                        FindAssetQuantityById::new(AssetId::from_names(
+                            "btc2eth_rate",
+                            "exchange",
+                            "dex",
+                            "exchange",
+                        ))
+                        .into(),
+                    ),
+                    10_u32,
+                )),
+                IdBox::AssetId(AssetId::from_names("btc", "crypto", "buyer", "company")),
+            ),
+            TransferBox::new(
+                IdBox::AssetId(AssetId::from_names("eth", "crypto", "buyer", "company")),
+                15_u32,
+                IdBox::AssetId(AssetId::from_names("eth", "crypto", "seller", "company")),
+            ),
+        )
+        .into();
+        let wsv = WorldStateView::new(World::new());
+        let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+        assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &DenyAll.into()).is_err())
     }
 }

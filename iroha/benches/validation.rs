@@ -104,12 +104,15 @@ fn validate_transaction(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let wsv = build_test_wsv(&keys);
     let _ = criterion.bench_function("validate", |b| {
-        b.iter(
-            || match transaction.clone().validate(&wsv, &AllowAll.into(), false) {
+        b.iter(|| {
+            match transaction
+                .clone()
+                .validate(&wsv, &AllowAll.into(), &AllowAll.into(), false)
+            {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            },
-        );
+            }
+        });
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -146,7 +149,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let wsv = build_test_wsv(&keys);
     let block = PendingBlock::new(vec![transaction.into()])
         .chain_first()
-        .validate(&wsv, &AllowAll.into());
+        .validate(&wsv, &AllowAll.into(), &AllowAll.into());
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -185,7 +188,11 @@ fn validate_blocks(criterion: &mut Criterion) {
         .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()]).chain_first();
     let _ = criterion.bench_function("validate_block", |b| {
-        b.iter(|| block.clone().validate(&wsv, &AllowAll.into()));
+        b.iter(|| {
+            block
+                .clone()
+                .validate(&wsv, &AllowAll.into(), &AllowAll.into())
+        });
     });
 }
 

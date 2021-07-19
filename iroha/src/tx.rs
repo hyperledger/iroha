@@ -16,11 +16,12 @@ use iroha_error::{Result, WrapErr};
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
-#[cfg(feature = "roles")]
-use crate::smartcontracts::permissions;
 use crate::{
     prelude::*,
-    smartcontracts::{permissions::IsInstructionAllowedBoxed, Evaluate, Execute},
+    smartcontracts::{
+        permissions::{self, IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
+        Evaluate, Execute,
+    },
     wsv::WorldTrait,
 };
 
@@ -79,11 +80,12 @@ impl VersionedAcceptedTransaction {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
         self.into_inner_v1()
-            .validate(wsv, permissions_validator, is_genesis)
+            .validate(wsv, is_instruction_allowed, is_query_allowed, is_genesis)
             .map(Into::into)
             .map_err(Into::into)
     }
@@ -194,7 +196,8 @@ impl AcceptedTransaction {
     fn validate_internal<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
         let wsv_temp = wsv.clone();
@@ -252,7 +255,7 @@ impl AcceptedTransaction {
                         )
                         .expect("Unreachable as evalutions should have been checked previously by instruction executions.");
                     for instruction in &instructions {
-                        permissions_validator
+                        is_instruction_allowed
                             .check(&account_id, instruction, wsv)
                             .map_err(|reason| NotPermittedFail { reason })
                             .map_err(TransactionRejectionReason::NotPermitted)?;
@@ -260,11 +263,19 @@ impl AcceptedTransaction {
                 }
                 #[cfg(not(feature = "roles"))]
                 {
-                    permissions_validator
+                    is_instruction_allowed
                         .check(&account_id, instruction, wsv)
                         .map_err(|reason| NotPermittedFail { reason })
                         .map_err(TransactionRejectionReason::NotPermitted)?;
                 }
+                permissions::check_query_in_instruction(
+                    &account_id,
+                    instruction,
+                    wsv,
+                    is_query_allowed,
+                )
+                .map_err(|reason| NotPermittedFail { reason })
+                .map_err(TransactionRejectionReason::NotPermitted)?;
             }
         }
 
@@ -282,10 +293,11 @@ impl AcceptedTransaction {
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
-        permissions_validator: &IsInstructionAllowedBoxed<W>,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
-        match self.validate_internal(wsv, permissions_validator, is_genesis) {
+        match self.validate_internal(wsv, is_instruction_allowed, is_query_allowed, is_genesis) {
             Ok(()) => Ok(ValidTransaction {
                 payload: self.payload,
                 signatures: self.signatures,
@@ -544,6 +556,7 @@ mod tests {
         let valid_tx_hash = accepted_tx
             .validate(
                 &WorldStateView::new(World::with(init::domains(&config), BTreeSet::new())),
+                &AllowAll.into(),
                 &AllowAll.into(),
                 true,
             )

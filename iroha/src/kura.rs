@@ -333,7 +333,11 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(&WorldStateView::new(World::new()), &AllowAll.into())
+            .validate(
+                &WorldStateView::new(World::new()),
+                &AllowAll.into(),
+                &AllowAll.into(),
+            )
             .sign(&keypair)
             .expect("Failed to sign blocks.")
             .commit();
@@ -350,7 +354,11 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(&WorldStateView::new(World::new()), &AllowAll.into())
+            .validate(
+                &WorldStateView::new(World::new()),
+                &AllowAll.into(),
+                &AllowAll.into(),
+            )
             .sign(&keypair)
             .expect("Failed to sign blocks.")
             .commit();
@@ -370,7 +378,11 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let mut block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(&WorldStateView::new(World::new()), &AllowAll.into())
+            .validate(
+                &WorldStateView::new(World::new()),
+                &AllowAll.into(),
+                &AllowAll.into(),
+            )
             .sign(&keypair)
             .expect("Failed to sign blocks.")
             .commit();
@@ -381,7 +393,11 @@ mod tests {
                 .expect("Failed to write block to file.");
             block = PendingBlock::new(Vec::new())
                 .chain(height, hash, view_change::ProofChain::empty(), Vec::new())
-                .validate(&WorldStateView::new(World::new()), &AllowAll.into())
+                .validate(
+                    &WorldStateView::new(World::new()),
+                    &AllowAll.into(),
+                    &AllowAll.into(),
+                )
                 .sign(&keypair)
                 .expect("Failed to sign blocks.")
                 .commit();
@@ -401,7 +417,11 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(&WorldStateView::new(World::new()), &AllowAll.into())
+            .validate(
+                &WorldStateView::new(World::new()),
+                &AllowAll.into(),
+                &AllowAll.into(),
+            )
             .sign(&keypair)
             .expect("Failed to sign blocks.")
             .commit();
