@@ -36,7 +36,7 @@ namespace integration_framework {
                  std::move(irohad_log_manager),
                  startup_wsv_data_policy,
                  iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
-                 iroha::network::getDefaultTestChannelParams(),
+                 std::nullopt,
                  opt_mst_gossip_params,
                  boost::none),
           log_(std::move(log)) {}

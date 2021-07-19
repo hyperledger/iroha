@@ -9,6 +9,7 @@
 #include <chrono>
 #include <csignal>
 #include <fstream>
+#include <future>
 #include <thread>
 
 #include "ametsuchi/storage.hpp"
@@ -306,7 +307,7 @@ int main(int argc, char *argv[]) {
         FLAGS_wait_for_new_blocks
             ? iroha::StartupWsvSynchronizationPolicy::kWaitForNewBlocks
             : iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
-        ::iroha::network::getDefaultChannelParams(),
+        std::nullopt,
         boost::make_optional(config.mst_support,
                              iroha::GossipPropagationStrategyParams{}),
         boost::none);

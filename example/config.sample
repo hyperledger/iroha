@@ -9,7 +9,7 @@
      "password": "mysecretpassword",
      "working database": "iroha_data",
      "maintenance database": "postgres"
-  }
+  },
   "max_proposal_size" : 10,
   "proposal_delay" : 5000,
   "vote_delay" : 5000,
@@ -19,4 +19,3 @@
   "stale_stream_max_rounds": 2,
   "metrics": "127.0.0.1:8080"
 }
-

@@ -43,7 +43,6 @@ target_link_libraries(integration_framework
     PRIVATE
     test_client_factory
     yac_transport
-    Boost::thread
     PUBLIC
     application
     integration_framework_config_helper

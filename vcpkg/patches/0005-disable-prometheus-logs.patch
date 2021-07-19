@@ -22,7 +22,7 @@ index 000000000..0a237dd54
 +   explicit Exposer(const std::string& bind_address,
 +-                   const std::size_t num_threads = 2);
 +-  explicit Exposer(std::vector<std::string> options);
-++                   const std::size_t num_threads = 2, 
+++                   const std::size_t num_threads = 2,
 ++                   const CivetCallbacks *callbacks = nullptr);
 ++  explicit Exposer(std::vector<std::string> options, const CivetCallbacks *callbacks = nullptr);
 +   ~Exposer();
@@ -60,8 +60,8 @@ index c6048af18..4a9a749d5 100644
 --- a/ports/prometheus-cpp/portfile.cmake
 +++ b/ports/prometheus-cpp/portfile.cmake
 @@ -8,6 +8,7 @@ vcpkg_from_github(
-     REF v0.9.0
-     SHA512 d9d5fbbd8c8aad5dd6a5e872275324d689a0c57199e4158d74e13ea62b286fa71dee01bb4197b906b79792bf1ca4e67a46b5c04621d7070241ac32876f6de891
+     REF 2412990ee9ad89245e7d1df9ec85ab19b24674d3 # v0.12.2
+     SHA512 52ecf1984c709dab749f2b4b0010796be49b9db5416678baf77f645054f85b1cae4d67f06ffb1643c0fbcfbf2e65c81f2157a22c0b75a346f9b1feba6537b87d
      HEAD_REF master
 +    PATCHES Add-CivetCallbacks-to-Exposer.patch
  )

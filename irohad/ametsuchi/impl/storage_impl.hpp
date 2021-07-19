@@ -38,6 +38,8 @@ namespace iroha {
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           std::shared_ptr<BlockStorage> persistent_block_storage,
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
@@ -67,7 +69,7 @@ namespace iroha {
       createMutableStorage(
           std::shared_ptr<CommandExecutor> command_executor) override;
 
-      void resetPeers() override;
+      expected::Result<void, std::string> resetPeers() override;
 
       void freeConnections() override;
 
@@ -97,6 +99,8 @@ namespace iroha {
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           size_t pool_size,
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager);
 
      private:

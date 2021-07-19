@@ -117,6 +117,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
                       std::move(block_storage_factory_),
                       std::move(block_storage_),
                       std::nullopt,
+                      [](auto) {},
                       storage_log_manager_)
       .match(
           [&storage](const auto &value) {

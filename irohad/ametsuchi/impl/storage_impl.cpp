@@ -8,10 +8,6 @@
 #include <soci/callbacks.h>
 #include <soci/postgresql/soci-postgresql.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/format.hpp>
-#include <boost/range/algorithm/replace_if.hpp>
-#include <boost/tuple/tuple.hpp>
 #include "ametsuchi/impl/block_index_impl.hpp"
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
@@ -29,9 +25,9 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "backend/protobuf/permissions.hpp"
-#include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "common/result.hpp"
+#include "common/result_try.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
@@ -51,6 +47,8 @@ namespace iroha::ametsuchi {
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
       size_t pool_size,
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+        callback,
       logger::LoggerManagerTreePtr log_manager)
       : StorageBase(std::move(ledger_state),
                     std::move(block_store),
@@ -61,6 +59,7 @@ namespace iroha::ametsuchi {
                     std::move(vm_caller_ref),
                     std::move(log_manager),
                     postgres_options.preparedBlockName(),
+                    std::move(callback),
                     pool_wrapper->enable_prepared_transactions_),
         pool_wrapper_(pool_wrapper),
         connection_(pool_wrapper->connection_pool_),
@@ -181,12 +180,11 @@ namespace iroha::ametsuchi {
         std::move(ms_log_manager));
   }
 
-  void StorageImpl::resetPeers() {
-    log()->info("Remove everything from peers table");
-    soci::session sql(*connection_);
-    expected::resultToOptionalError(PgConnectionInit::resetPeers(sql)) |
-        [this](const auto &e) { this->log()->error("{}", e); };
-  }
+iroha::expected::Result<void, std::string> StorageImpl::resetPeers() {
+  log()->info("Remove everything from peers table");
+  soci::session sql(*connection_);
+  return PgConnectionInit::resetPeers(sql);
+}
 
   void StorageImpl::freeConnections() {
     std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
@@ -221,27 +219,25 @@ namespace iroha::ametsuchi {
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
       std::shared_ptr<BlockStorage> persistent_block_storage,
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
+    std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+        callback,
       logger::LoggerManagerTreePtr log_manager,
       size_t pool_size) {
     boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
-    {
-      soci::session sql{*pool_wrapper->connection_pool_};
-      PostgresWsvQuery wsv_query(
-          sql, log_manager->getChild("WsvQuery")->getLogger());
+  {
+    soci::session sql{*pool_wrapper->connection_pool_};
+    PostgresWsvQuery wsv_query(sql,
+                               log_manager->getChild("WsvQuery")->getLogger());
 
-      ledger_state =
-          expected::resultToOptionalValue(wsv_query.getTopBlockInfo()) |
-          [&](auto &&top_block_info) {
-            return wsv_query.getPeers() |
-                [&top_block_info](auto &&ledger_peers) {
-                  return boost::make_optional(
-                      std::make_shared<const iroha::LedgerState>(
-                          std::move(ledger_peers),
-                          top_block_info.height,
-                          top_block_info.top_hash));
-                };
-          };
-    }
+    auto maybe_top_block_info = wsv_query.getTopBlockInfo();
+    auto maybe_ledger_peers = wsv_query.getPeers();
+
+    if (expected::hasValue(maybe_top_block_info) and maybe_ledger_peers)
+      ledger_state = std::make_shared<const iroha::LedgerState>(
+          std::move(*maybe_ledger_peers),
+          maybe_top_block_info.assumeValue().height,
+          maybe_top_block_info.assumeValue().top_hash);
+  }
 
     return expected::makeValue(std::shared_ptr<StorageImpl>(
         new StorageImpl(std::move(ledger_state),
@@ -254,6 +250,7 @@ namespace iroha::ametsuchi {
                         std::move(temporary_block_storage_factory),
                         pool_size,
                         std::move(vm_caller_ref),
+                      std::move(callback),
                         std::move(log_manager))));
   }
 
@@ -326,15 +323,17 @@ namespace iroha::ametsuchi {
   }
 
   void StorageImpl::tryRollback(soci::session &session) {
-    // TODO 17.06.2019 luckychess IR-568 split connection and schema
-    // initialisation
-    if (blockIsPrepared()) {
-      PgConnectionInit::rollbackPrepared(session, prepared_block_name_)
-          .match([this](auto &&v) { blockIsPrepared() = false; },
-                 [this](auto &&e) {
-                   log()->info("Block rollback  error: {}", std::move(e.error));
-                 });
+  // TODO 17.06.2019 luckychess IR-568 split connection and schema
+  // initialisation
+  if (block_is_prepared_) {
+    auto result =
+        PgConnectionInit::rollbackPrepared(session, prepared_block_name_);
+    if (iroha::expected::hasError(result)) {
+      log_->info("Block rollback  error: {}", result.assumeError());
+    } else {
+      block_is_prepared_ = false;
     }
+  }
   }
 
 }  // namespace iroha::ametsuchi
