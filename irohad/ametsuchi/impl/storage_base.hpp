@@ -12,7 +12,6 @@
 #include <shared_mutex>
 
 #include <boost/optional.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/indexer.hpp"
@@ -42,10 +41,8 @@ namespace iroha {
 
     class StorageBase : public Storage {
       std::shared_ptr<BlockStorage> block_store_;
-      rxcpp::composite_subscription notifier_lifetime_;
-      rxcpp::subjects::subject<
-          std::shared_ptr<const shared_model::interface::Block>>
-          notifier_;
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+          callback_;
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
       std::shared_ptr<PendingTransactionStorage> pending_txs_storage_;
@@ -155,9 +152,6 @@ namespace iroha {
       CommitResult commit(
           std::unique_ptr<MutableStorage> mutable_storage) override;
 
-      rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() override;
-
       void prepareBlock(std::unique_ptr<TemporaryWsv> wsv,
                         DatabaseTransaction &db_context);
 
@@ -180,6 +174,8 @@ namespace iroha {
           std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
           logger::LoggerManagerTreePtr log_manager,
           std::string const &prepared_block_name,
+          std::function<void(
+              std::shared_ptr<shared_model::interface::Block const>)> callback,
           bool prepared_blocks_enabled);
 
       ~StorageBase();

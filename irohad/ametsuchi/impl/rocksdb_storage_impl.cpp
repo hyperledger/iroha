@@ -135,7 +135,7 @@ namespace iroha::ametsuchi {
         std::move(ms_log_manager));
   }
 
-  void RocksDbStorageImpl::resetPeers() {
+  iroha::expected::Result<void, std::string> RocksDbStorageImpl::resetPeers() {
     log()->info("Remove everything from peers table. [UNUSED]");
   }
 

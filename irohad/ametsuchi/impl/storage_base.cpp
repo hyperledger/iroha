@@ -71,8 +71,11 @@ namespace iroha::ametsuchi {
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
       logger::LoggerManagerTreePtr log_manager,
       std::string const &prepared_block_name,
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+          callback,
       bool prepared_blocks_enabled)
       : block_store_(std::move(block_store)),
+        callback_(std::move(callback)),
         notifier_(notifier_lifetime_),
         perm_converter_(std::move(perm_converter)),
         pending_txs_storage_(std::move(pending_txs_storage)),
@@ -90,11 +93,7 @@ namespace iroha::ametsuchi {
   StorageBase::StoreBlockResult StorageBase::storeBlock(
       std::shared_ptr<const shared_model::interface::Block> block) {
     if (blockStore()->insert(block)) {
-      notifier().get_subscriber().on_next(block);
-      log_->info("StorageImpl::storeBlock()  notify(EventTypes::kOnBlock)");
-      getSubscription()->notify(
-          EventTypes::kOnBlock,
-          std::shared_ptr<const shared_model::interface::Block>(block));
+      callback_(block);
       return {};
     }
     return expected::makeError("Block insertion to storage failed");
@@ -105,52 +104,37 @@ namespace iroha::ametsuchi {
   }
 
   StorageBase::~StorageBase() {
-    notifier_lifetime_.unsubscribe();
   }
 
   expected::Result<void, std::string> StorageBase::insertBlock(
       std::shared_ptr<const shared_model::interface::Block> block) {
     log_->info("create mutable storage");
-    return createCommandExecutor() | [&](auto &&command_executor) {
-      return createMutableStorage(std::move(command_executor)) |
-                 [&](auto &&mutable_storage)
-                 -> expected::Result<void, std::string> {
-        const bool is_inserted = mutable_storage->apply(block);
-        commit(std::move(mutable_storage));
-        if (is_inserted) {
-          return {};
-        }
-        return "Stateful validation failed.";
-      };
-    };
+    IROHA_EXPECTED_TRY_GET_VALUE(command_executor, createCommandExecutor());
+    IROHA_EXPECTED_TRY_GET_VALUE(
+        mutable_storage, createMutableStorage(std::move(command_executor)));
+    const bool is_inserted = mutable_storage->apply(block);
+    commit(std::move(mutable_storage));
+    if (is_inserted) {
+      return {};
+    }
+    return "Stateful validation failed.";
   }
 
   CommitResult StorageBase::commit(
       std::unique_ptr<MutableStorage> mutable_storage) {
-    auto old_height = blockStore()->size();
-    return std::move(*mutable_storage).commit(*blockStore()) |
-               [this, old_height](auto commit_result) -> CommitResult {
-      ledgerState(commit_result.ledger_state);
-      auto new_height = blockStore()->size();
-      for (auto height = old_height + 1; height <= new_height; ++height) {
-        auto maybe_block = blockStore()->fetch(height);
-        if (not maybe_block) {
-          return fmt::format("Failed to fetch block {}", height);
-        }
-
-        std::shared_ptr<const shared_model::interface::Block> block_ptr =
-            std::move(maybe_block.get());
-        notifier().get_subscriber().on_next(block_ptr);
-        log_->info("StorageImpl::commit()  notify(EventTypes::kOnBlock)");
-        getSubscription()->notify(EventTypes::kOnBlock, block_ptr);
+    auto old_height = block_store()->size();
+    IROHA_EXPECTED_TRY_GET_VALUE(
+        result, std::move(*mutable_storage).commit(*block_store()));
+    ledger_state(result.ledger_state);
+    auto new_height = block_store()->size();
+    for (auto height = old_height + 1; height <= new_height; ++height) {
+      auto maybe_block = block_store()->fetch(height);
+      if (not maybe_block) {
+        return fmt::format("Failed to fetch block {}", height);
       }
-      return expected::makeValue(std::move(commit_result.ledger_state));
-    };
-  }
-
-  rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-  StorageBase::on_commit() {
-    return notifier().get_observable();
+      callback_(*std::move(maybe_block));
+    }
+    return expected::makeValue(std::move(result.ledger_state));
   }
 
   void StorageBase::prepareBlock(std::unique_ptr<TemporaryWsv> wsv,
@@ -209,11 +193,7 @@ namespace iroha::ametsuchi {
         throw std::runtime_error(e.value());
       }
 
-      log_->info("StorageImpl::commitPrepared()  notify(EventTypes::kOnBlock)");
-      notifier().get_subscriber().on_next(block);
-      getSubscription()->notify(
-          EventTypes::kOnBlock,
-          std::shared_ptr<const shared_model::interface::Block>(block));
+      callback_(block);
 
       decltype(std::declval<WsvQuery>().getPeers()) opt_ledger_peers;
       {
@@ -228,9 +208,9 @@ namespace iroha::ametsuchi {
           std::move(*opt_ledger_peers), block->height(), block->hash()));
       return expected::makeValue(ledgerState().value());
     } catch (const std::exception &e) {
-      std::string msg((boost::format("failed to apply prepared block %s: %s")
-                       % block->hash().hex() % e.what())
-                          .str());
+    std::string msg(fmt::format("failed to apply prepared block {}: {}",
+                                block->hash().hex(),
+                                e.what()));
       return expected::makeError(msg);
     }
   }

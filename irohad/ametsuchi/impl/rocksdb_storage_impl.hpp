@@ -67,7 +67,7 @@ namespace iroha {
       createMutableStorage(
           std::shared_ptr<CommandExecutor> command_executor) override;
 
-      void resetPeers() override;
+      iroha::expected::Result<void, std::string> resetPeers() override;
 
       void freeConnections() override;
 
