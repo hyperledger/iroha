@@ -55,6 +55,7 @@ namespace iroha::ametsuchi {
       kNoAccount = 3,
       kInvalidAmount = 3,
       kRoleAlreadyExists = 3,
+      kSignatoryMustNotExists = 3,
       kInvalidAssetAmount = 4,
       kIncorrectOldValue = 4,
       kPeersCountIsNotEnough = 4,

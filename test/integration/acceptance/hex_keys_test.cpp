@@ -65,7 +65,7 @@ struct HexKeys : public AcceptanceFixture,
 
   template<typename F>
   void executeForItf(F &&f) {
-    for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    for (auto const type : {iroha::StorageType::kPostgres}) {
       IntegrationTestFramework itf(1, type);
     using Role = interface::permissions::Role;
     const interface::RolePermissionSet permissions = {Role::kAddSignatory,
