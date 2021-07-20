@@ -34,11 +34,10 @@ namespace iroha::ordering {
 
     MOCK_METHOD(void, onCollaborationOutcome, (consensus::Round), (override));
     MOCK_METHOD(void, onTxsCommitted, (const HashesSetType &), (override));
-    MOCK_CONST_METHOD1(void,
-                forCachedBatches,
-                (std::function<void(
-                     const OnDemandOrderingService::BatchesSetType &)> const &),
-                (override));
+    MOCK_CONST_METHOD1(
+        forCachedBatches,
+        void(std::function<
+            void(const OnDemandOrderingService::BatchesSetType &)> const &));
     MOCK_METHOD(bool, isEmptyBatchesCache, (), (const, override));
     MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
     MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));

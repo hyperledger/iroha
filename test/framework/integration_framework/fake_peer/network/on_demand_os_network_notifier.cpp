@@ -58,7 +58,10 @@ namespace integration_framework::fake_peer {
       return true;
     }
 
-    bool OnDemandOsNetworkNotifier::hasProposal(
+  void OnDemandOsNetworkNotifier::processReceivedProposal(
+      CollectionType batches) {}
+
+  bool OnDemandOsNetworkNotifier::hasProposal(
         iroha::consensus::Round round) const {
       return false;
     }

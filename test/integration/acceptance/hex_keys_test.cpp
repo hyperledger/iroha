@@ -138,6 +138,7 @@ TEST_P(HexKeys, AddSignatory) {
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
       .sendTxAwait(tx2, CHECK_TXS_QUANTITY(0));
+    });
 }
 
 /**
@@ -152,7 +153,7 @@ TEST_P(HexKeys, RemoveSignatory) {
   auto hash2 = tx2.hash();
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1));
+      .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1));});
 }
 
 /**
@@ -202,7 +203,7 @@ TEST_P(HexKeys, AddPeerSameKeyDifferentCase) {
       complete(addPeer(PublicKeyHexStringView{same_key_transformed}, kNow));
   auto hash = tx.hash();
 
-  itf.sendTxAwait(tx, CHECK_TXS_QUANTITY(0));
+  itf.sendTxAwait(tx, CHECK_TXS_QUANTITY(0));});
 }
 
 /**
