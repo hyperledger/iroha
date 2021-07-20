@@ -1351,6 +1351,7 @@ dependencies = [
  "async-trait",
  "dashmap",
  "futures 0.3.15",
+ "iroha_error",
  "iroha_logger",
  "once_cell",
  "petgraph",
