@@ -125,6 +125,9 @@ namespace query_validation {
 template <typename Launcher>
 class BinaryTestFixture : public ::testing::Test {
  public:
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
   Launcher launcher;
 
   /**
@@ -162,24 +165,26 @@ class BinaryTestFixture : public ::testing::Test {
   void doTest(const unsigned &transactions_expected = 0,
               const unsigned &queries_expected = 0) {
     if (launcher.initialized(transactions_expected, queries_expected)) {
-      integration_framework::IntegrationTestFramework itf(1);
+      for (auto const type : storage_types) {
+        integration_framework::IntegrationTestFramework itf(1, type);
 
-      itf.setInitialState(launcher.admin_key.value(), genesis());
+        itf.setInitialState(launcher.admin_key.value(), genesis());
 
-      std::for_each(
-          std::next(  // first transaction was used as genesis transaction
-              launcher.transactions.begin()),
-          launcher.transactions.end(),
-          [&itf](const auto &tx) {
-            itf.sendTx(tx).checkBlock(
-                BinaryTestFixture::blockWithTransactionValidation);
-          });
+        std::for_each(
+            std::next(  // first transaction was used as genesis transaction
+                launcher.transactions.begin()),
+            launcher.transactions.end(),
+            [&itf](const auto &tx) {
+              itf.sendTx(tx).checkBlock(
+                  BinaryTestFixture::blockWithTransactionValidation);
+            });
 
-      query_validation::validateQueriesResponseTypes<
-          ExpectedQueryResponsesTypes...>(
-          launcher.queries.begin(), launcher.queries.end(), itf);
+        query_validation::validateQueriesResponseTypes<
+            ExpectedQueryResponsesTypes...>(
+            launcher.queries.begin(), launcher.queries.end(), itf);
 
-      itf.done();
+        itf.done();
+      }
     }
   }
 

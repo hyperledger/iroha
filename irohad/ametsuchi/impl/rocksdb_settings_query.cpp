@@ -18,7 +18,7 @@ namespace {
   expected::Result<bool, std::string> getValueFromDb(
       std::shared_ptr<RocksDBContext> db_context,
       const shared_model::interface::types::SettingKeyType &key,
-      size_t &destination) {
+      uint64_t &destination) {
     RocksDbCommon common(db_context);
     auto status = common.get(fmtstrings::kSetting, kMaxDescriptionSizeKey);
 

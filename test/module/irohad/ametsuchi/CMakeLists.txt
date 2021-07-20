@@ -25,6 +25,7 @@ target_link_libraries(wsv_query_command_test
 addtest(rdb_wsv_query_command_test rdb_wsv_query_command_test.cpp)
 target_link_libraries(rdb_wsv_query_command_test
     test_logger
+    ametsuchi
     ametsuchi_fixture
     ametsuchi_rocksdb
     sync_subscription
@@ -33,6 +34,7 @@ target_link_libraries(rdb_wsv_query_command_test
 addtest(rdb_wsv_query_test rdb_wsv_query_test.cpp)
 target_link_libraries(rdb_wsv_query_test
     test_logger
+    ametsuchi
     ametsuchi_fixture
     ametsuchi_rocksdb
     sync_subscription
