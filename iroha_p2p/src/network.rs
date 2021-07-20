@@ -11,6 +11,7 @@ use iroha_actor::{
     broker::{Broker, BrokerMessage},
     Actor, Addr, Context, Handler,
 };
+use iroha_crypto::PublicKey;
 use iroha_logger::{info, warn};
 use parity_scale_codec::{Decode, Encode};
 use tokio::net::{TcpListener, TcpStream};
@@ -31,9 +32,11 @@ where
     /// Current peers in any state
     pub peers: HashMap<PeerId, Addr<Peer<T, K, E>>>,
     /// A set of connected peers, ready to work with
-    pub connected_peers: HashSet<PeerId>,
+    pub connected_peers: HashSet<PublicKey>,
     /// `TcpListener` that is accepting peers' connections
     pub listener: Option<TcpListener>,
+    /// Our app-level public key
+    public_key: PublicKey,
     /// Broker doing internal communication
     pub broker: Broker,
 }
@@ -48,25 +51,33 @@ where
     ///
     /// # Errors
     /// It will return Err if it is unable to start listening on specified address:port.
-    pub async fn new(broker: Broker, listen_addr: String) -> Result<Self, Error> {
+    pub async fn new(
+        broker: Broker,
+        listen_addr: String,
+        public_key: PublicKey,
+    ) -> Result<Self, Error> {
         let addr: SocketAddr = listen_addr.parse()?;
         let listener = TcpListener::bind(addr).await?;
         Ok(Self {
             peers: HashMap::new(),
             connected_peers: HashSet::new(),
             listener: Some(listener),
+            public_key,
             broker,
         })
     }
 
     /// Yields a stream of accepted peer connections.
-    fn listener_stream(listener: TcpListener) -> impl Stream<Item = NewPeer> + Send + 'static {
+    fn listener_stream(
+        listener: TcpListener,
+        public_key: PublicKey,
+    ) -> impl Stream<Item = NewPeer> + Send + 'static {
         stream! {
             loop {
                 match listener.accept().await {
                     Ok((stream, addr)) => {
                         info!("Accepted connection from {}", &addr);
-                        let id = PeerId { address: addr.to_string(), public_key: None };
+                        let id = PeerId { address: addr.to_string(), public_key: public_key.clone() };
                         let new_peer: NewPeer = NewPeer(Ok((stream, id)));
                         yield new_peer;
                     },
@@ -114,7 +125,7 @@ where
             .listener
             .take()
             .expect("Unreachable, as it is supposed to have listener on the start");
-        ctx.notify_with_context(Self::listener_stream(listener));
+        ctx.notify_with_context(Self::listener_stream(listener, self.public_key.clone()));
     }
 }
 
@@ -164,11 +175,20 @@ where
 
     async fn handle(&mut self, msg: PeerMessage<T>) {
         match msg {
-            PeerMessage::Connected(id) => {
-                let _ = self.connected_peers.insert(id);
+            PeerMessage::Connected(id, connection_id) => {
+                if self.connected_peers.contains(&id.public_key) {
+                    warn!(
+                        "Peer with public key {:?} already connected!",
+                        &id.public_key
+                    );
+                    self.broker.issue_send(StopSelf(connection_id)).await;
+                } else {
+                    let _ = self.connected_peers.insert(id.public_key);
+                }
             }
             PeerMessage::Disconnected(id) => {
-                let _ = self.connected_peers.remove(&id);
+                drop(self.peers.remove(&id));
+                let _ = self.connected_peers.remove(&id.public_key);
             }
             PeerMessage::Message(_id, msg) => {
                 self.broker.issue_send(msg).await;
@@ -250,14 +270,17 @@ pub struct GetConnectedPeers;
 #[derive(Clone, Debug, iroha_actor::Message)]
 pub struct ConnectedPeers {
     /// Connected peers' ids
-    pub peers: HashSet<PeerId>,
+    pub peers: HashSet<PublicKey>,
 }
+
+/// An id of connection.
+pub type ConnectionId = u64;
 
 /// Variants of messages from [`Peer`] - connection state changes and data messages
 #[derive(Clone, Debug, iroha_actor::Message, Decode)]
 pub enum PeerMessage<T: Encode + Decode> {
     /// Peer just connected and finished handshake
-    Connected(PeerId),
+    Connected(PeerId, ConnectionId),
     /// Peer disconnected
     Disconnected(PeerId),
     /// Peer sent some message
@@ -281,6 +304,10 @@ pub struct Post<T: Encode> {
     /// Peer identification
     pub id: PeerId,
 }
+
+/// The message to stop the peer with included connection id.
+#[derive(Clone, Copy, Debug, iroha_actor::Message, Encode)]
+pub struct StopSelf(pub ConnectionId);
 
 /// The result of some incoming peer connection.
 #[derive(Debug, iroha_actor::Message)]

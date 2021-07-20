@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use std::{
     fmt::Debug,
+    str::FromStr,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -12,7 +13,11 @@ use iroha_logger::{
     config::{LevelEnv, LoggerConfiguration},
     info,
 };
-use iroha_p2p::{peer::PeerId, *};
+use iroha_p2p::{
+    network::{ConnectedPeers, GetConnectedPeers},
+    peer::PeerId,
+    *,
+};
 use parity_scale_codec::{Decode, Encode};
 use tokio::time::Duration;
 
@@ -29,6 +34,7 @@ fn gen_address() -> String {
 /// are properly sent and received using encryption and serialization/deserialization.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn network_create() {
+    let delay = Duration::from_millis(200);
     let log_config = LoggerConfiguration {
         max_log_level: LevelEnv::TRACE,
         compact_mode: false,
@@ -38,19 +44,23 @@ async fn network_create() {
     info!("Starting network tests...");
     let address = gen_address();
     let broker = Broker::new();
-    let network = Network::<TestMessage>::new(broker.clone(), address.clone())
+    let public_key = iroha_crypto::PublicKey::from_str(
+        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+    )
+    .unwrap();
+    let network = Network::<TestMessage>::new(broker.clone(), address.clone(), public_key.clone())
         .await
         .unwrap();
     drop(network.start().await);
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
     let peer1 = PeerId {
         address: address.clone(),
-        public_key: None,
+        public_key: public_key.clone(),
     };
     broker.issue_send(Connect { id: peer1.clone() }).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(delay).await;
 
     info!("Posting message...");
     broker
@@ -60,7 +70,7 @@ async fn network_create() {
         })
         .await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(delay).await;
 }
 
 #[derive(Debug)]
@@ -97,23 +107,29 @@ async fn two_networks() {
         ..LoggerConfiguration::default()
     };
     drop(iroha_logger::init(log_config));
+    let public_key = iroha_crypto::PublicKey::from_str(
+        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+    )
+    .unwrap();
     info!("Starting first network...");
     let address1 = gen_address();
 
     let broker1 = Broker::new();
-    let network1 = Network::<TestMessage>::new(broker1.clone(), address1.clone())
-        .await
-        .unwrap();
-    drop(network1.start().await);
+    let network1 =
+        Network::<TestMessage>::new(broker1.clone(), address1.clone(), public_key.clone())
+            .await
+            .unwrap();
+    let network1 = network1.start().await;
     tokio::time::sleep(delay).await;
 
     info!("Starting second network...");
     let address2 = gen_address();
     let broker2 = Broker::new();
-    let network2 = Network::<TestMessage>::new(broker2.clone(), address2.clone())
-        .await
-        .unwrap();
-    drop(network2.start().await);
+    let network2 =
+        Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key.clone())
+            .await
+            .unwrap();
+    let network2 = network2.start().await;
     tokio::time::sleep(delay).await;
 
     let messages2 = Arc::new(AtomicU32::new(0));
@@ -127,7 +143,7 @@ async fn two_networks() {
     info!("Connecting to peer...");
     let peer2 = PeerId {
         address: address2.clone(),
-        public_key: None,
+        public_key,
     };
     // Connecting to second peer from network1
     broker1.issue_send(Connect { id: peer2.clone() }).await;
@@ -137,12 +153,25 @@ async fn two_networks() {
     broker1
         .issue_send(Post {
             data: TestMessage("Some data to send to peer".to_owned()),
-            id: peer2,
+            id: peer2.clone(),
         })
         .await;
 
     tokio::time::sleep(delay).await;
     assert_eq!(messages2.load(Ordering::Relaxed), 1);
+
+    let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers.peers.len(), 1);
+
+    let connected_peers: ConnectedPeers = network2.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers.peers.len(), 1);
+
+    // Connecting to the same peer from network1
+    broker1.issue_send(Connect { id: peer2.clone() }).await;
+    tokio::time::sleep(delay).await;
+
+    let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers.peers.len(), 1);
 }
 
 #[test]
