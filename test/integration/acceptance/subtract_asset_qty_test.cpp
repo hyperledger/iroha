@@ -16,7 +16,8 @@ using namespace common_constants;
 
 class SubtractAssetQuantity : public AcceptanceFixture {
  public:
-  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
   /**
    * Creates the transaction with the user creation commands
@@ -50,18 +51,18 @@ class SubtractAssetQuantity : public AcceptanceFixture {
  */
 TEST_F(SubtractAssetQuantity, Everything) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTx(replenish())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTxAwait(
-          complete(baseTx().subtractAssetQuantity(kAssetId, kAmount)),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTx(replenish())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTxAwait(
+            complete(baseTx().subtractAssetQuantity(kAssetId, kAmount)),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
 
 /**
@@ -75,22 +76,23 @@ TEST_F(SubtractAssetQuantity, Everything) {
  */
 TEST_F(SubtractAssetQuantity, Overdraft) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(replenish())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, "2.0")))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(replenish())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, "2.0")))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -103,22 +105,23 @@ TEST_F(SubtractAssetQuantity, Overdraft) {
  */
 TEST_F(SubtractAssetQuantity, NoPermissions) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({interface::permissions::Role::kAddAssetQty}))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(replenish())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, kAmount)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({interface::permissions::Role::kAddAssetQty}))
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(replenish())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, kAmount)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -131,14 +134,14 @@ TEST_F(SubtractAssetQuantity, NoPermissions) {
  */
 TEST_F(SubtractAssetQuantity, ZeroAmount) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(replenish(), [](auto &) {})
-      .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, "0.0")),
-              CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTxAwait(replenish(), [](auto &) {})
+        .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, "0.0")),
+                CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -152,17 +155,18 @@ TEST_F(SubtractAssetQuantity, ZeroAmount) {
 TEST_F(SubtractAssetQuantity, NonexistentAsset) {
   std::string nonexistent = "inexist#test";
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTxAwait(replenish(), [](auto &) {})
-      .sendTx(complete(baseTx().subtractAssetQuantity(nonexistent, kAmount)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTxAwait(replenish(), [](auto &) {})
+        .sendTx(complete(baseTx().subtractAssetQuantity(nonexistent, kAmount)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }

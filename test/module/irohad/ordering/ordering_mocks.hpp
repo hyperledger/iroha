@@ -37,7 +37,7 @@ namespace iroha::ordering {
     MOCK_CONST_METHOD1(
         forCachedBatches,
         void(std::function<
-            void(const OnDemandOrderingService::BatchesSetType &)> const &));
+             void(const OnDemandOrderingService::BatchesSetType &)> const &));
     MOCK_METHOD(bool, isEmptyBatchesCache, (), (const, override));
     MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
     MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));

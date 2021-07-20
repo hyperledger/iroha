@@ -459,8 +459,8 @@ operator()(
     for (auto const c : hash.hex()) h_hex += std::tolower(c);
 
     std::optional<std::string_view> opt;
-    if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(common,
-                                                                                h_hex);
+    if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
+            common, h_hex);
         expected::hasError(r))
       return query_response_factory_->createErrorQueryResponse(
           ErrorQueryType::kStatefulFailed,
@@ -472,14 +472,22 @@ operator()(
     else
       opt = std::move(r.assumeValue());
 
-    auto const &[tx_status, tx_height, tx_index, tx_ts] = staticSplitId<4ull>(*opt, "#");
+    auto const &[tx_status, tx_height, tx_index, tx_ts] =
+        staticSplitId<4ull>(*opt, "#");
 
     TxPosition tx_position = {0ull, 0ull, 0ull};
-    decodePosition(
-        tx_ts, tx_height, tx_index, tx_position);
+    decodePosition(tx_ts, tx_height, tx_index, tx_position);
 
-    if (auto r = forTransactionByPosition<kDbOperation::kGet, kDbEntry::kMustExist>(common, creator_id, tx_position.ts, tx_position.height, tx_position.index);
-        !canRequestAll && (expected::hasError(r) || staticSplitId<2ull>(*r.assumeValue()).at(1) != h_hex))
+    if (auto r =
+            forTransactionByPosition<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common,
+                creator_id,
+                tx_position.ts,
+                tx_position.height,
+                tx_position.index);
+        !canRequestAll
+        && (expected::hasError(r)
+            || staticSplitId<2ull>(*r.assumeValue()).at(1) != h_hex))
       continue;
 
     auto txs_result =

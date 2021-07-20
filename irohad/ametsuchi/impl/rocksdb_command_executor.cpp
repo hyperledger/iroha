@@ -259,9 +259,10 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       common, account_name, domain_id));
 
   if (auto result = forSignatory<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-        common, account_name, domain_id, command.pubkey());
+          common, account_name, domain_id, command.pubkey());
       expected::hasError(result))
-    return makeError<void>(ErrorCodes::kSignatoryMustNotExists, "Signatory must not exists.");
+    return makeError<void>(ErrorCodes::kSignatoryMustNotExists,
+                           "Signatory must not exists.");
 
   common.valueBuffer().clear();
   RDB_ERROR_CHECK(forSignatory<kDbOperation::kPut>(

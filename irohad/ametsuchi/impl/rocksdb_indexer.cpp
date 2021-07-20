@@ -37,15 +37,17 @@ void RocksDBIndexer::txHashStatus(const TxPosition &position,
   forTransactionStatus<kDbOperation::kPut>(common, h_hex);
 }
 
-void RocksDBIndexer::committedTxHash(const TxPosition &position,
-                                     shared_model::interface::types::TimestampType const ts,
-                                     const HashType &committed_tx_hash) {
+void RocksDBIndexer::committedTxHash(
+    const TxPosition &position,
+    shared_model::interface::types::TimestampType const ts,
+    const HashType &committed_tx_hash) {
   txHashStatus(position, ts, committed_tx_hash, true);
 }
 
-void RocksDBIndexer::rejectedTxHash(const TxPosition &position,
-                                    shared_model::interface::types::TimestampType const ts,
-                                    const HashType &rejected_tx_hash) {
+void RocksDBIndexer::rejectedTxHash(
+    const TxPosition &position,
+    shared_model::interface::types::TimestampType const ts,
+    const HashType &rejected_tx_hash) {
   txHashStatus(position, ts, rejected_tx_hash, false);
 }
 

@@ -28,7 +28,8 @@ using shared_model::interface::permissions::Role;
 using shared_model::interface::types::PublicKeyHexStringView;
 
 static logger::LoggerPtr log_ = getTestLogger("RegressionTest");
-static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+static constexpr iroha::StorageType storage_types[] = {
+    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
 /**
  * @given ITF instance with Iroha
@@ -61,29 +62,29 @@ TEST(RegressionTest, SequentialInitialization) {
             .substr(0, 8);
   {
     for (auto const type : storage_types)
-    integration_framework::IntegrationTestFramework(
-        1, type, dbname, iroha::StartupWsvDataPolicy::kDrop, false, false)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx, check_stateless_valid_status)
-        .skipProposal()
-        .checkVerifiedProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 0);
-        })
-        .checkBlock(
-            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+      integration_framework::IntegrationTestFramework(
+          1, type, dbname, iroha::StartupWsvDataPolicy::kDrop, false, false)
+          .setInitialState(kAdminKeypair)
+          .sendTx(tx, check_stateless_valid_status)
+          .skipProposal()
+          .checkVerifiedProposal([](auto &proposal) {
+            ASSERT_EQ(proposal->transactions().size(), 0);
+          })
+          .checkBlock(
+              [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
   }
   {
     for (auto const type : storage_types)
-    integration_framework::IntegrationTestFramework(
-        1, type, dbname, iroha::StartupWsvDataPolicy::kReuse, true, false)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx, check_stateless_valid_status)
-        .checkProposal(checkProposal)
-        .checkVerifiedProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 0);
-        })
-        .checkBlock(
-            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+      integration_framework::IntegrationTestFramework(
+          1, type, dbname, iroha::StartupWsvDataPolicy::kReuse, true, false)
+          .setInitialState(kAdminKeypair)
+          .sendTx(tx, check_stateless_valid_status)
+          .checkProposal(checkProposal)
+          .checkVerifiedProposal([](auto &proposal) {
+            ASSERT_EQ(proposal->transactions().size(), 0);
+          })
+          .checkBlock(
+              [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
   }
 }
 
@@ -136,21 +137,21 @@ TEST(RegressionTest, StateRecovery) {
 
   {
     for (auto const type : storage_types)
-    integration_framework::IntegrationTestFramework(
-        1, type, dbname, iroha::StartupWsvDataPolicy::kDrop, false)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx)
-        .checkProposal(checkOne)
-        .checkVerifiedProposal(checkOne)
-        .checkBlock(checkOne)
-        .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
+      integration_framework::IntegrationTestFramework(
+          1, type, dbname, iroha::StartupWsvDataPolicy::kDrop, false)
+          .setInitialState(kAdminKeypair)
+          .sendTx(tx)
+          .checkProposal(checkOne)
+          .checkVerifiedProposal(checkOne)
+          .checkBlock(checkOne)
+          .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
   }
   {
     for (auto const type : storage_types)
-    integration_framework::IntegrationTestFramework(
-        1, type, dbname, iroha::StartupWsvDataPolicy::kReuse, false)
-        .recoverState(kAdminKeypair)
-        .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
+      integration_framework::IntegrationTestFramework(
+          1, type, dbname, iroha::StartupWsvDataPolicy::kReuse, false)
+          .recoverState(kAdminKeypair)
+          .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
   }
 }
 
@@ -188,22 +189,23 @@ TEST(RegressionTest, PoisonedBlock) {
                                            .string();
   {
     for (auto const type : storage_types)
-    integration_framework::IntegrationTestFramework(
-        1, type,
-        dbname,
-        iroha::StartupWsvDataPolicy::kDrop,
-        false,
-        false,
-        block_store_path)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx1)
-        .checkProposal(check_one)
-        .checkVerifiedProposal(check_one)
-        .checkBlock(check_one)
-        .sendTx(tx2)
-        .checkProposal(check_one)
-        .checkVerifiedProposal(check_one)
-        .checkBlock(check_one);
+      integration_framework::IntegrationTestFramework(
+          1,
+          type,
+          dbname,
+          iroha::StartupWsvDataPolicy::kDrop,
+          false,
+          false,
+          block_store_path)
+          .setInitialState(kAdminKeypair)
+          .sendTx(tx1)
+          .checkProposal(check_one)
+          .checkVerifiedProposal(check_one)
+          .checkBlock(check_one)
+          .sendTx(tx2)
+          .checkProposal(check_one)
+          .checkVerifiedProposal(check_one)
+          .checkBlock(check_one);
   }
   size_t block_n = 2;
 
@@ -218,14 +220,15 @@ TEST(RegressionTest, PoisonedBlock) {
   {
     try {
       for (auto const type : storage_types)
-      integration_framework::IntegrationTestFramework(
-          1,type,
-          dbname,
-          iroha::StartupWsvDataPolicy::kDrop,
-          false,
-          false,
-          block_store_path)
-          .recoverState(kAdminKeypair);
+        integration_framework::IntegrationTestFramework(
+            1,
+            type,
+            dbname,
+            iroha::StartupWsvDataPolicy::kDrop,
+            false,
+            false,
+            block_store_path)
+            .recoverState(kAdminKeypair);
       ADD_FAILURE() << "No exception thrown";
     } catch (std::runtime_error const &e) {
       using ::testing::HasSubstr;
@@ -244,10 +247,10 @@ TEST(RegressionTest, PoisonedBlock) {
  */
 TEST(RegressionTest, DoubleCallOfDone) {
   for (auto const type : storage_types) {
-  integration_framework::IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair).done();
-  itf.done();
-}
+    integration_framework::IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair).done();
+    itf.done();
+  }
 }
 
 /**
@@ -257,6 +260,6 @@ TEST(RegressionTest, DoubleCallOfDone) {
  */
 TEST(RegressionTest, DestructionOfNonInitializedItf) {
   for (auto const type : storage_types)
-  integration_framework::IntegrationTestFramework itf(
-      1, type, {}, iroha::StartupWsvDataPolicy::kDrop, true);
+    integration_framework::IntegrationTestFramework itf(
+        1, type, {}, iroha::StartupWsvDataPolicy::kDrop, true);
 }

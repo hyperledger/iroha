@@ -77,7 +77,8 @@ void BlockIndexImpl::index(const shared_model::interface::Block &block) {
     const auto &creator_id = tx.value().creatorAccountId();
     const TxPosition position{height, static_cast<size_t>(tx.index())};
 
-    indexer_->committedTxHash(position, tx.value().createdTime(), tx.value().hash());
+    indexer_->committedTxHash(
+        position, tx.value().createdTime(), tx.value().hash());
     makeAccountAssetIndex(creator_id,
                           tx.value().hash(),
                           tx.value().createdTime(),

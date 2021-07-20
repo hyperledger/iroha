@@ -22,7 +22,8 @@ using shared_model::interface::permissions::Role;
 
 class EngineCall : public AcceptanceFixture {
  public:
-  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres};
 
   auto makeUserWithPerms(const interface::RolePermissionSet &perms =
                              shared_model::interface::RolePermissionSet()) {
@@ -286,92 +287,94 @@ class EngineCall : public AcceptanceFixture {
  */
 TEST_F(EngineCall, Basic) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(
-          makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(
+            makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, dummyCode));
+    auto deploy_tx =
+        complete(baseTx().callEngine(kUserId, std::nullopt, dummyCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
-  itf.sendTxAwait(
-         complete(baseTx().callEngine(kUserId, callee, inputCallSetter)),
-         [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(
-          complete(baseTx().callEngine(kUserId, callee, inputCallGetter)),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-    }
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    itf.sendTxAwait(
+           complete(baseTx().callEngine(kUserId, callee, inputCallSetter)),
+           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            complete(baseTx().callEngine(kUserId, callee, inputCallGetter)),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  }
 }
 
 TEST_F(EngineCall, CreatorStorageSmartContract) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(
-          makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(
+            makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, creatorStorageCode));
+    auto deploy_tx = complete(
+        baseTx().callEngine(kUserId, std::nullopt, creatorStorageCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
-  itf.sendTxAwait(
-         complete(baseTx().callEngine(kUserId, callee, getCreator)),
-         [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(
-          complete(baseTx().callEngine(kUserId, callee, getMsgSender)),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-    }
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    itf.sendTxAwait(
+           complete(baseTx().callEngine(kUserId, callee, getCreator)),
+           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            complete(baseTx().callEngine(kUserId, callee, getMsgSender)),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  }
 }
 
 /**
@@ -382,53 +385,54 @@ TEST_F(EngineCall, CreatorStorageSmartContract) {
  */
 TEST_F(EngineCall, QueryAccountBalance) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({Role::kCallEngine,
-                                 Role::kGetMyEngineReceipts,
-                                 Role::kCreateAsset,
-                                 Role::kAddAssetQty,
-                                 Role::kGetAllAccAst}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createAsset(kAssetName, kDomain, 2)))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kAssetId, "1000.00")))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                   Role::kGetMyEngineReceipts,
+                                   Role::kCreateAsset,
+                                   Role::kAddAssetQty,
+                                   Role::kGetAllAccAst}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createAsset(kAssetName, kDomain, 2)))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().addAssetQuantity(kAssetId, "1000.00")))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, queryIrohaCode));
+    auto deploy_tx =
+        complete(baseTx().callEngine(kUserId, std::nullopt, queryIrohaCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
-  itf.sendTxAwait(
-      complete(baseTx().callEngine(kUserId, callee, getBalance)),
-      [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-}
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    itf.sendTxAwait(
+        complete(baseTx().callEngine(kUserId, callee, getBalance)),
+        [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  }
 }
 
 /**
@@ -438,58 +442,59 @@ TEST_F(EngineCall, QueryAccountBalance) {
  */
 TEST_F(EngineCall, TransferAsset) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({Role::kCallEngine,
-                                 Role::kGetMyEngineReceipts,
-                                 Role::kCreateAsset,
-                                 Role::kAddAssetQty,
-                                 Role::kGetAllAccAst,
-                                 Role::kTransfer}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(makeSecondUser({Role::kReceive}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                   Role::kGetMyEngineReceipts,
+                                   Role::kCreateAsset,
+                                   Role::kAddAssetQty,
+                                   Role::kGetAllAccAst,
+                                   Role::kTransfer}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(makeSecondUser({Role::kReceive}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+    auto deploy_tx =
+        complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
 
-  itf.sendTxAwait(
-      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
-      [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-}
+    itf.sendTxAwait(
+        complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+        [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  }
 }
 
 /**
@@ -499,55 +504,56 @@ TEST_F(EngineCall, TransferAsset) {
  */
 TEST_F(EngineCall, AccountMissingError) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({Role::kCallEngine,
-                                 Role::kGetMyEngineReceipts,
-                                 Role::kCreateAsset,
-                                 Role::kAddAssetQty,
-                                 Role::kGetAllAccAst,
-                                 Role::kTransfer}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                   Role::kGetMyEngineReceipts,
+                                   Role::kCreateAsset,
+                                   Role::kAddAssetQty,
+                                   Role::kGetAllAccAst,
+                                   Role::kTransfer}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+    auto deploy_tx =
+        complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
 
-  itf.sendTxAwait(
-      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
-      [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
-}
+    itf.sendTxAwait(
+        complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+        [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  }
 }
 
 /**
@@ -557,57 +563,58 @@ TEST_F(EngineCall, AccountMissingError) {
  */
 TEST_F(EngineCall, PermissionError) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({Role::kCallEngine,
-                                 Role::kGetMyEngineReceipts,
-                                 Role::kCreateAsset,
-                                 Role::kAddAssetQty,
-                                 Role::kGetAllAccAst}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(makeSecondUser({Role::kReceive}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                   Role::kGetMyEngineReceipts,
+                                   Role::kCreateAsset,
+                                   Role::kAddAssetQty,
+                                   Role::kGetAllAccAst}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(makeSecondUser({Role::kReceive}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+    auto deploy_tx =
+        complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
 
-  itf.sendTxAwait(
-      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
-      [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
-}
+    itf.sendTxAwait(
+        complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+        [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  }
 }
 
 /**
@@ -617,55 +624,56 @@ TEST_F(EngineCall, PermissionError) {
  */
 TEST_F(EngineCall, InsufficientBalanceError) {
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({Role::kCallEngine,
-                                 Role::kGetMyEngineReceipts,
-                                 Role::kCreateAsset,
-                                 Role::kAddAssetQty,
-                                 Role::kGetAllAccAst}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(makeSecondUser({Role::kReceive}))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "50.00")))
-      .skipProposal()
-      .skipBlock();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                   Role::kGetMyEngineReceipts,
+                                   Role::kCreateAsset,
+                                   Role::kAddAssetQty,
+                                   Role::kGetAllAccAst}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(makeSecondUser({Role::kReceive}))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "50.00")))
+        .skipProposal()
+        .skipBlock();
 
-  auto deploy_tx =
-      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+    auto deploy_tx =
+        complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
 
-  itf.sendTxAwait(deploy_tx, [](auto &block) {
-    ASSERT_EQ(block->transactions().size(), 1);
-  });
-  std::vector<std::string> deployed_addresses;
+    itf.sendTxAwait(deploy_tx, [](auto &block) {
+      ASSERT_EQ(block->transactions().size(), 1);
+    });
+    std::vector<std::string> deployed_addresses;
 
-  itf.sendQuery(
-      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
-      [&deployed_addresses](const auto &response) {
-        auto *receipts_response =
-            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
-                &response.get());
-        ASSERT_NE(receipts_response, nullptr);
-        const auto &receipts = receipts_response->engineReceipts();
-        std::transform(receipts.begin(),
-                       receipts.end(),
-                       std::back_inserter(deployed_addresses),
-                       [](auto const &receipt) {
-                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
-                         return receipt.getContractAddress().value();
-                       });
-      });
+    itf.sendQuery(
+        complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+        [&deployed_addresses](const auto &response) {
+          auto *receipts_response = boost::get<
+              const shared_model::interface::EngineReceiptsResponse &>(
+              &response.get());
+          ASSERT_NE(receipts_response, nullptr);
+          const auto &receipts = receipts_response->engineReceipts();
+          std::transform(receipts.begin(),
+                         receipts.end(),
+                         std::back_inserter(deployed_addresses),
+                         [](auto const &receipt) {
+                           EXPECT_NE(receipt.getContractAddress(),
+                                     std::nullopt);
+                           return receipt.getContractAddress().value();
+                         });
+        });
 
-  ASSERT_NE(deployed_addresses.size(), 0);
-  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+    ASSERT_NE(deployed_addresses.size(), 0);
+    interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
 
-  itf.sendTxAwait(
-      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
-      [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
-}
+    itf.sendTxAwait(
+        complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+        [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  }
 }

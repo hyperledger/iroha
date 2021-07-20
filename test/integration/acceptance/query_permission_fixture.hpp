@@ -21,7 +21,8 @@ class QueryPermissionFixture : public AcceptanceFixture {
 
  protected:
   void SetUp() override {
-    impl_.itf_ = std::make_unique<IntegrationTestFramework>(1, iroha::StorageType::kRocksDb);
+    impl_.itf_ = std::make_unique<IntegrationTestFramework>(
+        1, iroha::StorageType::kRocksDb);
     impl_.itf_->setInitialState(common_constants::kAdminKeypair);
   }
 };

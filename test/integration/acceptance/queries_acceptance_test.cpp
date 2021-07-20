@@ -40,8 +40,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
     invalidPublicKeyView = invalidPublicKey;
   };
 
-  void SetUp() {
-  };
+  void SetUp(){};
 
   static void checkRolesResponse(const proto::QueryResponse &response) {
     ASSERT_NO_THROW({
@@ -52,9 +51,10 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
     });
   }
 
-  template<typename F>
+  template <typename F>
   void executeForItf(F &&f) {
-    for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    for (auto const type :
+         {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
       IntegrationTestFramework itf(1, type);
       itf.setInitialState(kAdminKeypair)
           .sendTxAwait(
@@ -82,10 +82,12 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
  */
 TEST_F(QueriesAcceptanceTest, NonExistentCreatorId) {
   executeForItf([&](auto &itf) {
-  auto query = complete(baseQry(NonExistentUserId).getRoles());
+    auto query = complete(baseQry(NonExistentUserId).getRoles());
 
-  itf.sendQuery(
-      query, checkQueryErrorResponse<interface::StatefulFailedErrorResponse>()); });
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatefulFailedErrorResponse>());
+  });
 }
 
 /**
@@ -97,12 +99,13 @@ TEST_F(QueriesAcceptanceTest, NonExistentCreatorId) {
  */
 TEST_F(QueriesAcceptanceTest, OneHourOldTime) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::hours(-1)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::hours(-1)))
+                     .getRoles());
 
-  itf.sendQuery(query, checkRolesResponse);});
+    itf.sendQuery(query, checkRolesResponse);
+  });
 }
 
 /**
@@ -114,15 +117,16 @@ TEST_F(QueriesAcceptanceTest, OneHourOldTime) {
  */
 TEST_F(QueriesAcceptanceTest, More24HourOldTime) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::hours(-24)
-                                                 - std::chrono::seconds(1)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::hours(-24)
+                                                   - std::chrono::seconds(1)))
+                     .getRoles());
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -134,13 +138,14 @@ TEST_F(QueriesAcceptanceTest, More24HourOldTime) {
  */
 TEST_F(QueriesAcceptanceTest, Less24HourOldTime) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::hours(-24)
-                                                 + std::chrono::seconds(1)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::hours(-24)
+                                                   + std::chrono::seconds(1)))
+                     .getRoles());
 
-  itf.sendQuery(query, checkRolesResponse);});
+    itf.sendQuery(query, checkRolesResponse);
+  });
 }
 
 /**
@@ -152,14 +157,14 @@ TEST_F(QueriesAcceptanceTest, Less24HourOldTime) {
  */
 TEST_F(QueriesAcceptanceTest, LessFiveMinutesFromFuture) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::minutes(5)
-                                                 - std::chrono::seconds(1)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::minutes(5)
+                                                   - std::chrono::seconds(1)))
+                     .getRoles());
 
-  itf.sendQuery(query, checkRolesResponse);
-});
+    itf.sendQuery(query, checkRolesResponse);
+  });
 }
 
 /**
@@ -171,12 +176,13 @@ TEST_F(QueriesAcceptanceTest, LessFiveMinutesFromFuture) {
  */
 TEST_F(QueriesAcceptanceTest, FiveMinutesFromFuture) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::minutes(5)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::minutes(5)))
+                     .getRoles());
 
-  itf.sendQuery(query, checkRolesResponse);});
+    itf.sendQuery(query, checkRolesResponse);
+  });
 }
 
 /**
@@ -188,15 +194,16 @@ TEST_F(QueriesAcceptanceTest, FiveMinutesFromFuture) {
  */
 TEST_F(QueriesAcceptanceTest, MoreFiveMinutesFromFuture) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::minutes(5)
-                                                 + std::chrono::seconds(1)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::minutes(5)
+                                                   + std::chrono::seconds(1)))
+                     .getRoles());
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -208,14 +215,15 @@ TEST_F(QueriesAcceptanceTest, MoreFiveMinutesFromFuture) {
  */
 TEST_F(QueriesAcceptanceTest, TenMinutesFromFuture) {
   executeForItf([&](auto &itf) {
-  auto query =
-      complete(baseQry()
-                   .createdTime(iroha::time::now(std::chrono::minutes(10)))
-                   .getRoles());
+    auto query =
+        complete(baseQry()
+                     .createdTime(iroha::time::now(std::chrono::minutes(10)))
+                     .getRoles());
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -229,15 +237,16 @@ TEST_F(QueriesAcceptanceTest, TenMinutesFromFuture) {
  */
 TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
   executeForItf([&](auto &itf) {
-  crypto::Keypair kInvalidSignValidPubKeypair = crypto::Keypair(
-      PublicKeyHexStringView{kUserKeypair.publicKey()},
-      crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
+    crypto::Keypair kInvalidSignValidPubKeypair = crypto::Keypair(
+        PublicKeyHexStringView{kUserKeypair.publicKey()},
+        crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
-  auto query = complete(baseQry().getRoles(), kInvalidSignValidPubKeypair);
+    auto query = complete(baseQry().getRoles(), kInvalidSignValidPubKeypair);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -250,14 +259,15 @@ TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
   executeForItf([&](auto &itf) {
-  crypto::Keypair kValidSignInvalidPubKeypair =
-      crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
+    crypto::Keypair kValidSignInvalidPubKeypair =
+        crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
 
-  auto query = complete(baseQry().getRoles(), kValidSignInvalidPubKeypair);
+    auto query = complete(baseQry().getRoles(), kValidSignInvalidPubKeypair);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -270,15 +280,16 @@ TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, FullyInvalidKeypair) {
   executeForItf([&](auto &itf) {
-  crypto::Keypair kFullyInvalidKeypair = crypto::Keypair(
-      invalidPublicKeyView,
-      crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
+    crypto::Keypair kFullyInvalidKeypair = crypto::Keypair(
+        invalidPublicKeyView,
+        crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
-  auto query = complete(baseQry().getRoles(), kFullyInvalidKeypair);
+    auto query = complete(baseQry().getRoles(), kFullyInvalidKeypair);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -291,14 +302,15 @@ TEST_F(QueriesAcceptanceTest, FullyInvalidKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, EmptySignValidPubKeypair) {
   executeForItf([&](auto &itf) {
-  auto proto_query = complete(baseQry().getRoles()).getTransport();
+    auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  proto_query.clear_signature();
-  auto query = proto::Query(proto_query);
+    proto_query.clear_signature();
+    auto query = proto::Query(proto_query);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -310,14 +322,15 @@ TEST_F(QueriesAcceptanceTest, EmptySignValidPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, ValidSignEmptyPubKeypair) {
   executeForItf([&](auto &itf) {
-  auto proto_query = complete(baseQry().getRoles()).getTransport();
+    auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  proto_query.mutable_signature()->clear_public_key();
-  auto query = proto::Query(proto_query);
+    proto_query.mutable_signature()->clear_public_key();
+    auto query = proto::Query(proto_query);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -329,15 +342,16 @@ TEST_F(QueriesAcceptanceTest, ValidSignEmptyPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, FullyEmptyPubKeypair) {
   executeForItf([&](auto &itf) {
-  auto proto_query = complete(baseQry().getRoles()).getTransport();
+    auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  proto_query.clear_signature();
-  proto_query.mutable_signature()->clear_public_key();
-  auto query = proto::Query(proto_query);
+    proto_query.clear_signature();
+    proto_query.mutable_signature()->clear_public_key();
+    auto query = proto::Query(proto_query);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -350,19 +364,21 @@ TEST_F(QueriesAcceptanceTest, FullyEmptyPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
   executeForItf([&](auto &itf) {
-  crypto::Keypair kInvalidSignEmptyPubKeypair = crypto::Keypair(
-      PublicKeyHexStringView{kUserKeypair.publicKey()},
-      crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
+    crypto::Keypair kInvalidSignEmptyPubKeypair = crypto::Keypair(
+        PublicKeyHexStringView{kUserKeypair.publicKey()},
+        crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
-  auto proto_query = complete(baseQry().getRoles(), kInvalidSignEmptyPubKeypair)
-                         .getTransport();
+    auto proto_query =
+        complete(baseQry().getRoles(), kInvalidSignEmptyPubKeypair)
+            .getTransport();
 
-  proto_query.mutable_signature()->clear_public_key();
-  auto query = proto::Query(proto_query);
+    proto_query.mutable_signature()->clear_public_key();
+    auto query = proto::Query(proto_query);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }
 
 /**
@@ -379,16 +395,18 @@ TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, EmptySignInvalidPubKeypair) {
   executeForItf([&](auto &itf) {
-  crypto::Keypair kEmptySignInvalidPubKeypair =
-      crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
+    crypto::Keypair kEmptySignInvalidPubKeypair =
+        crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
 
-  auto proto_query = complete(baseQry().getRoles(), kEmptySignInvalidPubKeypair)
-                         .getTransport();
+    auto proto_query =
+        complete(baseQry().getRoles(), kEmptySignInvalidPubKeypair)
+            .getTransport();
 
-  proto_query.clear_signature();
-  auto query = proto::Query(proto_query);
+    proto_query.clear_signature();
+    auto query = proto::Query(proto_query);
 
-  itf.sendQuery(
-      query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());});
+    itf.sendQuery(
+        query,
+        checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+  });
 }

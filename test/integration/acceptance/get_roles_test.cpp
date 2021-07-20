@@ -17,7 +17,8 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+static constexpr iroha::StorageType storage_types[] = {
+    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -29,28 +30,31 @@ static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostg
  */
 TEST_F(AcceptanceFixture, CanGetRoles) {
   for (auto const type : storage_types) {
-  auto checkQuery = [](auto &query_response) {
-    ASSERT_NO_THROW(boost::get<const shared_model::interface::RolesResponse &>(
-        query_response.get()));
-  };
+    auto checkQuery = [](auto &query_response) {
+      ASSERT_NO_THROW(
+          boost::get<const shared_model::interface::RolesResponse &>(
+              query_response.get()));
+    };
 
-  auto query = TestUnsignedQueryBuilder()
-                   .createdTime(iroha::time::now())
-                   .creatorAccountId(kUserId)
-                   .queryCounter(1)
-                   .getRoles()
-                   .build()
-                   .signAndAddSignature(kUserKeypair)
-                   .finish();
+    auto query = TestUnsignedQueryBuilder()
+                     .createdTime(iroha::time::now())
+                     .creatorAccountId(kUserId)
+                     .queryCounter(1)
+                     .getRoles()
+                     .build()
+                     .signAndAddSignature(kUserKeypair)
+                     .finish();
 
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms(
-          {shared_model::interface::permissions::Role::kGetRoles}))
-      .skipProposal()
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(boost::size(block->transactions()), 1); })
-      .sendQuery(query, checkQuery); }
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms(
+            {shared_model::interface::permissions::Role::kGetRoles}))
+        .skipProposal()
+        .checkBlock([](auto &block) {
+          ASSERT_EQ(boost::size(block->transactions()), 1);
+        })
+        .sendQuery(query, checkQuery);
+  }
 }
 
 /**
@@ -63,33 +67,35 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
  */
 TEST_F(AcceptanceFixture, CanNotGetRoles) {
   for (auto const type : storage_types) {
-  auto checkQuery = [](auto &query_response) {
-    ASSERT_NO_THROW({
-      const auto &error_rsp =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              query_response.get());
-      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
-          error_rsp.get());
-    });
-  };
+    auto checkQuery = [](auto &query_response) {
+      ASSERT_NO_THROW({
+        const auto &error_rsp =
+            boost::get<const shared_model::interface::ErrorQueryResponse &>(
+                query_response.get());
+        boost::get<
+            const shared_model::interface::StatefulFailedErrorResponse &>(
+            error_rsp.get());
+      });
+    };
 
-  auto query = TestUnsignedQueryBuilder()
-                   .createdTime(iroha::time::now())
-                   .creatorAccountId(kUserId)
-                   .queryCounter(1)
-                   .getRoles()
-                   .build()
-                   .signAndAddSignature(kUserKeypair)
-                   .finish();
+    auto query = TestUnsignedQueryBuilder()
+                     .createdTime(iroha::time::now())
+                     .creatorAccountId(kUserId)
+                     .queryCounter(1)
+                     .getRoles()
+                     .build()
+                     .signAndAddSignature(kUserKeypair)
+                     .finish();
 
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({}))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(query, checkQuery);
-    }
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({}))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(query, checkQuery);
+  }
 }

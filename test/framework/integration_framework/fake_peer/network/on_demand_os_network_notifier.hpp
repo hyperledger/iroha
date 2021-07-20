@@ -32,7 +32,7 @@ namespace integration_framework::fake_peer {
 
     void forCachedBatches(
         std::function<void(const iroha::ordering::OnDemandOrderingService::
-                                 BatchesSetType &)> const &f) const override;
+                               BatchesSetType &)> const &f) const override;
 
     bool isEmptyBatchesCache() const override;
 

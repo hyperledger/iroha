@@ -41,8 +41,8 @@ namespace iroha::ametsuchi {
           query_response_factory,
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller,
-      std::function<void(
-          std::shared_ptr<shared_model::interface::Block const>)> callback,
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+          callback,
       logger::LoggerManagerTreePtr log_manager)
       : StorageBase(std::move(ledger_state),
                     std::move(block_store),
@@ -158,8 +158,8 @@ namespace iroha::ametsuchi {
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
       std::shared_ptr<BlockStorage> persistent_block_storage,
       std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
-      std::function<void(
-          std::shared_ptr<shared_model::interface::Block const>)> callback,
+      std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+          callback,
       logger::LoggerManagerTreePtr log_manager) {
     boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
     {

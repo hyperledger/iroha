@@ -43,7 +43,7 @@ namespace iroha {
       std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
           vm_caller_ref,
       std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
-      callback,
+          callback,
       logger::LoggerManagerTreePtr log_manager);
 
   expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>

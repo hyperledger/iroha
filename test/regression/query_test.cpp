@@ -55,11 +55,12 @@ TEST(QueryTest, FailedQueryTest) {
         resp.get());
   };
 
-  for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
-  integration_framework::IntegrationTestFramework itf(1, type);
-  itf.setInitialState(key_pair).sendQuery(query_with_broken_signature,
-                                          stateless_invalid_query_response);
-}
+  for (auto const type :
+       {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    integration_framework::IntegrationTestFramework itf(1, type);
+    itf.setInitialState(key_pair).sendQuery(query_with_broken_signature,
+                                            stateless_invalid_query_response);
+  }
 }
 
 /**

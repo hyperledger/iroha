@@ -31,11 +31,11 @@
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "common/result.hpp"
+#include "common/result_try.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/subscription.hpp"
-#include "common/result_try.hpp"
 
 namespace iroha::ametsuchi {
 
@@ -103,8 +103,7 @@ namespace iroha::ametsuchi {
     return prepared_blocks_enabled_ and block_is_prepared_;
   }
 
-  StorageBase::~StorageBase() {
-  }
+  StorageBase::~StorageBase() {}
 
   expected::Result<void, std::string> StorageBase::insertBlock(
       std::shared_ptr<const shared_model::interface::Block> block) {
@@ -208,9 +207,9 @@ namespace iroha::ametsuchi {
           std::move(*opt_ledger_peers), block->height(), block->hash()));
       return expected::makeValue(ledgerState().value());
     } catch (const std::exception &e) {
-    std::string msg(fmt::format("failed to apply prepared block {}: {}",
-                                block->hash().hex(),
-                                e.what()));
+      std::string msg(fmt::format("failed to apply prepared block {}: {}",
+                                  block->hash().hex(),
+                                  e.what()));
       return expected::makeError(msg);
     }
   }

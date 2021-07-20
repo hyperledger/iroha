@@ -21,22 +21,23 @@ using namespace iroha::network;
  */
 TEST(MstNetInteraction, TypelessCommand) {
   bool enable_mst = true;
-  for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
-  IntegrationTestFramework itf(
-      1, type, {}, iroha::StartupWsvDataPolicy::kDrop, true, enable_mst);
-  itf.setInitialState(kAdminKeypair);
-  auto internal_port = itf.internalPort();
+  for (auto const type :
+       {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    IntegrationTestFramework itf(
+        1, type, {}, iroha::StartupWsvDataPolicy::kDrop, true, enable_mst);
+    itf.setInitialState(kAdminKeypair);
+    auto internal_port = itf.internalPort();
 
-  std::string peer_address = "127.0.0.1:" + std::to_string(internal_port);
-  auto client = transport::MstTransportGrpc::NewStub(
-      grpc::CreateChannel(peer_address, grpc::InsecureChannelCredentials()));
+    std::string peer_address = "127.0.0.1:" + std::to_string(internal_port);
+    auto client = transport::MstTransportGrpc::NewStub(
+        grpc::CreateChannel(peer_address, grpc::InsecureChannelCredentials()));
 
-  grpc::ClientContext context;
-  google::protobuf::Empty response;
-  iroha::network::transport::MstState state;
-  auto transaction = state.add_transactions();
-  transaction->mutable_payload()->mutable_reduced_payload()->add_commands();
+    grpc::ClientContext context;
+    google::protobuf::Empty response;
+    iroha::network::transport::MstState state;
+    auto transaction = state.add_transactions();
+    transaction->mutable_payload()->mutable_reduced_payload()->add_commands();
 
-  client->SendState(&context, state, &response);
-}
+    client->SendState(&context, state, &response);
+  }
 }

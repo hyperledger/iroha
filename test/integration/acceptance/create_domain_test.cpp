@@ -13,7 +13,8 @@ using namespace common_constants;
 
 class CreateDomain : public AcceptanceFixture {
  public:
-  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateDomain}) {
@@ -33,14 +34,14 @@ class CreateDomain : public AcceptanceFixture {
  */
 TEST_F(CreateDomain, Basic) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(
-          complete(baseTx().createDomain(kNewDomain, kRole)),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTxAwait(
+            complete(baseTx().createDomain(kNewDomain, kRole)),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
 
 /**
@@ -53,18 +54,19 @@ TEST_F(CreateDomain, Basic) {
  */
 TEST_F(CreateDomain, NoPermissions) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({interface::permissions::Role::kGetMyTxs}))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createDomain(kNewDomain, kRole)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({interface::permissions::Role::kGetMyTxs}))
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createDomain(kNewDomain, kRole)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -78,18 +80,19 @@ TEST_F(CreateDomain, NoPermissions) {
 TEST_F(CreateDomain, NoRole) {
   const std::string nonexistent_role = "asdf";
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createDomain(kNewDomain, nonexistent_role)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createDomain(kNewDomain, nonexistent_role)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -102,18 +105,19 @@ TEST_F(CreateDomain, NoRole) {
  */
 TEST_F(CreateDomain, ExistingName) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createDomain(kDomain, kRole)))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createDomain(kDomain, kRole)))
+        .skipProposal()
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -130,15 +134,15 @@ TEST_F(CreateDomain, MaxLenName) {
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad";
-      for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(
-          complete(baseTx().createDomain(maxLongDomain, kRole)),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  for (auto const type : storage_types)
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTxAwait(
+            complete(baseTx().createDomain(maxLongDomain, kRole)),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
 
 /**
@@ -151,13 +155,13 @@ TEST_F(CreateDomain, MaxLenName) {
  */
 TEST_F(CreateDomain, TooLongName) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createDomain(std::string(257, 'a'), kRole)),
-              CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createDomain(std::string(257, 'a'), kRole)),
+                CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -171,13 +175,13 @@ TEST_F(CreateDomain, TooLongName) {
 TEST_F(CreateDomain, EmptyName) {
   std::string empty_name = "";
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createDomain(empty_name, kRole)),
-              CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createDomain(empty_name, kRole)),
+                CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -191,11 +195,11 @@ TEST_F(CreateDomain, EmptyName) {
 TEST_F(CreateDomain, DISABLED_EmptyRoleName) {
   std::string empty_name = "";
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().createDomain(kNewDomain, empty_name)),
-              CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTx(complete(baseTx().createDomain(kNewDomain, empty_name)),
+                CHECK_STATELESS_INVALID);
 }

@@ -20,7 +20,8 @@ using namespace common_constants;
 
 class GetTransactions : public AcceptanceFixture {
  public:
-  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
   /**
    * Creates the transaction with the user creation commands
@@ -74,17 +75,17 @@ TEST_F(GetTransactions, HaveNoGetPerms) {
   };
 
   for (auto const type : storage_types) {
-  auto dummy_tx = dummyTx();
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({interface::permissions::Role::kReadAssets}))
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(
-          dummy_tx,
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(makeQuery(dummy_tx.hash()), check);
-    }
+    auto dummy_tx = dummyTx();
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({interface::permissions::Role::kReadAssets}))
+        .skipProposal()
+        .skipBlock()
+        .sendTxAwait(
+            dummy_tx,
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(makeQuery(dummy_tx.hash()), check);
+  }
 }
 
 /**
@@ -98,27 +99,27 @@ TEST_F(GetTransactions, HaveNoGetPerms) {
  */
 TEST_F(GetTransactions, HaveGetAllTx) {
   for (auto const type : storage_types) {
-  auto dummy_tx = dummyTx();
-  auto check = [&dummy_tx](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &resp =
-          boost::get<const shared_model::interface::TransactionsResponse &>(
-              status.get());
-      ASSERT_EQ(resp.transactions().size(), 1);
-      ASSERT_EQ(resp.transactions().front(), dummy_tx);
-    });
-  };
+    auto dummy_tx = dummyTx();
+    auto check = [&dummy_tx](auto &status) {
+      ASSERT_NO_THROW({
+        const auto &resp =
+            boost::get<const shared_model::interface::TransactionsResponse &>(
+                status.get());
+        ASSERT_EQ(resp.transactions().size(), 1);
+        ASSERT_EQ(resp.transactions().front(), dummy_tx);
+      });
+    };
 
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({interface::permissions::Role::kGetAllTxs}))
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(
-          dummy_tx,
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(makeQuery(dummy_tx.hash()), check);
-    }
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({interface::permissions::Role::kGetAllTxs}))
+        .skipProposal()
+        .skipBlock()
+        .sendTxAwait(
+            dummy_tx,
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(makeQuery(dummy_tx.hash()), check);
+  }
 }
 
 /**
@@ -132,27 +133,27 @@ TEST_F(GetTransactions, HaveGetAllTx) {
  */
 TEST_F(GetTransactions, HaveGetMyTx) {
   for (auto const type : storage_types) {
-  auto dummy_tx = dummyTx();
-  auto check = [&dummy_tx](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &resp =
-          boost::get<const shared_model::interface::TransactionsResponse &>(
-              status.get());
-      ASSERT_EQ(resp.transactions().size(), 1);
-      ASSERT_EQ(resp.transactions().front(), dummy_tx);
-    });
-  };
+    auto dummy_tx = dummyTx();
+    auto check = [&dummy_tx](auto &status) {
+      ASSERT_NO_THROW({
+        const auto &resp =
+            boost::get<const shared_model::interface::TransactionsResponse &>(
+                status.get());
+        ASSERT_EQ(resp.transactions().size(), 1);
+        ASSERT_EQ(resp.transactions().front(), dummy_tx);
+      });
+    };
 
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(
-          dummy_tx,
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(makeQuery(dummy_tx.hash()), check);
-    }
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipBlock()
+        .sendTxAwait(
+            dummy_tx,
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(makeQuery(dummy_tx.hash()), check);
+  }
 }
 
 /**
@@ -166,33 +167,35 @@ TEST_F(GetTransactions, HaveGetMyTx) {
  */
 TEST_F(GetTransactions, InvalidSignatures) {
   for (auto const type : storage_types) {
-  auto dummy_tx = dummyTx();
-  auto check = [](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &error_rsp =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              status.get());
-      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
-          error_rsp.get());
-    });
-  };
+    auto dummy_tx = dummyTx();
+    auto check = [](auto &status) {
+      ASSERT_NO_THROW({
+        const auto &error_rsp =
+            boost::get<const shared_model::interface::ErrorQueryResponse &>(
+                status.get());
+        boost::get<
+            const shared_model::interface::StatefulFailedErrorResponse &>(
+            error_rsp.get());
+      });
+    };
 
-  auto query = baseQry()
-                   .queryCounter(1)
-                   .getTransactions(std::vector<crypto::Hash>{dummy_tx.hash()})
-                   .build()
-                   .signAndAddSignature(
-                       crypto::DefaultCryptoAlgorithmType::generateKeypair())
-                   .finish();
+    auto query =
+        baseQry()
+            .queryCounter(1)
+            .getTransactions(std::vector<crypto::Hash>{dummy_tx.hash()})
+            .build()
+            .signAndAddSignature(
+                crypto::DefaultCryptoAlgorithmType::generateKeypair())
+            .finish();
 
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendQuery(query, check);
-    }
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendQuery(query, check);
+  }
 }
 
 /**
@@ -205,28 +208,29 @@ TEST_F(GetTransactions, InvalidSignatures) {
  */
 TEST_F(GetTransactions, NonexistentHash) {
   for (auto const type : storage_types) {
-  auto check = [](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &resp =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              status.get());
-      // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
-      // with a named constant
-      ASSERT_EQ(resp.errorCode(), 4);
-      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
-          resp.get());
-    });
-  };
+    auto check = [](auto &status) {
+      ASSERT_NO_THROW({
+        const auto &resp =
+            boost::get<const shared_model::interface::ErrorQueryResponse &>(
+                status.get());
+        // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
+        // with a named constant
+        ASSERT_EQ(resp.errorCode(), 4);
+        boost::get<
+            const shared_model::interface::StatefulFailedErrorResponse &>(
+            resp.get());
+      });
+    };
 
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms(),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(makeQuery(crypto::Hash(std::string(
-                     crypto::DefaultCryptoAlgorithmType::kHashLength, '0'))),
-                 check);
-    }
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms(),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(makeQuery(crypto::Hash(std::string(
+                       crypto::DefaultCryptoAlgorithmType::kHashLength, '0'))),
+                   check);
+  }
 }
 
 /**
@@ -240,20 +244,20 @@ TEST_F(GetTransactions, NonexistentHash) {
  */
 TEST_F(GetTransactions, OtherUserTx) {
   for (auto const type : storage_types) {
-  auto check = [](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &resp =
-          boost::get<const shared_model::interface::TransactionsResponse &>(
-              status.get());
-      ASSERT_EQ(resp.transactions().size(), 0);
-    });
-  };
+    auto check = [](auto &status) {
+      ASSERT_NO_THROW({
+        const auto &resp =
+            boost::get<const shared_model::interface::TransactionsResponse &>(
+                status.get());
+        ASSERT_EQ(resp.transactions().size(), 0);
+      });
+    };
 
-  auto tx = makeUserWithPerms();
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          tx, [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(makeQuery(tx.hash()), check);
-    }
+    auto tx = makeUserWithPerms();
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            tx, [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(makeQuery(tx.hash()), check);
+  }
 }

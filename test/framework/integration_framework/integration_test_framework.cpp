@@ -287,8 +287,7 @@ IntegrationTestFramework::~IntegrationTestFramework() {
 
   try {
     fs::remove_all(db_wsv_path_);
-    log_->info("WSV data removed successfully from: {}",
-                db_wsv_path_);
+    log_->info("WSV data removed successfully from: {}", db_wsv_path_);
   } catch (std::exception &e) {
     log_->error("Unable to remove WSV data: {}, because of: {}",
                 db_wsv_path_,
@@ -296,8 +295,7 @@ IntegrationTestFramework::~IntegrationTestFramework() {
   }
   try {
     fs::remove_all(db_store_path_);
-    log_->info("STORE data removed successfully from: {}",
-               db_store_path_);
+    log_->info("STORE data removed successfully from: {}", db_store_path_);
   } catch (std::exception &e) {
     log_->error("Unable to remove STORE data: {}, because of: {}",
                 db_store_path_,

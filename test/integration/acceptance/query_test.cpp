@@ -73,36 +73,37 @@ TEST_F(QueryAcceptanceTest, ParallelBlockQuery) {
     });
   };
 
-  for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms(),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(dummy_tx, [](auto &block) {
-        ASSERT_EQ(block->transactions().size(), 1);
-      });
+  for (auto const type :
+       {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms(),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(dummy_tx, [](auto &block) {
+          ASSERT_EQ(block->transactions().size(), 1);
+        });
 
-  const auto num_queries = 5;
-  const auto hash = dummy_tx.hash();
+    const auto num_queries = 5;
+    const auto hash = dummy_tx.hash();
 
-  auto send_query = [&] {
-    for (int i = 0; i < num_queries; ++i) {
-      itf.sendQuery(makeQuery(hash), check);
+    auto send_query = [&] {
+      for (int i = 0; i < num_queries; ++i) {
+        itf.sendQuery(makeQuery(hash), check);
+      }
+    };
+
+    const auto num_threads = 5;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+      threads.emplace_back(send_query);
     }
-  };
 
-  const auto num_threads = 5;
+    for (auto &thread : threads) {
+      thread.join();
+    }
 
-  std::vector<std::thread> threads;
-  for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back(send_query);
+    itf.done();
   }
-
-  for (auto &thread : threads) {
-    thread.join();
-  }
-
-  itf.done();
-}
 }

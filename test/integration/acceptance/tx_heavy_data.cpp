@@ -18,7 +18,8 @@ using namespace common_constants;
 
 class HeavyTransactionTest : public AcceptanceFixture {
  public:
-static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
   /**
    * Creates the transaction with the user creation commands
@@ -68,18 +69,18 @@ static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostg
 TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
   auto number_of_txes = 4u;
   for (auto const type : storage_types) {
-  IntegrationTestFramework itf(number_of_txes + 1, type);
+    IntegrationTestFramework itf(number_of_txes + 1, type);
 
-  itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
+    itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
 
-  for (auto i = 0u; i < number_of_txes; ++i) {
-    itf.sendTx(complete(setAcountDetailTx("foo_" + std::to_string(i),
-                                          generateData(2 * 1024 * 1024))));
+    for (auto i = 0u; i < number_of_txes; ++i) {
+      itf.sendTx(complete(setAcountDetailTx("foo_" + std::to_string(i),
+                                            generateData(2 * 1024 * 1024))));
+    }
+    itf.skipProposal().skipVerifiedProposal().checkBlock([&](auto &b) {
+      ASSERT_EQ(b->transactions().size(), number_of_txes + 1);
+    });
   }
-  itf.skipProposal().skipVerifiedProposal().checkBlock([&](auto &b) {
-    ASSERT_EQ(b->transactions().size(), number_of_txes + 1);
-  });
-}
 }
 
 /**
@@ -91,20 +92,21 @@ TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
  */
 TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
   for (auto const type : storage_types) {
-  auto big_data = generateData(3 * 1024 * 1024);
-  auto large_tx_builder = setAcountDetailTx("foo_1", big_data)
-                              .setAccountDetail(kUserId, "foo_2", big_data)
-                              .setAccountDetail(kUserId, "foo_3", big_data);
+    auto big_data = generateData(3 * 1024 * 1024);
+    auto large_tx_builder = setAcountDetailTx("foo_1", big_data)
+                                .setAccountDetail(kUserId, "foo_2", big_data)
+                                .setAccountDetail(kUserId, "foo_3", big_data);
 
-  IntegrationTestFramework(2, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTxAwait(complete(large_tx_builder), [](auto &block) {
-        ASSERT_EQ(block->transactions().size(), 2);
-      });}
+    IntegrationTestFramework(2, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms())
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTxAwait(complete(large_tx_builder), [](auto &block) {
+          ASSERT_EQ(block->transactions().size(), 2);
+        });
+  }
 }
 
 /**
@@ -119,41 +121,41 @@ TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
  */
 TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
   for (auto const type : storage_types) {
-  auto number_of_times = 15u;
-  auto size_of_data = 3 * 1024 * 1024u;
-  auto data = generateData(size_of_data);
+    auto number_of_times = 15u;
+    auto size_of_data = 3 * 1024 * 1024u;
+    auto data = generateData(size_of_data);
 
-  auto name_generator = [](auto val) { return "foo_" + std::to_string(val); };
+    auto name_generator = [](auto val) { return "foo_" + std::to_string(val); };
 
-  auto query_checker = [&](auto &status) {
-    ASSERT_NO_THROW({
-      auto &&response =
-          boost::get<const shared_model::interface::AccountResponse &>(
-              status.get());
+    auto query_checker = [&](auto &status) {
+      ASSERT_NO_THROW({
+        auto &&response =
+            boost::get<const shared_model::interface::AccountResponse &>(
+                status.get());
 
-      boost::property_tree::ptree root;
-      boost::property_tree::read_json(response.account().jsonData(), root);
-      auto user = root.get_child(kUserId);
+        boost::property_tree::ptree root;
+        boost::property_tree::read_json(response.account().jsonData(), root);
+        auto user = root.get_child(kUserId);
 
-      ASSERT_EQ(number_of_times, user.size());
+        ASSERT_EQ(number_of_times, user.size());
 
-      for (auto i = 0u; i < number_of_times; ++i) {
-        ASSERT_EQ(data, user.get<std::string>(name_generator(i)));
-      }
-    });
-  };
+        for (auto i = 0u; i < number_of_times; ++i) {
+          ASSERT_EQ(data, user.get<std::string>(name_generator(i)));
+        }
+      });
+    };
 
-  IntegrationTestFramework itf(1, type);
-  itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
 
-  for (auto i = 0u; i < number_of_times; ++i) {
-    itf.sendTxAwait(
-        complete(setAcountDetailTx(name_generator(i), data)),
-        [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    for (auto i = 0u; i < number_of_times; ++i) {
+      itf.sendTxAwait(
+          complete(setAcountDetailTx(name_generator(i), data)),
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    }
+
+    // The query works fine only with ITF. It doesn't work in production version
+    // of Iroha
+    itf.sendQuery(complete(baseQuery().getAccount(kUserId)), query_checker);
   }
-
-  // The query works fine only with ITF. It doesn't work in production version
-  // of Iroha
-  itf.sendQuery(complete(baseQuery().getAccount(kUserId)), query_checker);
-}
 }

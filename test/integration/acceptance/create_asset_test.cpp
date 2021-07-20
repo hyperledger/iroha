@@ -15,7 +15,8 @@ using namespace common_constants;
 
 class CreateAssetFixture : public AcceptanceFixture {
  public:
-  static constexpr iroha::StorageType storage_types[] ={iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateAsset}) {
@@ -49,24 +50,24 @@ TEST_F(CreateAssetFixture, Basic) {
   const auto asset_amount = "100.0";
 
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms({interface::permissions::Role::kCreateAsset,
-                                 interface::permissions::Role::kAddAssetQty}))
-      .skipProposal()
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      // testing the target command
-      .sendTx(complete(
-          baseTx().createAsset(kAnotherAssetName, kDomain, kPrecision)))
-      .skipProposal()
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      // testing that target command actually changed the state of the ledger
-      .sendTx(complete(baseTx().addAssetQuantity(asset_id, asset_amount)))
-      .skipProposal()
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeUserWithPerms({interface::permissions::Role::kCreateAsset,
+                                   interface::permissions::Role::kAddAssetQty}))
+        .skipProposal()
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        // testing the target command
+        .sendTx(complete(
+            baseTx().createAsset(kAnotherAssetName, kDomain, kPrecision)))
+        .skipProposal()
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        // testing that target command actually changed the state of the ledger
+        .sendTx(complete(baseTx().addAssetQuantity(asset_id, asset_amount)))
+        .skipProposal()
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
 
 /**
@@ -80,22 +81,23 @@ TEST_F(CreateAssetFixture, Basic) {
  */
 TEST_F(CreateAssetFixture, ExistingName) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms(),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTx(complete(baseTx().createAsset(kAssetName, kDomain, kPrecision)))
-      .checkProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
-          [](auto &vproposal) {
-            ASSERT_EQ(vproposal->transactions().size(), 0);
-          })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms(),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTx(complete(baseTx().createAsset(kAssetName, kDomain, kPrecision)))
+        .checkProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkVerifiedProposal(
+            // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+            // failure reason
+            [](auto &vproposal) {
+              ASSERT_EQ(vproposal->transactions().size(), 0);
+            })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -109,23 +111,24 @@ TEST_F(CreateAssetFixture, ExistingName) {
  */
 TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms(),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTx(complete(
-          baseTx().createAsset(kAssetName, kDomain, kNonDefaultPrecision)))
-      .checkProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
-          [](auto &vproposal) {
-            ASSERT_EQ(vproposal->transactions().size(), 0);
-          })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms(),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTx(complete(
+            baseTx().createAsset(kAssetName, kDomain, kNonDefaultPrecision)))
+        .checkProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkVerifiedProposal(
+            // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+            // failure reason
+            [](auto &vproposal) {
+              ASSERT_EQ(vproposal->transactions().size(), 0);
+            })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -139,22 +142,23 @@ TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
  */
 TEST_F(CreateAssetFixture, WithoutPermission) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms({}),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTx(complete(baseTx().createAsset(kAssetName, kDomain, kPrecision)))
-      .checkProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
-          [](auto &vproposal) {
-            ASSERT_EQ(vproposal->transactions().size(), 0);
-          })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms({}),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTx(complete(baseTx().createAsset(kAssetName, kDomain, kPrecision)))
+        .checkProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkVerifiedProposal(
+            // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+            // failure reason
+            [](auto &vproposal) {
+              ASSERT_EQ(vproposal->transactions().size(), 0);
+            })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
 
 /**
@@ -167,21 +171,22 @@ TEST_F(CreateAssetFixture, WithoutPermission) {
  */
 TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
   for (auto const type : storage_types)
-  IntegrationTestFramework(1, type)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms(),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTx(complete(
-          baseTx().createAsset(kAssetName, kNonExistingDomain, kPrecision)))
-      .checkProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
-          [](auto &vproposal) {
-            ASSERT_EQ(vproposal->transactions().size(), 0);
-          })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms(),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTx(complete(
+            baseTx().createAsset(kAssetName, kNonExistingDomain, kPrecision)))
+        .checkProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkVerifiedProposal(
+            // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+            // failure reason
+            [](auto &vproposal) {
+              ASSERT_EQ(vproposal->transactions().size(), 0);
+            })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
 }

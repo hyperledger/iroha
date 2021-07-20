@@ -252,8 +252,7 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
-    StartupWsvDataPolicy startup_wsv_data_policy,
-    iroha::StorageType type) {
+    StartupWsvDataPolicy startup_wsv_data_policy, iroha::StorageType type) {
   query_response_factory_ =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
@@ -313,15 +312,17 @@ Irohad::RunResult Irohad::initStorage(
   switch (type) {
     case StorageType::kPostgres: {
       IROHA_EXPECTED_TRY_GET_VALUE(
-        pool_wrapper,
-        PgConnectionInit::init(startup_wsv_data_policy, *pg_opt_, log_manager_));
+          pool_wrapper,
+          PgConnectionInit::init(
+              startup_wsv_data_policy, *pg_opt_, log_manager_));
       pool_wrapper_ = std::move(pool_wrapper);
-    }  break;
+    } break;
 
     case StorageType::kRocksDb: {
       IROHA_EXPECTED_TRY_GET_VALUE(
-        rdb_port,
-        RdbConnectionInit::init(startup_wsv_data_policy, *rdb_opt_, log_manager_));
+          rdb_port,
+          RdbConnectionInit::init(
+              startup_wsv_data_policy, *rdb_opt_, log_manager_));
       db_context_ =
           std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
     } break;
