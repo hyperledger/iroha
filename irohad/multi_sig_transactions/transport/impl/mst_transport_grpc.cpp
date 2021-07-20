@@ -178,6 +178,9 @@ void iroha::network::sendStateAsync(
   });
   async_call.Call(
       [&](auto context, auto cq) {
+        context->set_wait_for_ready(true);
+        context->set_deadline(std::chrono::system_clock::now()
+                              + std::chrono::seconds(5));
         return client_stub.AsyncSendState(context, proto_state, cq);
       },
       std::move(on_response));

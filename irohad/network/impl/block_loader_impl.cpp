@@ -34,6 +34,7 @@ namespace {
         : block_factory_(std::move(block_factory)),
           client_(std::move(client)),
           reader_(client_->retrieveBlocks(&context_, std::move(request))) {
+      context_.set_wait_for_ready(true);
       context_.set_deadline(std::chrono::system_clock::now()
                             + std::chrono::minutes(1ull));
     }
