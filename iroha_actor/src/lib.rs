@@ -22,13 +22,14 @@ use std::{
 pub use actor_derive::Message;
 use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
 use futures::{Stream, StreamExt};
+use iroha_error::{derive::Error, error};
 use iroha_logger::InstrumentFutures;
 use tokio::{
     sync::{
         mpsc::{self, Receiver},
         oneshot::{self, error::RecvError},
     },
-    task::{self, JoinHandle},
+    task::{self},
     time,
 };
 #[cfg(feature = "deadlock_detection")]
@@ -64,6 +65,17 @@ impl<A: Actor> Clone for Addr<A> {
     }
 }
 
+/// Error that might appear during `send` to actor.
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Failed to send message to actor.
+    #[error("Failed to send message to actor.")]
+    SendError,
+    /// Failed to receive a response from an actor.
+    #[error("Failed to receive a response from an actor.")]
+    RecvError(RecvError),
+}
+
 impl<A: Actor> Addr<A> {
     fn new(sender: mpsc::Sender<Envelope<A>>) -> Self {
         Self {
@@ -79,7 +91,7 @@ impl<A: Actor> Addr<A> {
     /// # Panics
     /// If queue is full
     #[allow(unused_variables, clippy::expect_used)]
-    pub async fn send<M>(&self, message: M) -> Result<M::Result, RecvError>
+    pub async fn send<M>(&self, message: M) -> Result<M::Result, Error>
     where
         M: Message + Send + 'static,
         M::Result: Send,
@@ -93,11 +105,11 @@ impl<A: Actor> Addr<A> {
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::r#in(self.actor_id, from_actor_id).await;
         }
-        #[allow(clippy::todo)]
-        if self.sender.send(envelope).await.is_err() {
-            todo!("Queue is full. Handle this case");
-        }
-        let result = reciever.await;
+        self.sender
+            .send(envelope)
+            .await
+            .map_err(|_err| Error::SendError)?;
+        let result = reciever.await.map_err(Error::RecvError);
         #[cfg(feature = "deadlock_detection")]
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::out(self.actor_id, from_actor_id).await;
@@ -105,7 +117,9 @@ impl<A: Actor> Addr<A> {
         result
     }
 
-    /// Send a message and wait for an answer.
+    //FIXME: In fact this method still waits for an answer and just drops it, this should be corrected.
+    // Waiting for the answer introduces deadlock possibilities!
+    /// Send a message without waiting for an answer.
     /// # Errors
     /// Fails if queue is full or actor is disconnected
     #[allow(clippy::result_unit_err)]
@@ -290,28 +304,30 @@ impl<A: Actor> InitializedActor<A> {
         let address = self.address;
         let mut receiver = self.receiver;
         let mut actor = self.actor;
-        let (handle_sender, handle_receiver) = oneshot::channel();
         let move_addr = address.clone();
         let actor_future = async move {
-            #[allow(clippy::expect_used)]
-            let join_handle = handle_receiver
-                .await
-                .expect("Unreachable as the message is always sent.");
-            let mut ctx = Context::new(move_addr.clone(), join_handle);
+            let mut ctx = Context::new(move_addr.clone());
             actor.on_start(&mut ctx).await;
             while let Some(Envelope(mut message)) = receiver.recv().await {
                 EnvelopeProxy::handle(&mut *message, &mut actor, &mut ctx).await;
+                if let Some(termination) = &ctx.should_stop {
+                    match termination {
+                        Stop::Now => break,
+                        Stop::AfterBufferedMessagesProcessed => receiver.close(),
+                    }
+                }
             }
             iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
             actor.on_stop(&mut ctx).await;
         }
         .in_current_span();
         #[cfg(not(feature = "deadlock_detection"))]
-        let join_handle = task::spawn(actor_future);
+        drop(task::spawn(actor_future));
         #[cfg(feature = "deadlock_detection")]
-        let join_handle = deadlock::spawn_task_with_actor_id(address.actor_id, actor_future);
-        // TODO: propagate the error.
-        let _error = handle_sender.send(join_handle);
+        drop(deadlock::spawn_task_with_actor_id(
+            address.actor_id,
+            actor_future,
+        ));
         address
     }
 }
@@ -369,17 +385,36 @@ where
     }
 }
 
+#[derive(Debug)]
+enum Stop {
+    Now,
+    AfterBufferedMessagesProcessed,
+}
+
 /// Context for execution of actor
 #[derive(Debug)]
 pub struct Context<A: Actor> {
     addr: Addr<A>,
-    handle: JoinHandle<()>,
+    should_stop: Option<Stop>,
 }
 
 impl<A: Actor> Context<A> {
     /// Default constructor
-    pub fn new(addr: Addr<A>, handle: JoinHandle<()>) -> Self {
-        Self { addr, handle }
+    pub fn new(addr: Addr<A>) -> Self {
+        Self {
+            addr,
+            should_stop: None,
+        }
+    }
+
+    /// Will stop this actor after the current message is processed.
+    pub fn stop_now(&mut self) {
+        self.should_stop = Some(Stop::Now);
+    }
+
+    /// Will stop this actor after all currently buffered messages are processed.
+    pub fn stop_after_buffered_processed(&mut self) {
+        self.should_stop = Some(Stop::AfterBufferedMessagesProcessed);
     }
 
     /// Gets an address of current actor
@@ -478,5 +513,57 @@ impl<A: Actor> Context<A> {
             }
             .in_current_span(),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    pub struct Actor1;
+
+    impl Actor for Actor1 {}
+
+    pub struct StopMessage;
+
+    impl Message for StopMessage {
+        type Result = ();
+    }
+
+    #[async_trait::async_trait]
+    impl ContextHandler<StopMessage> for Actor1 {
+        type Result = ();
+
+        async fn handle(
+            &mut self,
+            ctx: &mut Context<Self>,
+            StopMessage: StopMessage,
+        ) -> Self::Result {
+            ctx.stop_now()
+        }
+    }
+
+    pub struct Message1;
+
+    impl Message for Message1 {
+        type Result = ();
+    }
+
+    #[async_trait::async_trait]
+    impl Handler<Message1> for Actor1 {
+        type Result = ();
+
+        async fn handle(&mut self, Message1: Message1) -> Self::Result {}
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn actor_stop() -> Result<(), Error> {
+        let actor1 = Actor1.start().await;
+        actor1.send(Message1).await?;
+        actor1.send(StopMessage).await?;
+        // Cannot send messages as the actor is stopped.
+        assert!(matches!(actor1.send(Message1).await, Err(Error::SendError)));
+        Ok(())
     }
 }
