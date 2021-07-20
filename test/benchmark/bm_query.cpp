@@ -22,7 +22,8 @@ using shared_model::interface::types::PublicKeyHexStringView;
  * performance
  */
 static void BM_QueryAccount(benchmark::State &state) {
-  integration_framework::IntegrationTestFramework itf(1);
+  for (auto const type : {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+  integration_framework::IntegrationTestFramework itf(1, type);
   itf.setInitialState(kAdminKeypair);
   itf.sendTx(createUserWithPerms(
                  kUser,
@@ -56,6 +57,7 @@ static void BM_QueryAccount(benchmark::State &state) {
     itf.sendQuery(make_query());
   }
   itf.done();
+}
 }
 BENCHMARK(BM_QueryAccount)->Unit(benchmark::kMicrosecond);
 
