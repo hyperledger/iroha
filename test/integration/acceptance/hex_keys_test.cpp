@@ -136,16 +136,8 @@ TEST_P(HexKeys, AddSignatory) {
   auto hash1 = tx1.hash();
   auto hash2 = tx2.hash();
 
-  itf.sendTx(tx1)
-      .checkStatus(hash1, CHECK_STATELESS_VALID)
-      .checkStatus(hash1, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash1, CHECK_STATEFUL_VALID)
-      .checkStatus(hash1, CHECK_COMMITTED)
-      .sendTx(tx2)
-      .checkStatus(hash2, CHECK_STATELESS_VALID)
-      .checkStatus(hash2, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash2, CHECK_STATEFUL_INVALID)
-      .checkStatus(hash2, CHECK_REJECTED);});
+  itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
+      .sendTxAwait(tx2, CHECK_TXS_QUANTITY(0));
 }
 
 /**
@@ -160,11 +152,7 @@ TEST_P(HexKeys, RemoveSignatory) {
   auto hash2 = tx2.hash();
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
-      .sendTx(tx2)
-      .checkStatus(hash2, CHECK_STATELESS_VALID)
-      .checkStatus(hash2, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash2, CHECK_STATEFUL_VALID)
-      .checkStatus(hash2, CHECK_COMMITTED);});
+      .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1));
 }
 
 /**
@@ -214,11 +202,7 @@ TEST_P(HexKeys, AddPeerSameKeyDifferentCase) {
       complete(addPeer(PublicKeyHexStringView{same_key_transformed}, kNow));
   auto hash = tx.hash();
 
-  itf.sendTx(tx)
-      .checkStatus(hash, CHECK_STATELESS_VALID)
-      .checkStatus(hash, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash, CHECK_STATEFUL_INVALID)
-      .checkStatus(hash, CHECK_REJECTED);});
+  itf.sendTxAwait(tx, CHECK_TXS_QUANTITY(0));
 }
 
 /**

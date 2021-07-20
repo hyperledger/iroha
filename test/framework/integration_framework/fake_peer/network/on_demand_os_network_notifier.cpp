@@ -10,8 +10,7 @@
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 
-namespace integration_framework {
-  namespace fake_peer {
+namespace integration_framework::fake_peer {
 
     OnDemandOsNetworkNotifier::OnDemandOsNetworkNotifier(
         const std::shared_ptr<FakePeer> &fake_peer)
@@ -74,5 +73,4 @@ namespace integration_framework {
       return batches_subject_.get_observable();
     }
 
-  }  // namespace fake_peer
-}  // namespace integration_framework
+}  // namespace integration_framework::fake_peer

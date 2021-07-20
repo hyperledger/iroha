@@ -354,10 +354,11 @@ TEST_F(CommandServiceTransportGrpcTest, StatusStreamEmpty) {
  */
 TEST_F(CommandServiceTransportGrpcTest, StatusStreamOnStatelessValid) {
   grpc::ServerContext context;
+  shared_model::crypto::Hash hash("1");
   iroha::protocol::TxStatusRequest request;
+  request.set_tx_hash(hash.hex());
   iroha::MockServerWriter<iroha::protocol::ToriiResponse> response_writer;
 
-  shared_model::crypto::Hash hash("1");
   TestDispatcher<iroha::SubscriptionEngineHandlers::kTotalCount,
                  iroha::kThreadPoolSize>::responses
       .emplace_back(status_factory->makeStatelessValid(hash, {}));

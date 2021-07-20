@@ -211,7 +211,6 @@ target_link_libraries(ametsuchi
     SOCI::core
     postgres_query_executor
     rocksdb_query_executor
-    async_subscription
     )
 
 target_compile_definitions(ametsuchi

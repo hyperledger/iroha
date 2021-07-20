@@ -155,6 +155,7 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
   setNetworkOrderCheckerSingleVote(
       my_order.value(), testing::AnyOf(next_reject_hash), kFixedRandomNumber);
 
+  yac->processRoundSwitch(next_reject_hash.vote_round, my_order->getPeers());
   yac->vote(next_reject_hash, my_order.value());
 
   // -- now yac receives a vote from another peer when we already have a reject
@@ -164,7 +165,6 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
       iroha::hexstringToBytestringResult(peer->pubkey()).assumeValue();
   const auto slowpoke_hash = makeYacHash(peers_number);
 
-  vote_matchers.emplace_back(makeVoteMatcher(slowpoke_hash));
   EXPECT_CALL(*network,
               sendState(_, ::testing::UnorderedElementsAreArray(vote_matchers)))
       .Times(1);

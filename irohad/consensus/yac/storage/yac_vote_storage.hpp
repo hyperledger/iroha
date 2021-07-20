@@ -161,7 +161,7 @@ namespace iroha::consensus::yac {
      * proposals/blocks.
      * If such round exists <=> processed
      */
-    std::unordered_map<Round, ProposalState, RoundTypeHasher> processing_state_;
+    std::unordered_map<Round, ProposalState> processing_state_;
 
     /**
      * Provides strategy managing rounds (adding and removing) for the

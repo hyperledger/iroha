@@ -94,6 +94,8 @@ namespace iroha {
       virtual bool isEmptyBatchesCache() const = 0;
 
       virtual bool hasProposal(consensus::Round round) const = 0;
+
+      virtual void processReceivedProposal(CollectionType batches) = 0;
     };
 
   }  // namespace ordering

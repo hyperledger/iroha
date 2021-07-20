@@ -227,7 +227,6 @@ IntegrationTestFramework::IntegrationTestFramework(
       client_factory_(
           iroha::network::getTestInsecureClientFactory(std::nullopt)),
       yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
-          async_call_,
           makeTransportClientFactory<iroha::consensus::yac::NetworkImpl>(
               client_factory_),
           log_manager_->getChild("ConsensusTransport")->getLogger())),
@@ -241,7 +240,7 @@ IntegrationTestFramework::IntegrationTestFramework(
   // amount of minutes in a day
   config_.mst_expiration_time = 24 * 60;
   config_.max_round_delay_ms = 0;
-  config_.proposal_creation_timeout = 0;
+  config_.proposal_creation_timeout = 1000;
   config_.stale_stream_max_rounds = 2;
   config_.max_proposal_size = 10;
   config_.mst_support = mst_support;
@@ -283,8 +282,7 @@ IntegrationTestFramework::~IntegrationTestFramework() {
   }
   // the code below should be executed anyway in order to prevent app hang
   if (iroha_instance_ and iroha_instance_->getIrohaInstance()) {
-    iroha_instance_->getIrohaInstance()->terminate(
-        std::chrono::system_clock::now());
+    iroha_instance_->getIrohaInstance()->terminate();
   }
 
   try {
