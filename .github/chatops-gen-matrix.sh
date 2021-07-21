@@ -13,7 +13,7 @@ readonly ALL_oses="ubuntu macos windows" ALL_build_types="Debug Release" ALL_cma
 readonly DEFAULT_oses="ubuntu macos windows" DEFAULT_build_types="Debug" DEFAULT_cmake_opts="normal burrow ursa"
 readonly DEFAULT_ubuntu_compilers="gcc-9" AVAILABLE_ubuntu_compilers="gcc-9 gcc-10 clang-10"
 readonly DEFAULT_macos_compilers="clang"  AVAILABLE_macos_compilers="clang llvm gcc-10"
-readonly DEFAULT_windows_compilers="msvc" AVAILABLE_windows_compilers="msvc mingw cygwin"
+readonly DEFAULT_windows_compilers="msvc" AVAILABLE_windows_compilers="msvc clang mingw cygwin"
 
 --help-buildspec(){
    cat <<END
