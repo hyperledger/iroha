@@ -10,25 +10,26 @@ ENV IROHA_BUILD /opt/iroha/build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get -y --no-install-recommends install \
-        apt-utils software-properties-common wget gpg-agent \
-        libtool \
-        # compilers (gcc-9, gcc-10)
-        build-essential g++-9 g++-10 cmake ninja-build \
-        gdb gdbserver \
-        # CI dependencies
-        git ssh tar gzip ca-certificates gnupg \
-        # code coverage
-        lcov \
-        # Python3
-        python3-dev python3-pip python-is-python3 \
-        # other
-        curl file ccache libssl-dev \
-        gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config \
-        jq \
-        postgresql postgresql-contrib; \
-        $( [$(uname -m) = "x86_64" ] && echo \
-            clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format \
-        ); \
+            apt-utils software-properties-common wget gpg-agent \
+            libtool \
+            # compilers (gcc-9, gcc-10)
+            build-essential g++-9 g++-10 cmake ninja-build \
+            gdb gdbserver \
+            # CI dependencies
+            git ssh tar gzip ca-certificates gnupg \
+            # code coverage
+            lcov \
+            # Python3
+            python3-dev python3-pip python-is-python3 \
+            # other
+            curl file ccache libssl-dev \
+            gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config \
+            jq \
+            postgresql postgresql-contrib; \
+    if [ $(uname -m) = "x86_64" ] ;then \
+        apt-get -y --no-install-recommends install \
+            clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format; \
+    fi; \
     apt-get -y clean && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /var/cache/apt/archives/*
