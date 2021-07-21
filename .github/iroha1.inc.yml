@@ -129,7 +129,7 @@ jobs: &jobs
           END
           echo "::endgroup::"
       - *step_checkout
-      # - *step_detect_commented_pr
+      # - *step_detect_commented_pr  ##TODO move up one line
       -
         name: Chat-ops reacts only to PRs with special base branches
         if: github.event.comment
@@ -153,9 +153,19 @@ jobs: &jobs
         name: Generate default matrix for regular builds
         if: ${{ steps.comment_body.outcome == 'skipped' }}
         run: |
+          set -x
+          commit_message_body_build_spec(){
+            git fetch origin ${{github.event.after}} --depth=1
+            git log --format=%B -n1 ${{github.event.after}} | grep '^/build '
+          }
           case ${{github.event_name}} in
-            pull_request)       echo >/tmp/comment_body "/build debug" ;;
-            push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
+            pull_request)     commit_message_body_build_spec >/tmp/comment_body ||
+                                echo >/tmp/comment_body "/build debug" ;;
+            push)             commit_message_body_build_spec >/tmp/comment_body || {
+                                echo >/tmp/comment_body "/build ubuntu debug release"
+                                echo >/tmp/comment_body "/build macos debug"
+                                echo >/tmp/comment_body "/build windows debug"
+                              };;
             schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
@@ -229,24 +239,12 @@ jobs: &jobs
       - check_workflow_yaml_coressponds_to_src_yaml
       - generate_matrixes
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu ).include[0] }}
-    # if: (
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' &&
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
-    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
-    #     ) || (
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' &&
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
-    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
-    #     )
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
     env: &env_dockerhub
       DOCKERHUB_ORG:      hyperledger   ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      # - run: echo "${{ needs.generate_matrixes.outputs.matrix_ubuntu_debug }}" | jq
-      # - run: echo "${{ toJSON(fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0]) }}"
-      # - run: echo "${{ toJSON(fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include) }}"
       - *step_show_context
       - &step_system_info
         name: System info
@@ -402,8 +400,7 @@ jobs: &jobs
     if: &build_ubuntu_debug_if
         needs.generate_matrixes.outputs.matrix_ubuntu_debug &&
         needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
-        needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' &&
-        ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+        fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0]
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -592,8 +589,8 @@ jobs: &jobs
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
     if: &build_ubuntu_release_if
-        needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' &&
-        ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+        needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
+        fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0]
 
   ## Just to align picture
   prepare-macos-env:
@@ -603,8 +600,6 @@ jobs: &jobs
     # if: &build_macos_if ${{ fromJSON('[]')[0] }}
     if: &build_macos_if
         ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
-        # needs.generate_matrixes.outputs.matrix_macos != '' &&
-    #     needs.generate_matrixes.outputs.matrix_macos != 'empty' &&
     runs-on: macos-latest
     steps:
       - *step_show_context
@@ -685,7 +680,11 @@ jobs: &jobs
     defaults:
       run:
         shell: bash
-    if: &build_windows_if ${{ false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    if: &build_windows_if
+      false && (
+        needs.generate_matrixes.outputs.matrix_windows != '' &&
+        fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0]
+      )
 
   build-iroha-windows:
     needs:
