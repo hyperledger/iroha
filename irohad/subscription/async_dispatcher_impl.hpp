@@ -36,6 +36,9 @@ namespace iroha::subscription {
     SchedulerContext handlers_[kHandlersCount];
     SchedulerContext pool_[kPoolThreadsCount];
 
+    std::atomic_int64_t temporary_handlers_tasks_counter_;
+    std::atomic<bool> is_disposed_;
+
     struct BoundContexts {
       typename Parent::Tid next_tid_offset = 0u;
       std::unordered_map<typename Parent::Tid, SchedulerContext> contexts;
@@ -68,6 +71,8 @@ namespace iroha::subscription {
 
    public:
     AsyncDispatcher() {
+      temporary_handlers_tasks_counter_.store(0);
+      is_disposed_ = false;
       for (auto &h : handlers_) {
         h.handler = std::make_shared<ThreadHandler>();
         h.is_temporary = false;
@@ -79,17 +84,27 @@ namespace iroha::subscription {
     }
 
     void dispose() override {
+      is_disposed_ = true;
       for (auto &h : handlers_) h.handler->dispose();
       for (auto &h : pool_) h.handler->dispose();
+
+      while (temporary_handlers_tasks_counter_.load() != 0)
+        std::this_thread::sleep_for(std::chrono::microseconds(0ull));
     }
 
     void add(typename Parent::Tid tid, typename Parent::Task &&task) override {
+      if (is_disposed_.load())
+        return;
+
       auto h = findHandler(tid);
       if (!h.is_temporary)
         h.handler->add(std::move(task));
       else {
-        h.handler->add([h, task{std::move(task)}]() mutable {
-          task();
+        ++temporary_handlers_tasks_counter_;
+        h.handler->add([this, h, task{std::move(task)}]() mutable {
+          if (!is_disposed_.load())
+            task();
+          --temporary_handlers_tasks_counter_;
           h.handler->dispose(false);
         });
       }
@@ -98,12 +113,18 @@ namespace iroha::subscription {
     void addDelayed(typename Parent::Tid tid,
                     std::chrono::microseconds timeout,
                     typename Parent::Task &&task) override {
+      if (is_disposed_.load())
+        return;
+
       auto h = findHandler(tid);
       if (!h.is_temporary)
         h.handler->addDelayed(timeout, std::move(task));
       else {
-        h.handler->addDelayed(timeout, [h, task{std::move(task)}]() mutable {
-          task();
+        ++temporary_handlers_tasks_counter_;
+        h.handler->addDelayed(timeout, [this, h, task{std::move(task)}]() mutable {
+          if (!is_disposed_.load())
+            task();
+          --temporary_handlers_tasks_counter_;
           h.handler->dispose(false);
         });
       }

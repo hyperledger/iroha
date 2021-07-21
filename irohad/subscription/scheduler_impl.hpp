@@ -114,16 +114,17 @@ namespace iroha::subscription {
       id_ = std::this_thread::get_id();
       Task task;
       do {
-        while (extractExpired(task, now())) {
+        if (extractExpired(task, now())) {
           is_busy_.store(true);
           try {
             if (task)
               task();
           } catch (...) {
           }
+        } else {
+          is_busy_.store(false);
+          event_.wait(untilFirst());
         }
-        is_busy_.store(false);
-        event_.wait(untilFirst());
       } while (proceed_.test_and_set());
       return 0;
     }
