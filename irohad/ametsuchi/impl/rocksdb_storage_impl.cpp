@@ -198,7 +198,7 @@ namespace iroha::ametsuchi {
         db_context_, this->logManager()->getChild("WsvQuery")->getLogger());
     auto indexer = std::make_unique<RocksDBIndexer>(db_context_);
 
-    return StorageBase::commitPrepared(
+    return StorageBase::commitPreparedImpl(
         block, tx_context, wsv_command, wsv_query, std::move(indexer));
   }
 
@@ -225,7 +225,7 @@ namespace iroha::ametsuchi {
 
   void RocksDbStorageImpl::prepareBlock(std::unique_ptr<TemporaryWsv> wsv) {
     RocksDbTransaction db_context(db_context_);
-    StorageBase::prepareBlock(std::move(wsv), db_context);
+    StorageBase::prepareBlockImpl(std::move(wsv), db_context);
   }
 
 }  // namespace iroha::ametsuchi

@@ -136,8 +136,8 @@ namespace iroha::ametsuchi {
     return expected::makeValue(std::move(result.ledger_state));
   }
 
-  void StorageBase::prepareBlock(std::unique_ptr<TemporaryWsv> wsv,
-                                 DatabaseTransaction &db_context) {
+  void StorageBase::prepareBlockImpl(std::unique_ptr<TemporaryWsv> wsv,
+                                     DatabaseTransaction &db_context) {
     if (not prepared_blocks_enabled_) {
       log()->warn("prepared blocks are not enabled");
       return;
@@ -158,7 +158,7 @@ namespace iroha::ametsuchi {
     }
   }
 
-  CommitResult StorageBase::commitPrepared(
+  CommitResult StorageBase::commitPreparedImpl(
       std::shared_ptr<const shared_model::interface::Block> block,
       DatabaseTransaction &db_context,
       WsvCommand &wsv_command,

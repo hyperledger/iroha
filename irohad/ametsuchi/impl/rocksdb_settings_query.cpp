@@ -55,16 +55,18 @@ namespace iroha::ametsuchi {
       std::string>
   RocksDbSettingQuery::update(
       std::unique_ptr<shared_model::validation::Settings> base) {
-    if (auto res = getValueFromDb(
-            db_context_, kMaxDescriptionSizeKey, base->max_description_size);
+    uint64_t value;
+    if (auto res = getValueFromDb(db_context_, kMaxDescriptionSizeKey, value);
         expected::hasError(res))
       return expected::makeError(res.assumeError());
-    else if (res.assumeValue())
+    else if (res.assumeValue()) {
+      base->max_description_size = static_cast<size_t>(value);
       log_->info("Updated value for " + kMaxDescriptionSizeKey + ": {}",
                  base->max_description_size);
-    else
+    } else {
       log_->info("Kept value for " + kMaxDescriptionSizeKey + ": {}",
                  base->max_description_size);
+    }
 
     return base;
   }

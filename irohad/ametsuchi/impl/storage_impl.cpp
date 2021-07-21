@@ -271,7 +271,7 @@ namespace iroha::ametsuchi {
         sql, this->logManager()->getChild("WsvQuery")->getLogger());
     auto indexer = std::make_unique<PostgresIndexer>(sql);
 
-    return StorageBase::commitPrepared(
+    return StorageBase::commitPreparedImpl(
         block, db_context, wsv_command, wsv_query, std::move(indexer));
   }
 
@@ -315,7 +315,7 @@ namespace iroha::ametsuchi {
   void StorageImpl::prepareBlock(std::unique_ptr<TemporaryWsv> wsv) {
     auto &wsv_impl = static_cast<PostgresTemporaryWsvImpl &>(*wsv);
     PostgresDbTransaction db_context(wsv_impl.getSession());
-    StorageBase::prepareBlock(std::move(wsv), db_context);
+    StorageBase::prepareBlockImpl(std::move(wsv), db_context);
   }
 
   StorageImpl::~StorageImpl() {
