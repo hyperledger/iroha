@@ -5,21 +5,23 @@
 
 #include "consensus/yac/cluster_order.hpp"
 
+#include <boost/assert.hpp>
+
 using iroha::consensus::yac::ClusterOrdering;
 
-boost::optional<ClusterOrdering> ClusterOrdering::create(
+std::optional<ClusterOrdering> ClusterOrdering::create(
     const std::vector<std::shared_ptr<shared_model::interface::Peer>> &order,
     std::vector<size_t> const &peer_positions) {
   if (order.empty()) {
-    return boost::none;
+    return std::nullopt;
   }
   return ClusterOrdering(order, peer_positions);
 }
 
-boost::optional<ClusterOrdering> ClusterOrdering::create(
+std::optional<ClusterOrdering> ClusterOrdering::create(
     const std::vector<std::shared_ptr<shared_model::interface::Peer>> &order) {
   if (order.empty()) {
-    return boost::none;
+    return std::nullopt;
   }
   return ClusterOrdering(order);
 }

@@ -31,13 +31,6 @@ namespace iroha {
       return not(*this == rhs);
     }
 
-    std::size_t RoundTypeHasher::operator()(const consensus::Round &val) const {
-      size_t seed = 0;
-      boost::hash_combine(seed, val.block_round);
-      boost::hash_combine(seed, val.reject_round);
-      return seed;
-    }
-
     std::string Round::toString() const {
       return shared_model::detail::PrettyStringBuilder()
           .init("Round")
@@ -45,5 +38,19 @@ namespace iroha {
           .appendNamed("reject", reject_round)
           .finalize();
     }
+
+    std::size_t hash_value(Round const &val) {
+      size_t seed = 0;
+      boost::hash_combine(seed, val.block_round);
+      boost::hash_combine(seed, val.reject_round);
+      return seed;
+    }
   }  // namespace consensus
 }  // namespace iroha
+
+namespace std {
+  std::size_t hash<iroha::consensus::Round>::operator()(
+      iroha::consensus::Round const &val) const noexcept {
+    return hash_value(val);
+  }
+}  // namespace std
