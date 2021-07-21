@@ -135,4 +135,23 @@ Metrics::Metrics(std::string const &listen_addr,
             number_of_peers.Increment(peers_diff);
             domains_number.Increment(domains_diff);
           });
+
+  auto &txs_cache_size_gauge =
+      BuildGauge()
+          .Name("txs_cache_size")
+          .Help("Number of transactions in ordering service's cache")
+          .Register(*registry_);
+  auto &txs_cache_size = txs_cache_size_gauge.Add({});
+  txs_cache_size.Set(
+      0);  // FIXME [minor] be sure OdOs initialized after metrics.
+
+  txs_cache_size_subscriber_ =
+      SubscriberCreator<bool, uint64_t>::template create<
+          EventTypes::kOdOsCachedTxsSizeChanged>(
+          SubscriptionEngineHandlers::kMetrics,
+          [&, wregistry = std::weak_ptr<Registry>(registry_)](
+              auto &, uint64_t cache_size) {
+            std::shared_ptr<Registry> registry{wregistry};  // throw if expired
+            txs_cache_size.Set(cache_size);
+          });
 }
