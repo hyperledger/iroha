@@ -121,12 +121,13 @@ namespace iroha::subscription {
         h.handler->addDelayed(timeout, std::move(task));
       else {
         ++temporary_handlers_tasks_counter_;
-        h.handler->addDelayed(timeout, [this, h, task{std::move(task)}]() mutable {
-          if (!is_disposed_.load())
-            task();
-          --temporary_handlers_tasks_counter_;
-          h.handler->dispose(false);
-        });
+        h.handler->addDelayed(timeout,
+                              [this, h, task{std::move(task)}]() mutable {
+                                if (!is_disposed_.load())
+                                  task();
+                                --temporary_handlers_tasks_counter_;
+                                h.handler->dispose(false);
+                              });
       }
     }
 
