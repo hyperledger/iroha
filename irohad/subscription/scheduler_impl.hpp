@@ -115,14 +115,14 @@ namespace iroha::subscription {
       Task task;
       do {
         while (extractExpired(task, now())) {
-          is_busy_.store(true, std::memory_order_relaxed);
+          is_busy_.store(true);
           try {
             if (task)
               task();
           } catch (...) {
           }
         }
-        is_busy_.store(false, std::memory_order_relaxed);
+        is_busy_.store(false);
         event_.wait(untilFirst());
       } while (proceed_.test_and_set());
       return 0;
@@ -143,14 +143,14 @@ namespace iroha::subscription {
 
     void addDelayed(std::chrono::microseconds timeout, Task &&t) override {
       if (timeout == std::chrono::microseconds(0ull)) {
-        is_busy_.store(true, std::memory_order_relaxed);
+        is_busy_.store(true);
       }
 
 #ifdef SE_SYNC_CALL_IF_SAME_THREAD
       if (timeout == std::chrono::microseconds(0ull)
           && id_ == std::this_thread::get_id()) {
         std::forward<F>(f)();
-        is_busy_.store(false, std::memory_order_relaxed);
+        is_busy_.store(false);
       } else {
 #endif  // SE_SYNC_CALL_IF_SAME_THREAD
         auto const tp = now() + timeout;
