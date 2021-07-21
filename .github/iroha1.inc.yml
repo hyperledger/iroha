@@ -129,7 +129,7 @@ jobs: &jobs
           END
           echo "::endgroup::"
       - *step_checkout
-      # - *step_detect_commented_pr
+      # - *step_detect_commented_pr  ##TODO move up one line
       -
         name: Chat-ops reacts only to PRs with special base branches
         if: github.event.comment
@@ -154,7 +154,11 @@ jobs: &jobs
         if: ${{ steps.comment_body.outcome == 'skipped' }}
         run: |
           case ${{github.event_name}} in
-            pull_request)       echo >/tmp/comment_body "/build debug" ;;
+            pull_request)
+              if git log -1 --format=%B | grep '^/build ' >/tmp/comment_body ;then
+              else
+                echo >/tmp/comment_body "/build debug" ;;
+              fi
             push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
             schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
