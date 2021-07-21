@@ -23,18 +23,16 @@
 #include "network/ordering_gate_common.hpp"
 
 class Metrics : public std::enable_shared_from_this<Metrics> {
-  using OnProposalSubscription = iroha::BaseSubscriber<
-      bool,
-      iroha::network::OrderingEvent>;  // FixMe subscribtion ≠ subscriber
   using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
   using BlockSubscriber = iroha::BaseSubscriber<bool, BlockPtr>;
+  using TxsCacheSubscriber = iroha::BaseSubscriber<bool, uint64_t>;
 
   std::string listen_addr_port_;
   std::shared_ptr<prometheus::Exposer> exposer_;
   std::shared_ptr<prometheus::Registry> registry_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage_;
   std::shared_ptr<BlockSubscriber> block_subscriber_;
-  std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
+  std::shared_ptr<TxsCacheSubscriber> txs_cache_size_subscriber_;
   logger::LoggerPtr logger_;
 
   Metrics(std::string const &listen_addr,

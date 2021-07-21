@@ -19,6 +19,7 @@
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
 
+
 using iroha::ordering::OnDemandOrderingServiceImpl;
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
@@ -30,6 +31,7 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
+
       cached_txs_size_(0ull),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
@@ -69,6 +71,10 @@ bool OnDemandOrderingServiceImpl::insertBatchToCache(
     batches_cache_.insert(batch);
     getSubscription()->notify(EventTypes::kOnNewBatchInCache,
                               std::shared_ptr(batch));
+    cached_txs_size_ += boost::size(batch->transactions());
+    getSubscription()->notify(
+        EventTypes::kOdOsCachedTxsSizeChanged,
+        cached_txs_size_);
   }
   return true;
 }
@@ -87,6 +93,9 @@ void OnDemandOrderingServiceImpl::removeFromBatchesCache(
       auto const erased_size = boost::size((*it)->transactions());
       it = batches_cache_.erase(it);
       cached_txs_size_ -= erased_size;
+      getSubscription()->notify(
+          EventTypes::kOdOsCachedTxsSizeChanged,
+          cached_txs_size_);
     } else {
       ++it;
     }
