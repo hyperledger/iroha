@@ -12,6 +12,14 @@ make-workflows:
     DEBUG: use option -x
     NOTE: spaces in filenames are not allowed to keep code simplicity
     TODO: report "xxx.yaml in output directory 'workflows' has no source"
+
+    FIXME: Merge operation on two YAMLs has bug in latest version 4, so version 3 required
+      On Mac
+        wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_darwin_amd64 -O /usr/local/bin/yq-3 &&
+            chmod +x /usr/local/bin/yq-3
+      On Linux
+        wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_linux_amd64 -O /usr/local/bin/yq-3 &&
+            chmod +x /usr/local/bin/yq-3
 END
     cat<<END
 Usage:
@@ -91,8 +99,10 @@ for dir_from in $dirs_from ;do
         echo >>$tempout ""
         ## Take cached content from index
         file_contents ./$f |
-            yq eval-all '. as $item ireduce ({}; (. * $item) | .on = $item.on) | explode(.)' \
-                    *.inc.yml - >>$tempout
+            yq-3 merge -x *.inc.yml - |
+            yq-3 read --explodeAnchors - >>$tempout
+            #FIXME yq eval-all '. as $item ireduce ({}; (. *+ $item) | .on = $item.on)' \
+            #FIXME         *.inc.yml - >>$tempout
         if ! diff -q $wout $tempout &>/dev/null ;then
             mv $tempout $wout
             edited_files+="'$(realpath --relative-to=$OLDPWD $wout)' "
