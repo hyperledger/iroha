@@ -30,6 +30,7 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
+      cached_txs_size_(0ull),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
       log_(std::move(log)) {}
@@ -47,23 +48,30 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
 }
 
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
-  for (auto &batch : batches) {
-    if (not batchAlreadyProcessed(*batch)) {
-      insertBatchToCache(batch);
-    }
-  }
+  for (auto &batch : batches)
+    if (not batchAlreadyProcessed(*batch))
+      if (!insertBatchToCache(batch))
+        break;
+
   log_->info("onBatches => collection size = {}", batches.size());
 }
 
 // ---------------------------------| Private |---------------------------------
-void OnDemandOrderingServiceImpl::insertBatchToCache(
+bool OnDemandOrderingServiceImpl::insertBatchToCache(
     std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
   std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
+  if (cached_txs_size_ + boost::size(batch->transactions())
+      > (transaction_limit_ * 1000ull)) {
+    log_->warn("Transactions cache overload. Batch {} skipped.", *batch);
+    return false;
+  }
   if (used_batches_cache_.find(batch) == used_batches_cache_.end()) {
     batches_cache_.insert(batch);
+    cached_txs_size_ += boost::size(batch->transactions());
     getSubscription()->notify(EventTypes::kOnNewBatchInCache,
                               std::shared_ptr(batch));
   }
+  return true;
 }
 
 void OnDemandOrderingServiceImpl::removeFromBatchesCache(
@@ -77,7 +85,9 @@ void OnDemandOrderingServiceImpl::removeFromBatchesCache(
                     [&hashes](const auto &tx) {
                       return hashes.find(tx->hash()) != hashes.end();
                     })) {
+      auto const erased_size = boost::size((*it)->transactions());
       it = batches_cache_.erase(it);
+      cached_txs_size_ -= erased_size;
     } else {
       ++it;
     }
