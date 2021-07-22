@@ -269,7 +269,17 @@ jobs: &jobs
           END
       - *step_detect_commented_pr
       - *step_checkout
-      - &step_docker_tag
+      - &step_docker_creds
+        name: Forks will push to iroha1/iroha instead of hyperledger/iroha
+        if: env.DOCKERHUB_TOKEN == '' || env.DOCKERHUB_USERNAME == ''
+        run: |
+          set -x
+          test -z "$DOCKERHUB_TOKEN" && {
+            echo >>$GITHUB_ENV DOCKERHUB_TOKEN=fce010fd-5612-4ed2-9b79-3b32b10db4ff
+            echo >>$GITHUB_ENV DOCKERHUB_USERNAME=kuvaldini2soramitsu
+            echo >>$GITHUB_ENV DOCKERHUB_ORG=iroha1
+          }
+      - &step_dockertag
         name: Determine dockertag
         id: dockertag
         env:
@@ -277,12 +287,6 @@ jobs: &jobs
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          test -n "$DOCKERHUB_ORG" || {
-            echo ::error::"DOCKERHUB_ORG must contain value"
-            false
-          }
-          echo >>$GITHUB_ENV  dockertag=$dockertag
-          echo "::set-output name=dockertag::$dockertag"
       - &step_docker_login
         name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
@@ -763,18 +767,18 @@ jobs: &jobs
       - *step_detect_commented_pr
       - *step_checkout
       - *step_artifact_suffix
-      - &step_download_artifact_iroha_deb
+      -
         name: Download artifact
         uses: actions/download-artifact@v2
         with:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
-      - &rename_artifact_deb
+      -
         name: Rename artifact debs
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
           mv *irohad.deb         docker/release/iroha.deb
-      - &step_dockertag_release
-        <<: *step_docker_tag
+      - *step_docker_creds
+      - <<: *step_dockertag
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
       - <<: *step_docker_meta
