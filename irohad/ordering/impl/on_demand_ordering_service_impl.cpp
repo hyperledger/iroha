@@ -9,16 +9,15 @@
 
 #include <boost/range/adaptor/indirected.hpp>
 #include <boost/range/size.hpp>
+#include <numeric>
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
-#include "common/visitor.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
-
 
 using iroha::ordering::OnDemandOrderingServiceImpl;
 
@@ -31,7 +30,6 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
-
       cached_txs_size_(0ull),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
@@ -72,11 +70,16 @@ bool OnDemandOrderingServiceImpl::insertBatchToCache(
     cached_txs_size_ += boost::size(batch->transactions());
     getSubscription()->notify(EventTypes::kOnNewBatchInCache,
                               std::shared_ptr(batch));
-    cached_txs_size_ += boost::size(batch->transactions());
-    getSubscription()->notify(
-        EventTypes::kOdOsCachedTxsSizeChanged,
-        cached_txs_size_);
+    getSubscription()->notify(EventTypes::kOdOsCachedTxsSizeChanged,
+                              cached_txs_size_);
   }
+  assert(std::accumulate(batches_cache_.begin(),
+                         batches_cache_.end(),
+                         0ull,
+                         [](unsigned long long sum, auto const &batch) {
+                           return sum + boost::size(batch->transactions());
+                         })
+         == cached_txs_size_);
   return true;
 }
 
@@ -93,14 +96,14 @@ void OnDemandOrderingServiceImpl::removeFromBatchesCache(
                     })) {
       auto const erased_size = boost::size((*it)->transactions());
       it = batches_cache_.erase(it);
+      assert(cached_txs_size_ >= erased_size);
       cached_txs_size_ -= erased_size;
-      getSubscription()->notify(
-          EventTypes::kOdOsCachedTxsSizeChanged,
-          cached_txs_size_);
     } else {
       ++it;
     }
   }
+  getSubscription()->notify(EventTypes::kOdOsCachedTxsSizeChanged,
+                            cached_txs_size_);
 }
 
 bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() const {
