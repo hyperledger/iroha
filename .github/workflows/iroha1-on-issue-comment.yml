@@ -145,6 +145,7 @@ jobs:
       - name: Generate default matrix for regular builds
         if: ${{ steps.comment_body.outcome == 'skipped' }}
         run: |
+          set -x
           case ${{github.event_name}} in
             pull_request)     git log -1 --format=%B | grep '^/build ' >/tmp/comment_body ||
                                 echo >/tmp/comment_body "/build debug" ;;
