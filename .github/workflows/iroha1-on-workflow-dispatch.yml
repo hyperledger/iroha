@@ -152,7 +152,11 @@ jobs:
           case ${{github.event_name}} in
             pull_request)     git log -1 --format=%B | grep '^/build ' >/tmp/comment_body ||
                                 echo >/tmp/comment_body "/build debug" ;;
-            push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
+            push)             git log -1 --format=%B | grep '^/build ' >/tmp/comment_body || {
+                                echo >/tmp/comment_body "/build ubuntu debug release"
+                                echo >/tmp/comment_body "/build macos debug"
+                                echo >/tmp/comment_body "/build windows debug"
+                              };;
             schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
@@ -221,24 +225,12 @@ jobs:
       - check_workflow_yaml_coressponds_to_src_yaml
       - generate_matrixes
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu ).include[0] }}
-    # if: (
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' &&
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
-    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
-    #     ) || (
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' &&
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
-    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
-    #     )
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      # - run: echo "${{ needs.generate_matrixes.outputs.matrix_ubuntu_debug }}" | jq
-      # - run: echo "${{ toJSON(fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0]) }}"
-      # - run: echo "${{ toJSON(fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include) }}"
       - name: Show context
         run: |
           echo "::group::GitHub context"
@@ -407,7 +399,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    if: needs.generate_matrixes.outputs.matrix_ubuntu_debug && needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' && needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_debug && needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     steps:
       - name: Show context
         run: |
@@ -620,7 +612,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    if: needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_release != '' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] != null }}
     needs:
       - Docker-iroha-builder
       - generate_matrixes
@@ -842,8 +834,6 @@ jobs:
       - generate_matrixes
     # if: &build_macos_if ${{ fromJSON('[]')[0] }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
-    # needs.generate_matrixes.outputs.matrix_macos != '' &&
-    #     needs.generate_matrixes.outputs.matrix_macos != 'empty' &&
     runs-on: macos-latest
     steps:
       - name: Show context
@@ -1077,7 +1067,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    if: ${{ false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    if: false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] )
   build-iroha-windows:
     needs:
       - prepare-windows-env
@@ -1087,7 +1077,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
     #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
-    if: ${{ false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    if: false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] )
     # matrix:
     #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
@@ -1174,7 +1164,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    if: needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_release != '' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] != null }}
     env:
       IMAGE_NAME: iroha
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
@@ -1336,7 +1326,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    if: needs.generate_matrixes.outputs.matrix_ubuntu_debug && needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' && needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    if: needs.generate_matrixes.outputs.matrix_ubuntu_debug && needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' && ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     # env:
     #   <<: *env_dockerhub_release
     #   IMAGE_NAME: iroha-debug
