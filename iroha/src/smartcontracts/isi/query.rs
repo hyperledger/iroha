@@ -176,7 +176,6 @@ impl<W: WorldTrait> Query<W> for QueryBox {
             FindAssetsByAccountId(query) => query.execute_into_value(wsv),
             FindAssetsByAssetDefinitionId(query) => query.execute_into_value(wsv),
             FindAssetsByDomainName(query) => query.execute_into_value(wsv),
-            FindAssetsByAccountIdAndAssetDefinitionId(query) => query.execute_into_value(wsv),
             FindAssetsByDomainNameAndAssetDefinitionId(query) => query.execute_into_value(wsv),
             FindAssetQuantityById(query) => query.execute_into_value(wsv),
             FindAllDomains(query) => query.execute_into_value(wsv),

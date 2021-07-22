@@ -498,12 +498,9 @@ pub mod asset {
         FindAssetsByAccountId::new(account_id)
     }
 
-    /// Get query to get all assets by account id and definition id
-    pub fn by_account_id_and_definition_id(
-        account_id: impl Into<EvaluatesTo<AccountId>>,
-        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-    ) -> FindAssetsByAccountIdAndAssetDefinitionId {
-        FindAssetsByAccountIdAndAssetDefinitionId::new(account_id, asset_definition_id)
+    /// Get query to get all assets by account id
+    pub fn by_id(asset_id: impl Into<EvaluatesTo<<Asset as Identifiable>::Id>>) -> FindAssetById {
+        FindAssetById::new(asset_id)
     }
 }
 

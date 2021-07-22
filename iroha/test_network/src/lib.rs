@@ -21,7 +21,7 @@ use iroha::{
     kura::{Kura, KuraTrait},
     prelude::*,
     queue::{Queue, QueueTrait},
-    smartcontracts::permissions::IsInstructionAllowedBoxed,
+    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
@@ -396,7 +396,8 @@ where
     pub async fn start_with_config_permissions(
         &mut self,
         configuration: Configuration,
-        permissions: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
+        instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
+        query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
     ) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let mut configuration = self.get_config(configuration);
@@ -417,8 +418,8 @@ where
                 let _temp_dir = temp_dir;
                 let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
                     &configuration,
-                    permissions.into(),
-                    AllowAll.into(),
+                    instruction_validator.into(),
+                    query_validator.into(),
                     broker,
                 )
                 .await
@@ -437,7 +438,7 @@ where
 
     /// Starts peer with config
     pub async fn start_with_config(&mut self, configuration: Configuration) {
-        self.start_with_config_permissions(configuration, AllowAll)
+        self.start_with_config_permissions(configuration, AllowAll, AllowAll)
             .await;
     }
 
@@ -484,21 +485,26 @@ where
     /// Starts peer with default configuration.
     /// Returns its info and client for connecting to it.
     pub async fn start_test() -> (Self, Client) {
-        Self::start_test_with_permissions(AllowAll.into()).await
+        Self::start_test_with_permissions(AllowAll.into(), AllowAll.into()).await
     }
 
     /// Starts peer with default configuration and specified permissions.
     /// Returns its info and client for connecting to it.
     pub async fn start_test_with_permissions(
-        permissions: IsInstructionAllowedBoxed<W>,
+        instruction_validator: IsInstructionAllowedBoxed<W>,
+        query_validator: IsQueryAllowedBoxed<W>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         let mut peer = Self::new().expect("Failed to create peer.");
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
         configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_owned());
-        peer.start_with_config_permissions(configuration.clone(), permissions)
-            .await;
+        peer.start_with_config_permissions(
+            configuration.clone(),
+            instruction_validator,
+            query_validator,
+        )
+        .await;
         let client = Client::test(&peer.api_address);
         time::sleep(Duration::from_millis(
             configuration.sumeragi_configuration.pipeline_time_ms(),

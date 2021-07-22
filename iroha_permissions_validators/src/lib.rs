@@ -8,8 +8,8 @@ use iroha::{
     prelude::*,
     smartcontracts::{
         permissions::{
-            prelude::*, HasToken, IsAllowed, IsInstructionAllowedBoxed, ValidatorApplyOr,
-            ValidatorBuilder,
+            prelude::*, HasToken, IsAllowed, IsInstructionAllowedBoxed, IsQueryAllowedBoxed,
+            ValidatorApplyOr, ValidatorBuilder,
         },
         Evaluate,
     },
@@ -21,6 +21,16 @@ use iroha_macro::error::ErrorTryFromEnum;
 macro_rules! impl_from_item_for_instruction_validator_box {
     ( $ty:ty ) => {
         impl<W: WorldTrait> From<$ty> for IsInstructionAllowedBoxed<W> {
+            fn from(validator: $ty) -> Self {
+                Box::new(validator)
+            }
+        }
+    };
+}
+
+macro_rules! impl_from_item_for_query_validator_box {
+    ( $ty:ty ) => {
+        impl<W: WorldTrait> From<$ty> for IsQueryAllowedBoxed<W> {
             fn from(validator: $ty) -> Self {
                 Box::new(validator)
             }
@@ -78,12 +88,17 @@ pub mod private_blockchain {
     use super::*;
 
     /// A preconfigured set of permissions for simple use cases.
-    pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
+    pub fn default_instructions_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
         ValidatorBuilder::new()
             .with_recursive_validator(
                 register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
             )
             .all_should_succeed()
+    }
+
+    /// A preconfigured set of permissions for simple use cases.
+    pub fn default_query_permissions<W: WorldTrait>() -> IsQueryAllowedBoxed<W> {
+        ValidatorBuilder::new().all_should_succeed()
     }
 
     /// Prohibits using `Grant` instruction at runtime.
@@ -155,6 +170,389 @@ pub mod private_blockchain {
                 ))
             }
         }
+    }
+
+    /// Query Permissions.
+    pub mod query {
+        use super::*;
+
+        /// Allow queries that only access the data of the domain of the signer.
+        #[derive(Debug, Copy, Clone)]
+        pub struct OnlyAccountsDomain;
+
+        impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
+            #[allow(clippy::too_many_lines, clippy::match_same_arms)]
+            fn check(
+                &self,
+                authority: &AccountId,
+                query: &QueryBox,
+                wsv: &WorldStateView<W>,
+            ) -> Result<(), DenialReason> {
+                let context = Context::new();
+                match query {
+                    QueryBox::FindAssetsByAssetDefinitionId(_)
+                    | QueryBox::FindAssetsByName(_)
+                    | QueryBox::FindAllAssets(_) => {
+                        Err("Only access to the assets of the same domain is permitted.".to_owned())
+                    }
+                    QueryBox::FindAllAccounts(_) | QueryBox::FindAccountsByName(_) => Err(
+                        "Only access to the accounts of the same domain is permitted.".to_owned(),
+                    ),
+                    QueryBox::FindAllAssetsDefinitions(_) => Err(
+                        "Only access to the asset definitions of the same domain is permitted."
+                            .to_owned(),
+                    ),
+                    QueryBox::FindAllDomains(_) => {
+                        Err("Only access to the domain of the account is permitted.".to_owned())
+                    }
+                    #[cfg(feature = "roles")]
+                    QueryBox::FindAllRoles(_) => Ok(()),
+                    QueryBox::FindAllPeers(_) => Ok(()),
+                    QueryBox::FindAccountById(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as it is in a different domain.",
+                                account_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAccountKeyValueByIdAndKey(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as it is in a different domain.",
+                                account_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAccountsByDomainName(query) => {
+                        let domain_name = query
+                            .domain_name
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access accounts from a different domain with name {}.",
+                                domain_name
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetById(query) => {
+                        let asset_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if asset_id.account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset {} as it is in a different domain.",
+                                asset_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetsByAccountId(query) => {
+                        let account_id = query
+                            .account_id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as it is in a different domain.",
+                                account_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetsByDomainName(query) => {
+                        let domain_name = query
+                            .domain_name
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access assets from a different domain with name {}.",
+                                domain_name
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetsByDomainNameAndAssetDefinitionId(query) => {
+                        let domain_name = query
+                            .domain_name
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access assets from a different domain with name {}.",
+                                domain_name
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetQuantityById(query) => {
+                        let asset_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if asset_id.account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset {} as it is in a different domain.",
+                                asset_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetKeyValueByIdAndKey(query) => {
+                        let asset_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if asset_id.account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset {} as it is in a different domain.",
+                                asset_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindDomainByName(query) => {
+                        let domain_name = query
+                            .name
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access a different domain: {}.",
+                                domain_name
+                            ))
+                        }
+                    }
+                    QueryBox::FindTransactionsByAccountId(query) => {
+                        let account_id = query
+                            .account_id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as it is in a different domain.",
+                                account_id
+                            ))
+                        }
+                    }
+                    #[cfg(feature = "roles")]
+                    QueryBox::FindRolesByAccountId(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as it is in a different domain.",
+                                account_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindPermissionTokensByAccountId(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if account_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as it is in a different domain.",
+                                account_id
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+
+        impl_from_item_for_query_validator_box!(OnlyAccountsDomain);
+
+        /// Allow queries that only access the signers account data.
+        #[derive(Debug, Copy, Clone)]
+        pub struct OnlyAccountsData;
+
+        impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
+            #[allow(clippy::too_many_lines, clippy::match_same_arms)]
+            fn check(
+                &self,
+                authority: &AccountId,
+                query: &QueryBox,
+                wsv: &WorldStateView<W>,
+            ) -> Result<(), DenialReason> {
+                let context = Context::new();
+                match query {
+                    QueryBox::FindAccountsByName(_)
+                    | QueryBox::FindAccountsByDomainName(_)
+                    | QueryBox::FindAllAccounts(_)
+                    | QueryBox::FindAllAssetsDefinitions(_)
+                    | QueryBox::FindAssetsByAssetDefinitionId(_)
+                    | QueryBox::FindAssetsByDomainName(_)
+                    | QueryBox::FindAssetsByName(_)
+                    | QueryBox::FindAllDomains(_)
+                    | QueryBox::FindDomainByName(_)
+                    | QueryBox::FindAssetsByDomainNameAndAssetDefinitionId(_)
+                    | QueryBox::FindAllAssets(_) => {
+                        Err("Only access to the assets of the same domain is permitted.".to_owned())
+                    }
+                    #[cfg(feature = "roles")]
+                    #[allow(clippy::match_same_arms)]
+                    QueryBox::FindAllRoles(_) => Ok(()),
+                    QueryBox::FindAllPeers(_) => Ok(()),
+                    QueryBox::FindAccountById(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as only access to your own account is permitted..",
+                                account_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAccountKeyValueByIdAndKey(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access account {} as only access to your own account is permitted..",
+                                account_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetById(query) => {
+                        let asset_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &asset_id.account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset {} as it is in a different account.",
+                                asset_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetsByAccountId(query) => {
+                        let account_id = query
+                            .account_id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access a different account: {}.",
+                                account_id
+                            ))
+                        }
+                    }
+
+                    QueryBox::FindAssetQuantityById(query) => {
+                        let asset_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &asset_id.account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset {} as it is in a different account.",
+                                asset_id
+                            ))
+                        }
+                    }
+                    QueryBox::FindAssetKeyValueByIdAndKey(query) => {
+                        let asset_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &asset_id.account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset {} as it is in a different account.",
+                                asset_id
+                            ))
+                        }
+                    }
+
+                    QueryBox::FindTransactionsByAccountId(query) => {
+                        let account_id = query
+                            .account_id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!("Cannot access another account: {}.", account_id))
+                        }
+                    }
+                    #[cfg(feature = "roles")]
+                    QueryBox::FindRolesByAccountId(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!("Cannot access another account: {}.", account_id))
+                        }
+                    }
+                    QueryBox::FindPermissionTokensByAccountId(query) => {
+                        let account_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if &account_id == authority {
+                            Ok(())
+                        } else {
+                            Err(format!("Cannot access another account: {}.", account_id))
+                        }
+                    }
+                }
+            }
+        }
+
+        impl_from_item_for_query_validator_box!(OnlyAccountsData);
     }
 }
 
