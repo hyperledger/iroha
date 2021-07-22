@@ -521,8 +521,9 @@ mod asset {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let Self { account, asset } = self;
             let mut iroha_client = Client::new(cfg);
+            let asset_id = AssetId::new(asset, account);
             let value = iroha_client
-                .request(asset::by_account_id_and_definition_id(account, asset))
+                .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
             println!("Get Asset result: {:?}", value);
             Ok(())

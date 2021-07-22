@@ -61,8 +61,6 @@ pub enum QueryBox {
     FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
     /// `FindAssetsByDomainName` variant.
     FindAssetsByDomainName(FindAssetsByDomainName),
-    /// `FindAssetsByAccountIdAndAssetDefinitionId` variant.
-    FindAssetsByAccountIdAndAssetDefinitionId(FindAssetsByAccountIdAndAssetDefinitionId),
     /// `FindAssetsByDomainNameAndAssetDefinitionId` variant.
     FindAssetsByDomainNameAndAssetDefinitionId(FindAssetsByDomainNameAndAssetDefinitionId),
     /// `FindAssetQuantityById` variant.
@@ -681,35 +679,6 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    // TODO: remove as it is the same as `FindAssetById`
-    /// `FindAssetsByAccountIdAndAssetDefinitionId` Iroha Query will get `AccountId` and
-    /// `AssetDefinitionId` as inputs and find all `Asset`s owned by the `Account`
-    /// with this `AssetDefinition` in Iroha Peer.
-    #[derive(
-        Clone,
-        Debug,
-        Io,
-        Serialize,
-        Deserialize,
-        Encode,
-        Decode,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        IntoSchema,
-    )]
-    pub struct FindAssetsByAccountIdAndAssetDefinitionId {
-        /// `AccountId` under which assets should be found.
-        pub account_id: EvaluatesTo<AccountId>,
-        /// `AssetDefinitionId` which assets should be found.
-        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
-    }
-
-    impl QueryOutput for FindAssetsByAccountIdAndAssetDefinitionId {
-        type Output = Vec<Asset>;
-    }
-
     /// `FindAssetsByDomainNameAndAssetDefinitionId` Iroha Query will get `Domain`'s name and
     /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
@@ -846,21 +815,6 @@ pub mod asset {
         }
     }
 
-    impl FindAssetsByAccountIdAndAssetDefinitionId {
-        /// Default `FindAssetsByAccountIdAndAssetDefinitionId` constructor.
-        pub fn new(
-            account_id: impl Into<EvaluatesTo<AccountId>>,
-            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-        ) -> Self {
-            let account_id = account_id.into();
-            let asset_definition_id = asset_definition_id.into();
-            FindAssetsByAccountIdAndAssetDefinitionId {
-                account_id,
-                asset_definition_id,
-            }
-        }
-    }
-
     impl FindAssetsByDomainNameAndAssetDefinitionId {
         /// Default `FindAssetsByDomainNameAndAssetDefinitionId` constructor
         pub fn new(
@@ -897,8 +851,7 @@ pub mod asset {
     pub mod prelude {
         pub use super::{
             FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetKeyValueByIdAndKey,
-            FindAssetQuantityById, FindAssetsByAccountId,
-            FindAssetsByAccountIdAndAssetDefinitionId, FindAssetsByAssetDefinitionId,
+            FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
             FindAssetsByDomainName, FindAssetsByDomainNameAndAssetDefinitionId, FindAssetsByName,
         };
     }

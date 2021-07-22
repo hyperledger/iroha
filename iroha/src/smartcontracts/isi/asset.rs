@@ -334,25 +334,6 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAssetsByAccountIdAndAssetDefinitionId {
-        #[log]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            let id = self
-                .account_id
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get account id")?;
-            let asset_id = self
-                .asset_definition_id
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get asset id")?;
-            Ok(wsv
-                .account_assets(&id)?
-                .into_iter()
-                .filter(|asset| asset.id.definition_id == asset_id)
-                .collect())
-        }
-    }
-
     impl<W: WorldTrait> Query<W> for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {

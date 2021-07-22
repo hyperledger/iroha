@@ -2,10 +2,10 @@
 
 use std::thread;
 
-use iroha::config::Configuration;
+use iroha::{config::Configuration, prelude::AllowAll};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
-use iroha_permissions_validators::public_blockchain;
+use iroha_permissions_validators::{private_blockchain, public_blockchain};
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
@@ -30,6 +30,7 @@ fn permissions_disallow_asset_transfer() {
     let rt = Runtime::test();
     let (_peer, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
         public_blockchain::default_permissions(),
+        AllowAll.into(),
     ));
     let pipeline_time = Configuration::pipeline_time();
 
@@ -88,6 +89,7 @@ fn permissions_disallow_asset_burn() {
     let rt = Runtime::test();
     let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
         public_blockchain::default_permissions(),
+        AllowAll.into(),
     ));
     let pipeline_time = Configuration::pipeline_time();
 
@@ -144,4 +146,37 @@ fn permissions_disallow_asset_burn() {
 
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
+}
+
+#[test]
+fn account_can_query_only_its_own_domain() {
+    let rt = Runtime::test();
+    let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+        AllowAll.into(),
+        private_blockchain::query::OnlyAccountsDomain.into(),
+    ));
+    let pipeline_time = Configuration::pipeline_time();
+
+    // Given
+    thread::sleep(pipeline_time * 2);
+
+    let domain_name = "wonderland";
+    let new_domain_name = "wonderland2";
+    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(new_domain_name)));
+
+    iroha_client
+        .submit(register_domain)
+        .expect("Failed to prepare state.");
+
+    thread::sleep(pipeline_time * 2);
+
+    // Alice can query the domain in which her account exists.
+    assert!(iroha_client
+        .request(client::domain::by_name(domain_name.to_owned()))
+        .is_ok());
+
+    // Alice can not query other domains.
+    assert!(iroha_client
+        .request(client::domain::by_name(new_domain_name.to_owned()))
+        .is_err());
 }
