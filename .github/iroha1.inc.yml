@@ -155,7 +155,7 @@ jobs: &jobs
         run: |
           set -x
           case ${{github.event_name}} in
-            pull_request)     git log -1 --format=%B | grep '^/build ' >/tmp/comment_body ||
+            pull_request)     git log --format=%B -n1 ${{github.event.after}} | grep '^/build ' >/tmp/comment_body ||
                                 echo >/tmp/comment_body "/build debug" ;;
             push)             git log -1 --format=%B | grep '^/build ' >/tmp/comment_body || {
                                 echo >/tmp/comment_body "/build ubuntu debug release"
@@ -396,7 +396,7 @@ jobs: &jobs
     if: &build_ubuntu_debug_if
         needs.generate_matrixes.outputs.matrix_ubuntu_debug &&
         needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
-        ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+        fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0]
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -586,7 +586,7 @@ jobs: &jobs
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
     if: &build_ubuntu_release_if
         needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
-        ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] != null }}
+        fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0]
 
   ## Just to align picture
   prepare-macos-env:
