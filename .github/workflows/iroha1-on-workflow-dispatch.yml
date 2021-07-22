@@ -286,6 +286,15 @@ jobs:
           ref: ${{env.PR_PULL_HEAD}} ## somehow
           # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
           # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+      - name: Forks will push to iroha1/iroha instead of hyperledger/iroha
+        if: env.DOCKERHUB_TOKEN == '' || env.DOCKERHUB_USERNAME == ''
+        run: |
+          set -x
+          test -z "$DOCKERHUB_TOKEN" && {
+            echo >>$GITHUB_ENV DOCKERHUB_TOKEN=fce010fd-5612-4ed2-9b79-3b32b10db4ff
+            echo >>$GITHUB_ENV DOCKERHUB_USERNAME=kuvaldini2soramitsu
+            echo >>$GITHUB_ENV DOCKERHUB_ORG=iroha1
+          }
       - name: Determine dockertag
         id: dockertag
         env:
@@ -293,12 +302,6 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          test -n "$DOCKERHUB_ORG" || {
-            echo ::error::"DOCKERHUB_ORG must contain value"
-            false
-          }
-          echo >>$GITHUB_ENV  dockertag=$dockertag
-          echo "::set-output name=dockertag::$dockertag"
       - name: Login to DockerHub
         if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
         id: docker_login
@@ -1253,6 +1256,15 @@ jobs:
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
           mv *irohad.deb         docker/release/iroha.deb
+      - name: Forks will push to iroha1/iroha instead of hyperledger/iroha
+        if: env.DOCKERHUB_TOKEN == '' || env.DOCKERHUB_USERNAME == ''
+        run: |
+          set -x
+          test -z "$DOCKERHUB_TOKEN" && {
+            echo >>$GITHUB_ENV DOCKERHUB_TOKEN=fce010fd-5612-4ed2-9b79-3b32b10db4ff
+            echo >>$GITHUB_ENV DOCKERHUB_USERNAME=kuvaldini2soramitsu
+            echo >>$GITHUB_ENV DOCKERHUB_ORG=iroha1
+          }
       - env:
           dockertag: ${{ hashFiles('docker/release/**') }}
         name: Determine dockertag
@@ -1260,12 +1272,6 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          test -n "$DOCKERHUB_ORG" || {
-            echo ::error::"DOCKERHUB_ORG must contain value"
-            false
-          }
-          echo >>$GITHUB_ENV  dockertag=$dockertag
-          echo "::set-output name=dockertag::$dockertag"
       - with:
           images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }} ## uses suffics could be empty, -burrow, -ursa
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
@@ -1420,6 +1426,15 @@ jobs:
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
           mv *irohad.deb         docker/release/iroha.deb
+      - name: Forks will push to iroha1/iroha instead of hyperledger/iroha
+        if: env.DOCKERHUB_TOKEN == '' || env.DOCKERHUB_USERNAME == ''
+        run: |
+          set -x
+          test -z "$DOCKERHUB_TOKEN" && {
+            echo >>$GITHUB_ENV DOCKERHUB_TOKEN=fce010fd-5612-4ed2-9b79-3b32b10db4ff
+            echo >>$GITHUB_ENV DOCKERHUB_USERNAME=kuvaldini2soramitsu
+            echo >>$GITHUB_ENV DOCKERHUB_ORG=iroha1
+          }
       - env:
           dockertag: ${{ hashFiles('docker/release/**') }}
         name: Determine dockertag
@@ -1427,12 +1442,6 @@ jobs:
         run: |
           echo "::set-output name=dockertag::$dockertag"
           echo >>$GITHUB_ENV  dockertag=$dockertag
-          test -n "$DOCKERHUB_ORG" || {
-            echo ::error::"DOCKERHUB_ORG must contain value"
-            false
-          }
-          echo >>$GITHUB_ENV  dockertag=$dockertag
-          echo "::set-output name=dockertag::$dockertag"
       - with:
           images: ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }} ## uses suffics could be empty, -burrow, -ursa
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
