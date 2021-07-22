@@ -154,10 +154,14 @@ jobs: &jobs
         if: ${{ steps.comment_body.outcome == 'skipped' }}
         run: |
           set -x
+          commit_message_body_build_spec(){
+            git fetch origin ${{github.event.after}} --depth=1
+            git log --format=%B -n1 ${{github.event.after}} | grep '^/build '
+          }
           case ${{github.event_name}} in
-            pull_request)     git log --format=%B -n1 ${{github.event.after}} | grep '^/build ' >/tmp/comment_body ||
+            pull_request)     commit_message_body_build_spec >/tmp/comment_body ||
                                 echo >/tmp/comment_body "/build debug" ;;
-            push)             git log -1 --format=%B | grep '^/build ' >/tmp/comment_body || {
+            push)             commit_message_body_build_spec >/tmp/comment_body || {
                                 echo >/tmp/comment_body "/build ubuntu debug release"
                                 echo >/tmp/comment_body "/build macos debug"
                                 echo >/tmp/comment_body "/build windows debug"
