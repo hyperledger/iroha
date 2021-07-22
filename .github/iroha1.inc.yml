@@ -230,15 +230,6 @@ jobs: &jobs
       - check_workflow_yaml_coressponds_to_src_yaml
       - generate_matrixes
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu ).include[0] }}
-    # if: (
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' &&
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
-    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
-    #     ) || (
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' &&
-    #       needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
-    #       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
-    #     )
     runs-on: ubuntu-latest #[ self-hosted, Linux ]
     env: &env_dockerhub
       DOCKERHUB_ORG:      hyperledger   ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
@@ -403,7 +394,6 @@ jobs: &jobs
     if: &build_ubuntu_debug_if
         needs.generate_matrixes.outputs.matrix_ubuntu_debug &&
         needs.generate_matrixes.outputs.matrix_ubuntu_debug != '' &&
-        needs.generate_matrixes.outputs.matrix_ubuntu_debug != 'empty' &&
         ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
     steps: &build_steps
       - *step_show_context
@@ -593,8 +583,8 @@ jobs: &jobs
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
     if: &build_ubuntu_release_if
-        needs.generate_matrixes.outputs.matrix_ubuntu_release != 'empty' &&
-        ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+        needs.generate_matrixes.outputs.matrix_ubuntu_release != '' &&
+        ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] != null }}
 
   ## Just to align picture
   prepare-macos-env:
@@ -604,8 +594,6 @@ jobs: &jobs
     # if: &build_macos_if ${{ fromJSON('[]')[0] }}
     if: &build_macos_if
         ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
-        # needs.generate_matrixes.outputs.matrix_macos != '' &&
-    #     needs.generate_matrixes.outputs.matrix_macos != 'empty' &&
     runs-on: macos-latest
     steps:
       - *step_show_context
@@ -686,7 +674,11 @@ jobs: &jobs
     defaults:
       run:
         shell: bash
-    if: &build_windows_if ${{ false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    if: &build_windows_if
+      false && (
+        needs.generate_matrixes.outputs.matrix_windows != '' &&
+        fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0]
+      )
 
   build-iroha-windows:
     needs:
