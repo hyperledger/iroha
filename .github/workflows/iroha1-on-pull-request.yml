@@ -23,6 +23,7 @@ name: Iroha1 on pull request
 ##      report this by checking if workflows/*.yml are same in checked out (pr) branch and main(default) branch.
 ## TODO chatops report status to issue comment
 ## TODO docker push to ghcr.io, no secrets required
+## FIXME Possible warning when workflows/${{github.workflow}}.yml was changed in PR
 
 ## LINKS
 ## [chatops] https://github.community/t/triggering-a-new-workflow-from-another-workflow/16250/34
@@ -86,7 +87,7 @@ jobs:
         if: github.event.comment
         run: |
           git diff "${{github.repository.default_branch}}" HEAD -- .github/workflows/${{github.workflow}}.yml ||
-            echo ::warning:: Running using workflow from branch 'main' but ${{github.workflow}}.yml was changed in current PR#$PR_NUM
+            echo ::warning:: "Running using workflow from branch 'main' but ${{github.workflow}}.yml was changed in current PR#$PR_NUM"
       - name: Install yq-3
         run: sudo wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_linux_amd64 -O /usr/local/bin/yq-3 && sudo chmod +x /usr/local/bin/yq-3
       - name: Check if .github/workflows/*.yml correspond to *.src.yml
@@ -103,8 +104,6 @@ jobs:
   generate_matrixes:
     runs-on: ubuntu-latest
     if: (github.event_name != 'issue_comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') )
-    # needs: check_workflow_yaml_coressponds_to_src_yaml
-    # continue-on-error: true  ## Because Chat-ops reacts only on PRs with base branches 'main|support/1.*|develop|edge'
     steps:
       - name: Show context
         run: |
@@ -118,13 +117,13 @@ jobs:
             ${{ toJson(needs) }}
           END
           echo "::endgroup::"
+      #maybe todo - *step_detect_commented_pr
       - name: Checkout
         uses: actions/checkout@v2
         with:
           ref: ${{env.PR_PULL_HEAD}} ## somehow
           # ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
           # repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-      # - *step_detect_commented_pr  ##TODO move up one line
       - name: Chat-ops reacts only to PRs with special base branches
         if: github.event.comment
         run: |
@@ -152,11 +151,11 @@ jobs:
           }
           case ${{github.event_name}} in
             pull_request)     commit_message_body_build_spec >/tmp/comment_body ||
-                                echo >/tmp/comment_body "/build debug" ;;
+                                echo  >/tmp/comment_body "/build debug" ;;
             push)             commit_message_body_build_spec >/tmp/comment_body || {
-                                echo >/tmp/comment_body "/build ubuntu debug release"
-                                echo >/tmp/comment_body "/build macos debug"
-                                echo >/tmp/comment_body "/build windows debug"
+                                echo  >/tmp/comment_body "/build ubuntu debug release"
+                                echo >>/tmp/comment_body "/build macos debug"
+                                echo >>/tmp/comment_body "/build windows debug"
                               };;
             schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
@@ -397,7 +396,7 @@ jobs:
       - generate_matrixes
     runs-on: [self-hosted, Linux]
     ## Container is taken from previous job
-    container: #&container
+    container:
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
     strategy:
@@ -584,14 +583,6 @@ jobs:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
           path: |
             build/*.deb
-      - if: ${{ false }} ## Maybe test in another job
-        name: Upload artifact tests
-        uses: actions/upload-artifact@v2
-        with:
-          name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
-          path: |
-            build/test_bin/**
-            build/test_data/**
       - timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
@@ -804,14 +795,6 @@ jobs:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
           path: |
             build/*.deb
-      - if: ${{ false }} ## Maybe test in another job
-        name: Upload artifact tests
-        uses: actions/upload-artifact@v2
-        with:
-          name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
-          path: |
-            build/test_bin/**
-            build/test_data/**
       - timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
         run: |
@@ -836,7 +819,6 @@ jobs:
     needs:
       - check_workflow_yaml_coressponds_to_src_yaml
       - generate_matrixes
-    # if: &build_macos_if ${{ fromJSON('[]')[0] }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
     runs-on: macos-latest
     steps:
@@ -1019,14 +1001,6 @@ jobs:
             build/bin/iroha-cli
         name: Upload artifact irohad
         uses: actions/upload-artifact@v2
-      - if: ${{ false }} ## Maybe test in another job
-        name: Upload artifact tests
-        uses: actions/upload-artifact@v2
-        with:
-          name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
-          path: |
-            build/test_bin/**
-            build/test_data/**
       - name: Install Postgres on MacOS
         run: brew install postgresql
         ## ToDo may be optimize, i.e. cache package
@@ -1080,10 +1054,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
-    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     if: false && ( needs.generate_matrixes.outputs.matrix_windows != '' && fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] )
-    # matrix:
-    #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
         shell: bash #pwsh

@@ -21,6 +21,7 @@ name: Iroha1
 ##      report this by checking if workflows/*.yml are same in checked out (pr) branch and main(default) branch.
 ## TODO chatops report status to issue comment
 ## TODO docker push to ghcr.io, no secrets required
+## FIXME Possible warning when workflows/${{github.workflow}}.yml was changed in PR
 
 ## LINKS
 ## [chatops] https://github.community/t/triggering-a-new-workflow-from-another-workflow/16250/34
@@ -50,7 +51,7 @@ name: Iroha1
 #     - cron: '12 22 * * *'
 on:
 
-jobs: &jobs
+jobs:
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
@@ -88,7 +89,7 @@ jobs: &jobs
         if: github.event.comment
         run: |
           git diff "${{github.repository.default_branch}}" HEAD -- .github/workflows/${{github.workflow}}.yml ||
-            echo ::warning:: Running using workflow from branch 'main' but ${{github.workflow}}.yml was changed in current PR#$PR_NUM
+            echo ::warning:: "Running using workflow from branch 'main' but ${{github.workflow}}.yml was changed in current PR#$PR_NUM"
       -
         name: Install yq-3
         run: sudo wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_linux_amd64 -O /usr/local/bin/yq-3 &&
@@ -112,8 +113,6 @@ jobs: &jobs
           github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') )
-    # needs: check_workflow_yaml_coressponds_to_src_yaml
-    # continue-on-error: true  ## Because Chat-ops reacts only on PRs with base branches 'main|support/1.*|develop|edge'
     steps:
       - &step_show_context
         name: Show context
@@ -128,8 +127,8 @@ jobs: &jobs
             ${{ toJson(needs) }}
           END
           echo "::endgroup::"
+      #maybe todo - *step_detect_commented_pr
       - *step_checkout
-      # - *step_detect_commented_pr  ##TODO move up one line
       -
         name: Chat-ops reacts only to PRs with special base branches
         if: github.event.comment
@@ -160,11 +159,11 @@ jobs: &jobs
           }
           case ${{github.event_name}} in
             pull_request)     commit_message_body_build_spec >/tmp/comment_body ||
-                                echo >/tmp/comment_body "/build debug" ;;
+                                echo  >/tmp/comment_body "/build debug" ;;
             push)             commit_message_body_build_spec >/tmp/comment_body || {
-                                echo >/tmp/comment_body "/build ubuntu debug release"
-                                echo >/tmp/comment_body "/build macos debug"
-                                echo >/tmp/comment_body "/build windows debug"
+                                echo  >/tmp/comment_body "/build ubuntu debug release"
+                                echo >>/tmp/comment_body "/build macos debug"
+                                echo >>/tmp/comment_body "/build windows debug"
                               };;
             schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
@@ -395,7 +394,7 @@ jobs: &jobs
       - generate_matrixes
     runs-on: [ self-hosted, Linux ]
     ## Container is taken from previous job
-    container: #&container
+    container:
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
     strategy: &strategy_ubuntu_debug
@@ -556,15 +555,6 @@ jobs: &jobs
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
           path: &step_artifact_iroha_deb_path |
             build/*.deb
-      - &step_artifact_tests
-        if: ${{ false }}  ## Maybe test in another job
-        name: Upload artifact tests
-        uses: actions/upload-artifact@v2
-        with:
-          name: iroha-tests-ubuntu${{env.ARTIFACT_SUFFIX}}
-          path: |
-            build/test_bin/**
-            build/test_data/**
       - &step_ctest
         timeout-minutes: 10
         name: CTest, FIXME integration_fake_peer_example_test
@@ -601,7 +591,6 @@ jobs: &jobs
     needs:
       - check_workflow_yaml_coressponds_to_src_yaml
       - generate_matrixes
-    # if: &build_macos_if ${{ fromJSON('[]')[0] }}
     if: &build_macos_if
         ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
     runs-on: macos-latest
@@ -666,7 +655,6 @@ jobs: &jobs
         with:
           name: irohad-macos${{env.ARTIFACT_SUFFIX}}
           path: *step_artifact_irohad_path
-      - *step_artifact_tests
       - &step_brew_postgres
         name: Install Postgres on MacOS
         run: brew install postgresql
@@ -698,10 +686,7 @@ jobs: &jobs
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
-    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     if: *build_windows_if
-      # matrix:
-      #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
         shell: bash  #pwsh
