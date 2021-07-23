@@ -23,7 +23,7 @@ EXAMPLE build_spec:
    /build all
 AVAILABLE build_spec keywords:
 END
-   awk '/^\s*## BUILDSPEC ARGUMENTS/,/^\s*## END BUILDSPEC ARGUMENTS/ ' .github/chatops-gen-matrix.sh | sed -nE 's,).*,,gp' | sed /\*/d | sed -E 's,^ +,   ,'
+   awk '/^\s*## BUILDSPEC ARGUMENTS/,/^\s*## END BUILDSPEC ARGUMENTS/ ' $0 | sed -n 's,).*,,gp' | sed -E 's,^ +,   ,'
 }
 
 --help(){
