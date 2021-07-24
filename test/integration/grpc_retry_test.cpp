@@ -15,6 +15,8 @@
 #include "qry_responses.pb.h"
 #include "queries.pb.h"
 
+using namespace std::literals::chrono_literals;
+
 namespace {
   constexpr auto kErrorMessage = "this is a test error message";
 }
@@ -39,7 +41,23 @@ class MockQueryService : public iroha::protocol::QueryService_v1::Service {
 };
 
 namespace {
-  const auto kChannelParams = iroha::network::getDefaultChannelParams();
+  const auto kChannelParams = [] {
+    static const auto retry_policy = [] {
+      iroha::network::GrpcChannelParams::RetryPolicy retry_policy;
+      retry_policy.max_attempts = 5u;
+      retry_policy.initial_backoff = 1s;
+      retry_policy.max_backoff = 1s;
+      retry_policy.backoff_multiplier = 1.f;
+      retry_policy.retryable_status_codes = {
+          "UNKNOWN", "DEADLINE_EXCEEDED", "ABORTED", "INTERNAL", "UNAVAILABLE"};
+      return retry_policy;
+    }();
+    auto params = std::make_unique<iroha::network::GrpcChannelParams>();
+    params->max_request_message_bytes = std::numeric_limits<int>::max();
+    params->max_response_message_bytes = std::numeric_limits<int>::max();
+    params->retry_policy = retry_policy;
+    return params;
+  }();
   const unsigned int kAttemptsForFailure =
       kChannelParams->retry_policy->max_attempts;
   const unsigned int kAttemptsForSuccess = kAttemptsForFailure - 1;

@@ -13,13 +13,6 @@ target_link_libraries(result_test
         common
         )
 
-addtest(combine_latest_until_first_completed_test
-        combine_latest_until_first_completed_test.cpp
-        )
-target_link_libraries(combine_latest_until_first_completed_test
-        rxcpp
-        )
-
 set(LIB_FILES_TEST_DATA_DIR ${GENERATED_TEST_DATA_DIR}/lib_files)
 file(MAKE_DIRECTORY ${LIB_FILES_TEST_DATA_DIR})
 

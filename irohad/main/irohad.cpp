@@ -9,6 +9,7 @@
 #include <chrono>
 #include <csignal>
 #include <fstream>
+#include <future>
 #include <thread>
 
 #include "ametsuchi/storage.hpp"
@@ -28,6 +29,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "maintenance/metrics.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "util/status_notifier.hpp"
 #include "util/utility_service.hpp"
@@ -105,6 +107,14 @@ static bool validateVerbosity(const char *flagname, const std::string &val) {
 /// Verbosity flag for spdlog configuration
 DEFINE_string(verbosity, kLogSettingsFromConfigFile, "Log verbosity");
 DEFINE_validator(verbosity, &validateVerbosity);
+
+/// Metrics. ToDo validator
+DEFINE_string(metrics_addr,
+              "127.0.0.1",
+              "Prometeus HTTP server listen address");
+DEFINE_string(metrics_port,
+              "",
+              "Prometeus HTTP server listens port, disabled by default");
 
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
@@ -202,8 +212,8 @@ int main(int argc, char *argv[]) {
   // Parsing command line arguments
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  logger::LoggerManagerTreePtr log_manager;
-  logger::LoggerPtr log;
+  logger::LoggerManagerTreePtr log_manager = getDefaultLogManager();
+  logger::LoggerPtr log = log_manager->getChild("Init")->getLogger();
 
   try {
     // If the global log level override was set in the command line arguments,
@@ -215,13 +225,8 @@ int main(int argc, char *argv[]) {
       log = log_manager->getChild("Init")->getLogger();
     }
 
-    // Reading iroha configuration file
-    std::optional<logger::LoggerPtr> maybe_log;
-    if (log) {
-      maybe_log = log;
-    }
     auto config_result =
-        parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), maybe_log);
+        parse_iroha_config(FLAGS_config, getCommonObjectsFactory(), {log});
     if (auto e = iroha::expected::resultToOptionalError(config_result)) {
       if (log) {
         log->error("Failed reading the configuration: {}", e.value());
@@ -230,7 +235,7 @@ int main(int argc, char *argv[]) {
     }
     auto config = std::move(config_result).assumeValue();
 
-    if (not log_manager) {
+    if (FLAGS_verbosity == kLogSettingsFromConfigFile) {
       log_manager = config.logger_manager.value_or(getDefaultLogManager());
       log = log_manager->getChild("Init")->getLogger();
     }
@@ -246,13 +251,12 @@ int main(int argc, char *argv[]) {
     }
 
     if (config.utility_service) {
-      initUtilityService(
-          config.utility_service.value(),
-          [] {
-            exit_requested.set_value();
-            std::lock_guard<std::mutex>{shutdown_wait_mutex};
-          },
-          log_manager);
+      initUtilityService(config.utility_service.value(),
+                         [] {
+                           exit_requested.set_value();
+                           std::lock_guard<std::mutex>{shutdown_wait_mutex};
+                         },
+                         log_manager);
     }
 
     daemon_status_notifier->notify(
@@ -298,7 +302,7 @@ int main(int argc, char *argv[]) {
         FLAGS_wait_for_new_blocks
             ? iroha::StartupWsvSynchronizationPolicy::kWaitForNewBlocks
             : iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
-        ::iroha::network::getDefaultChannelParams(),
+        std::nullopt,
         boost::make_optional(config.mst_support,
                              iroha::GossipPropagationStrategyParams{}),
         boost::none);
@@ -364,10 +368,18 @@ int main(int argc, char *argv[]) {
 
         // clear previous storage if any
         irohad->dropStorage();
+        // Check if iroha daemon storage was successfully re-initialized
+        if (not irohad->storage) {
+          // Abort execution if not
+          log->error("Failed to re-initialize storage");
+          daemon_status_notifier->notify(
+              ::iroha::utility_service::Status::kFailed);
+          return EXIT_FAILURE;
+        }
 
         const auto txs_num = block->transactions().size();
-        if (auto e = iroha::expected::resultToOptionalError(
-                irohad->storage->insertBlock(std::move(block)))) {
+        auto inserted = irohad->storage->insertBlock(std::move(block));
+        if (auto e = iroha::expected::resultToOptionalError(inserted)) {
           log->critical("Could not apply genesis block: {}", e.value());
           return EXIT_FAILURE;
         }
@@ -381,19 +393,17 @@ int main(int argc, char *argv[]) {
             "genesis block is provided. Please pecify new genesis block using "
             "--genesis_block parameter.");
         return EXIT_FAILURE;
-      } else {
-        if (overwrite) {
-          // no genesis, blockstore present, overwrite specified -> new block
-          // store, world state should be reset
-          irohad->resetWsv();
-          if (not FLAGS_reuse_state) {
-            log->warn(
-                "No new genesis block is specified - blockstore will not be "
-                "overwritten. If you want overwrite ledger state, please "
-                "specify new genesis block using --genesis_block parameter. "
-                "If you want to reuse existing state data (WSV), consider the "
-                "--reuse_state flag.");
-          }
+      } else if (overwrite) {
+        // no genesis, blockstore present, overwrite specified -> new block
+        // store, world state should be reset
+        irohad->resetWsv();
+        if (not FLAGS_reuse_state) {
+          log->warn(
+              "No new genesis block is specified - blockstore will not be "
+              "overwritten. If you want overwrite ledger state, please "
+              "specify new genesis block using --genesis_block parameter. "
+              "If you want to reuse existing state data (WSV), consider the "
+              "--reuse_state flag.");
         }
       }
     }
@@ -435,6 +445,29 @@ int main(int argc, char *argv[]) {
 #ifdef SIGQUIT
     std::signal(SIGQUIT, handler);
 #endif
+
+    // start metrics
+    std::shared_ptr<Metrics> metrics;  // Must be a pointer because 'this' is
+                                       // captured to lambdas in constructor.
+    std::string metrics_addr;
+    if (FLAGS_metrics_port.size()) {
+      metrics_addr = FLAGS_metrics_addr + ":" + FLAGS_metrics_port;
+    } else if (config.metrics_addr_port.size()) {
+      metrics_addr = config.metrics_addr_port;
+    }
+    if (metrics_addr.empty()) {
+      log->info("Skiping Metrics initialization.");
+    } else {
+      try {
+        metrics =
+            Metrics::create(metrics_addr,
+                            irohad->storage,
+                            log_manager->getChild("Metrics")->getLogger());
+        log->info("Metrics listens on {}", metrics->getListenAddress());
+      } catch (std::exception const &ex) {
+        log->warn("Failed to initialize Metrics: {}", ex.what());
+      }
+    }
 
     // runs iroha
     log->info("Running iroha");

@@ -14,6 +14,8 @@ namespace shared_model {
     Hash::Hash() : Blob() {}
 
     Hash::Hash(const std::string &hash) : Blob(hash) {}
+    Hash::Hash(std::string_view hash) : Blob(hash) {}
+    Hash::Hash(const char *hash) : Blob(std::string(hash)) {}
 
     Hash::Hash(const Blob &blob) : Blob(blob) {}
 

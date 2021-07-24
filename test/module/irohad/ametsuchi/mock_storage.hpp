@@ -9,7 +9,6 @@
 #include "ametsuchi/storage.hpp"
 
 #include <gmock/gmock.h>
-#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
@@ -61,7 +60,7 @@ namespace iroha {
                    expected::Result<void, std::string>(
                        const shared_model::interface::Peer &));
       MOCK_METHOD0(dropBlockStorage, expected::Result<void, std::string>());
-      MOCK_METHOD0(resetPeers, void());
+      MOCK_METHOD0(resetPeers, expected::Result<void, std::string>());
       MOCK_CONST_METHOD0(
           getLedgerState,
           boost::optional<std::shared_ptr<const iroha::LedgerState>>());
@@ -73,16 +72,9 @@ namespace iroha {
         prepareBlock_(wsv);
       }
 
-      rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
-      on_commit() override {
-        return notifier.get_observable();
-      }
       CommitResult commit(std::unique_ptr<MutableStorage> storage) override {
         return doCommit(storage.get());
       }
-      rxcpp::subjects::subject<
-          std::shared_ptr<const shared_model::interface::Block>>
-          notifier;
     };
 
   }  // namespace ametsuchi

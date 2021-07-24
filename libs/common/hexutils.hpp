@@ -82,7 +82,7 @@ namespace iroha {
   }
 
   [[deprecated]] inline boost::optional<std::string> hexstringToBytestring(
-      const std::string &str) {
+      std::string_view str) {
     return iroha::expected::resultToOptionalValue(
         hexstringToBytestringResult(str));
   }

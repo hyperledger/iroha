@@ -10,6 +10,7 @@
 #include <functional>
 #include <initializer_list>
 #include <string>
+#include <string_view>
 
 namespace shared_model {
   namespace interface {
@@ -103,7 +104,7 @@ namespace shared_model {
      public:
       PermissionSet();
       PermissionSet(std::initializer_list<Perm> list);
-      explicit PermissionSet(const std::string &bitstring);
+      explicit PermissionSet(std::string_view bitstring);
 
       // TODO [IR-1889] Akvinikym 21.11.18: introduce toString() method
       std::string toBitstring() const;

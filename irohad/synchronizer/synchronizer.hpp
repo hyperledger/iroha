@@ -6,7 +6,7 @@
 #ifndef IROHA_SYNCHRONIZER_HPP
 #define IROHA_SYNCHRONIZER_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <optional>
 
 #include "consensus/gate_object.hpp"
 #include "synchronizer/synchronizer_common.hpp"
@@ -21,13 +21,8 @@ namespace iroha {
       /**
        * Processing entry point for consensus outcome
        */
-      virtual void processOutcome(consensus::GateObject object) = 0;
-
-      /**
-       * After synchronization this observable emits zero or more blocks plus
-       * outcome of synchronization
-       */
-      virtual rxcpp::observable<SynchronizationEvent> on_commit_chain() = 0;
+      virtual std::optional<SynchronizationEvent> processOutcome(
+          consensus::GateObject object) = 0;
 
       virtual ~Synchronizer() = default;
     };

@@ -25,6 +25,7 @@ else()
 endif()
 SET(CMAKE_CXX_OUTPUT_EXTENSION_REPLACE 1)
 SET(CMAKE_INSTALL_RPATH "../lib")
+SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)  ## use for code static analyze and vscode cpp plugin
 
 if(CMAKE_BUILD_TYPE MATCHES "Release")
   include(CheckIPOSupported)
@@ -37,6 +38,11 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
     message(STATUS "IPO / LTO not supported: <${error}>")
   endif()
 endif()
+
+## FIXME revert this after change CI to GitHub actions.
+## Temporal fix for 'bytecode stream version incompatible' between gcc-9 and gcc-10 and clang
+## when dependancies were build via vcpkg with default GCC9 could not be linked with iroha built with GCC-10
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
 if(WIN32)
     # We have to set _WIN32_WINNT for gRPC

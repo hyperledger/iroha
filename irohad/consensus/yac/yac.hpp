@@ -9,131 +9,110 @@
 #include "consensus/yac/transport/yac_network_interface.hpp"  // for YacNetworkNotifications
 #include "consensus/yac/yac_gate.hpp"                         // for HashGate
 
+#include <map>
 #include <memory>
-#include <mutex>
+#include <unordered_set>
 
-#include <boost/optional.hpp>
-#include <rxcpp/rx-lite.hpp>
 #include "consensus/yac/cluster_order.hpp"     //  for ClusterOrdering
 #include "consensus/yac/outcome_messages.hpp"  // because messages passed by value
 #include "consensus/yac/storage/yac_vote_storage.hpp"  // for VoteStorage
 #include "logger/logger_fwd.hpp"
 
-#include <rxcpp/operators/rx-observe_on.hpp>
+namespace iroha::consensus::yac {
+  class YacCryptoProvider;
+  class Timer;
 
-namespace iroha {
-  namespace consensus {
-    namespace yac {
+  class Yac : public HashGate, public YacNetworkNotifications {
+   public:
+    /**
+     * Method for creating Yac consensus object
+     * @param delay for timer in milliseconds
+     */
+    static std::shared_ptr<Yac> create(
+        YacVoteStorage vote_storage,
+        std::shared_ptr<YacNetwork> network,
+        std::shared_ptr<YacCryptoProvider> crypto,
+        std::shared_ptr<Timer> timer,
+        shared_model::interface::types::PeerList order,
+        Round round,
+        logger::LoggerPtr log);
 
-      class YacCryptoProvider;
-      class Timer;
+    Yac(YacVoteStorage vote_storage,
+        std::shared_ptr<YacNetwork> network,
+        std::shared_ptr<YacCryptoProvider> crypto,
+        std::shared_ptr<Timer> timer,
+        shared_model::interface::types::PeerList order,
+        Round round,
+        logger::LoggerPtr log);
 
-      class Yac : public HashGate, public YacNetworkNotifications {
-       public:
-        /**
-         * Method for creating Yac consensus object
-         * @param delay for timer in milliseconds
-         */
-        static std::shared_ptr<Yac> create(
-            YacVoteStorage vote_storage,
-            std::shared_ptr<YacNetwork> network,
-            std::shared_ptr<YacCryptoProvider> crypto,
-            std::shared_ptr<Timer> timer,
-            ClusterOrdering order,
-            Round round,
-            rxcpp::observe_on_one_worker worker,
-            logger::LoggerPtr log);
+    // ------|Hash gate|------
 
-        Yac(YacVoteStorage vote_storage,
-            std::shared_ptr<YacNetwork> network,
-            std::shared_ptr<YacCryptoProvider> crypto,
-            std::shared_ptr<Timer> timer,
-            ClusterOrdering order,
-            Round round,
-            rxcpp::observe_on_one_worker worker,
-            logger::LoggerPtr log);
+    void vote(YacHash hash,
+              ClusterOrdering order,
+              std::optional<ClusterOrdering> alternative_order =
+                  std::nullopt) override;
 
-        ~Yac() override;
+    std::optional<Answer> processRoundSwitch(
+        consensus::Round const &round,
+        shared_model::interface::types::PeerList const &peers) override;
 
-        // ------|Hash gate|------
+    // ------|Network notifications|------
 
-        void vote(YacHash hash,
-                  ClusterOrdering order,
-                  boost::optional<ClusterOrdering> alternative_order =
-                      boost::none) override;
+    std::optional<Answer> onState(std::vector<VoteMessage> state) override;
 
-        rxcpp::observable<Answer> onOutcome() override;
+    void stop() override;
 
-        // ------|Network notifications|------
+   private:
+    // ------|Private interface|------
 
-        void onState(std::vector<VoteMessage> state) override;
+    /**
+     * Voting step is strategy of propagating vote
+     * until commit/reject message received
+     */
+    void votingStep(VoteMessage vote,
+                    ClusterOrdering order,
+                    uint32_t attempt = 0);
 
-        void stop() override;
+    /// Get cluster_order_ or alternative_order_ if present
+    shared_model::interface::types::PeerList &getCurrentOrder();
 
-       private:
-        // ------|Private interface|------
+    /**
+     * Find corresponding peer in the ledger from vote message
+     * @param vote message containing peer information
+     * @return peer if it is present in the ledger, std::nullopt otherwise
+     */
+    std::optional<std::shared_ptr<shared_model::interface::Peer>> findPeer(
+        const VoteMessage &vote);
 
-        /**
-         * Voting step is strategy of propagating vote
-         * until commit/reject message received
-         */
-        void votingStep(VoteMessage vote, uint32_t attempt = 0);
+    /// Remove votes from unknown peers from given vector.
+    void removeUnknownPeersVotes(
+        std::vector<VoteMessage> &votes,
+        shared_model::interface::types::PeerList const &order);
 
-        /**
-         * Erase temporary data of current round
-         */
-        void closeRound();
+    // ------|Apply data|------
+    std::optional<Answer> applyState(const std::vector<VoteMessage> &state);
 
-        /// Get cluster_order_ or alternative_order_ if present
-        ClusterOrdering &getCurrentOrder();
+    // ------|Propagation|------
+    void propagateState(const std::vector<VoteMessage> &msg);
+    void propagateStateDirectly(const shared_model::interface::Peer &to,
+                                const std::vector<VoteMessage> &msg);
+    void tryPropagateBack(const std::vector<VoteMessage> &state);
 
-        /**
-         * Find corresponding peer in the ledger from vote message
-         * @param vote message containing peer information
-         * @return peer if it is present in the ledger, boost::none otherwise
-         */
-        boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-        findPeer(const VoteMessage &vote);
+    // ------|Logger|------
+    logger::LoggerPtr log_;
 
-        /// Remove votes from unknown peers from given vector.
-        void removeUnknownPeersVotes(std::vector<VoteMessage> &votes,
-                                     ClusterOrdering &order);
+    // ------|One round|------
+    shared_model::interface::types::PeerList cluster_order_;
+    std::optional<shared_model::interface::types::PeerList> alternative_order_;
+    Round round_;
 
-        // ------|Apply data|------
-        /**
-         * @pre lock is locked
-         * @post lock is unlocked
-         */
-        void applyState(const std::vector<VoteMessage> &state,
-                        std::unique_lock<std::mutex> &lock);
-
-        // ------|Propagation|------
-        void propagateState(const std::vector<VoteMessage> &msg);
-        void propagateStateDirectly(const shared_model::interface::Peer &to,
-                                    const std::vector<VoteMessage> &msg);
-        void tryPropagateBack(const std::vector<VoteMessage> &state);
-
-        // ------|Logger|------
-        logger::LoggerPtr log_;
-
-        std::mutex mutex_;
-
-        // ------|One round|------
-        ClusterOrdering cluster_order_;
-        boost::optional<ClusterOrdering> alternative_order_;
-        Round round_;
-
-        // ------|Fields|------
-        rxcpp::observe_on_one_worker worker_;
-        rxcpp::composite_subscription notifier_lifetime_;
-        rxcpp::subjects::synchronize<Answer, decltype(worker_)> notifier_;
-        YacVoteStorage vote_storage_;
-        std::shared_ptr<YacNetwork> network_;
-        std::shared_ptr<YacCryptoProvider> crypto_;
-        std::shared_ptr<Timer> timer_;
-      };
-    }  // namespace yac
-  }    // namespace consensus
-}  // namespace iroha
+    // ------|Fields|------
+    YacVoteStorage vote_storage_;
+    std::shared_ptr<YacNetwork> network_;
+    std::shared_ptr<YacCryptoProvider> crypto_;
+    std::shared_ptr<Timer> timer_;
+    std::map<Round, std::unordered_set<VoteMessage>> future_states_;
+  };
+}  // namespace iroha::consensus::yac
 
 #endif  // IROHA_YAC_HPP

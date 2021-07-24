@@ -19,6 +19,7 @@
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
+#include "ametsuchi/impl/soci_string_view.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/vm_caller.hpp"
@@ -444,28 +445,16 @@ namespace iroha {
       }
 
       // TODO IR-597 mboldyrev 2019.08.10: build args string on demand
-      void addArgumentToString(const std::string &argument_name,
-                               const std::string &value) {
-        arguments_string_builder_.appendNamed(argument_name, value);
-      }
-
-      void addArgumentToString(const std::string &argument_name,
-                               const boost::optional<std::string> &value) {
+      void addArgumentToString(std::string_view argument_name,
+                               const std::optional<std::string_view> &value) {
         if (value) {
-          addArgumentToString(argument_name, *value);
-        }
-      }
-
-      void addArgumentToString(const std::string &argument_name,
-                               const std::optional<std::string> &value) {
-        if (value) {
-          addArgumentToString(argument_name, *value);
+          arguments_string_builder_.appendNamed(argument_name, *value);
         }
       }
 
       template <typename T>
       std::enable_if_t<std::is_arithmetic<T>::value> addArgumentToString(
-          const std::string &argument_name, const T &value) {
+          std::string_view argument_name, const T &value) {
         addArgumentToString(argument_name, std::to_string(value));
       }
 
@@ -1356,6 +1345,7 @@ namespace iroha {
             )
           SELECT CASE
               WHEN EXISTS (SELECT * FROM insert_dest LIMIT 1) THEN 0
+              WHEN EXISTS (SELECT * FROM checks WHERE not result and code = 4) THEN 4
               %s
               ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result)",
@@ -1402,12 +1392,6 @@ namespace iroha {
                  DO UPDATE SET setting_value = EXCLUDED.setting_value
              RETURNING 0)",
           {});
-    }
-
-    std::string CommandError::toString() const {
-      return (boost::format("%s: %d with extra info '%s'") % command_name
-              % error_code % error_extra)
-          .str();
     }
 
     PostgresCommandExecutor::PostgresCommandExecutor(

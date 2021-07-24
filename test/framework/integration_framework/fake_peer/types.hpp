@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <boost/optional.hpp>
+#include <boost/range/any_range.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -82,7 +83,8 @@ namespace integration_framework {
     using LoaderBlockRequestResult =
         boost::optional<std::shared_ptr<const shared_model::proto::Block>>;
     using LoaderBlocksRequestResult =
-        std::vector<std::shared_ptr<const shared_model::proto::Block>>;
+        boost::any_range<std::shared_ptr<const shared_model::proto::Block>,
+                         boost::single_pass_traversal_tag>;
     using OrderingProposalRequest = iroha::consensus::Round;
     using OrderingProposalRequestResult =
         boost::optional<std::shared_ptr<const shared_model::proto::Proposal>>;

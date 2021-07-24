@@ -1,7 +1,7 @@
 ## Quick Start
 ```
 cd win/
-packer build -var 'windows_password=<Strong Password>' -var 'security_group_id=<security_group_id>' -var 'iroha_repo=https://github.com/hyperledger/iroha.git' -var 'iroha_branches=master, support/1.1.x' windows-build-server.json
+packer build -var 'windows_password=<Strong Password>' -var 'security_group_id=<security_group_id>' -var 'iroha_repo=https://github.com/hyperledger/iroha.git' -var 'iroha_branches=main, support/1.1.x' windows-build-server.json
 ```
 Where :
 

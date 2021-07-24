@@ -6,48 +6,55 @@
 #ifndef IROHA_YAC_GATE_HPP
 #define IROHA_YAC_GATE_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
+#include <optional>
+
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/storage/storage_result.hpp"
 #include "network/consensus_gate.hpp"
 
-namespace iroha {
-  namespace consensus {
-    namespace yac {
+namespace iroha::consensus {
+  struct Round;
+}
 
-      class YacHash;
-      class ClusterOrdering;
+namespace iroha::consensus::yac {
+  class YacHash;
+  class ClusterOrdering;
 
-      class YacGate : public network::ConsensusGate {};
+  class YacGate : public network::ConsensusGate {};
 
-      /**
-       * Provide gate for ya consensus
-       */
-      class HashGate {
-       public:
-        /**
-         * Proposal new hash in network
-         * @param hash - hash for voting
-         * @param order - peer ordering for round in hash
-         * @param alternative_order - peer order
-         */
-        virtual void vote(YacHash hash,
-                          ClusterOrdering order,
-                          boost::optional<ClusterOrdering> alternative_order =
-                              boost::none) = 0;
+  /**
+   * Provide gate for ya consensus
+   */
+  class HashGate {
+   public:
+    /**
+     * Proposal new hash in network
+     * @param hash - hash for voting
+     * @param order - peer ordering for round in hash
+     * @param alternative_order - peer order
+     */
+    virtual void vote(
+        YacHash hash,
+        ClusterOrdering order,
+        std::optional<ClusterOrdering> alternative_order = std::nullopt) = 0;
 
-        /**
-         * Observable with consensus outcomes - commits and rejects - in network
-         * @return observable for subscription
-         */
-        virtual rxcpp::observable<Answer> onOutcome() = 0;
+    /**
+     * Update current state with the new round and peer list, possibly pruning
+     * the old state. Process states from future if available, and return the
+     * result
+     * @param round - new round
+     * @param peers - new peer list
+     * @return answer if storage already contains required votes
+     */
+    virtual std::optional<Answer> processRoundSwitch(
+        consensus::Round const &round,
+        shared_model::interface::types::PeerList const &peers) = 0;
 
-        /// Prevent any new outgoing network activity. Be passive.
-        virtual void stop() = 0;
+    /// Prevent any new outgoing network activity. Be passive.
+    virtual void stop() = 0;
 
-        virtual ~HashGate() = default;
-      };
-    }  // namespace yac
-  }    // namespace consensus
-}  // namespace iroha
+    virtual ~HashGate() = default;
+  };
+}  // namespace iroha::consensus::yac
+
 #endif  // IROHA_YAC_GATE_HPP

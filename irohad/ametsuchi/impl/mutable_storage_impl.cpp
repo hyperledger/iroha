@@ -7,11 +7,10 @@
 
 #include <fmt/core.h>
 #include <boost/variant/apply_visitor.hpp>
-#include <rxcpp/operators/rx-all.hpp>
 #include <stdexcept>
 #include "ametsuchi/command_executor.hpp"
+#include "ametsuchi/impl/block_index_impl.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
-#include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
@@ -36,9 +35,9 @@ namespace iroha {
           peer_query_(
               std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
                   sql_, log_manager->getChild("WsvQuery")->getLogger()))),
-          block_index_(std::make_unique<PostgresBlockIndex>(
+          block_index_(std::make_unique<BlockIndexImpl>(
               std::make_unique<PostgresIndexer>(sql_),
-              log_manager->getChild("PostgresBlockIndex")->getLogger())),
+              log_manager->getChild("BlockIndexImpl")->getLogger())),
           transaction_executor_(std::make_unique<TransactionExecutor>(
               std::move(command_executor))),
           block_storage_(std::move(block_storage)),
@@ -47,7 +46,7 @@ namespace iroha {
       sql_ << "BEGIN";
     }
 
-    bool MutableStorageImpl::apply(
+    bool MutableStorageImpl::applyBlockIf(
         std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
       auto execute_transaction = [this](auto &transaction) -> bool {
@@ -115,26 +114,16 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block) {
       return withSavepoint([&] {
-        return this->apply(block, [](const auto &, auto &) { return true; });
+        return this->applyBlockIf(block,
+                                  [](const auto &, auto &) { return true; });
       });
     }
 
-    bool MutableStorageImpl::apply(
-        rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-            blocks,
+    bool MutableStorageImpl::applyIf(
+        std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
-      try {
-        return blocks
-            .all([&](auto block) {
-              return withSavepoint(
-                  [&] { return this->apply(block, predicate); });
-            })
-            .as_blocking()
-            .first();
-      } catch (std::runtime_error const &e) {
-        log_->warn("Apply has been failed: {}", e.what());
-        return false;
-      }
+      return withSavepoint(
+          [&] { return this->applyBlockIf(block, predicate); });
     }
 
     boost::optional<std::shared_ptr<const iroha::LedgerState>>

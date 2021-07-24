@@ -16,46 +16,16 @@ namespace iroha {
 
       class MockYacNetwork : public YacNetwork {
        public:
-        void subscribe(
-            std::shared_ptr<YacNetworkNotifications> handler) override {
-          notification = std::move(handler);
-        };
-
-        void release() {
-          notification.reset();
-        }
-
         MOCK_METHOD2(sendState,
                      void(const shared_model::interface::Peer &,
                           const std::vector<VoteMessage> &));
 
         MOCK_METHOD0(stop, void());
-
-        MockYacNetwork() = default;
-
-        MockYacNetwork(const MockYacNetwork &rhs)
-            : notification(rhs.notification) {}
-
-        MockYacNetwork &operator=(const MockYacNetwork &rhs) {
-          notification = rhs.notification;
-          return *this;
-        }
-
-        MockYacNetwork(MockYacNetwork &&rhs) {
-          std::swap(notification, rhs.notification);
-        }
-
-        MockYacNetwork &operator=(MockYacNetwork &&rhs) {
-          std::swap(notification, rhs.notification);
-          return *this;
-        }
-
-        std::shared_ptr<YacNetworkNotifications> notification;
       };
 
       class MockYacNetworkNotifications : public YacNetworkNotifications {
        public:
-        MOCK_METHOD1(onState, void(std::vector<VoteMessage>));
+        MOCK_METHOD1(onState, std::optional<Answer>(std::vector<VoteMessage>));
       };
 
     }  // namespace yac

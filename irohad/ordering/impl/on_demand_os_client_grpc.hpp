@@ -11,8 +11,8 @@
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
-#include "network/impl/async_grpc_client.hpp"
 #include "ordering.grpc.pb.h"
+#include "ordering/impl/on_demand_common.hpp"
 
 namespace iroha {
   namespace network {
@@ -40,26 +40,24 @@ namespace iroha {
          */
         OnDemandOsClientGrpc(
             std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub,
-            std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-                async_call,
             std::shared_ptr<TransportFactoryType> proposal_factory,
             std::function<TimepointType()> time_provider,
             std::chrono::milliseconds proposal_request_timeout,
-            logger::LoggerPtr log);
+            logger::LoggerPtr log,
+            std::function<void(ProposalEvent)> callback);
 
         void onBatches(CollectionType batches) override;
 
-        boost::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-            consensus::Round round) override;
+        void onRequestProposal(consensus::Round round) override;
 
        private:
         logger::LoggerPtr log_;
         std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub_;
-        std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-            async_call_;
         std::shared_ptr<TransportFactoryType> proposal_factory_;
         std::function<TimepointType()> time_provider_;
         std::chrono::milliseconds proposal_request_timeout_;
+        std::function<void(ProposalEvent)> callback_;
+        std::weak_ptr<grpc::ClientContext> context_;
       };
 
       class OnDemandOsClientGrpcFactory : public OdOsNotificationFactory {
@@ -69,25 +67,23 @@ namespace iroha {
 
         using TransportFactoryType = OnDemandOsClientGrpc::TransportFactoryType;
         OnDemandOsClientGrpcFactory(
-            std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-                async_call,
             std::shared_ptr<TransportFactoryType> proposal_factory,
             std::function<OnDemandOsClientGrpc::TimepointType()> time_provider,
             OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
             logger::LoggerPtr client_log,
-            std::unique_ptr<ClientFactory> client_factory);
+            std::unique_ptr<ClientFactory> client_factory,
+            std::function<void(ProposalEvent)> callback);
 
         iroha::expected::Result<std::unique_ptr<OdOsNotification>, std::string>
         create(const shared_model::interface::Peer &to) override;
 
        private:
-        std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
-            async_call_;
         std::shared_ptr<TransportFactoryType> proposal_factory_;
         std::function<OnDemandOsClientGrpc::TimepointType()> time_provider_;
         std::chrono::milliseconds proposal_request_timeout_;
         logger::LoggerPtr client_log_;
         std::unique_ptr<ClientFactory> client_factory_;
+        std::function<void(ProposalEvent)> callback_;
       };
 
     }  // namespace transport

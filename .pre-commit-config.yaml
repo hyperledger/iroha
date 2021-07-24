@@ -1,0 +1,22 @@
+repos:
+- repo: local
+  hooks:
+  - id: make-workflows
+    name: Make GitHub workflows from *.src.yml
+    entry: bash -c '.github/make-workflows.sh && git add .github/workflows'
+    language: system
+    types: [yaml]
+    pass_filenames: false
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v2.3.0
+  hooks:
+  - id: check-yaml
+  # - id: check-json
+  # - id: check-xml
+  - id: check-merge-conflict
+  - id: check-added-large-files
+  - id: end-of-file-fixer
+    exclude: '.*\.patch$'
+  - id: trailing-whitespace
+    exclude: '.*\.patch$'

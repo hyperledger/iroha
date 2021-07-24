@@ -11,10 +11,8 @@
 #include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
-#include "module/irohad/ametsuchi/mock_storage.hpp"
 #include "module/irohad/ametsuchi/mock_tx_presence_cache.hpp"
 #include "module/irohad/torii/torii_mocks.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 
 using ::testing::_;
 using ::testing::Matcher;
@@ -35,8 +33,7 @@ class CommandServiceReplayTest : public ::testing::Test {
   void SetUp() override {
     transaction_processor =
         std::make_shared<iroha::torii::MockTransactionProcessor>();
-    storage = std::make_shared<iroha::ametsuchi::MockStorage>();
-    status_bus = std::make_shared<iroha::torii::StatusBusImpl>();
+    status_bus = std::make_shared<iroha::torii::MockStatusBus>();
     tx_status_factory =
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>();
     tx_presence_cache =
@@ -46,7 +43,6 @@ class CommandServiceReplayTest : public ::testing::Test {
 
     command_service = std::make_shared<iroha::torii::CommandServiceImpl>(
         transaction_processor,
-        storage,
         status_bus,
         tx_status_factory,
         cache,
@@ -68,7 +64,6 @@ class CommandServiceReplayTest : public ::testing::Test {
   }
 
   std::shared_ptr<iroha::torii::MockTransactionProcessor> transaction_processor;
-  std::shared_ptr<iroha::ametsuchi::MockStorage> storage;
   std::shared_ptr<iroha::torii::StatusBus> status_bus;
   std::shared_ptr<shared_model::interface::TxStatusFactory> tx_status_factory;
   std::shared_ptr<iroha::ametsuchi::MockTxPresenceCache> tx_presence_cache;

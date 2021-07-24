@@ -210,7 +210,8 @@ node ('master') {
         break;
      case 'On open PR':
         // Just hint, not the main way to Notify about build status.
-        gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
+        ///Disable yellow status @kuvaldini @BulatSaif https://github.com/hyperledger/iroha/pull/1028#issuecomment-872080478
+        //gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testList = '()'
@@ -220,7 +221,8 @@ node ('master') {
         codestyle = true
         break;
      case 'Commit in Open PR':
-        gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
+        ///Disable yellow status @kuvaldini @BulatSaif https://github.com/hyperledger/iroha/pull/1028#issuecomment-872080478
+        // gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
         echo "All Default"
         break;
      case 'Before merge to trunk':
@@ -346,7 +348,7 @@ node ('master') {
                            x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} ${compiler}", x64LinuxWorker, tasks)
       }
     }
-    // If "main" branch also run Release build
+    // If "main" also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
                          current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage*/false,
@@ -393,7 +395,7 @@ node ('master') {
 
   def s390xLinuxBuildSteps
   def s390xLinuxPostSteps = new Builder.PostSteps()
-  if(!s390xlinux_compiler_list.isEmpty()){
+  if(false && !s390xlinux_compiler_list.isEmpty()){
     s390xLinuxAlwaysPostSteps = new Builder.PostSteps(
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}])
     s390xLinuxPostSteps = new Builder.PostSteps(
@@ -420,7 +422,7 @@ node ('master') {
                            s390xLinuxAlwaysPostSteps, "s390x Linux ${build_type} ${compiler}", s390xLinuxWorker, tasks)
       }
     }
-    // If "master" also run Release build
+    // If "main" also run Release build
     if (release_build){
       registerBuildSteps([{x64LinuxBuildScript.buildSteps(
                          current_parallelism, first_compiler, 'Release', build_shared_libs, specialBranch, /*coverage_s390x*/false,
@@ -446,7 +448,7 @@ node ('master') {
                        mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, use_libursa, use_burrow, environmentList)}],
                        release_build ? x64MacAlwaysPostSteps : x64MacPostSteps, "Mac ${build_type}", x64MacWorker, tasks)
 
-    //If "master" also run Release build
+    //If "main" also run Release build
     if (release_build) {
       registerBuildSteps([{x64BuildScript.buildSteps(current_parallelism,
                          mac_compiler_list, 'Release', /*coverage_mac*/false, /*testing*/false, testList, /*packageBuild*/true, /*fuzzing*/false, /*benchmarking*/false, /*use_btf*/false,

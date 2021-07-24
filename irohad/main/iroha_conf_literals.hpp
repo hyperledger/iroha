@@ -34,6 +34,7 @@ namespace config_members {
   extern const char *MaintenanceDbName;
   extern const char *MaxProposalSize;
   extern const char *ProposalDelay;
+  extern const char *ProposalCreationTimeout;
   extern const char *VoteDelay;
   extern const char *MstSupport;
   extern const char *MstExpirationTime;

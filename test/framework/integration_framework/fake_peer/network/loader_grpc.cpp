@@ -112,7 +112,10 @@ namespace integration_framework {
       for (auto &block : blocks) {
         iroha::protocol::Block proto_block;
         *proto_block.mutable_block_v1() = block->getTransport();
-        writer->Write(proto_block);
+        if (not writer->Write(proto_block)) {
+          log_->error("Broken stream to {}", context->peer());
+          break;
+        }
       }
       return ::grpc::Status::OK;
     }

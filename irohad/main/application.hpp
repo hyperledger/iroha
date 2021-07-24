@@ -17,17 +17,21 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
-#include "main/impl/on_demand_ordering_init.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
+#include "main/subscription_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
+namespace google::protobuf {
+  class Empty;
+}
+
 namespace iroha {
   class PendingTransactionStorage;
-  class PendingTransactionStorageInit;
   class MstProcessor;
+  class MstStorage;
   namespace ametsuchi {
     class WsvRestorer;
     class TxPresenceCache;
@@ -43,6 +47,8 @@ namespace iroha {
     }  // namespace yac
   }    // namespace consensus
   namespace network {
+    template <typename Response>
+    class AsyncGrpcClient;
     class BlockLoader;
     class ChannelPool;
     class GenericClientFactory;
@@ -54,7 +60,11 @@ namespace iroha {
     struct GrpcChannelParams;
     struct TlsCredentials;
   }  // namespace network
+  namespace ordering {
+    class OnDemandOrderingInit;
+  }
   namespace protocol {
+    class Proposal;
     class Query;
     class BlocksQuery;
   }  // namespace protocol
@@ -70,7 +80,7 @@ namespace iroha {
     class CommandService;
     class CommandServiceTransportGrpc;
     class QueryService;
-
+    class TransactionProcessor;
     struct TlsParams;
   }  // namespace torii
   namespace validation {
@@ -84,8 +94,12 @@ namespace shared_model {
     class Keypair;
   }
   namespace interface {
+    template <typename Interface, typename Transport>
+    class AbstractTransportFactory;
+    class Proposal;
     class QueryResponseFactory;
     class TransactionBatchFactory;
+    class TransactionBatchParser;
   }  // namespace interface
   namespace validation {
     struct Settings;
@@ -104,7 +118,8 @@ class Irohad {
    * @param keypair - public and private keys for crypto signer
    * @param logger_manager - the logger manager to use
    * @param startup_wsv_data_policy - @see StartupWsvDataPolicy
-   * @param grpc_channel_params - parameters for all grpc clients
+   * @param maybe_grpc_channel_params - parameters for all grpc clients
+   * (optional). Default gRPC configuration is used if not provided
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * @see iroha::torii::TlsParams
@@ -118,8 +133,8 @@ class Irohad {
          logger::LoggerManagerTreePtr logger_manager,
          iroha::StartupWsvDataPolicy startup_wsv_data_policy,
          iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
-         std::shared_ptr<const iroha::network::GrpcChannelParams>
-             grpc_channel_params,
+         std::optional<std::shared_ptr<const iroha::network::GrpcChannelParams>>
+             maybe_grpc_channel_params,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params,
          boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
@@ -219,7 +234,8 @@ class Irohad {
   const std::string listen_ip_;
   boost::optional<shared_model::crypto::Keypair> keypair_;
   iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy_;
-  std::shared_ptr<const iroha::network::GrpcChannelParams> grpc_channel_params_;
+  std::optional<std::shared_ptr<const iroha::network::GrpcChannelParams>>
+      maybe_grpc_channel_params_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
   boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
@@ -231,9 +247,6 @@ class Irohad {
   boost::optional<
       std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>>
       peer_tls_certificates_provider_;
-
-  std::unique_ptr<iroha::PendingTransactionStorageInit>
-      pending_txs_storage_init;
 
   // pending transactions storage
   std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;
@@ -250,11 +263,11 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:
-  rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
+  std::shared_ptr<iroha::Subscription> subscription_engine_;
 
   // initialization objects
-  iroha::ordering::OnDemandOrderingInit ordering_init;
-  std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
+  std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
+  std::shared_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
   // IR-907 14.09.2020 @lebdron: remove it from here
@@ -345,10 +358,12 @@ class Irohad {
   std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
   // mst
+  std::shared_ptr<iroha::MstStorage> mst_storage;
   std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
 
   // transaction service
+  std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor;
   std::shared_ptr<iroha::torii::CommandService> command_service;
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc>
       command_service_transport;
@@ -358,9 +373,6 @@ class Irohad {
 
   // consensus gate
   std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
-  rxcpp::composite_subscription consensus_gate_objects_lifetime;
-  rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
-  rxcpp::composite_subscription consensus_gate_events_subscription;
 
   std::unique_ptr<iroha::network::ServerRunner> torii_server;
   boost::optional<std::unique_ptr<iroha::network::ServerRunner>>

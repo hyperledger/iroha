@@ -25,6 +25,10 @@ namespace iroha {
     struct CommandError {
       using ErrorCodeType = uint32_t;
 
+      CommandError(std::string_view command_name,
+                   ErrorCodeType error_code,
+                   std::string_view error_extra);
+
       std::string command_name;
       ErrorCodeType error_code;
       std::string error_extra;

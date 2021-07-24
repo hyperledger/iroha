@@ -19,7 +19,6 @@ add_library(yac
     impl/peer_orderer_impl.cpp
     impl/yac_gate_impl.cpp
     impl/yac_hash_provider_impl.cpp
-    impl/consensus_outcome_delay.cpp
 
     storage/impl/yac_common.cpp
     storage/impl/yac_block_storage.cpp
@@ -30,12 +29,10 @@ add_library(yac
 target_link_libraries(yac
     supermajority_checker
     common
-    rxcpp
     logger
     logger_manager
     hash
     consensus_round
-    gate_object
     permutation_generator
     )
 # avoid compilation error due to missing operator<< in Answer variant types
@@ -45,6 +42,7 @@ target_compile_definitions(yac
 
 add_library(yac_transport
     transport/impl/network_impl.cpp
+    transport/impl/consensus_service_impl.cpp
     impl/yac_crypto_provider_impl.cpp
     )
 target_link_libraries(yac_transport

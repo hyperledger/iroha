@@ -107,6 +107,7 @@ add_library(ametsuchi
     impl/setting_query.cpp
     impl/postgres_setting_query.cpp
     impl/executor_common.cpp
+    impl/command_executor.cpp
     impl/postgres_command_executor.cpp
     impl/wsv_restorer_impl.cpp
     impl/postgres_specific_query_executor.cpp
@@ -115,17 +116,31 @@ add_library(ametsuchi
     impl/in_memory_block_storage_factory.cpp
     )
 
-add_library(postgres_indexer
-    impl/postgres_indexer.cpp
-    impl/postgres_block_index.cpp
+add_library(block_indexer
+    impl/block_index_impl.cpp
     )
-target_link_libraries(postgres_indexer
+target_link_libraries(block_indexer
     common
     logger
     shared_model_interfaces
     shared_model_cryptography
+    )
+
+add_library(postgres_indexer
+    impl/postgres_indexer.cpp
+    )
+target_link_libraries(postgres_indexer
+    block_indexer
     SOCI::postgresql
     SOCI::core
+    )
+
+add_library(rocksdb_indexer
+    impl/rocksdb_indexer.cpp
+    )
+target_link_libraries(rocksdb_indexer
+    block_indexer
+    RocksDB::rocksdb
     )
 
 target_compile_definitions(postgres_indexer
@@ -159,7 +174,6 @@ target_link_libraries(ametsuchi
     postgres_storage
     logger
     logger_manager
-    rxcpp
     libs_files
     common
     postgres_burrow_storage
@@ -176,4 +190,15 @@ target_link_libraries(ametsuchi
 
 target_compile_definitions(ametsuchi
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
+    )
+add_library(ametsuchi_rocksdb
+    impl/rocksdb_wsv_query.cpp
+    impl/rocksdb_wsv_command.cpp
+    impl/rocksdb_command_executor.cpp
+    impl/rocksdb_specific_query_executor.cpp
+    )
+target_link_libraries(ametsuchi_rocksdb
+    ametsuchi
+    RocksDB::rocksdb
+    shared_model_interfaces
     )

@@ -4,8 +4,9 @@
 #
 
 # Reusable tests
-add_subdirectory(ametsuchi)
 add_subdirectory(common)
+add_subdirectory(subscription)
+add_subdirectory(ametsuchi)
 add_subdirectory(consensus)
 add_subdirectory(logger)
 add_subdirectory(main)

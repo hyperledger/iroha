@@ -69,10 +69,6 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
     builder.RegisterService(service.get());
   }
 
-  // in order to bypass built-it limitation of gRPC message size
-  builder.SetMaxReceiveMessageSize(INT_MAX);
-  builder.SetMaxSendMessageSize(INT_MAX);
-
   // enable retry policy
   builder.AddChannelArgument(GRPC_ARG_ENABLE_RETRIES, 1);
 
