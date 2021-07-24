@@ -315,7 +315,7 @@ jobs:
           echo >>$GITHUB_ENV  dockertag=$dockertag
       - &step_docker_login
         name: Login to DockerHub
-        if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
+        #if: ${{ env.DOCKERHUB_TOKEN != '' && env.DOCKERHUB_USERNAME != '' }}
         id: docker_login
         uses: docker/login-action@v1
         with:
@@ -333,7 +333,7 @@ jobs:
           images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
-            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(       '["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
             ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
@@ -344,8 +344,8 @@ jobs:
             type=edge,branch=develop
             type=edge,branch=edge
             type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
         ## Docker image will be pushed with tags:
         ##  - hash of file Dockerfile.builder
         ##  - branchname, when branch is pushed
@@ -373,7 +373,7 @@ jobs:
           context: docker/iroha-builder/
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
-          push: ${{ steps.docker_login.outcome == 'success' }}
+          push: true #${{ steps.docker_login.outcome == 'success' }}
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - &step_docker_move_cache
@@ -812,7 +812,44 @@ jobs:
         with:
           <<: *step_docker_build_and_push_with
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+          push: true #${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+      - &step_docker_report_chatops
+        name: Report to chat-ops
+        if: github.event.comment
+        run: |
+          set -x
+          cat >message <<'END'
+          ${{github.event.comment.body}}
+
+          ---
+          Docker image has been pushed successfully with tags:
+          ${{steps.meta.outputs.tags}}
+          END
+          cat message | jq -Rs .
+          new_comment_body="$( cat message | jq -Rs . )"
+          curl -fsSL ${{github.event.comment.url}} \
+            -X PATCH \
+            -d "{\"body\":$new_comment_body}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{github.token}}"
+      - &step_docker_report_pullrequest
+        name: Report to PR comment
+        if: github.event.pull_request
+        run: |
+          set -x
+          cat >message <<'END'
+          Report workflow run ${{github.event.repository.html_url}}/actions/runs/${{github.run_id}}
+
+          Docker image has been pushed successfully with tags:
+          ${{steps.meta.outputs.tags}}
+          END
+          cat message | jq -Rs .
+          new_comment_body="$( cat message | jq -Rs . )"
+          curl -fsSL ${{github.event.pull_request.comments_url}} \
+            -X POST \
+            -d "{\"body\":$new_comment_body}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{github.token}}"
       - *step_docker_move_cache
 
   iroha-docker-image-debug:
