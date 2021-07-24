@@ -36,10 +36,10 @@ name: Iroha1 on push
 # ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 # on:
 #   push:
-#     branches: [ main, support/1.*, test-ci ]
+#     branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
 #     tags: [ 'v*' ]
 #   pull_request:
-#     branches: [ main, support/1.*, test-ci ]  ## target branches
+#     branches: [ main, support/1.*, edge, develop ]  ## target branches
 #   workflow_dispatch:
 #     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
 #     inputs:
@@ -53,7 +53,7 @@ name: Iroha1 on push
 #     - cron: '12 22 * * *'
 on:
   push:
-    branches: [main, support/1.*, test-ci]
+    branches: [main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha]
     tags: ['v*']
 jobs:
   ## GitHub Actions Workflow does not support yaml anchors

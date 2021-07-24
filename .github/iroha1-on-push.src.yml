@@ -2,5 +2,5 @@ name: Iroha1 on push
 
 on:
   push:
-    branches: [ main, support/1.*, test-ci ]
+    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
     tags: [ 'v*' ]
