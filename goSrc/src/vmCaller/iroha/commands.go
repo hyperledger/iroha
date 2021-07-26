@@ -52,6 +52,51 @@ func TransferAsset(src, dst, asset, amount string) error {
 	return nil
 }
 
+func CreateAccount(name string, domain string, key string) error {
+	command := &pb.Command{Command: &pb.Command_CreateAccount{
+		CreateAccount: &pb.CreateAccount{
+			AccountName: name,
+			DomainId:    domain,
+			PublicKey:   key,
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	if err != nil {
+		return err
+	}
+	if commandResult.error_code != 0 {
+		error_extra := ""
+		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
+		if error_extra_ptr != nil {
+			error_extra = ": " + *error_extra_ptr
+		}
+		return fmt.Errorf("Error executing CreateAccount command: %s", error_extra)
+	}
+
+	return nil
+}
+
+func AddAssetQuantity(asset string, amount string) error {
+	command := &pb.Command{Command: &pb.Command_AddAssetQuantity{
+		AddAssetQuantity: &pb.AddAssetQuantity{
+			AssetId: asset,
+			Amount:  amount,
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	if err != nil {
+		return err
+	}
+	if commandResult.error_code != 0 {
+		error_extra := ""
+		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
+		if error_extra_ptr != nil {
+			error_extra = ": " + *error_extra_ptr
+		}
+		return fmt.Errorf("Error executing AddAssetQuantity command: %s", error_extra)
+	}
+
+	return nil
+}
+
 // -----------------------Iroha queries---------------------------------------
 
 // Queries asset balance of an account
