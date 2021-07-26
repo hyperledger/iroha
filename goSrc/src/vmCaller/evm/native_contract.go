@@ -36,6 +36,27 @@ var (
 			PermFlag: permission.Call,
 			F:        transferAsset,
 		},
+		native.Function{
+			Comment: `
+				* @notice Creates a new iroha account
+				* @param Name account name
+				* @param Domain domain of account
+				* @param Key public key of account
+				* @return 'true' if successful, 'false' otherwise
+				`,
+			PermFlag: permission.Call,
+			F:        createAccount,
+		},
+		native.Function{
+			Comment: `
+				* @notice Adds asset to iroha account
+				* @param Asset name of asset
+				* @param Amount mount of asset to be added
+				* @return 'true' if successful, 'false' otherwise
+				`,
+			PermFlag: permission.Call,
+			F:        addAsset,
+		},
 	)
 )
 
@@ -96,6 +117,54 @@ func transferAsset(ctx native.Context, args transferAssetArgs) (transferAssetRet
 		"amount", args.Amount)
 
 	return transferAssetRets{Result: true}, nil
+}
+
+type createAccountArgs struct {
+	Name   string
+	Domain string
+	Key    string
+}
+
+type createAccountRets struct {
+	Result bool
+}
+
+func createAccount(ctx native.Context, args createAccountArgs) (createAccountRets, error) {
+
+	err := iroha.CreateAccount(args.Name, args.Domain, args.Key)
+	if err != nil {
+		return createAccountRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "CreateAccount",
+		"name", args.Name,
+		"domain", args.Domain,
+		"key", args.Key)
+
+	return createAccountRets{Result: true}, nil
+}
+
+type addAssetArgs struct {
+	Asset  string
+	Amount string
+}
+
+type addAssetRets struct {
+	Result bool
+}
+
+func addAsset(ctx native.Context, args addAssetArgs) (addAssetRets, error) {
+
+	err := iroha.AddAssetQuantity(args.Asset, args.Amount)
+	if err != nil {
+		return addAssetRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "addAsset",
+		"asset", args.Asset,
+		"amount", args.Amount)
+
+	return addAssetRets{Result: true}, nil
 }
 
 func MustCreateNatives() *native.Natives {
