@@ -33,8 +33,9 @@ namespace iroha {
         auto db_port = std::make_shared<RocksDBPort>();
         db_port->initialize(db_name_);
 
-        command_ = std::make_unique<RocksDBWsvCommand>(db_port);
-        query_ = std::make_unique<RocksDBWsvQuery>(db_port,
+        auto db_context = std::make_shared<RocksDBContext>(db_port);
+        command_ = std::make_unique<RocksDBWsvCommand>(db_context);
+        query_ = std::make_unique<RocksDBWsvQuery>(db_context,
                                                    getTestLogger("WsvQuery"));
       }
 
@@ -68,6 +69,7 @@ namespace iroha {
           1234, shared_model::crypto::Hash{"hash"}};
       framework::expected::expectResultValue(
           command_->setTopBlockInfo(top_block_info_set));
+
       auto top_block_info_read = query_->getTopBlockInfo();
       IROHA_ASSERT_RESULT_VALUE(top_block_info_read);
       EXPECT_EQ(top_block_info_set.top_hash,

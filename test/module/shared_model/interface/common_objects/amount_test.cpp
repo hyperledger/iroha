@@ -46,6 +46,7 @@ TEST_F(AmountTest, Strange) {
   checkValid(Amount{"0000000"}, 0, 0, "0");
   checkValid(Amount{"0000009"}, 1, 0, "9");
   checkValid(Amount{"1.00000"}, 1, 5, "1.00000");
+  checkValid(Amount{"1."}, 1, 0, "1.");
 }
 
 TEST_F(AmountTest, Invalid) {
@@ -56,7 +57,6 @@ TEST_F(AmountTest, Invalid) {
   checkInvalid(Amount{".3456"});
   checkInvalid(Amount{".12.34"});
   checkInvalid(Amount{"0A"});
-  checkInvalid(Amount{"1."});
   checkInvalid(Amount{"."});
   checkInvalid(Amount{""});
 }

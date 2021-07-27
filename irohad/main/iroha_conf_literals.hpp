@@ -32,6 +32,8 @@ namespace config_members {
   extern const char *Password;
   extern const char *WorkingDbName;
   extern const char *MaintenanceDbName;
+  extern const char *DbPath;
+  extern const char *DbType;
   extern const char *MaxProposalSize;
   extern const char *ProposalDelay;
   extern const char *ProposalCreationTimeout;

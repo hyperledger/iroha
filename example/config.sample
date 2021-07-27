@@ -3,12 +3,8 @@
   "torii_port" : 50051,
   "internal_port" : 10001,
   "database": {
-     "host": "localhost",
-     "port": 5432,
-     "user": "postgres",
-     "password": "mysecretpassword",
-     "working database": "iroha_data",
-     "maintenance database": "postgres"
+     "type": "rocksdb",
+     "path": "/path/to/wsv/folder"
   },
   "max_proposal_size" : 10,
   "proposal_delay" : 5000,
