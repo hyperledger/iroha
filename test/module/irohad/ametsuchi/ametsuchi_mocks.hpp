@@ -107,6 +107,8 @@ namespace iroha {
       MOCK_METHOD1(
           createSavepoint,
           std::unique_ptr<TemporaryWsv::SavepointWrapper>(const std::string &));
+
+      MOCK_METHOD0(getDbTransaction, DatabaseTransaction &());
     };
 
     class MockTemporaryWsvSavepointWrapper
