@@ -9,6 +9,7 @@
 #include <optional>
 #include "ametsuchi/command_executor.hpp"
 
+#include "ametsuchi/impl/postgres_db_transaction.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 
 namespace soci {
@@ -66,6 +67,10 @@ namespace iroha {
           const std::string &tx_hash,
           shared_model::interface::types::CommandIndexType cmd_index,
           bool do_validation) override;
+
+      void skipChanges() override;
+
+      DatabaseTransaction &dbSession() override;
 
       soci::session &getSession();
 
@@ -241,6 +246,7 @@ namespace iroha {
           const std::vector<std::string> &permission_checks);
 
       std::unique_ptr<soci::session> sql_;
+      PostgresDbTransaction db_transaction_;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;

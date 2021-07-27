@@ -17,7 +17,8 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class ReplayFixture : public AcceptanceFixture {
  public:
-  ReplayFixture() : itf(1), kReceiverRole("receiver") {}
+  ReplayFixture()
+      : itf(1, iroha::StorageType::kRocksDb), kReceiverRole("receiver") {}
 
   void SetUp() override {
     auto create_user_tx = complete(

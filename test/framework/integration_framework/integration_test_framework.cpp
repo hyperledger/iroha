@@ -6,6 +6,8 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 
 #include <boost/assert.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/thread/barrier.hpp>
 #include <limits>
 #include <memory>
 
@@ -64,6 +66,7 @@
 using namespace shared_model::crypto;
 using namespace std::literals::string_literals;
 using namespace common_constants;
+namespace fs = boost::filesystem;
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
@@ -151,6 +154,7 @@ class IntegrationTestFramework::CheckerQueue {
 
 IntegrationTestFramework::IntegrationTestFramework(
     size_t maximum_proposal_size,
+    iroha::StorageType db_type,
     const boost::optional<std::string> &dbname,
     iroha::StartupWsvDataPolicy startup_wsv_data_policy,
     bool cleanup_on_exit,
@@ -159,7 +163,9 @@ IntegrationTestFramework::IntegrationTestFramework(
     milliseconds proposal_waiting,
     milliseconds block_waiting,
     milliseconds tx_response_waiting,
-    logger::LoggerManagerTreePtr log_manager)
+    logger::LoggerManagerTreePtr log_manager,
+    std::string db_wsv_path,
+    std::string db_store_path)
     : log_(log_manager->getLogger()),
       log_manager_(std::move(log_manager)),
       proposal_queue_(
@@ -226,7 +232,9 @@ IntegrationTestFramework::IntegrationTestFramework(
           makeTransportClientFactory<iroha::consensus::yac::NetworkImpl>(
               client_factory_),
           log_manager_->getChild("ConsensusTransport")->getLogger())),
-      cleanup_on_exit_(cleanup_on_exit) {
+      cleanup_on_exit_(cleanup_on_exit),
+      db_wsv_path_(std::move(db_wsv_path)),
+      db_store_path_(std::move(db_store_path)) {
   // 1 h proposal_timeout results in non-deterministic behavior due to thread
   // scheduling and network
   config_.proposal_delay = 3600000;
@@ -240,7 +248,22 @@ IntegrationTestFramework::IntegrationTestFramework(
   config_.stale_stream_max_rounds = 2;
   config_.max_proposal_size = 10;
   config_.mst_support = mst_support;
-  config_.block_store_path = block_store_path;
+
+  switch (db_type) {
+    case iroha::StorageType::kPostgres: {
+      config_.block_store_path = block_store_path;
+    } break;
+    case iroha::StorageType::kRocksDb: {
+      config_.database_config =
+          IrohadConfig::DbConfig{kDbTypeRocksdb, db_wsv_path_};
+      config_.block_store_path =
+          !block_store_path ? db_store_path_ : block_store_path;
+    } break;
+    default:
+      assert(!"Unexpected database type.");
+      break;
+  }
+
   config_.torii_port = torii_port_;
   config_.internal_port = port_guard_->getPort(kDefaultInternalPort);
   iroha_instance_ =

@@ -37,12 +37,9 @@ namespace iroha::ametsuchi {
       return std::move(result.assumeValue());
   }
 
-  RocksDBWsvQuery::RocksDBWsvQuery(std::shared_ptr<RocksDBPort> db_port,
+  RocksDBWsvQuery::RocksDBWsvQuery(std::shared_ptr<RocksDBContext> db_context,
                                    logger::LoggerPtr log)
-      : db_port_(std::move(db_port)),
-        db_context_(std::make_shared<RocksDBContext>(db_port_)),
-        log_(std::move(log)) {
-    assert(db_port_);
+      : db_context_(std::move(db_context)), log_(std::move(log)) {
     assert(db_context_);
   }
 
@@ -187,16 +184,31 @@ namespace iroha::ametsuchi {
   }
 
   iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers() {
-    return iroha::expected::makeError("unimplemented yet");
+    RocksDbCommon common(db_context_);
+    RDB_TRY_GET_VALUE_OR_STR_ERR(
+        opt_count,
+        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
+
+    return *opt_count;
   }
 
   iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countDomains() {
-    return iroha::expected::makeError("unimplemented yet");
+    RocksDbCommon common(db_context_);
+    RDB_TRY_GET_VALUE_OR_STR_ERR(
+        opt_count,
+        forDomainsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(common));
+
+    return opt_count ? *opt_count : 0ull;
   }
 
   iroha::expected::Result<size_t, std::string>
   RocksDBWsvQuery::countTransactions() {
-    return iroha::expected::makeError("unimplemented yet");
+    RocksDbCommon common(db_context_);
+    RDB_TRY_GET_VALUE_OR_STR_ERR(
+        opt_count,
+        forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(common));
+
+    return opt_count ? *opt_count : 0ull;
   }
 
 }  // namespace iroha::ametsuchi

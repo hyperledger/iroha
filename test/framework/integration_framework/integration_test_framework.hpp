@@ -6,6 +6,7 @@
 #ifndef IROHA_INTEGRATION_FRAMEWORK_HPP
 #define IROHA_INTEGRATION_FRAMEWORK_HPP
 
+#include <boost/filesystem.hpp>
 #include <chrono>
 #include <condition_variable>
 #include <map>
@@ -145,6 +146,7 @@ namespace integration_framework {
      */
     explicit IntegrationTestFramework(
         size_t maximum_proposal_size,
+        iroha::StorageType db_type,
         const boost::optional<std::string> &dbname = boost::none,
         iroha::StartupWsvDataPolicy startup_wsv_data_policy =
             iroha::StartupWsvDataPolicy::kDrop,
@@ -154,7 +156,13 @@ namespace integration_framework {
         milliseconds proposal_waiting = milliseconds(20000),
         milliseconds block_waiting = milliseconds(20000),
         milliseconds tx_response_waiting = milliseconds(10000),
-        logger::LoggerManagerTreePtr log_manager = getDefaultItfLogManager());
+        logger::LoggerManagerTreePtr log_manager = getDefaultItfLogManager(),
+        std::string db_wsv_path = (boost::filesystem::temp_directory_path()
+                                   / boost::filesystem::unique_path())
+                                      .string(),
+        std::string db_store_path = (boost::filesystem::temp_directory_path()
+                                     / boost::filesystem::unique_path())
+                                        .string());
 
     ~IntegrationTestFramework();
 
@@ -552,6 +560,8 @@ namespace integration_framework {
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers_;
     std::vector<std::unique_ptr<iroha::network::ServerRunner>>
         fake_peers_servers_;
+    std::string db_wsv_path_;
+    std::string db_store_path_;
   };
 
 }  // namespace integration_framework
