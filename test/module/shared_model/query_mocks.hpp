@@ -7,6 +7,7 @@
 #define IROHA_QUERY_MOCKS_HPP
 
 #include <gmock/gmock.h>
+
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/get_account.hpp"
@@ -140,6 +141,10 @@ namespace shared_model {
     struct MockTxPaginationMeta : public TxPaginationMeta {
       MOCK_CONST_METHOD0(pageSize, types::TransactionsNumberType());
       MOCK_CONST_METHOD0(firstTxHash, std::optional<types::HashType>());
+      MOCK_CONST_METHOD0(firstTxTime, std::optional<types::TimestampType>());
+      MOCK_CONST_METHOD0(lastTxTime, std::optional<types::TimestampType>());
+      MOCK_CONST_METHOD0(firstTxHeight, std::optional<types::HeightType>());
+      MOCK_CONST_METHOD0(lastTxHeight, std::optional<types::HeightType>());
       MOCK_CONST_METHOD0(clone, TxPaginationMeta *());
       MOCK_CONST_METHOD0(ordering, Ordering const &());
     };

@@ -7,6 +7,7 @@
 
 #include <regex>
 
+using google::protobuf::util::TimeUtil;
 namespace shared_model {
   namespace validation {
 
@@ -21,6 +22,21 @@ namespace shared_model {
       static const std::regex hex_regex{R"([0-9a-fA-F]*)"};
       return std::regex_match(str, hex_regex);
     }
-
+    bool validateTimeStamp(const int64_t &timestamp) {
+      return timestamp >= google::protobuf::util::TimeUtil::kTimestampMinSeconds
+          && timestamp
+          <= google::protobuf::util::TimeUtil::kTimestampMaxSeconds;
+    }
+    bool validateHeight(const uint64_t &height) {
+      return height >= 1;
+    }
+    bool validateHeightOrder(const uint64_t &first_height,
+                             const uint64_t &last_height){
+      return first_height <= last_height;
+    }
+    bool validateTimeOrder(const int64_t &first_time,
+                             const int64_t &last_time){
+      return first_time <= last_time;
+    }
   }  // namespace validation
 }  // namespace shared_model

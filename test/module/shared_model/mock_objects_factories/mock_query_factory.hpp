@@ -72,7 +72,11 @@ namespace shared_model {
 
       FactoryResult<MockTxPaginationMeta> constructTxPaginationMeta(
           types::TransactionsNumberType page_size,
-          std::optional<types::HashType> first_tx_hash) const;
+          std::optional<types::HashType> first_tx_hash,
+          std::optional<types::TimestampType> first_tx_time,
+          std::optional<types::TimestampType> last_tx_time,
+          std::optional<types::HeightType> first_tx_height,
+          std::optional<types::HeightType> last_tx_height) const;
 
       FactoryResult<MockGetEngineReceipts> constructGetEngineReceipts(
           const std::string &tx_hash) const;
