@@ -1401,6 +1401,7 @@ namespace iroha {
         std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
         : sql_(std::move(sql)),
+          db_transaction_(*sql_),
           perm_converter_{std::move(perm_converter)},
           specific_query_executor_{std::move(specific_query_executor)},
           vm_caller_{std::move(vm_caller)} {
@@ -1408,6 +1409,8 @@ namespace iroha {
     }
 
     PostgresCommandExecutor::~PostgresCommandExecutor() = default;
+
+    void PostgresCommandExecutor::skipChanges() {}
 
     CommandResult PostgresCommandExecutor::execute(
         const shared_model::interface::Command &cmd,
@@ -1426,6 +1429,10 @@ namespace iroha {
 
     soci::session &PostgresCommandExecutor::getSession() {
       return *sql_;
+    }
+
+    DatabaseTransaction &PostgresCommandExecutor::dbSession() {
+      return db_transaction_;
     }
 
     CommandResult PostgresCommandExecutor::operator()(

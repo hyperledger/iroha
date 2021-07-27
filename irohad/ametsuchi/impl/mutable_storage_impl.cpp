@@ -22,154 +22,149 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
-namespace iroha {
-  namespace ametsuchi {
-    MutableStorageImpl::MutableStorageImpl(
-        boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-        std::shared_ptr<PostgresCommandExecutor> command_executor,
-        std::unique_ptr<BlockStorage> block_storage,
-        logger::LoggerManagerTreePtr log_manager)
-        : ledger_state_(std::move(ledger_state)),
-          sql_(command_executor->getSession()),
-          wsv_command_(std::make_unique<PostgresWsvCommand>(sql_)),
-          peer_query_(
-              std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
-                  sql_, log_manager->getChild("WsvQuery")->getLogger()))),
-          block_index_(std::make_unique<BlockIndexImpl>(
-              std::make_unique<PostgresIndexer>(sql_),
-              log_manager->getChild("BlockIndexImpl")->getLogger())),
-          transaction_executor_(std::make_unique<TransactionExecutor>(
-              std::move(command_executor))),
-          block_storage_(std::move(block_storage)),
-          committed(false),
-          log_(log_manager->getLogger()) {
-      sql_ << "BEGIN";
-    }
+namespace iroha::ametsuchi {
 
-    bool MutableStorageImpl::applyBlockIf(
-        std::shared_ptr<const shared_model::interface::Block> block,
-        MutableStoragePredicate predicate) {
-      auto execute_transaction = [this](auto &transaction) -> bool {
-        auto result = transaction_executor_->execute(transaction, false);
-        auto error = expected::resultToOptionalError(result);
-        if (error) {
-          log_->error(error->command_error.toString());
-        }
-        auto ok = !error;
-        return ok;
-      };
+  MutableStorageImpl::MutableStorageImpl(
+      boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
+      std::unique_ptr<WsvCommand> wsv_command,
+      std::unique_ptr<PeerQuery> peer_query,
+      std::unique_ptr<BlockIndex> block_index,
+      std::shared_ptr<CommandExecutor> command_executor,
+      std::unique_ptr<BlockStorage> block_storage,
+      logger::LoggerManagerTreePtr log_manager)
+      : ledger_state_(std::move(ledger_state)),
+        db_tx_(command_executor->dbSession()),
+        wsv_command_(std::move(wsv_command)),
+        peer_query_(std::move(peer_query)),
+        block_index_(std::move(block_index)),
+        transaction_executor_(
+            std::make_unique<TransactionExecutor>(std::move(command_executor))),
+        block_storage_(std::move(block_storage)),
+        committed(false),
+        log_(log_manager->getLogger()) {
+    db_tx_.begin();
+  }
 
-      log_->info("Applying block: height {}, hash {}",
-                 block->height(),
-                 block->hash().hex());
-
-      auto block_applied =
-          (not ledger_state_ or predicate(block, *ledger_state_.value()))
-          and std::all_of(block->transactions().begin(),
-                          block->transactions().end(),
-                          execute_transaction);
-      if (block_applied) {
-        if (auto e =
-                expected::resultToOptionalError(wsv_command_->setTopBlockInfo(
-                    TopBlockInfo{block->height(), block->hash()}))) {
-          log_->error("{}", e.value());
-          return false;
-        }
-
-        block_storage_->insert(block);
-        block_index_->index(*block);
-
-        auto opt_ledger_peers = peer_query_->getLedgerPeers();
-        if (not opt_ledger_peers) {
-          log_->error("Failed to get ledger peers!");
-          return false;
-        }
-
-        ledger_state_ = std::make_shared<const LedgerState>(
-            std::move(*opt_ledger_peers), block->height(), block->hash());
+  bool MutableStorageImpl::applyBlockIf(
+      std::shared_ptr<const shared_model::interface::Block> block,
+      MutableStoragePredicate predicate) {
+    auto execute_transaction = [this](auto &transaction) -> bool {
+      auto result = transaction_executor_->execute(transaction, false);
+      auto error = expected::resultToOptionalError(result);
+      if (error) {
+        log_->error(error->command_error.toString());
       }
+      auto ok = !error;
+      return ok;
+    };
 
-      return block_applied;
-    }
+    log_->info("Applying block: height {}, hash {}",
+               block->height(),
+               block->hash().hex());
 
-    template <typename Function>
-    bool MutableStorageImpl::withSavepoint(Function &&function) {
-      try {
-        sql_ << "SAVEPOINT savepoint_";
-
-        auto function_executed = std::forward<Function>(function)();
-
-        if (function_executed) {
-          sql_ << "RELEASE SAVEPOINT savepoint_";
-        } else {
-          sql_ << "ROLLBACK TO SAVEPOINT savepoint_";
-        }
-        return function_executed;
-      } catch (std::exception &e) {
-        log_->warn("Apply has failed. Reason: {}", e.what());
+    auto block_applied =
+        (not ledger_state_ or predicate(block, *ledger_state_.value()))
+        and std::all_of(block->transactions().begin(),
+                        block->transactions().end(),
+                        execute_transaction);
+    if (block_applied) {
+      if (auto e =
+              expected::resultToOptionalError(wsv_command_->setTopBlockInfo(
+                  TopBlockInfo{block->height(), block->hash()}))) {
+        log_->error("{}", e.value());
         return false;
       }
-    }
 
-    bool MutableStorageImpl::apply(
-        std::shared_ptr<const shared_model::interface::Block> block) {
-      return withSavepoint([&] {
-        return this->applyBlockIf(block,
-                                  [](const auto &, auto &) { return true; });
-      });
-    }
+      block_storage_->insert(block);
+      block_index_->index(*block);
 
-    bool MutableStorageImpl::applyIf(
-        std::shared_ptr<const shared_model::interface::Block> block,
-        MutableStoragePredicate predicate) {
-      return withSavepoint(
-          [&] { return this->applyBlockIf(block, predicate); });
-    }
-
-    boost::optional<std::shared_ptr<const iroha::LedgerState>>
-    MutableStorageImpl::getLedgerState() const {
-      return ledger_state_;
-    }
-
-    expected::Result<MutableStorage::CommitResult, std::string>
-    MutableStorageImpl::commit(BlockStorage &block_storage) && {
-      if (committed) {
-        assert(not committed);
-        return "Tried to commit mutable storage twice.";
+      auto opt_ledger_peers = peer_query_->getLedgerPeers();
+      if (not opt_ledger_peers) {
+        log_->error("Failed to get ledger peers!");
+        return false;
       }
-      if (not ledger_state_) {
-        assert(ledger_state_);
-        return "Tried to commit mutable storage with no blocks applied.";
-      }
-      return block_storage_->forEach(
-                 [&block_storage](
-                     auto const &block) -> expected::Result<void, std::string> {
-                   if (not block_storage.insert(block)) {
-                     return fmt::format("Failed to insert block {}", *block);
-                   }
-                   return {};
-                 })
-                 | [this]() -> expected::Result<MutableStorage::CommitResult,
-                                                std::string> {
-        try {
-          sql_ << "COMMIT";
-          committed = true;
-        } catch (std::exception &e) {
-          return expected::makeError(e.what());
-        }
-        return MutableStorage::CommitResult{ledger_state_.value(),
-                                            std::move(block_storage_)};
-      };
+
+      ledger_state_ = std::make_shared<const LedgerState>(
+          std::move(*opt_ledger_peers), block->height(), block->hash());
     }
 
-    MutableStorageImpl::~MutableStorageImpl() {
-      if (not committed) {
-        try {
-          sql_ << "ROLLBACK";
-        } catch (std::exception &e) {
-          log_->warn("Apply has been failed. Reason: {}", e.what());
-        }
+    return block_applied;
+  }
+
+  template <typename Function>
+  bool MutableStorageImpl::withSavepoint(Function &&function) {
+    try {
+      db_tx_.savepoint("savepoint_");
+      auto function_executed = std::forward<Function>(function)();
+
+      if (function_executed) {
+        db_tx_.releaseSavepoint("savepoint_");
+      } else {
+        db_tx_.rollbackToSavepoint("savepoint_");
+      }
+      return function_executed;
+    } catch (std::exception &e) {
+      log_->warn("Apply has failed. Reason: {}", e.what());
+      return false;
+    }
+  }
+
+  bool MutableStorageImpl::apply(
+      std::shared_ptr<const shared_model::interface::Block> block) {
+    return withSavepoint([&] {
+      return this->applyBlockIf(block,
+                                [](const auto &, auto &) { return true; });
+    });
+  }
+
+  bool MutableStorageImpl::applyIf(
+      std::shared_ptr<const shared_model::interface::Block> block,
+      MutableStoragePredicate predicate) {
+    return withSavepoint([&] { return this->applyBlockIf(block, predicate); });
+  }
+
+  boost::optional<std::shared_ptr<const iroha::LedgerState>>
+  MutableStorageImpl::getLedgerState() const {
+    return ledger_state_;
+  }
+
+  expected::Result<MutableStorage::CommitResult, std::string>
+  MutableStorageImpl::commit(BlockStorage &block_storage) && {
+    if (committed) {
+      assert(not committed);
+      return "Tried to commit mutable storage twice.";
+    }
+    if (not ledger_state_) {
+      assert(ledger_state_);
+      return "Tried to commit mutable storage with no blocks applied.";
+    }
+    return block_storage_->forEach([&block_storage](auto const &block)
+                                       -> expected::Result<void, std::string> {
+      if (not block_storage.insert(block)) {
+        return fmt::format("Failed to insert block {}", *block);
+      }
+      return {};
+    }) | [this]()
+               -> expected::Result<MutableStorage::CommitResult, std::string> {
+      try {
+        db_tx_.commit();
+        committed = true;
+      } catch (std::exception &e) {
+        return expected::makeError(e.what());
+      }
+      return MutableStorage::CommitResult{ledger_state_.value(),
+                                          std::move(block_storage_)};
+    };
+  }
+
+  MutableStorageImpl::~MutableStorageImpl() {
+    if (not committed) {
+      try {
+        db_tx_.rollback();
+      } catch (std::exception &e) {
+        log_->warn("Apply has been failed. Reason: {}", e.what());
       }
     }
-  }  // namespace ametsuchi
-}  // namespace iroha
+  }
+
+}  // namespace iroha::ametsuchi

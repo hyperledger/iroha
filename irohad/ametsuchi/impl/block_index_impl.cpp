@@ -77,7 +77,8 @@ void BlockIndexImpl::index(const shared_model::interface::Block &block) {
     const auto &creator_id = tx.value().creatorAccountId();
     const TxPosition position{height, static_cast<size_t>(tx.index())};
 
-    indexer_->committedTxHash(position, tx.value().hash());
+    indexer_->committedTxHash(
+        position, tx.value().createdTime(), tx.value().hash());
     makeAccountAssetIndex(creator_id,
                           tx.value().hash(),
                           tx.value().createdTime(),
@@ -92,7 +93,7 @@ void BlockIndexImpl::index(const shared_model::interface::Block &block) {
 
   const TxPosition position{height, static_cast<size_t>(0ull)};
   for (const auto &rejected_tx_hash : block.rejected_transactions_hashes()) {
-    indexer_->rejectedTxHash(position, rejected_tx_hash);
+    indexer_->rejectedTxHash(position, 0ull, rejected_tx_hash);
   }
 
   if (auto e = resultToOptionalError(indexer_->flush())) {

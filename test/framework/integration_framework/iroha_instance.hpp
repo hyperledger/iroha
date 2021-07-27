@@ -78,6 +78,7 @@ namespace integration_framework {
     // config area
     IrohadConfig config_;
     const std::string working_dbname_;
+    const std::string rocksdb_filepath_;
     const std::string listen_ip_;
     boost::optional<iroha::GossipPropagationStrategyParams>
         opt_mst_gossip_params_;

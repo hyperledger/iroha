@@ -677,7 +677,7 @@ TEST_F(SubscriptionTest, Notify_2) {
  * @when 2 subscribers are present
  * @and they subscribe to different events in a single current scheduler
  * @and both events are notified followed by dispose and process
- * @then the handlers of each subscriber must be called once and process finish
+ * @then the fist handler must be called once and process finish
  * its loop
  */
 TEST_F(SubscriptionTest, InThreadDispatcherTest) {
@@ -713,7 +713,7 @@ TEST_F(SubscriptionTest, InThreadDispatcherTest) {
   scheduler->process();
 
   ASSERT_EQ(counter[0], 1ul);
-  ASSERT_EQ(counter[1], 1ul);
+  ASSERT_EQ(counter[1], 0ul);
 
   manager->dispatcher()->unbind(*tid);
   manager->dispose();

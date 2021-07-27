@@ -12,6 +12,7 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/vm_caller.hpp"
+#include "common/to_lower.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
@@ -44,16 +45,30 @@ using shared_model::interface::GrantablePermissionSet;
 using shared_model::interface::RolePermissionSet;
 
 RocksDbCommandExecutor::RocksDbCommandExecutor(
-    std::shared_ptr<RocksDBPort> db_port,
+    std::shared_ptr<RocksDBContext> db_context,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter,
     std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
-    : db_context_(std::make_shared<RocksDBContext>(db_port)),
+    : db_context_(std::move(db_context)),
       perm_converter_{std::move(perm_converter)},
-      vm_caller_{vm_caller} {
+      vm_caller_{vm_caller},
+      db_transaction_(db_context_) {
   assert(db_context_);
 }
 
 RocksDbCommandExecutor::~RocksDbCommandExecutor() = default;
+
+void RocksDbCommandExecutor::skipChanges() {
+  RocksDbCommon common(db_context_);
+  common.skip();
+}
+
+DatabaseTransaction &RocksDbCommandExecutor::dbSession() {
+  return db_transaction_;
+}
+
+std::shared_ptr<RocksDBContext> RocksDbCommandExecutor::getSession() {
+  return db_context_;
+}
 
 CommandResult RocksDbCommandExecutor::execute(
     const shared_model::interface::Command &cmd,
@@ -99,7 +114,6 @@ CommandResult RocksDbCommandExecutor::execute(
                                          command.toString(),
                                          result.assumeError().description)});
 
-          common.commit();
           return {};
         } catch (std::exception &e) {
           return expected::makeError(CommandError{
@@ -184,8 +198,11 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   if (do_validation)
     RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kAddPeer));
 
+  std::string pk;
+  toLowerAppend(peer.pubkey(), pk);
+
   RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-      common, peer.pubkey()));
+      common, pk));
 
   RDB_TRY_GET_VALUE(
       opt_peers_count,
@@ -196,12 +213,12 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   /// Store address
   common.valueBuffer().assign(peer.address());
-  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(common, peer.pubkey()));
+  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(common, pk));
 
   /// Store TLS if present
   if (peer.tlsCertificate().has_value()) {
     common.valueBuffer().assign(peer.tlsCertificate().value());
-    RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kPut>(common, peer.pubkey()));
+    RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kPut>(common, pk));
   }
 
   return {};
@@ -227,8 +244,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
             common,
             creator_account_name,
             creator_domain_id,
-            account_name,
-            domain_id));
+            command.accountId()));
     if (opt_permissions)
       granted_account_permissions = *opt_permissions;
 
@@ -245,12 +261,18 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   RDB_ERROR_CHECK(forAccount<kDbOperation::kCheck, kDbEntry::kMustExist>(
       common, account_name, domain_id));
 
-  RDB_ERROR_CHECK(forSignatory<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-      common, account_name, domain_id, command.pubkey()));
+  std::string pk;
+  toLowerAppend(command.pubkey(), pk);
+
+  if (auto result = forSignatory<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+          common, account_name, domain_id, pk);
+      expected::hasError(result))
+    return makeError<void>(ErrorCodes::kSignatoryMustNotExist,
+                           "Signatory must not exist.");
 
   common.valueBuffer().clear();
-  RDB_ERROR_CHECK(forSignatory<kDbOperation::kPut>(
-      common, account_name, domain_id, command.pubkey()));
+  RDB_ERROR_CHECK(
+      forSignatory<kDbOperation::kPut>(common, account_name, domain_id, pk));
 
   return {};
 }
@@ -321,8 +343,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
           common,
           creator_account_name,
           creator_domain_id,
-          account_name,
-          domain_id));
+          command.accountId()));
   if (opt_permissions)
     granted_account_permissions = *opt_permissions;
 
@@ -393,8 +414,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     shared_model::interface::RolePermissionSet const &creator_permissions) {
   auto const &account_name = command.accountName();
   auto const &domain_id = command.domainId();
-  auto pubkey = command.pubkey();
-  boost::algorithm::to_lower(pubkey);
+  std::string pubkey;
 
   if (do_validation)
     RDB_ERROR_CHECK(
@@ -425,7 +445,10 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   common.valueBuffer() = "";
   RDB_ERROR_CHECK(forSignatory<kDbOperation::kPut>(
-      common, account_name, domain_id, pubkey));
+      common,
+      account_name,
+      domain_id,
+      toLowerAppend(command.pubkey(), pubkey)));
 
   common.encode(1);
   RDB_ERROR_CHECK(
@@ -556,7 +579,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     RDB_ERROR_CHECK(forAccountRole<kDbOperation::kCheck, kDbEntry::kMustExist>(
         common, account_name, domain_id, role_name));
 
-  RDB_ERROR_CHECK(forAccountRole<kDbOperation::kDel>(
+  RDB_ERROR_CHECK(forAccountRole<kDbOperation::kDel, kDbEntry::kCanExist>(
       common, account_name, domain_id, role_name));
 
   return {};
@@ -570,8 +593,6 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     shared_model::interface::types::CommandIndexType /*cmd_index*/,
     bool do_validation,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  auto const &[grantee_account_name, grantee_domain_id] =
-      staticSplitId<2>(creator_account_id);
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
 
   auto const granted_perm = command.permissionName();
@@ -590,11 +611,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   RDB_TRY_GET_VALUE(
       opt_permissions,
       forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
-          common,
-          account_name,
-          domain_id,
-          grantee_account_name,
-          grantee_domain_id));
+          common, account_name, domain_id, creator_account_id));
   if (opt_permissions)
     granted_account_permissions = *opt_permissions;
 
@@ -607,11 +624,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   common.valueBuffer().assign(granted_account_permissions.toBitstring());
   RDB_ERROR_CHECK(
       forGrantablePermissions<kDbOperation::kPut, kDbEntry::kMustExist>(
-          common,
-          account_name,
-          domain_id,
-          grantee_account_name,
-          grantee_domain_id));
+          common, account_name, domain_id, creator_account_id));
 
   return {};
 }
@@ -630,22 +643,26 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   if (do_validation)
     RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kRemovePeer));
 
-  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(
-      common, command.pubkey()));
+  std::string pk;
+  toLowerAppend(command.pubkey(), pk);
+
+  RDB_ERROR_CHECK(
+      forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(common, pk));
 
   RDB_TRY_GET_VALUE(
       opt_peers_count,
       forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
   if (*opt_peers_count == 1ull)
-    return makeError<void>(ErrorCodes::kPeersCountIsNotEnough,
-                           "Can not remove last peer {}.",
-                           command.pubkey());
+    return makeError<void>(
+        ErrorCodes::kPeersCountIsNotEnough, "Can not remove last peer {}.", pk);
 
   common.encode(*opt_peers_count - 1ull);
   RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common));
 
-  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kDel>(common, command.pubkey()));
-  RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel>(common, command.pubkey()));
+  RDB_ERROR_CHECK(
+      forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(common, pk));
+  RDB_ERROR_CHECK(
+      forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(common, pk));
 
   return {};
 }
@@ -662,16 +679,16 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       staticSplitId<2>(creator_account_id);
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
 
-  if (do_validation) {
-    uint64_t quorum;
-    if (auto result = forQuorum<kDbOperation::kGet, kDbEntry::kMustExist>(
-            common, account_name, domain_id);
-        expected::hasError(result))
-      return makeError<void>(ErrorCodes::kNoAccount,
-                             std::move(result.assumeError()));
-    else
-      quorum = *result.assumeValue();
+  uint64_t quorum;
+  if (auto result = forQuorum<kDbOperation::kGet, kDbEntry::kMustExist>(
+          common, account_name, domain_id);
+      expected::hasError(result))
+    return makeError<void>(ErrorCodes::kNoAccount,
+                           std::move(result.assumeError()));
+  else
+    quorum = *result.assumeValue();
 
+  if (do_validation) {
     GrantablePermissionSet granted_account_permissions;
     RDB_TRY_GET_VALUE(
         opt_permissions,
@@ -679,8 +696,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
             common,
             creator_account_name,
             creator_domain_id,
-            account_name,
-            domain_id));
+            command.accountId()));
     if (opt_permissions)
       granted_account_permissions = *opt_permissions;
 
@@ -692,33 +708,37 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
                                                 granted_account_permissions,
                                                 Grantable::kRemoveMySignatory));
     }
-
-    if (auto result = forSignatory<kDbOperation::kCheck, kDbEntry::kMustExist>(
-            common, account_name, domain_id, command.pubkey());
-        expected::hasError(result))
-      return makeError<void>(ErrorCodes::kNoSignatory,
-                             std::move(result.assumeError()));
-
-    uint64_t counter = 0;
-    auto status = enumerateKeys(common,
-                                [&](auto key) {
-                                  ++counter;
-                                  return true;
-                                },
-                                fmtstrings::kPathSignatories,
-                                domain_id,
-                                account_name);
-    if (counter <= quorum)
-      return makeError<void>(
-          ErrorCodes::kCountNotEnough,
-          "Remove signatory {} for account {} with quorum {} failed.",
-          command.pubkey(),
-          command.accountId(),
-          quorum);
   }
 
-  RDB_ERROR_CHECK(forSignatory<kDbOperation::kDel>(
-      common, account_name, domain_id, command.pubkey()));
+  std::string pk;
+  toLowerAppend(command.pubkey(), pk);
+
+  if (auto result = forSignatory<kDbOperation::kCheck, kDbEntry::kMustExist>(
+          common, account_name, domain_id, pk);
+      expected::hasError(result))
+    return makeError<void>(ErrorCodes::kNoSignatory,
+                           std::move(result.assumeError()));
+
+  uint64_t counter = 0;
+  auto status = enumerateKeys(common,
+                              [&](auto key) {
+                                ++counter;
+                                return true;
+                              },
+                              fmtstrings::kPathSignatories,
+                              domain_id,
+                              account_name);
+
+  if (counter <= quorum)
+    return makeError<void>(
+        ErrorCodes::kCountNotEnough,
+        "Remove signatory {} for account {} with quorum {} failed.",
+        pk,
+        command.accountId(),
+        quorum);
+
+  RDB_ERROR_CHECK(forSignatory<kDbOperation::kDel, kDbEntry::kCanExist>(
+      common, account_name, domain_id, pk));
 
   return {};
 }
@@ -731,8 +751,6 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     shared_model::interface::types::CommandIndexType /*cmd_index*/,
     bool do_validation,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  auto const &[grantee_account_name, grantee_domain_id] =
-      staticSplitId<2>(creator_account_id);
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
 
   auto const revoked_perm = command.permissionName();
@@ -740,8 +758,6 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       shared_model::interface::permissions::permissionFor(revoked_perm);
 
   if (do_validation) {
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, required_perm));
-
     // check if account exists
     RDB_ERROR_CHECK(forAccount<kDbOperation::kCheck, kDbEntry::kMustExist>(
         common, account_name, domain_id));
@@ -751,11 +767,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   RDB_TRY_GET_VALUE(
       opt_permissions,
       forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
-          common,
-          account_name,
-          domain_id,
-          grantee_account_name,
-          grantee_domain_id));
+          common, account_name, domain_id, creator_account_id));
   if (opt_permissions)
     granted_account_permissions = *opt_permissions;
 
@@ -767,11 +779,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   common.valueBuffer().assign(granted_account_permissions.toBitstring());
   RDB_ERROR_CHECK(
       forGrantablePermissions<kDbOperation::kPut, kDbEntry::kMustExist>(
-          common,
-          account_name,
-          domain_id,
-          grantee_account_name,
-          grantee_domain_id));
+          common, account_name, domain_id, creator_account_id));
 
   return {};
 }
@@ -797,8 +805,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
               common,
               creator_account_name,
               creator_domain_id,
-              account_name,
-              domain_id));
+              command.accountId()));
       if (opt_permissions)
         granted_account_permissions = *opt_permissions;
 
@@ -870,8 +877,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
             common,
             creator_account_name,
             creator_domain_id,
-            account_name,
-            domain_id));
+            command.accountId()));
 
     if (opt_permissions)
       granted_account_permissions = *opt_permissions;
@@ -1006,10 +1012,9 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
           opt_permissions,
           forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
               common,
-              source_account_name,
-              source_domain_id,
               creator_account_name,
-              creator_domain_id));
+              creator_domain_id,
+              command.srcAccountId()));
 
       if (opt_permissions)
         granted_account_permissions = *opt_permissions;
