@@ -20,6 +20,36 @@ namespace {
   /// Database connection pool size. Limits the number of similtaneous accesses.
   constexpr int kDbPoolSize = 10;
 
+  /// Prototypes
+  void prepareTables(soci::session &session);
+  bool preparedTransactionsAvailable(soci::session &sql);
+  iroha::expected::Result<void, std::string> createSchema(
+      const PostgresOptions &postgres_options);
+  /**
+   * Function initializes existing connection pool
+   * @param connection_pool - pool with connections
+   * @param pool_size - number of connections in pool
+   * @param try_rollback - function which performs blocks rollback before
+   * initialization
+   * @param callback_factory - factory for reconnect callbacks
+   * @param reconnection_strategy_factory - factory which creates strategies
+   * for each connection
+   * @param pg_reconnection_options - parameter of connection startup on
+   * reconnect
+   * @param log_manager - log manager of storage
+   * @tparam RollbackFunction - type of rollback function
+   * @return void value on success or string error
+   */
+  template <typename RollbackFunction>
+  iroha::expected::Result<void, std::string> initializeConnectionPool(
+      soci::connection_pool &connection_pool,
+      size_t pool_size,
+      RollbackFunction try_rollback,
+      FailoverCallbackHolder &callback_factory,
+      const ReconnectionStrategyFactory &reconnection_strategy_factory,
+      const std::string &pg_reconnection_options,
+      logger::LoggerManagerTreePtr log_manager);
+
   std::string formatPostgresMessage(const char *message) {
     std::string formatted_message(message);
     boost::replace_if(formatted_message, boost::is_any_of("\r\n"), ' ');
@@ -113,6 +143,250 @@ namespace {
     }
     return iroha::expected::makeValue(pool);
   }
+
+  template <typename RollbackFunction>
+  iroha::expected::Result<void, std::string> initializeConnectionPool(
+      soci::connection_pool &connection_pool,
+      size_t pool_size,
+      RollbackFunction try_rollback,
+      FailoverCallbackHolder &callback_factory,
+      const ReconnectionStrategyFactory &reconnection_strategy_factory,
+      const std::string &pg_reconnection_options,
+      logger::LoggerManagerTreePtr log_manager) {
+    auto log = log_manager->getLogger();
+    auto initialize_session =
+        [&](soci::session &session, auto on_init_db, auto on_init_connection) {
+          auto *backend = static_cast<soci::postgresql_session_backend *>(
+              session.get_backend());
+          PQsetNoticeProcessor(backend->conn_, &processPqNotice, log.get());
+          on_init_connection(session);
+
+          // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
+          // IR-464
+          on_init_db(session);
+        };
+
+    /// lambda contains special actions which should be execute once
+    auto init_db = [&](soci::session &session) {
+      // rollback current prepared transaction
+      // if there exists any since last session
+      try_rollback(session);
+    };
+
+    /// lambda contains actions which should be invoked once for each
+    /// session
+    auto init_failover_callback = [&](soci::session &session) {
+      static size_t connection_index = 0;
+      auto restore_session = [initialize_session](soci::session &s) {
+        return initialize_session(s, [](auto &) {}, [](auto &) {});
+      };
+
+      auto &callback = callback_factory.makeFailoverCallback(
+          session,
+          restore_session,
+          pg_reconnection_options,
+          reconnection_strategy_factory.create(),
+          log_manager
+              ->getChild("SOCI connection "
+                         + std::to_string(connection_index++))
+              ->getLogger());
+
+      session.set_failover_callback(callback);
+    };
+
+    assert(pool_size > 0);
+
+    initialize_session(connection_pool.at(0), init_db, init_failover_callback);
+    for (size_t i = 1; i != pool_size; i++) {
+      soci::session &session = connection_pool.at(i);
+      initialize_session(session, [](auto &) {}, init_failover_callback);
+    }
+    return iroha::expected::Value<void>();
+  }
+
+  iroha::expected::Result<void, std::string> createSchema(
+      const PostgresOptions &postgres_options) {
+    try {
+      return getMaintenanceSession(postgres_options) |
+          [&](auto maintenance_sql) {
+            *maintenance_sql << fmt::format("create database {};",
+                                            postgres_options.workingDbName());
+            return getWorkingDbSession(postgres_options) | [](auto session)
+                       -> iroha::expected::Result<void, std::string> {
+              prepareTables(*session);
+              return iroha::expected::Value<void>{};
+            };
+          };
+    } catch (const std::exception &e) {
+      return e.what();
+    }
+  }
+
+  bool preparedTransactionsAvailable(soci::session &sql) {
+    int prepared_txs_count = 0;
+    try {
+      sql << "SHOW max_prepared_transactions;", soci::into(prepared_txs_count);
+      return prepared_txs_count != 0;
+    } catch (std::exception &e) {
+      return false;
+    }
+  }
+
+  void prepareTables(soci::session &session) {
+    static const std::string prepare_tables_sql =
+        R"(
+CREATE TABLE schema_version (
+    lock CHAR(1) DEFAULT 'X' NOT NULL PRIMARY KEY,
+    iroha_major int not null,
+    iroha_minor int not null,
+    iroha_patch int not null
+);
+insert into schema_version
+    (iroha_major, iroha_minor, iroha_patch)
+    values ()"
+        +
+        [] {
+          auto v = iroha::getIrohadVersion();
+          return fmt::format("{}, {}, {}", v.major, v.minor, v.patch);
+        }()
+        + R"();
+CREATE TABLE top_block_info (
+    lock CHAR(1) DEFAULT 'X' NOT NULL PRIMARY KEY,
+    height int,
+    hash character varying(128)
+);
+CREATE TABLE role (
+    role_id character varying(32),
+    PRIMARY KEY (role_id)
+);
+CREATE TABLE domain (
+    domain_id character varying(255),
+    default_role character varying(32) NOT NULL REFERENCES role(role_id),
+    PRIMARY KEY (domain_id)
+);
+CREATE TABLE signatory (
+    public_key varchar NOT NULL,
+    PRIMARY KEY (public_key)
+);
+CREATE TABLE account (
+    account_id character varying(288),
+    domain_id character varying(255) NOT NULL REFERENCES domain,
+    quorum int NOT NULL,
+    data JSONB,
+    PRIMARY KEY (account_id)
+);
+CREATE TABLE account_has_signatory (
+    account_id character varying(288) NOT NULL REFERENCES account,
+    public_key varchar NOT NULL REFERENCES signatory,
+    PRIMARY KEY (account_id, public_key)
+);
+CREATE TABLE peer (
+    public_key varchar NOT NULL,
+    address character varying(261) NOT NULL UNIQUE,
+    tls_certificate varchar,
+    PRIMARY KEY (public_key)
+);
+CREATE TABLE asset (
+    asset_id character varying(288),
+    domain_id character varying(255) NOT NULL REFERENCES domain,
+    precision int NOT NULL,
+    PRIMARY KEY (asset_id)
+);
+CREATE TABLE account_has_asset (
+    account_id character varying(288) NOT NULL REFERENCES account,
+    asset_id character varying(288) NOT NULL REFERENCES asset,
+    amount decimal NOT NULL,
+    PRIMARY KEY (account_id, asset_id)
+);
+CREATE TABLE role_has_permissions (
+    role_id character varying(32) NOT NULL REFERENCES role,
+    permission bit()"
+        + std::to_string(shared_model::interface::RolePermissionSet::size())
+        + R"() NOT NULL,
+    PRIMARY KEY (role_id)
+);
+CREATE TABLE account_has_roles (
+    account_id character varying(288) NOT NULL REFERENCES account,
+    role_id character varying(32) NOT NULL REFERENCES role,
+    PRIMARY KEY (account_id, role_id)
+);
+CREATE TABLE account_has_grantable_permissions (
+    permittee_account_id character varying(288) NOT NULL REFERENCES account,
+    account_id character varying(288) NOT NULL REFERENCES account,
+    permission bit()"
+        + std::to_string(
+              shared_model::interface::GrantablePermissionSet::size())
+        + R"() NOT NULL,
+    PRIMARY KEY (permittee_account_id, account_id)
+);
+CREATE TABLE IF NOT EXISTS tx_positions (
+    creator_id text,
+    hash varchar(64) not null,
+    asset_id text,
+    ts bigint,
+    height bigint,
+    index bigint
+);
+CREATE INDEX IF NOT EXISTS tx_positions_hash_index
+    ON tx_positions
+    USING hash
+    (hash);
+CREATE INDEX IF NOT EXISTS tx_positions_creator_id_asset_index
+    ON tx_positions
+    (creator_id, asset_id);
+CREATE INDEX IF NOT EXISTS tx_positions_ts_height_index_index
+    ON tx_positions
+    (ts);
+CREATE TABLE IF NOT EXISTS tx_status_by_hash (
+    hash varchar,
+    status boolean
+);
+CREATE INDEX tx_status_by_hash_hash_index
+  ON tx_status_by_hash
+  USING hash
+  (hash);
+CREATE TABLE IF NOT EXISTS setting(
+    setting_key text,
+    setting_value text,
+    PRIMARY KEY (setting_key)
+);
+CREATE TABLE IF NOT EXISTS engine_calls (
+    call_id serial unique not null,
+    tx_hash text,
+    cmd_index bigint,
+    engine_response text,
+    callee varchar(40),
+    created_address varchar(40),
+    PRIMARY KEY (tx_hash, cmd_index)
+);
+CREATE TABLE IF NOT EXISTS burrow_account_data (
+    address varchar(40),
+    data text,
+    PRIMARY KEY (address)
+);
+CREATE TABLE IF NOT EXISTS burrow_account_key_value (
+    address varchar(40),
+    key varchar(64),
+    value text,
+    PRIMARY KEY (address, key)
+);
+CREATE TABLE IF NOT EXISTS burrow_tx_logs (
+    log_idx serial primary key,
+    call_id integer references engine_calls(call_id),
+    address varchar(40),
+    data text
+);
+CREATE TABLE IF NOT EXISTS burrow_tx_logs_topics (
+    topic varchar(64),
+    log_idx integer references burrow_tx_logs(log_idx)
+);
+CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
+    ON burrow_tx_logs_topics
+    USING btree
+    (log_idx ASC);
+)";
+    session << prepare_tables_sql;
+  }
 }  // namespace
 
 iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::PoolWrapper>,
@@ -137,8 +411,8 @@ PgConnectionInit::prepareWorkingDatabase(
     *maintenance_sql << "select exists("
                         "SELECT datname FROM pg_catalog.pg_database "
                         "WHERE datname = '"
-                        + options.workingDbName() + "');"
-                        , soci::into(work_db_exists);
+            + options.workingDbName() + "');",
+        soci::into(work_db_exists);
     if (not work_db_exists) {
       return createSchema(options);
     }
@@ -213,16 +487,6 @@ PgConnectionInit::prepareConnectionPool(
   }
 }
 
-bool PgConnectionInit::preparedTransactionsAvailable(soci::session &sql) {
-  int prepared_txs_count = 0;
-  try {
-    sql << "SHOW max_prepared_transactions;", soci::into(prepared_txs_count);
-    return prepared_txs_count != 0;
-  } catch (std::exception &e) {
-    return false;
-  }
-}
-
 iroha::expected::Result<void, std::string> PgConnectionInit::rollbackPrepared(
     soci::session &sql, const std::string &prepared_block_name) {
   try {
@@ -233,247 +497,15 @@ iroha::expected::Result<void, std::string> PgConnectionInit::rollbackPrepared(
   return {};
 }
 
-template <typename RollbackFunction>
 iroha::expected::Result<void, std::string>
-PgConnectionInit::initializeConnectionPool(
-    soci::connection_pool &connection_pool,
-    size_t pool_size,
-    RollbackFunction try_rollback,
-    FailoverCallbackHolder &callback_factory,
-    const ReconnectionStrategyFactory &reconnection_strategy_factory,
-    const std::string &pg_reconnection_options,
-    logger::LoggerManagerTreePtr log_manager) {
-  auto log = log_manager->getLogger();
-  auto initialize_session = [&](soci::session &session,
-                                auto on_init_db,
-                                auto on_init_connection) {
-    auto *backend =
-        static_cast<soci::postgresql_session_backend *>(session.get_backend());
-    PQsetNoticeProcessor(backend->conn_, &processPqNotice, log.get());
-    on_init_connection(session);
-
-    // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
-    // IR-464
-    on_init_db(session);
-  };
-
-  /// lambda contains special actions which should be execute once
-  auto init_db = [&](soci::session &session) {
-    // rollback current prepared transaction
-    // if there exists any since last session
-    try_rollback(session);
-  };
-
-  /// lambda contains actions which should be invoked once for each
-  /// session
-  auto init_failover_callback = [&](soci::session &session) {
-    static size_t connection_index = 0;
-    auto restore_session = [initialize_session](soci::session &s) {
-      return initialize_session(s, [](auto &) {}, [](auto &) {});
-    };
-
-    auto &callback = callback_factory.makeFailoverCallback(
-        session,
-        restore_session,
-        pg_reconnection_options,
-        reconnection_strategy_factory.create(),
-        log_manager
-            ->getChild("SOCI connection " + std::to_string(connection_index++))
-            ->getLogger());
-
-    session.set_failover_callback(callback);
-  };
-
-  assert(pool_size > 0);
-
-  initialize_session(connection_pool.at(0), init_db, init_failover_callback);
-  for (size_t i = 1; i != pool_size; i++) {
-    soci::session &session = connection_pool.at(i);
-    initialize_session(session, [](auto &) {}, init_failover_callback);
-  }
-  return expected::Value<void>();
-}
-
-void PgConnectionInit::prepareTables(soci::session &session) {
-  static const std::string prepare_tables_sql = R"(
-CREATE TABLE schema_version (
-    lock CHAR(1) DEFAULT 'X' NOT NULL PRIMARY KEY,
-    iroha_major int not null,
-    iroha_minor int not null,
-    iroha_patch int not null
-);
-insert into schema_version
-    (iroha_major, iroha_minor, iroha_patch)
-    values ()"
-      +
-      [] {
-        auto v = iroha::getIrohadVersion();
-        return fmt::format("{}, {}, {}", v.major, v.minor, v.patch);
-      }()
-      + R"();
-CREATE TABLE top_block_info (
-    lock CHAR(1) DEFAULT 'X' NOT NULL PRIMARY KEY,
-    height int,
-    hash character varying(128)
-);
-CREATE TABLE role (
-    role_id character varying(32),
-    PRIMARY KEY (role_id)
-);
-CREATE TABLE domain (
-    domain_id character varying(255),
-    default_role character varying(32) NOT NULL REFERENCES role(role_id),
-    PRIMARY KEY (domain_id)
-);
-CREATE TABLE signatory (
-    public_key varchar NOT NULL,
-    PRIMARY KEY (public_key)
-);
-CREATE TABLE account (
-    account_id character varying(288),
-    domain_id character varying(255) NOT NULL REFERENCES domain,
-    quorum int NOT NULL,
-    data JSONB,
-    PRIMARY KEY (account_id)
-);
-CREATE TABLE account_has_signatory (
-    account_id character varying(288) NOT NULL REFERENCES account,
-    public_key varchar NOT NULL REFERENCES signatory,
-    PRIMARY KEY (account_id, public_key)
-);
-CREATE TABLE peer (
-    public_key varchar NOT NULL,
-    address character varying(261) NOT NULL UNIQUE,
-    tls_certificate varchar,
-    PRIMARY KEY (public_key)
-);
-CREATE TABLE asset (
-    asset_id character varying(288),
-    domain_id character varying(255) NOT NULL REFERENCES domain,
-    precision int NOT NULL,
-    PRIMARY KEY (asset_id)
-);
-CREATE TABLE account_has_asset (
-    account_id character varying(288) NOT NULL REFERENCES account,
-    asset_id character varying(288) NOT NULL REFERENCES asset,
-    amount decimal NOT NULL,
-    PRIMARY KEY (account_id, asset_id)
-);
-CREATE TABLE role_has_permissions (
-    role_id character varying(32) NOT NULL REFERENCES role,
-    permission bit()"
-      + std::to_string(shared_model::interface::RolePermissionSet::size())
-      + R"() NOT NULL,
-    PRIMARY KEY (role_id)
-);
-CREATE TABLE account_has_roles (
-    account_id character varying(288) NOT NULL REFERENCES account,
-    role_id character varying(32) NOT NULL REFERENCES role,
-    PRIMARY KEY (account_id, role_id)
-);
-CREATE TABLE account_has_grantable_permissions (
-    permittee_account_id character varying(288) NOT NULL REFERENCES account,
-    account_id character varying(288) NOT NULL REFERENCES account,
-    permission bit()"
-      + std::to_string(shared_model::interface::GrantablePermissionSet::size())
-      + R"() NOT NULL,
-    PRIMARY KEY (permittee_account_id, account_id)
-);
-CREATE TABLE IF NOT EXISTS tx_positions (
-    creator_id text,
-    hash varchar(64) not null,
-    asset_id text,
-    ts bigint,
-    height bigint,
-    index bigint
-);
-CREATE INDEX IF NOT EXISTS tx_positions_hash_index
-    ON tx_positions
-    USING hash
-    (hash);
-CREATE INDEX IF NOT EXISTS tx_positions_creator_id_asset_index
-    ON tx_positions
-    (creator_id, asset_id);
-CREATE INDEX IF NOT EXISTS tx_positions_ts_height_index_index
-    ON tx_positions
-    (ts);
-CREATE TABLE IF NOT EXISTS tx_status_by_hash (
-    hash varchar,
-    status boolean
-);
-CREATE INDEX tx_status_by_hash_hash_index
-  ON tx_status_by_hash
-  USING hash
-  (hash);
-CREATE TABLE IF NOT EXISTS setting(
-    setting_key text,
-    setting_value text,
-    PRIMARY KEY (setting_key)
-);
-CREATE TABLE IF NOT EXISTS engine_calls (
-    call_id serial unique not null,
-    tx_hash text,
-    cmd_index bigint,
-    engine_response text,
-    callee varchar(40),
-    created_address varchar(40),
-    PRIMARY KEY (tx_hash, cmd_index)
-);
-CREATE TABLE IF NOT EXISTS burrow_account_data (
-    address varchar(40),
-    data text,
-    PRIMARY KEY (address)
-);
-CREATE TABLE IF NOT EXISTS burrow_account_key_value (
-    address varchar(40),
-    key varchar(64),
-    value text,
-    PRIMARY KEY (address, key)
-);
-CREATE TABLE IF NOT EXISTS burrow_tx_logs (
-    log_idx serial primary key,
-    call_id integer references engine_calls(call_id),
-    address varchar(40),
-    data text
-);
-CREATE TABLE IF NOT EXISTS burrow_tx_logs_topics (
-    topic varchar(64),
-    log_idx integer references burrow_tx_logs(log_idx)
-);
-CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
-    ON burrow_tx_logs_topics
-    USING btree
-    (log_idx ASC);
-)";
-  session << prepare_tables_sql;
-}
-
-iroha::expected::Result<void, std::string>
-PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) 
-try {
+PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) try {
   auto maintenance_sql = soci::session(*soci::factory_postgresql(),
                                        options.maintenanceConnectionString());
-  maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName() << ";";
+  maintenance_sql << "DROP DATABASE IF EXISTS " << options.workingDbName()
+                  << ";";
   return iroha::expected::Value<void>{};
 } catch (const std::exception &e) {
   return e.what();
-}
-
-iroha::expected::Result<void, std::string> PgConnectionInit::createSchema(
-    const PostgresOptions &postgres_options) {
-  try {
-    return getMaintenanceSession(postgres_options) | [&](auto maintenance_sql) {
-      *maintenance_sql << fmt::format("create database {};",
-                                      postgres_options.workingDbName());
-      return getWorkingDbSession(postgres_options) | [](auto session)
-                 -> iroha::expected::Result<void, std::string> {
-        prepareTables(*session);
-        return iroha::expected::Value<void>{};
-      };
-    };
-  } catch (const std::exception &e) {
-    return e.what();
-  }
 }
 
 iroha::expected::Result<void, std::string> PgConnectionInit::resetPeers(

@@ -61,12 +61,12 @@ namespace iroha::ametsuchi {
       db_port->initialize(db_name_);
       tx_context_ = std::make_shared<RocksDBContext>(db_port);
 
-      wsv_query =
-          std::make_unique<RocksDBWsvQuery>(db_port, getTestLogger("WsvQuery"));
+      wsv_query = std::make_unique<RocksDBWsvQuery>(tx_context_,
+                                                    getTestLogger("WsvQuery"));
 
       pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
       executor = std::make_unique<RocksDbCommandExecutor>(
-          db_port, perm_converter, std::nullopt);
+          tx_context_, perm_converter, std::nullopt);
     }
 
     void SetUp() override {
@@ -166,11 +166,6 @@ namespace iroha::ametsuchi {
             &permitee_account_id,
         const shared_model::interface::types::AccountIdType &acc_id,
         shared_model::interface::permissions::Grantable permission) {
-      auto const permitee_names =
-          iroha::ametsuchi::staticSplitId<2>(permitee_account_id);
-      auto const &permitee_acc = permitee_names.at(0);
-      auto const &permitee_dom = permitee_names.at(1);
-
       auto const names = iroha::ametsuchi::staticSplitId<2>(acc_id);
       auto const &acc = names.at(0);
       auto const &dom = names.at(1);
@@ -178,7 +173,7 @@ namespace iroha::ametsuchi {
       ametsuchi::RocksDbCommon common(tx_context_);
       if (auto result =
               forGrantablePermissions<kDbOperation::kGet, kDbEntry::kMustExist>(
-                  common, acc, dom, permitee_acc, permitee_dom);
+                  common, acc, dom, permitee_account_id);
           expected::hasValue(result))
         return result.assumeValue()->isSet(permission);
       else

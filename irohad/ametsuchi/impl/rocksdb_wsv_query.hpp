@@ -15,7 +15,7 @@ namespace iroha {
   namespace ametsuchi {
     class RocksDBWsvQuery : public WsvQuery {
      public:
-      RocksDBWsvQuery(std::shared_ptr<RocksDBPort> db_port,
+      RocksDBWsvQuery(std::shared_ptr<RocksDBContext> db_context,
                       logger::LoggerPtr log);
 
       boost::optional<std::vector<std::string>> getSignatories(
@@ -38,7 +38,6 @@ namespace iroha {
       iroha::expected::Result<size_t, std::string> countTransactions() override;
 
      private:
-      std::shared_ptr<RocksDBPort> db_port_;
       std::shared_ptr<RocksDBContext> db_context_;
       logger::LoggerPtr log_;
     };
