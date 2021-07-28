@@ -1632,7 +1632,7 @@ namespace iroha::ametsuchi {
 
           if (prev_writer != cur_writer) {
             if (prev_writer.empty())
-              result += '\"';
+              result += '"';
             else
               result += "},\"";
             result += cur_writer;
@@ -1641,11 +1641,11 @@ namespace iroha::ametsuchi {
           } else
             result += ", ";
 
-          result += '\"';
+          result += '"';
           result += cur_key;
           result += "\": \"";
           result += value.ToStringView();
-          result += '\"';
+          result += '"';
 
           return true;
         },
