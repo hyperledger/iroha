@@ -427,7 +427,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux]
+    runs-on: ${{ fromJSON(fromJSON('["[ \"self-hosted\", \"Linux\" ]", "\"ubuntu-latest\""]')[github.repository != 'hyperledger/iroha']) }}
     ## Container is taken from previous job
     container:
       image: ${{needs.Docker-iroha-builder.outputs.container}}
@@ -644,7 +644,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux]
+    runs-on: ${{ fromJSON(fromJSON('["[ \"self-hosted\", \"Linux\" ]", "\"ubuntu-latest\""]')[github.repository != 'hyperledger/iroha']) }}
     container:
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -1168,7 +1168,7 @@ jobs:
     needs:
       - build-iroha-ubuntu-release
       - generate_matrixes
-    runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    runs-on: ${{ fromJSON(fromJSON('["[ \"self-hosted\", \"Linux\" ]", "\"ubuntu-latest\""]')[github.repository != 'hyperledger/iroha']) }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
@@ -1384,7 +1384,7 @@ jobs:
     #   <<: *env_dockerhub_release
     #   IMAGE_NAME: iroha-debug
 
-    runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    runs-on: ${{ fromJSON(fromJSON('["[ \"self-hosted\", \"Linux\" ]", "\"ubuntu-latest\""]')[github.repository != 'hyperledger/iroha']) }}
     env:
       IMAGE_NAME: iroha
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}

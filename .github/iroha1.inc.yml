@@ -424,7 +424,8 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]
+    runs-on: &runs_on_self_hosted_or_not
+        ${{ fromJSON(fromJSON('["[ \"self-hosted\", \"Linux\" ]", "\"ubuntu-latest\""]')[github.repository != 'hyperledger/iroha']) }}
     ## Container is taken from previous job
     container:
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
@@ -772,7 +773,7 @@ jobs:
     needs:
       - build-iroha-ubuntu-release
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
+    runs-on: *runs_on_self_hosted_or_not
     strategy: *strategy_ubuntu_release
     if: *build_ubuntu_release_if
     env: &env_dockerhub_release
