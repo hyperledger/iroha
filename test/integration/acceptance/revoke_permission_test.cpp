@@ -18,6 +18,9 @@ using namespace common_constants;
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
+static constexpr iroha::StorageType storage_types[] = {
+    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
  * common acceptance test
@@ -30,25 +33,31 @@ using shared_model::interface::types::PublicKeyHexStringView;
  * @then transaction would not be committed
  */
 TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeAccountWithPerms(
-          kAccount1, kAccount1Keypair, {Role::kSetMyQuorum}, kRole1))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(revokePermission(kAccount1,
-                               kAccount1Keypair,
-                               kAccount2,
-                               permissions::Grantable::kSetMyQuorum))
-      .checkProposal(
-          // transaction is stateless valid
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkVerifiedProposal(
-          // transaction is not stateful valid (kAccount2 does not exist)
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  for (auto const type : storage_types) {
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(makeAccountWithPerms(
+            kAccount1, kAccount1Keypair, {Role::kSetMyQuorum}, kRole1))
+        .skipProposal()
+        .skipVerifiedProposal()
+        .skipBlock()
+        .sendTx(revokePermission(kAccount1,
+                                 kAccount1Keypair,
+                                 kAccount2,
+                                 permissions::Grantable::kSetMyQuorum))
+        .checkProposal(
+            // transaction is stateless valid
+            [](auto &proposal) {
+              ASSERT_EQ(proposal->transactions().size(), 1);
+            })
+        .checkVerifiedProposal(
+            // transaction is not stateful valid (kAccount2 does not exist)
+            [](auto &proposal) {
+              ASSERT_EQ(proposal->transactions().size(), 0);
+            })
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  }
 }
 
 /**
@@ -62,34 +71,38 @@ TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
  * @then the second revoke does not pass stateful validation
  */
 TEST_F(GrantablePermissionsFixture, RevokeTwice) {
-  IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
-  createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
-      .sendTx(grantPermission(kAccount1,
-                              kAccount1Keypair,
-                              kAccount2,
-                              permissions::Grantable::kSetMyQuorum))
-      .skipVerifiedProposal()
-      .checkBlock(
-          // permission was successfully granted
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(
-          revokePermission(
-              kAccount1,
-              kAccount1Keypair,
-              kAccount2,
-              permissions::Grantable::kSetMyQuorum),  // permission was
-                                                      // successfully revoked
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTx(revokePermission(kAccount1,
-                               kAccount1Keypair,
-                               kAccount2,
-                               permissions::Grantable::kSetMyQuorum))
-      .checkVerifiedProposal(
-          // permission cannot be revoked twice
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  for (auto const type : storage_types) {
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair);
+    createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
+        .sendTx(grantPermission(kAccount1,
+                                kAccount1Keypair,
+                                kAccount2,
+                                permissions::Grantable::kSetMyQuorum))
+        .skipVerifiedProposal()
+        .checkBlock(
+            // permission was successfully granted
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            revokePermission(
+                kAccount1,
+                kAccount1Keypair,
+                kAccount2,
+                permissions::Grantable::kSetMyQuorum),  // permission was
+                                                        // successfully revoked
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTx(revokePermission(kAccount1,
+                                 kAccount1Keypair,
+                                 kAccount2,
+                                 permissions::Grantable::kSetMyQuorum))
+        .checkVerifiedProposal(
+            // permission cannot be revoked twice
+            [](auto &proposal) {
+              ASSERT_EQ(proposal->transactions().size(), 0);
+            })
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+  }
 }
 
 /**
@@ -105,25 +118,27 @@ TEST_F(GrantablePermissionsFixture, RevokeTwice) {
  * @then revoke fails
  */
 TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
-  IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
-  createTwoAccounts(itf, {}, {Role::kReceive})
-      .sendTxAwait(
-          makeUserWithPerms({interface::permissions::Role::kSetMyQuorum}),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(
-          grantPermission(kUser,
-                          kUserKeypair,
-                          kAccount2,
-                          permissions::Grantable::kSetMyQuorum),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(
-          revokePermission(kAccount1,
-                           kAccount1Keypair,
-                           kAccount2,
-                           permissions::Grantable::kSetMyQuorum),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
-      .done();
+  for (auto const type : storage_types) {
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair);
+    createTwoAccounts(itf, {}, {Role::kReceive})
+        .sendTxAwait(
+            makeUserWithPerms({interface::permissions::Role::kSetMyQuorum}),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            grantPermission(kUser,
+                            kUserKeypair,
+                            kAccount2,
+                            permissions::Grantable::kSetMyQuorum),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            revokePermission(kAccount1,
+                             kAccount1Keypair,
+                             kAccount2,
+                             permissions::Grantable::kSetMyQuorum),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
+        .done();
+  }
 }
 
 /**
@@ -137,38 +152,42 @@ TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
  */
 TEST_F(GrantablePermissionsFixture,
        RevokeTheGrantedPermissionWithoutPermission) {
-  auto detach_role_tx = GrantablePermissionsFixture::TxBuilder()
-                            .createdTime(getUniqueTime())
-                            .creatorAccountId(kAdminId)
-                            .quorum(1)
-                            .detachRole(kAccount1 + "@" + kDomain, kRole1)
-                            .build()
-                            .signAndAddSignature(kAdminKeypair)
-                            .finish();
+  for (auto const type : storage_types) {
+    auto detach_role_tx = GrantablePermissionsFixture::TxBuilder()
+                              .createdTime(getUniqueTime())
+                              .creatorAccountId(kAdminId)
+                              .quorum(1)
+                              .detachRole(kAccount1 + "@" + kDomain, kRole1)
+                              .build()
+                              .signAndAddSignature(kAdminKeypair)
+                              .finish();
 
-  IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
-  createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
-      .sendTxAwait(
-          grantPermission(kAccount1,
-                          kAccount1Keypair,
-                          kAccount2,
-                          permissions::Grantable::kSetMyQuorum),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTxAwait(
-          detach_role_tx,
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendTx(revokePermission(kAccount1,
-                               kAccount1Keypair,
-                               kAccount2,
-                               permissions::Grantable::kSetMyQuorum))
-      .checkProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .done();
+    IntegrationTestFramework itf(1, type);
+    itf.setInitialState(kAdminKeypair);
+    createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
+        .sendTxAwait(
+            grantPermission(kAccount1,
+                            kAccount1Keypair,
+                            kAccount2,
+                            permissions::Grantable::kSetMyQuorum),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            detach_role_tx,
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTx(revokePermission(kAccount1,
+                                 kAccount1Keypair,
+                                 kAccount2,
+                                 permissions::Grantable::kSetMyQuorum))
+        .checkProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 1);
+        })
+        .checkBlock(
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .done();
+  }
 }
 
 namespace grantables {
@@ -337,54 +356,57 @@ namespace grantables {
    * - checks that the last transaction was failed due to a missing permission
    */
   TYPED_TEST(GrantRevokeFixture, GrantAndRevokePermission) {
-    IntegrationTestFramework itf(1);
-    itf.setInitialState(kAdminKeypair);
+    for (auto const type : storage_types) {
+      IntegrationTestFramework itf(1, type);
+      itf.setInitialState(kAdminKeypair);
 
-    gpf::createTwoAccounts(itf,
-                           {this->grantable_type_.can_grant_permission_,
-                            Role::kAddSignatory,
-                            Role::kReceive},
-                           {Role::kReceive})
-        .sendTxAwait(
-            gpf::grantPermission(gpf::kAccount1,
-                                 gpf::kAccount1Keypair,
-                                 gpf::kAccount2,
-                                 this->grantable_type_.grantable_permission_),
-            // permission was successfully granted
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-    this->grantable_type_.prepare(*this, itf)
-        .sendTx(this->grantable_type_.testTransaction(*this))
-        .checkProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 1);
-        })
-        .skipVerifiedProposal()
-        .checkBlock(
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-        .sendTxAwait(
-            gpf::revokePermission(gpf::kAccount1,
-                                  gpf::kAccount1Keypair,
-                                  gpf::kAccount2,
-                                  this->grantable_type_.grantable_permission_),
-            // permission was successfully revoked
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-    auto last_check_tx = this->grantable_type_.testTransaction(*this);
-    std::vector<interface::types::HashType> hashes{last_check_tx.hash()};
-    auto last_tx_status_query = TestUnsignedQueryBuilder()
-                                    .creatorAccountId(kAdminId)
-                                    .createdTime(this->getUniqueTime())
-                                    .queryCounter(1)
-                                    .getTransactions(hashes)
-                                    .build()
-                                    .signAndAddSignature(kAdminKeypair)
-                                    .finish();
-    itf.sendTx(last_check_tx)
-        .checkProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 1);
-        })
-        .skipVerifiedProposal()
-        .checkBlock(
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
-        .done();
+      gpf::createTwoAccounts(itf,
+                             {this->grantable_type_.can_grant_permission_,
+                              Role::kAddSignatory,
+                              Role::kReceive},
+                             {Role::kReceive})
+          .sendTxAwait(
+              gpf::grantPermission(gpf::kAccount1,
+                                   gpf::kAccount1Keypair,
+                                   gpf::kAccount2,
+                                   this->grantable_type_.grantable_permission_),
+              // permission was successfully granted
+              [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+      this->grantable_type_.prepare(*this, itf)
+          .sendTx(this->grantable_type_.testTransaction(*this))
+          .checkProposal([](auto &proposal) {
+            ASSERT_EQ(proposal->transactions().size(), 1);
+          })
+          .skipVerifiedProposal()
+          .checkBlock(
+              [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+          .sendTxAwait(
+              gpf::revokePermission(
+                  gpf::kAccount1,
+                  gpf::kAccount1Keypair,
+                  gpf::kAccount2,
+                  this->grantable_type_.grantable_permission_),
+              // permission was successfully revoked
+              [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+      auto last_check_tx = this->grantable_type_.testTransaction(*this);
+      std::vector<interface::types::HashType> hashes{last_check_tx.hash()};
+      auto last_tx_status_query = TestUnsignedQueryBuilder()
+                                      .creatorAccountId(kAdminId)
+                                      .createdTime(this->getUniqueTime())
+                                      .queryCounter(1)
+                                      .getTransactions(hashes)
+                                      .build()
+                                      .signAndAddSignature(kAdminKeypair)
+                                      .finish();
+      itf.sendTx(last_check_tx)
+          .checkProposal([](auto &proposal) {
+            ASSERT_EQ(proposal->transactions().size(), 1);
+          })
+          .skipVerifiedProposal()
+          .checkBlock(
+              [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
+          .done();
+    }
   }
 
 }  // namespace grantables

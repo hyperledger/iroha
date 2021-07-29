@@ -96,7 +96,7 @@ namespace iroha {
       bool batchAlreadyProcessed(
           const shared_model::interface::TransactionBatch &batch);
 
-      void insertBatchToCache(
+      bool insertBatchToCache(
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch);
 
@@ -106,7 +106,7 @@ namespace iroha {
       bool isEmptyBatchesCache() const override;
 
       void forCachedBatches(
-          std::function<void(const BatchesSetType &)> const &f) override;
+          std::function<void(const BatchesSetType &)> const &f) const override;
 
       std::vector<std::shared_ptr<shared_model::interface::Transaction>>
       getTransactionsFromBatchesCache(size_t requested_tx_amount);

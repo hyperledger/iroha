@@ -8,15 +8,17 @@
 #include <fmt/core.h>
 
 #include "ametsuchi/impl/rocksdb_common.hpp"
+#include "common/to_lower.hpp"
 #include "cryptography/hash.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
 
-RocksDBIndexer::RocksDBIndexer(std::shared_ptr<RocksDBPort> db_port)
-    : db_context_(std::make_shared<RocksDBContext>(db_port)) {}
+RocksDBIndexer::RocksDBIndexer(std::shared_ptr<RocksDBContext> db_context)
+    : db_context_(std::move(db_context)) {}
 
 void RocksDBIndexer::txHashStatus(const TxPosition &position,
+                                  TimestampType const ts,
                                   const HashType &tx_hash,
                                   bool is_committed) {
   RocksDbCommon common(db_context_);
@@ -25,24 +27,37 @@ void RocksDBIndexer::txHashStatus(const TxPosition &position,
   common.valueBuffer() += std::to_string(position.height);
   common.valueBuffer() += '#';
   common.valueBuffer() += std::to_string(position.index);
+  common.valueBuffer() += '#';
+  common.valueBuffer() += std::to_string(ts);
 
   std::string h_hex;
-  std::transform(tx_hash.hex().begin(),
-                 tx_hash.hex().end(),
-                 h_hex.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+  forTransactionStatus<kDbOperation::kPut>(common,
+                                           toLowerAppend(tx_hash.hex(), h_hex));
 
-  forTransactionStatus<kDbOperation::kPut>(common, h_hex);
+  if (is_committed) {
+    uint64_t txs_count = 0ull;
+    if (auto result =
+            forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(common);
+        expected::hasValue(result) && result.assumeValue())
+      txs_count = *result.assumeValue();
+
+    common.encode(txs_count + 1ull);
+    forTxsTotalCount<kDbOperation::kPut>(common);
+  }
 }
 
-void RocksDBIndexer::committedTxHash(const TxPosition &position,
-                                     const HashType &committed_tx_hash) {
-  txHashStatus(position, committed_tx_hash, true);
+void RocksDBIndexer::committedTxHash(
+    const TxPosition &position,
+    shared_model::interface::types::TimestampType const ts,
+    const HashType &committed_tx_hash) {
+  txHashStatus(position, ts, committed_tx_hash, true);
 }
 
-void RocksDBIndexer::rejectedTxHash(const TxPosition &position,
-                                    const HashType &rejected_tx_hash) {
-  txHashStatus(position, rejected_tx_hash, false);
+void RocksDBIndexer::rejectedTxHash(
+    const TxPosition &position,
+    shared_model::interface::types::TimestampType const ts,
+    const HashType &rejected_tx_hash) {
+  txHashStatus(position, ts, rejected_tx_hash, false);
 }
 
 void RocksDBIndexer::txPositions(
@@ -53,17 +68,18 @@ void RocksDBIndexer::txPositions(
     TxPosition const &position) {
   RocksDbCommon common(db_context_);
 
-  std::string h_hex;
-  std::transform(
-      hash.hex().begin(), hash.hex().end(), h_hex.begin(), [](unsigned char c) {
-        return std::tolower(c);
-      });
+  if (auto res =
+          forTransactionByPosition<kDbOperation::kCheck, kDbEntry::kMustExist>(
+              common, account, ts, position.height, position.index);
+      expected::hasValue(res))
+    return;
 
-  common.valueBuffer().assign(
-      fmt::format("{}#{}", asset_id ? *asset_id : "", h_hex));
+  std::string h_hex;
+  common.valueBuffer().assign(fmt::format(
+      "{}%{}", asset_id ? *asset_id : "", toLowerAppend(hash.hex(), h_hex)));
 
   forTransactionByPosition<kDbOperation::kPut>(
-      common, account, position.height, position.index, ts);
+      common, account, ts, position.height, position.index);
   forTransactionByTimestamp<kDbOperation::kPut>(
       common, account, ts, position.height, position.index);
 
@@ -75,15 +91,6 @@ void RocksDBIndexer::txPositions(
 
   common.encode(txs_count + 1ull);
   forTxsTotalCount<kDbOperation::kPut>(common, account);
-
-  txs_count = 0ull;
-  if (auto result =
-          forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(common);
-      expected::hasValue(result) && result.assumeValue())
-    txs_count = *result.assumeValue();
-
-  common.encode(txs_count + 1ull);
-  forTxsTotalCount<kDbOperation::kPut>(common);
 }
 
 iroha::expected::Result<void, std::string> RocksDBIndexer::flush() {

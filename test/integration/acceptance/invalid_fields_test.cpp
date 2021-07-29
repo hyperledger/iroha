@@ -12,6 +12,9 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
+static constexpr iroha::StorageType storage_types[] = {
+    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
 class InvalidField : public AcceptanceFixture {};
 
 /**
@@ -22,14 +25,16 @@ class InvalidField : public AcceptanceFixture {};
  * @then Torii returns stateless fail
  */
 TEST_F(InvalidField, Signature) {
-  auto tx = complete(baseTx()).getTransport();
-  // extend signature to invalid size
-  auto sig = tx.mutable_signatures(0)->mutable_signature();
-  sig->resize(sig->size() + 1, 'a');
+  for (auto const type : storage_types) {
+    auto tx = complete(baseTx()).getTransport();
+    // extend signature to invalid size
+    auto sig = tx.mutable_signatures(0)->mutable_signature();
+    sig->resize(sig->size() + 1, 'a');
 
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(proto::Transaction(tx), CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(proto::Transaction(tx), CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -40,12 +45,14 @@ TEST_F(InvalidField, Signature) {
  * @then Torii returns stateless fail
  */
 TEST_F(InvalidField, Pubkey) {
-  auto tx = complete(baseTx()).getTransport();
-  // extend public key to invalid size
-  auto pkey = tx.mutable_signatures(0)->mutable_public_key();
-  pkey->resize(pkey->size() + 1, 'a');
+  for (auto const type : storage_types) {
+    auto tx = complete(baseTx()).getTransport();
+    // extend public key to invalid size
+    auto pkey = tx.mutable_signatures(0)->mutable_public_key();
+    pkey->resize(pkey->size() + 1, 'a');
 
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(proto::Transaction(tx), CHECK_STATELESS_INVALID);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(proto::Transaction(tx), CHECK_STATELESS_INVALID);
+  }
 }

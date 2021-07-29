@@ -423,5 +423,6 @@ namespace iroha {
         return fmt::format("Failed to set top_block_info: {}.", e.what());
       }
     }
+
   }  // namespace ametsuchi
 }  // namespace iroha
