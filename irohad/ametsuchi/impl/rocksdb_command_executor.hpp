@@ -61,6 +61,7 @@ namespace iroha::ametsuchi {
       kPeersCountIsNotEnough = 4,
       kNoSignatory = 4,
       kCountNotEnough = 5,
+      kIncorrectValue = 5,
       kNotEnoughAssets = 6,
       kIncorrectBalance = 7,
       kException = 1002,

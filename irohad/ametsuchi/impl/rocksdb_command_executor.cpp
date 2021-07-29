@@ -6,12 +6,15 @@
 #include "ametsuchi/impl/rocksdb_command_executor.hpp"
 
 #include <fmt/core.h>
+#include <rapidjson/document.h>
+#include <rapidjson/rapidjson.h>
 #include <rocksdb/utilities/transaction.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/variant/apply_visitor.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/vm_caller.hpp"
+#include "common/remove_escape_symbols.hpp"
 #include "common/to_lower.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
@@ -332,6 +335,16 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     shared_model::interface::types::CommandIndexType /*cmd_index*/,
     bool do_validation,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
+  std::string new_details = command.value();
+  removeEscapeSymbols(new_details);
+
+  rapidjson::Document doc;
+  if (doc.Parse(new_details.data()).HasParseError()) {
+    return makeError<void>(ErrorCodes::kIncorrectValue,
+                           "Command value is not a valid JSON: {}",
+                           new_details);
+  }
+
   auto const &[creator_account_name, creator_domain_id] =
       staticSplitId<2>(creator_account_id);
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
@@ -365,9 +378,14 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       forAccountDetail<kDbOperation::kGet, kDbEntry::kCanExist>(
           common, account_name, domain_id, creator_id, command.key()));
 
-  bool const eq = (command.oldValue() && opt_detail)
-      ? *opt_detail == *command.oldValue()
-      : false;
+  std::string old_details;
+  if (command.oldValue()) {
+    old_details = *command.oldValue();
+    removeEscapeSymbols(old_details);
+  }
+
+  bool const eq =
+      (command.oldValue() && opt_detail) ? *opt_detail == old_details : false;
   bool const same =
       command.checkEmpty() ? !command.oldValue() && !opt_detail : !opt_detail;
 
@@ -381,7 +399,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
             !creator_account_id.empty() ? creator_account_id : "genesis",
             command.key()));
 
-    common.valueBuffer().assign(command.value());
+    common.valueBuffer().assign(new_details);
     RDB_ERROR_CHECK(forAccountDetail<kDbOperation::kPut>(
         common, account_name, domain_id, creator_id, command.key()));
 
@@ -796,6 +814,16 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       staticSplitId<2>(creator_account_id);
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
 
+  std::string new_details = command.value();
+  removeEscapeSymbols(new_details);
+
+  rapidjson::Document doc;
+  if (doc.Parse(new_details.data()).HasParseError()) {
+    return makeError<void>(ErrorCodes::kIncorrectValue,
+                           "Command value is not a valid JSON: {}",
+                           new_details);
+  }
+
   if (do_validation) {
     if (command.accountId() != creator_account_id) {
       GrantablePermissionSet granted_account_permissions;
@@ -829,7 +857,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
           !creator_account_id.empty() ? creator_account_id : "genesis",
           command.key()));
 
-  common.valueBuffer().assign(command.value());
+  common.valueBuffer().assign(new_details);
   RDB_ERROR_CHECK(forAccountDetail<kDbOperation::kPut>(
       common,
       account_name,
