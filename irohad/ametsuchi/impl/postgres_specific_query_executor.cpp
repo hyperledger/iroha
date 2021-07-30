@@ -458,7 +458,7 @@ namespace iroha {
                  {7} -- height begin
                  {8} -- height end
                  {1} -- ordering
-                 ),           
+                 ),
                total_size AS (SELECT COUNT(*) FROM my_txs) {3}
                SELECT my_txs.height, my_txs.index, count, perm FROM my_txs
                {4}
