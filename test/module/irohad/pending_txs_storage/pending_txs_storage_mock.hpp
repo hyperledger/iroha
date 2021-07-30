@@ -25,6 +25,18 @@ namespace iroha {
                 page_size,
             const std::optional<shared_model::interface::types::HashType>
                 &first_tx_hash));
+    MOCK_CONST_METHOD5(
+        getPendingTransactions,
+        expected::Result<Response, ErrorCode>(
+            const shared_model::interface::types::AccountIdType &account_id,
+            const shared_model::interface::types::TransactionsNumberType
+                page_size,
+            const std::optional<shared_model::interface::types::HashType>
+                &first_tx_hash,
+            const std::optional<shared_model::interface::types::TimestampType>
+                &first_tx_time,
+            const std::optional<shared_model::interface::types::TimestampType>
+                &last_tx_time));
     MOCK_METHOD1(insertPresenceCache,
                  void(std::shared_ptr<ametsuchi::TxPresenceCache> &cache));
     MOCK_METHOD(void,

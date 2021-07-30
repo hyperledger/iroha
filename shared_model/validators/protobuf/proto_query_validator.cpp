@@ -32,7 +32,8 @@ namespace {
                   paginationMeta.first_tx_time()))) {
         return shared_model::validation::ValidationError{
             "TxPaginationMeta",
-            {"First tx time from pagination meta is not a proper value."}};
+            {"First tx time from pagination meta is not a "
+             "proper value."}};
       }
     }
     if (paginationMeta.opt_last_tx_time_case()

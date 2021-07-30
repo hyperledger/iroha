@@ -80,7 +80,11 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::TransactionsNumberType page_size,
         const std::optional<shared_model::interface::types::HashType>
-            &first_tx_hash) const = 0;
+            &first_tx_hash,
+        const std::optional<shared_model::interface::types::TimestampType>
+            &first_tx_time,
+        const std::optional<shared_model::interface::types::TimestampType>
+            &last_tx_time) const = 0;
 
     virtual void removeTransaction(
         shared_model::interface::types::HashType const &hash) = 0;

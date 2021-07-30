@@ -29,8 +29,8 @@ namespace shared_model {
           const override;
       std::optional<interface::types::HeightType> firstTxHeight()
           const override;
-      std::optional<interface::types::HeightType> lastTxHeight() const override;
-
+      std::optional<interface::types::HeightType> lastTxHeight()
+          const override;
      private:
       const iroha::protocol::TxPaginationMeta &meta_;
       OrderingImpl ordering_;

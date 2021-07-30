@@ -379,6 +379,10 @@ namespace shared_model {
       auto getPendingTransactions(
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
+              std::nullopt,
+          const std::optional<interface::types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::TimestampType> &last_tx_time =
               std::nullopt) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_pending_transactions();

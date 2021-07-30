@@ -8,6 +8,7 @@
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "interfaces/transaction.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
+#include <iostream>
 
 using iroha::PendingTransactionStorageImpl;
 
@@ -33,7 +34,11 @@ PendingTransactionStorageImpl::getPendingTransactions(
     const shared_model::interface::types::AccountIdType &account_id,
     const shared_model::interface::types::TransactionsNumberType page_size,
     const std::optional<shared_model::interface::types::HashType>
-        &first_tx_hash) const {
+        &first_tx_hash,
+    const std::optional<shared_model::interface::types::TimestampType>
+        &first_tx_time,
+    const std::optional<shared_model::interface::types::TimestampType>
+        &last_tx_time) const {
   BOOST_ASSERT_MSG(page_size > 0, "Page size has to be positive");
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   auto account_batches_iterator = storage_.find(account_id);
@@ -64,10 +69,35 @@ PendingTransactionStorageImpl::getPendingTransactions(
   while (account_batches.batches.end() != batch_iterator
          and remaining_space >= batch_iterator->get()->transactions().size()) {
     auto &txs = batch_iterator->get()->transactions();
-    response.transactions.insert(
-        response.transactions.end(), txs.begin(), txs.end());
-    remaining_space -= txs.size();
-    ++batch_iterator;
+    // can be easy extended by adding more conditions if needed
+    if (first_tx_time or last_tx_time){
+      auto time_predicate = [&](auto &tx) {
+        if (first_tx_time && last_tx_time) {
+          return first_tx_time <= tx->createdTime()
+              and tx->createdTime() <= last_tx_time;
+        }
+        if (first_tx_time) {
+          return first_tx_time <= tx->createdTime();
+        }
+        if (last_tx_time) {
+          return last_tx_time >= tx->createdTime();
+        }
+        return true;
+      };
+      auto filtered_txs_size = std::count_if(txs.begin(), txs.end(),time_predicate);
+      std::copy_if(txs.begin(),
+                   txs.end(),
+                   std::back_inserter(response.transactions),
+                   time_predicate);
+      remaining_space -= filtered_txs_size;
+      ++batch_iterator;
+    }else{
+      response.transactions.insert(
+          response.transactions.end(), txs.begin(), txs.end());
+      remaining_space -= txs.size();
+      ++batch_iterator;
+    }
+    
   }
   if (account_batches.batches.end() != batch_iterator) {
     shared_model::interface::PendingTransactionsPageResponse::BatchInfo
