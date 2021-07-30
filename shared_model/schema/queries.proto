@@ -9,7 +9,7 @@ package iroha.protocol;
 option go_package = "iroha.generated/protocol";
 
 import "primitive.proto";
-
+import "google/protobuf/timestamp.proto";
 enum Field {
   kCreatedTime = 0;
   kPosition = 1;
@@ -34,6 +34,18 @@ message TxPaginationMeta {
     string first_tx_hash = 2;
   }
   Ordering ordering = 3;
+  oneof opt_first_tx_time {
+    google.protobuf.Timestamp first_tx_time = 4;
+  }
+  oneof opt_last_tx_time {
+    google.protobuf.Timestamp last_tx_time = 5;
+  }
+  oneof opt_first_tx_height {
+    uint64 first_tx_height = 6;
+  }
+  oneof opt_last_tx_height {
+    uint64 last_tx_height = 7;
+  }
 }
 
 message AssetPaginationMeta {
@@ -81,13 +93,13 @@ message AccountDetailPaginationMeta {
 }
 
 message GetAccountDetail {
-  oneof opt_account_id{
+  oneof opt_account_id {
     string account_id = 1;
   }
-  oneof opt_key{
+  oneof opt_key {
     string key = 2;
   }
-  oneof opt_writer{
+  oneof opt_writer {
     string writer = 3;
   }
   AccountDetailPaginationMeta pagination_meta = 4;
@@ -97,11 +109,9 @@ message GetAssetInfo {
   string asset_id = 1;
 }
 
-message GetRoles {
+message GetRoles {}
 
-}
-
-message GetRolePermissions{
+message GetRolePermissions {
   string role_id = 1;
 }
 
@@ -109,9 +119,7 @@ message GetPendingTransactions {
   TxPaginationMeta pagination_meta = 1;
 }
 
-message GetPeers {
-
-}
+message GetPeers {}
 
 message QueryPayloadMeta {
   uint64 created_time = 1;
@@ -123,7 +131,6 @@ message QueryPayloadMeta {
 message GetEngineReceipts {
   string tx_hash = 1;
 }
-
 
 message Query {
   message Payload {
