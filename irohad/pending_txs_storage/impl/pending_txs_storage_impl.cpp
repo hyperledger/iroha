@@ -69,7 +69,7 @@ PendingTransactionStorageImpl::getPendingTransactions(
   while (account_batches.batches.end() != batch_iterator
          and remaining_space >= batch_iterator->get()->transactions().size()) {
     auto &txs = batch_iterator->get()->transactions();
-    // can be easy extended by adding more conditions if needed
+    // can be easily extended by adding more conditions if needed
     if (first_tx_time or last_tx_time){
       auto time_predicate = [&](auto &tx) {
         if (first_tx_time && last_tx_time) {
