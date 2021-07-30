@@ -11,6 +11,7 @@
 #include <fmt/format.h>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
+#include "ametsuchi/impl/rocksdb_db_transaction.hpp"
 #include "interfaces/permissions.hpp"
 
 namespace rocksdb {
@@ -54,6 +55,7 @@ namespace iroha::ametsuchi {
       kNoAccount = 3,
       kInvalidAmount = 3,
       kRoleAlreadyExists = 3,
+      kSignatoryMustNotExist = 3,
       kInvalidAssetAmount = 4,
       kIncorrectOldValue = 4,
       kPeersCountIsNotEnough = 4,
@@ -69,7 +71,7 @@ namespace iroha::ametsuchi {
     };
 
     RocksDbCommandExecutor(
-        std::shared_ptr<RocksDBPort> db_port,
+        std::shared_ptr<RocksDBContext> db_context,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller);
@@ -82,6 +84,10 @@ namespace iroha::ametsuchi {
         const std::string &tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) override;
+
+    void skipChanges() override;
+    DatabaseTransaction &dbSession() override;
+    std::shared_ptr<RocksDBContext> getSession();
 
     ExecutionResult operator()(
         RocksDbCommon &common,
@@ -268,6 +274,7 @@ namespace iroha::ametsuchi {
     std::shared_ptr<shared_model::interface::PermissionToString>
         perm_converter_;
     std::optional<std::reference_wrapper<const VmCaller>> vm_caller_;
+    RocksDbTransaction db_transaction_;
   };
 
 }  // namespace iroha::ametsuchi

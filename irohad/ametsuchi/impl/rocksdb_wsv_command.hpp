@@ -19,7 +19,7 @@ namespace iroha {
      public:
       enum ErrorCodes { kNotUsed = 1000 };
 
-      explicit RocksDBWsvCommand(std::shared_ptr<RocksDBPort> db_port);
+      explicit RocksDBWsvCommand(std::shared_ptr<RocksDBContext> db_context);
       WsvCommandResult insertRole(
           const shared_model::interface::types::RoleIdType &role_name) override;
       WsvCommandResult insertAccountRole(
@@ -80,7 +80,6 @@ namespace iroha {
           const TopBlockInfo &top_block_info) const override;
 
      private:
-      std::shared_ptr<RocksDBPort> db_port_;
       mutable std::shared_ptr<RocksDBContext> db_context_;
     };
   }  // namespace ametsuchi

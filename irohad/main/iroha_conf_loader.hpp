@@ -17,8 +17,13 @@
 #include "multihash/type.hpp"
 #include "torii/tls_params.hpp"
 
+static const std::string kDbTypeRocksdb = "rocksdb";
+static const std::string kDbTypePostgres = "postgres";
+
 struct IrohadConfig {
   struct DbConfig {
+    std::string type;
+    std::string path;
     std::string host;
     uint16_t port;
     std::string user;

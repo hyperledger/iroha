@@ -26,6 +26,8 @@ namespace config_members {
   const char *Password = "password";
   const char *WorkingDbName = "working database";
   const char *MaintenanceDbName = "maintenance database";
+  const char *DbPath = "path";
+  const char *DbType = "type";
   const char *MaxProposalSize = "max_proposal_size";
   const char *ProposalDelay = "proposal_delay";
   const char *ProposalCreationTimeout = "proposal_creation_timeout";

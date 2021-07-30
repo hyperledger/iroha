@@ -15,6 +15,8 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class AcceptanceTest : public AcceptanceFixture {
  public:
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
   const std::function<void(const shared_model::proto::TransactionResponse &)>
       checkStatelessValidStatus = [](auto &status) {
         ASSERT_NO_THROW(
@@ -53,15 +55,18 @@ class AcceptanceTest : public AcceptanceFixture {
  */
 TEST_F(AcceptanceTest, NonExistentCreatorAccountId) {
   const std::string kNonUser = "nonuser@test";
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>().creatorAccountId(kNonUser), kAdminKeypair),
-              checkStatelessValidStatus)
-      .checkProposal(checkProposal)
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(complete(baseTx<>().creatorAccountId(kNonUser), kAdminKeypair),
+                checkStatelessValidStatus)
+        .checkProposal(checkProposal)
+        .checkVerifiedProposal([](auto &proposal) {
+          ASSERT_EQ(proposal->transactions().size(), 0);
+        })
+        .checkBlock(
+            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+  }
 }
 
 /**
@@ -73,15 +78,17 @@ TEST_F(AcceptanceTest, NonExistentCreatorAccountId) {
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
 TEST_F(AcceptanceTest, Transaction1HourOld) {
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>().createdTime(
-                           iroha::time::now(std::chrono::hours(-1))),
-                       kAdminKeypair),
-              checkStatelessValidStatus)
-      .skipProposal()
-      .skipVerifiedProposal()
-      .checkBlock(checkStatefulValid);
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(complete(baseTx<>().createdTime(
+                             iroha::time::now(std::chrono::hours(-1))),
+                         kAdminKeypair),
+                checkStatelessValidStatus)
+        .skipProposal()
+        .skipVerifiedProposal()
+        .checkBlock(checkStatefulValid);
+  }
 }
 
 /**
@@ -93,15 +100,17 @@ TEST_F(AcceptanceTest, Transaction1HourOld) {
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
 TEST_F(AcceptanceTest, DISABLED_TransactionLess24HourOld) {
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
-                           std::chrono::hours(24) - std::chrono::minutes(1))),
-                       kAdminKeypair),
-              checkStatelessValidStatus)
-      .skipProposal()
-      .skipVerifiedProposal()
-      .checkBlock(checkStatefulValid);
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
+                             std::chrono::hours(24) - std::chrono::minutes(1))),
+                         kAdminKeypair),
+                checkStatelessValidStatus)
+        .skipProposal()
+        .skipVerifiedProposal()
+        .checkBlock(checkStatefulValid);
+  }
 }
 
 /**
@@ -112,12 +121,14 @@ TEST_F(AcceptanceTest, DISABLED_TransactionLess24HourOld) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionMore24HourOld) {
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
-                           std::chrono::hours(24) + std::chrono::minutes(1))),
-                       kAdminKeypair),
-              CHECK_STATELESS_INVALID);
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
+                             std::chrono::hours(24) + std::chrono::minutes(1))),
+                         kAdminKeypair),
+                CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -129,15 +140,18 @@ TEST_F(AcceptanceTest, TransactionMore24HourOld) {
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
 TEST_F(AcceptanceTest, Transaction5MinutesFromFuture) {
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
-                           std::chrono::minutes(5) - std::chrono::seconds(10))),
-                       kAdminKeypair),
-              checkStatelessValidStatus)
-      .skipProposal()
-      .skipVerifiedProposal()
-      .checkBlock(checkStatefulValid);
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(
+            complete(baseTx<>().createdTime(iroha::time::now(
+                         std::chrono::minutes(5) - std::chrono::seconds(10))),
+                     kAdminKeypair),
+            checkStatelessValidStatus)
+        .skipProposal()
+        .skipVerifiedProposal()
+        .checkBlock(checkStatefulValid);
+  }
 }
 
 /**
@@ -148,12 +162,14 @@ TEST_F(AcceptanceTest, Transaction5MinutesFromFuture) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, Transaction10MinutesFromFuture) {
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>().createdTime(
-                           iroha::time::now(std::chrono::minutes(10))),
-                       kAdminKeypair),
-              CHECK_STATELESS_INVALID);
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(complete(baseTx<>().createdTime(
+                             iroha::time::now(std::chrono::minutes(10))),
+                         kAdminKeypair),
+                CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -164,18 +180,20 @@ TEST_F(AcceptanceTest, Transaction10MinutesFromFuture) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
-  using namespace std::literals;
-  shared_model::proto::Transaction tx =
-      baseTx<TestTransactionBuilder>().build();
+  for (auto const type : storage_types) {
+    using namespace std::literals;
+    shared_model::proto::Transaction tx =
+        baseTx<TestTransactionBuilder>().build();
 
-  auto signedBlob = shared_model::crypto::CryptoSigner::sign(
-      shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
-  tx.addSignature(
-      shared_model::interface::types::SignedHexStringView{signedBlob},
-      ""_hex_pubkey);
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(tx, CHECK_STATELESS_INVALID);
+    auto signedBlob = shared_model::crypto::CryptoSigner::sign(
+        shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
+    tx.addSignature(
+        shared_model::interface::types::SignedHexStringView{signedBlob},
+        ""_hex_pubkey);
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(tx, CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -188,14 +206,16 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
-  using namespace std::literals;
-  shared_model::proto::Transaction tx =
-      baseTx<TestTransactionBuilder>().build();
-  tx.addSignature(shared_model::interface::types::SignedHexStringView{""sv},
-                  PublicKeyHexStringView{kAdminKeypair.publicKey()});
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(tx, CHECK_STATELESS_INVALID);
+  for (auto const type : storage_types) {
+    using namespace std::literals;
+    shared_model::proto::Transaction tx =
+        baseTx<TestTransactionBuilder>().build();
+    tx.addSignature(shared_model::interface::types::SignedHexStringView{""sv},
+                    PublicKeyHexStringView{kAdminKeypair.publicKey()});
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(tx, CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -206,18 +226,21 @@ TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
-  shared_model::proto::Transaction tx =
-      baseTx<TestTransactionBuilder>().build();
-  auto signedBlob = shared_model::crypto::CryptoSigner::sign(
-      shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
-  std::string public_key{
-      shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength, 'a'};
-  tx.addSignature(
-      shared_model::interface::types::SignedHexStringView{signedBlob},
-      shared_model::interface::types::PublicKeyHexStringView{public_key});
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(tx, CHECK_STATELESS_INVALID);
+  for (auto const type : storage_types) {
+    shared_model::proto::Transaction tx =
+        baseTx<TestTransactionBuilder>().build();
+    auto signedBlob = shared_model::crypto::CryptoSigner::sign(
+        shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
+    std::string public_key{
+        shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength,
+        'a'};
+    tx.addSignature(
+        shared_model::interface::types::SignedHexStringView{signedBlob},
+        shared_model::interface::types::PublicKeyHexStringView{public_key});
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(tx, CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -228,19 +251,21 @@ TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
-  shared_model::proto::Transaction tx =
-      baseTx<TestTransactionBuilder>().build();
+  for (auto const type : storage_types) {
+    shared_model::proto::Transaction tx =
+        baseTx<TestTransactionBuilder>().build();
 
-  auto wrong_signature = shared_model::crypto::CryptoSigner::sign(
-      shared_model::crypto::Blob(tx.payload()), kUserKeypair);
+    auto wrong_signature = shared_model::crypto::CryptoSigner::sign(
+        shared_model::crypto::Blob(tx.payload()), kUserKeypair);
 
-  tx.addSignature(
-      shared_model::interface::types::SignedHexStringView{wrong_signature},
-      PublicKeyHexStringView{kAdminKeypair.publicKey()});
+    tx.addSignature(
+        shared_model::interface::types::SignedHexStringView{wrong_signature},
+        PublicKeyHexStringView{kAdminKeypair.publicKey()});
 
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(tx, CHECK_STATELESS_INVALID);
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(tx, CHECK_STATELESS_INVALID);
+  }
 }
 
 /**
@@ -253,12 +278,14 @@ TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
 TEST_F(AcceptanceTest, TransactionValidSignedBlob) {
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(complete(baseTx<>(), kAdminKeypair), checkStatelessValidStatus)
-      .skipProposal()
-      .skipVerifiedProposal()
-      .checkBlock(checkStatefulValid);
+  for (auto const type : storage_types) {
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(complete(baseTx<>(), kAdminKeypair), checkStatelessValidStatus)
+        .skipProposal()
+        .skipVerifiedProposal()
+        .checkBlock(checkStatefulValid);
+  }
 }
 
 /**
@@ -269,11 +296,13 @@ TEST_F(AcceptanceTest, TransactionValidSignedBlob) {
  * @then the response is STATELESS_VALIDATION_FAILED
  */
 TEST_F(AcceptanceTest, EmptySignatures) {
-  auto proto_tx = baseTx<TestTransactionBuilder>().build().getTransport();
-  proto_tx.clear_signatures();
-  auto tx = shared_model::proto::Transaction(proto_tx);
+  for (auto const type : storage_types) {
+    auto proto_tx = baseTx<TestTransactionBuilder>().build().getTransport();
+    proto_tx.clear_signatures();
+    auto tx = shared_model::proto::Transaction(proto_tx);
 
-  integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(tx, CHECK_STATELESS_INVALID);
+    integration_framework::IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTx(tx, CHECK_STATELESS_INVALID);
+  }
 }
