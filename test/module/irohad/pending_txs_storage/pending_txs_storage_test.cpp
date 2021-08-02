@@ -365,7 +365,6 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
   }
 }
 
-
 /**
  * @given non empty pending transactions storage
  * @when a user requests pending transactions (and the storage has nothing for
