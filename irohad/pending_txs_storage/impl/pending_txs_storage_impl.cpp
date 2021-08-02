@@ -8,7 +8,6 @@
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "interfaces/transaction.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
-#include <iostream>
 
 using iroha::PendingTransactionStorageImpl;
 
@@ -70,28 +69,22 @@ PendingTransactionStorageImpl::getPendingTransactions(
          and remaining_space >= batch_iterator->get()->transactions().size()) {
     auto &txs = batch_iterator->get()->transactions();
     // can be easily extended by adding more conditions if needed
-    if (first_tx_time or last_tx_time){
+    if (first_tx_time or last_tx_time) {
       auto time_predicate = [&](auto &tx) {
-        if (first_tx_time && last_tx_time) {
-          return first_tx_time <= tx->createdTime()
-              and tx->createdTime() <= last_tx_time;
-        }
-        if (first_tx_time) {
-          return first_tx_time <= tx->createdTime();
-        }
-        if (last_tx_time) {
-          return last_tx_time >= tx->createdTime();
-        }
-        return true;
+        bool first_tx_time_valid =
+            first_tx_time ? first_tx_time <= tx->createdTime() : true;
+        bool last_tx_time_valid =
+            last_tx_time ? tx->createdTime() <= last_tx_time : true;
+        return first_tx_time_valid && last_tx_time_valid;
       };
-      auto filtered_txs_size = std::count_if(txs.begin(), txs.end(),time_predicate);
+      auto filtered_txs_size = std::count_if(txs.begin(), txs.end(), time_predicate);
       std::copy_if(txs.begin(),
                    txs.end(),
                    std::back_inserter(response.transactions),
                    time_predicate);
       remaining_space -= filtered_txs_size;
       ++batch_iterator;
-    }else{
+    } else {
       response.transactions.insert(
           response.transactions.end(), txs.begin(), txs.end());
       remaining_space -= txs.size();

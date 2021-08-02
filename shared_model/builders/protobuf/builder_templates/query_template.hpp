@@ -375,7 +375,7 @@ namespace shared_model {
           proto_query->mutable_get_pending_transactions();
         });
       }
-
+ 
       auto getPendingTransactions(
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =

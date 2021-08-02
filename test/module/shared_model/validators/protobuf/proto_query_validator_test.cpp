@@ -228,6 +228,6 @@ INSTANTIATE_TEST_SUITE_P(
                                             std::nullopt,
                                             invalid_height),
         generateGetAccountTransactionsQuery(
-            std::nullopt, std::nullopt, std::nullopt, height_5, height_2),
+          std::nullopt, timestamp_123, timestamp_100),
         generateGetAccountTransactionsQuery(
-            std::nullopt, timestamp_123, timestamp_100 )));
+          std::nullopt, std::nullopt, std::nullopt, height_5, height_2)));

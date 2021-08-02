@@ -13,7 +13,7 @@
 #include <boost/range/irange.hpp>
 #include <tuple>
 #include <unordered_map>
-#include <iostream>
+
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -1396,9 +1396,6 @@ namespace iroha {
         const shared_model::interface::types::HashType &query_hash) {
       std::vector<std::unique_ptr<shared_model::interface::Transaction>>
           response_txs;
-      std::cout << "getting pending transactions from postgres sqe"
-                << std::endl;
-      std::cout << (q.paginationMeta()==std::nullopt) << std::endl;
       if (q.paginationMeta()) {
         return pending_txs_storage_
             ->getPendingTransactions(creator_id,
@@ -1451,7 +1448,6 @@ namespace iroha {
                 });
       } else {  // TODO 2019-06-06 igor-egorov IR-516 remove deprecated
                 // interface
-        std::cout<<"using decprecated interface"<<std::endl;
         auto interface_txs =
             pending_txs_storage_->getPendingTransactions(creator_id);
         response_txs.reserve(interface_txs.size());
