@@ -72,9 +72,9 @@ PendingTransactionStorageImpl::getPendingTransactions(
     if (first_tx_time or last_tx_time) {
       auto time_predicate = [&](auto &tx) {
         bool first_tx_time_valid =
-            first_tx_time ? first_tx_time <= tx->createdTime() : true;
+            first_tx_time ? first_tx_time < tx->createdTime() : true;
         bool last_tx_time_valid =
-            last_tx_time ? tx->createdTime() <= last_tx_time : true;
+            last_tx_time ? tx->createdTime() < last_tx_time : true;
         return first_tx_time_valid && last_tx_time_valid;
       };
       auto filtered_txs_size = std::count_if(txs.begin(), txs.end(), time_predicate);
