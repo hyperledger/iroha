@@ -94,10 +94,6 @@ impl Node {
     }
 
     fn nodes_pair_hash(left: &Self, right: &Self) -> Hash {
-        use ursa::blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        };
         let left_hash = left.hash();
         let right_hash = right.hash();
         let sum: Vec<_> = left_hash
@@ -107,14 +103,7 @@ impl Node {
             .map(|(left, right)| left.saturating_add(*right))
             .take(32)
             .collect();
-        #[allow(clippy::expect_used)]
-        let vector = VarBlake2b::new(32)
-            .expect("Failed to initialize VarBlake2b.")
-            .chain(sum)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vector);
-        Hash(hash)
+        Hash::new(&sum)
     }
 }
 
