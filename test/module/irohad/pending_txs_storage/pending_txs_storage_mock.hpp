@@ -17,14 +17,6 @@ namespace iroha {
         getPendingTransactions,
         shared_model::interface::types::SharedTxsCollectionType(
             const shared_model::interface::types::AccountIdType &account_id));
-    MOCK_CONST_METHOD3(
-        getPendingTransactions,
-        expected::Result<Response, ErrorCode>(
-            const shared_model::interface::types::AccountIdType &account_id,
-            const shared_model::interface::types::TransactionsNumberType
-                page_size,
-            const std::optional<shared_model::interface::types::HashType>
-                &first_tx_hash));
     MOCK_CONST_METHOD5(
         getPendingTransactions,
         expected::Result<Response, ErrorCode>(

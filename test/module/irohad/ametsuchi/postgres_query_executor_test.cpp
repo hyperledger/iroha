@@ -1944,8 +1944,10 @@ namespace iroha {
                        .getPendingTransactions(kPageSize)
                        .build();
 
-      EXPECT_CALL(*pending_txs_storage,
-                  getPendingTransactions(account_id, kPageSize, ::testing::_))
+      EXPECT_CALL(
+          *pending_txs_storage,
+          getPendingTransactions(
+              account_id, kPageSize, ::testing::_, ::testing::_, ::testing::_))
           .Times(1);
 
       executeQuery(query);
@@ -1964,8 +1966,10 @@ namespace iroha {
                        .getPendingTransactions(kPageSize, kFirstTxHash)
                        .build();
 
-      EXPECT_CALL(*pending_txs_storage,
-                  getPendingTransactions(account_id, kPageSize, ::testing::_))
+      EXPECT_CALL(
+          *pending_txs_storage,
+          getPendingTransactions(
+              account_id, kPageSize, ::testing::_, ::testing::_, ::testing::_))
           .WillOnce(Return(iroha::expected::makeError(
               PendingTransactionStorage::ErrorCode::kNotFound)));
 
