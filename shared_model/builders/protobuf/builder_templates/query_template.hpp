@@ -6,6 +6,8 @@
 #ifndef IROHA_PROTO_QUERY_BUILDER_TEMPLATE_HPP
 #define IROHA_PROTO_QUERY_BUILDER_TEMPLATE_HPP
 
+#include <google/protobuf/util/time_util.h>
+
 #include <boost/range/algorithm/for_each.hpp>
 #include <optional>
 #include <string_view>
@@ -89,7 +91,15 @@ namespace shared_model {
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
               std::nullopt,
-          const interface::Ordering *ordering = nullptr) {
+          const interface::Ordering *ordering = nullptr,
+          const std::optional<interface::types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::TimestampType> &last_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::HeightType> &first_tx_height =
+              std::nullopt,
+          const std::optional<interface::types::HeightType> &last_tx_height =
+              std::nullopt) {
         auto from_interface_2_proto_field =
             [](interface::Ordering::Field value) {
               switch (value) {
@@ -122,6 +132,24 @@ namespace shared_model {
         page_meta_payload->set_page_size(page_size);
         if (first_hash) {
           page_meta_payload->set_first_tx_hash(first_hash->hex());
+        }
+        if (first_tx_time) {
+          auto timestamp_begin = new google::protobuf::Timestamp{
+              google::protobuf::util::TimeUtil::MillisecondsToTimestamp(
+                  first_tx_time.value())};
+          page_meta_payload->set_allocated_first_tx_time(timestamp_begin);
+        }
+        if (last_tx_time) {
+          auto timestamp_end = new google::protobuf::Timestamp{
+              google::protobuf::util::TimeUtil::MillisecondsToTimestamp(
+                  last_tx_time.value())};
+          page_meta_payload->set_allocated_last_tx_time(timestamp_end);
+        }
+        if (first_tx_height) {
+          page_meta_payload->set_first_tx_height(first_tx_height.value());
+        }
+        if (last_tx_height) {
+          page_meta_payload->set_last_tx_height(last_tx_height.value());
         }
         if (ordering) {
           interface::Ordering::OrderingEntry const *ptr = nullptr;
@@ -190,14 +218,26 @@ namespace shared_model {
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
               std::nullopt,
-          const interface::Ordering *ordering = nullptr) const {
+          const interface::Ordering *ordering = nullptr,
+          const std::optional<interface::types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::TimestampType> &last_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::HeightType> &first_tx_height =
+              std::nullopt,
+          const std::optional<interface::types::HeightType> &last_tx_height =
+              std::nullopt) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_transactions();
           query->set_account_id(account_id);
           setTxPaginationMeta(query->mutable_pagination_meta(),
                               page_size,
                               first_hash,
-                              ordering);
+                              ordering,
+                              first_tx_time,
+                              last_tx_time,
+                              first_tx_height,
+                              last_tx_height);
         });
       }
 
@@ -207,7 +247,15 @@ namespace shared_model {
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
               std::nullopt,
-          const interface::Ordering *ordering = nullptr) const {
+          const interface::Ordering *ordering = nullptr,
+          const std::optional<interface::types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::TimestampType> &last_tx_time =
+              std::nullopt,
+          const std::optional<interface::types::HeightType> &first_tx_height =
+              std::nullopt,
+          const std::optional<interface::types::HeightType> &last_tx_height =
+              std::nullopt) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_asset_transactions();
           query->set_account_id(account_id);
@@ -215,7 +263,11 @@ namespace shared_model {
           setTxPaginationMeta(query->mutable_pagination_meta(),
                               page_size,
                               first_hash,
-                              ordering);
+                              ordering,
+                              first_tx_time,
+                              last_tx_time,
+                              first_tx_height,
+                              last_tx_height);
         });
       }
 
