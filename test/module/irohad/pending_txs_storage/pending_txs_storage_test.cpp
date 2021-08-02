@@ -130,8 +130,8 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
 }
 
 /**
- * PaginationMeta works in PendingTxsStorage
- * @given Batch of two transactions and storage
+ * Timestamp in PaginationMeta works in PendingTxsStorage
+ * @given two batches of two transactions and storage
  * @when storage receives updated mst state with the batch
  * @then list of pending transactions beetwen two timestamps can be obtained
  */
@@ -149,16 +149,18 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestFirsTimeLastTimeSpecified) {
                                transactions->transactions().begin(),
                                transactions->transactions().end());
   expected.all_transactions_size = transactions->transactions().size();
+
   storage_->updatedBatchesHandler(state);
   const auto &creator = "alice@iroha";
   auto pending = storage_->getPendingTransactions(creator, kPageSize, std::nullopt, first_time, last_time);
+
   IROHA_ASSERT_RESULT_VALUE(pending);
   ASSERT_EQ(expected.all_transactions_size, pending.assumeValue().transactions.size() );
 }
 
 /**
- * PaginationMeta works in PendingTxsStorage
- * @given Batch of two transactions and storage
+ * Timestamp in PaginationMeta works in PendingTxsStorage
+ * @given two batches of two transactions and storage
  * @when storage receives updated mst state with the batch
  * @then list of pending transactions starting from specified timestamp can be obtained
  */
@@ -175,18 +177,20 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeSpecified) {
                                transactions1->transactions().begin(),
                                transactions1->transactions().end());
   expected.all_transactions_size = transactions1->transactions().size();
+
   storage_->updatedBatchesHandler(state);
   const auto &creator = "alice@iroha";
   auto pending = storage_->getPendingTransactions(
       creator, kPageSize, std::nullopt, first_time);
+
   IROHA_ASSERT_RESULT_VALUE(pending);
   ASSERT_EQ(expected.all_transactions_size,
             pending.assumeValue().transactions.size());
 }
 
 /**
- * PaginationMeta works in PendingTxsStorage
- * @given Batch of two transactions and storage
+ * Timestamp in PaginationMeta works in PendingTxsStorage
+ * @given two batches of two transactions and storage
  * @when storage receives updated mst state with the batch
  * @then list of pending transactions up to specified timestamp can be
  * obtained
@@ -208,13 +212,43 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestLastTimeSpecified) {
                                transactions1->transactions().end());
   expected.all_transactions_size =
       transactions->transactions().size() + transactions1->transactions().size();
+
   storage_->updatedBatchesHandler(state);
   const auto &creator = "alice@iroha";
   auto pending = storage_->getPendingTransactions(
       creator, kPageSize, std::nullopt, std::nullopt, last_time);
+
   IROHA_ASSERT_RESULT_VALUE(pending);
   ASSERT_EQ(expected.all_transactions_size,
             pending.assumeValue().transactions.size());
+}
+
+/**
+ * Timestamp in PaginationMeta works in PendingTxsStorage
+ * @given Batch of two transactions and storage
+ * @when storage receives updated mst state with the batch
+ * @then list of pending transactions up to specified timestamp can be
+ * obtained
+ */
+TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeAfterLastTransactionSpecified) {
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
+  *state += transactions;
+  auto first_time = getUniqueTime();
+  const auto kPageSize = 100u;
+  Response expected;
+  expected.transactions.insert(expected.transactions.end(),
+                               transactions->transactions().begin(),
+                               transactions->transactions().end());
+  expected.all_transactions_size = transactions->transactions().size();
+
+  storage_->updatedBatchesHandler(state);
+  const auto &creator = "alice@iroha";
+  auto pending = storage_->getPendingTransactions(
+      creator, kPageSize, std::nullopt, first_time);
+
+  IROHA_ASSERT_RESULT_VALUE(pending);
+  ASSERT_EQ(0, pending.assumeValue().transactions.size());
 }
 
 /**
