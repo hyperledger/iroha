@@ -22,7 +22,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize, Serialize};
 use ursa::{
     blake2::{
-        digest::{Input, VariableOutput},
+        digest::{Update, VariableOutput},
         VarBlake2b,
     },
     keys::{
@@ -68,10 +68,10 @@ impl Hash {
     /// new hash from bytes
     #[allow(clippy::expect_used)]
     pub fn new(bytes: &[u8]) -> Self {
-        let vec_hash = VarBlake2b::new(32)
+        let vec_hash = VarBlake2b::new(HASH_LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
-            .vec_result();
+            .finalize_boxed();
         let mut hash = [0; HASH_LENGTH];
         hash.copy_from_slice(&vec_hash);
         Hash(hash)
@@ -542,7 +542,7 @@ mod tests {
     use hex_literal::hex;
     use serde::Deserialize;
     use ursa::blake2::{
-        digest::{Input, VariableOutput},
+        digest::{Update, VariableOutput},
         VarBlake2b,
     };
 
@@ -603,8 +603,8 @@ mod tests {
     #[test]
     fn blake2_32b() {
         let mut hasher = VarBlake2b::new(32).unwrap();
-        hasher.input(hex!("6920616d2064617461"));
-        hasher.variable_result(|res| {
+        hasher.update(hex!("6920616d2064617461"));
+        hasher.finalize_variable(|res| {
             assert_eq!(
                 res[..],
                 hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
