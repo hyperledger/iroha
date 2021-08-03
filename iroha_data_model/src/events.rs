@@ -9,6 +9,7 @@ use iroha_derive::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 declare_versioned_with_scale!(VersionedEventSocketMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
@@ -41,9 +42,9 @@ impl VersionedEventSocketMessage {
 #[version_with_scale(
     n = 1,
     versioned = "VersionedEventSocketMessage",
-    derive = "Debug, Clone, IntoSchema"
+    derive = "Debug, Clone, IntoSchema, Deserialize, Serialize"
 )]
-#[derive(Debug, Clone, IntoSchema, FromVariant, Encode, Decode)]
+#[derive(Debug, Clone, IntoSchema, FromVariant, Decode, Encode, Deserialize, Serialize)]
 pub enum EventSocketMessage {
     /// Request sent by client to subscribe to events.
     SubscriptionRequest(SubscriptionRequest),
@@ -59,11 +60,13 @@ pub enum EventSocketMessage {
 
 //TODO: Sign request?
 /// Subscription Request to listen to events
-#[derive(Debug, Encode, Decode, Copy, Clone, IntoSchema)]
+#[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
 pub struct SubscriptionRequest(pub EventFilter);
 
 /// Event.
-#[derive(Debug, Encode, Decode, Eq, PartialEq, Clone, FromVariant, IntoSchema)]
+#[derive(
+    Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Clone, FromVariant, IntoSchema,
+)]
 pub enum Event {
     /// Pipeline event.
     Pipeline(pipeline::Event),
@@ -72,7 +75,7 @@ pub enum Event {
 }
 
 /// Event filter.
-#[derive(Debug, Encode, Decode, Clone, Copy, FromVariant, IntoSchema)]
+#[derive(Debug, Decode, Encode, Deserialize, Serialize, Clone, Copy, FromVariant, IntoSchema)]
 pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
@@ -96,11 +99,12 @@ pub mod data {
     use iroha_derive::FromVariant;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     use crate::prelude::*;
 
     /// Entity type to filter events.
-    #[derive(Debug, Encode, Decode, Eq, PartialEq, Copy, Clone)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone)]
     pub enum EntityType {
         /// Account.
         Account,
@@ -115,7 +119,7 @@ pub mod data {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Encode, Decode, Eq, PartialEq, Copy, Clone)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone)]
     pub enum Status {
         /// Entity was added, registered, minted or another action was made to make entity appear on
         /// the blockchain for the first time.
@@ -128,7 +132,7 @@ pub mod data {
     }
 
     /// Enumeration of all possible Iroha data entities.
-    #[derive(Clone, Debug, Encode, Decode, FromVariant)]
+    #[derive(Clone, Debug, Decode, Encode, Deserialize, Serialize, FromVariant)]
     pub enum Entity {
         /// Account.
         Account(Box<Account>),
@@ -156,7 +160,7 @@ pub mod data {
 
     //TODO: implement filter for data entities
     /// Event filter.
-    #[derive(Debug, Encode, Decode, Copy, Clone, IntoSchema)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
     pub struct EventFilter;
 
     impl EventFilter {
@@ -168,7 +172,9 @@ pub mod data {
 
     //TODO: implement event for data entities
     /// Event.
-    #[derive(Debug, Encode, Decode, Copy, Clone, Eq, PartialEq, IntoSchema)]
+    #[derive(
+        Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, Eq, PartialEq, IntoSchema,
+    )]
     pub struct Event;
 
     /// Exports common structs and enums from this module.
@@ -197,7 +203,7 @@ pub mod pipeline {
     use crate::isi::Instruction;
 
     /// Event filter.
-    #[derive(Debug, Encode, Decode, Copy, Clone, IntoSchema)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
     pub struct EventFilter {
         /// Filter by Entity if `Some`, if `None` all entities are accepted.
         pub entity: Option<EntityType>,
@@ -249,7 +255,9 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Encode, Decode, Eq, PartialEq, Copy, Clone, IntoSchema)]
+    #[derive(
+        Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone, IntoSchema,
+    )]
     pub enum EntityType {
         /// Block.
         Block,
@@ -425,7 +433,7 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Encode, Decode, Eq, PartialEq, Clone, IntoSchema)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Clone, IntoSchema)]
     pub struct Event {
         /// Type of entity that caused this event.
         pub entity_type: EntityType,
@@ -447,7 +455,9 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Encode, Decode, Eq, PartialEq, Clone, FromVariant, IntoSchema)]
+    #[derive(
+        Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Clone, FromVariant, IntoSchema,
+    )]
     pub enum Status {
         /// Entity has been seen in blockchain, but has not passed validation.
         Validating,

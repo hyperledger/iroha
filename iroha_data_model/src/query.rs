@@ -96,7 +96,7 @@ impl QueryOutput for QueryBox {
 }
 
 /// Payload of a query.
-#[derive(Debug, Io, Encode, Decode, Clone, IntoSchema)]
+#[derive(Debug, Io, Decode, Encode, Deserialize, Serialize, Clone, IntoSchema)]
 pub struct Payload {
     /// Timestamp of the query creation.
     #[codec(compact)]
@@ -116,7 +116,7 @@ impl Payload {
 }
 
 /// I/O ready structure to send queries.
-#[derive(Debug, Io, Encode, Decode, Clone)]
+#[derive(Debug, Io, Decode, Encode, Deserialize, Serialize, Clone)]
 pub struct QueryRequest {
     /// Payload
     pub payload: Payload,
@@ -130,7 +130,7 @@ declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, ir
     versioned = "VersionedSignedQueryRequest",
     derive = "Debug, Clone, IntoSchema"
 )]
-#[derive(Debug, Clone, Io, Encode, Decode, IntoSchema)]
+#[derive(Debug, Clone, Io, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SignedQueryRequest {
     /// Payload
     pub payload: Payload,
