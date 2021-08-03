@@ -1,7 +1,6 @@
 use std::{
     convert::{Infallible, TryFrom},
     future::Future,
-    sync::Arc,
     time::Duration,
 };
 
@@ -12,7 +11,7 @@ use tokio::{
     time::timeout,
 };
 
-use super::{AsyncStream, Request, Response, State};
+use super::{AsyncStream, Request, Response};
 
 const BUFFER_SIZE: usize = 2_usize.pow(12);
 #[cfg(feature = "test-no-timeout")]
@@ -33,15 +32,11 @@ pub async fn send_request_to(server_url: &str, request: Request) -> Result<Respo
     .await?
 }
 
-pub async fn listen<H, F, S>(
-    state: State<S>,
-    server_url: &str,
-    mut handler: H,
-) -> Result<Infallible>
+pub async fn listen<H, F, S>(state: S, server_url: &str, mut handler: H) -> Result<Infallible>
 where
-    H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
+    H: Send + FnMut(S, Box<dyn AsyncStream>) -> F,
     F: Send + Future<Output = Result<()>> + 'static,
-    State<S>: Send + Sync,
+    S: Send + Sync + Clone,
 {
     let listener = TcpListener::bind(server_url).await?;
     loop {
@@ -52,6 +47,6 @@ where
                 continue;
             }
         };
-        let _drop = tokio::spawn(handler(Arc::clone(&state), stream));
+        let _drop = tokio::spawn(handler(state.clone(), stream));
     }
 }

@@ -7,7 +7,7 @@ mod mock;
 #[cfg(not(feature = "mock"))]
 mod network;
 
-use std::{convert::Infallible, future::Future, sync::Arc};
+use std::{convert::Infallible, future::Future};
 
 use iroha_derive::Io;
 use iroha_error::{error, Result, WrapErr};
@@ -17,13 +17,7 @@ use mock::*;
 #[cfg(not(feature = "mock"))]
 use network::*;
 use parity_scale_codec::{Decode, Encode};
-use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    sync::RwLock,
-};
-
-/// State type alias
-pub type State<T> = Arc<RwLock<T>>;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// async stream trait alias
 pub trait AsyncStream: AsyncRead + AsyncWrite + Send + Unpin {}
@@ -85,16 +79,11 @@ impl Network {
     /// # Errors
     /// Can fail during accepting connection or handling incoming message
     #[iroha_futures::telemetry_future]
-    pub async fn listen<H, F, S>(
-        state: State<S>,
-        server_url: &str,
-        handler: H,
-    ) -> Result<Infallible>
+    pub async fn listen<H, F, S>(state: S, server_url: &str, handler: H) -> Result<Infallible>
     where
-        H: Send + FnMut(State<S>, Box<dyn AsyncStream>) -> F,
+        H: Send + FnMut(S, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<()>> + Send + 'static,
-        State<S>: Send,
-        S: Send + Sync,
+        S: Send + Sync + Clone,
     {
         listen(state, server_url, handler).await
     }
@@ -107,12 +96,12 @@ impl Network {
     /// Fails if reading or writing to stream fails. Also can fail during request decoding
     #[allow(clippy::future_not_send)]
     pub async fn handle_message_async<H, F, S>(
-        state: State<S>,
+        state: S,
         mut stream: Box<dyn AsyncStream>,
         mut handler: H,
     ) -> Result<()>
     where
-        H: FnMut(State<S>, Request) -> F,
+        H: FnMut(S, Request) -> F,
         F: Future<Output = Result<Response>>,
     {
         let request = Request::from_async_stream(&mut stream)
@@ -267,7 +256,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Network, Receipt, Request, Response, State};
+    pub use crate::{AsyncStream, Network, Receipt, Request, Response};
 }
 
 #[cfg(test)]
@@ -280,10 +269,6 @@ mod tests {
     use tokio::sync::RwLock;
 
     use super::*;
-
-    fn get_empty_state() -> State<()> {
-        Arc::new(RwLock::new(()))
-    }
 
     #[test]
     fn request_correctly_built() {
@@ -298,25 +283,18 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn single_threaded_async() {
         #[allow(clippy::unused_async)]
-        async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response>
-        where
-            State<S>: Send + Sync,
-            S: Sync,
-        {
+        async fn handle_request(_state: (), _request: Request) -> Result<Response> {
             Ok(Response::Ok(b"pong".to_vec()))
         }
 
-        async fn handle_connection<S>(state: State<S>, stream: Box<dyn AsyncStream>) -> Result<()>
-        where
-            State<S>: Send + Sync,
-            S: Sync,
-        {
+        async fn handle_connection(state: (), stream: Box<dyn AsyncStream>) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
         }
 
-        let _drop = tokio::spawn(async move {
-            Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
-        });
+        let _drop =
+            tokio::spawn(
+                async move { Network::listen((), "127.0.0.1:7878", handle_connection).await },
+            );
         std::thread::sleep(std::time::Duration::from_millis(500));
         match Network::send_request_to("127.0.0.1:7878", Request::empty("/ping"))
             .await
@@ -330,18 +308,18 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn single_threaded_async_stateful() {
         #[allow(clippy::integer_arithmetic)]
-        async fn handle_request(state: State<usize>, _request: Request) -> Result<Response> {
+        async fn handle_request(state: Arc<RwLock<usize>>, _request: Request) -> Result<Response> {
             *state.write().await += 1;
             Ok(Response::Ok(b"pong".to_vec()))
         }
         async fn handle_connection(
-            state: State<usize>,
+            state: Arc<RwLock<usize>>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<()> {
             Network::handle_message_async(state, stream, handle_request).await
         }
 
-        let counter: State<usize> = Arc::new(RwLock::new(0));
+        let counter = Arc::new(RwLock::new(0));
         let counter_move = Arc::clone(&counter);
         let _drop = tokio::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
