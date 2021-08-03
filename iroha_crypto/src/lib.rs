@@ -398,10 +398,10 @@ impl Display for PrivateKey {
 /// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(Clone, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord, IntoSchema)]
 pub struct Signature {
-    /// Ed25519 (Edwards-curve Digital Signature Algorithm scheme using SHA-512 and Curve25519)
-    /// public-key of an approved authority.
+    /// Public key that is used for verification. Payload is verified by algorithm
+    /// that corresponds with the public key's digest function.
     pub public_key: PublicKey,
-    /// Ed25519 signature is placed here.
+    /// Actual signature payload is placed here.
     signature: Vec<u8>,
 }
 
@@ -430,18 +430,18 @@ impl Signature {
     ///
     /// # Errors
     /// Fails if decoding digest of key pair fails or if message didn't pass verification
-    pub fn verify(&self, message: &[u8]) -> Result<()> {
+    pub fn verify(&self, payload: &[u8]) -> Result<()> {
         let public_key = UrsaPublicKey(self.public_key.payload.clone());
         let algorithm: Algorithm = self.public_key.digest_function.parse()?;
         let result = match algorithm {
             Algorithm::Ed25519 => {
-                Ed25519Sha512::new().verify(message, &self.signature, &public_key)
+                Ed25519Sha512::new().verify(payload, &self.signature, &public_key)
             }
             Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(message, &self.signature, &public_key)
+                EcdsaSecp256k1Sha256::new().verify(payload, &self.signature, &public_key)
             }
-            Algorithm::BlsSmall => BlsSmall::new().verify(message, &self.signature, &public_key),
-            Algorithm::BlsNormal => BlsNormal::new().verify(message, &self.signature, &public_key),
+            Algorithm::BlsSmall => BlsSmall::new().verify(payload, &self.signature, &public_key),
+            Algorithm::BlsNormal => BlsNormal::new().verify(payload, &self.signature, &public_key),
         };
         match result {
             Ok(true) => Ok(()),
