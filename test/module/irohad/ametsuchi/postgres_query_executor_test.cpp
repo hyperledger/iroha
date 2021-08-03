@@ -1514,8 +1514,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, first_tx_time, last_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1537,8 +1536,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, first_tx_time, last_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1555,8 +1553,7 @@ namespace iroha {
       auto query_response =
           this->queryPage(size, std::nullopt, nullptr, first_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1574,8 +1571,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, std::nullopt, last_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1593,8 +1589,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, std::nullopt, std::nullopt, 1);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1615,8 +1610,7 @@ namespace iroha {
                                             std::nullopt,
                                             5);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1638,8 +1632,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, first_tx_time, last_tx_time, 2, 5);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1656,8 +1649,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, std::nullopt, std::nullopt, 2, 5);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
