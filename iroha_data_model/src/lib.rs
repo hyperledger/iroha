@@ -378,6 +378,8 @@ impl From<LengthLimits> for RangeInclusive<usize> {
 pub mod world {
     //! Structures, traits and impls related to `World`.
     use iroha_schema::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     #[cfg(feature = "roles")]
     use crate::role::RolesMap;
@@ -427,7 +429,20 @@ pub mod world {
     }
 
     /// The ID of the `World`. The `World` has only a single instance, therefore the ID has no fields.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Copy,
+        Serialize,
+        Deserialize,
+        Decode,
+        Encode,
+        IntoSchema,
+    )]
     pub struct WorldId;
 
     impl From<WorldId> for IdBox {
@@ -685,7 +700,7 @@ pub mod account {
     pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
     /// Genesis account. Used to mainly be converted to ordinary `Account` struct.
-    #[derive(Debug)]
+    #[derive(Debug, Serialize, Deserialize, Decode, Encode, IntoSchema)]
     pub struct GenesisAccount {
         public_key: PublicKey,
     }
@@ -1569,17 +1584,15 @@ pub mod domain {
     pub type DomainsMap = DashMap<Name, Domain>;
 
     /// Genesis domain. It will contain only one `genesis` account.
-    #[derive(Debug)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct GenesisDomain {
-        genesis_account_public_key: PublicKey,
+        genesis_key: PublicKey,
     }
 
     impl GenesisDomain {
         /// Returns `GenesisDomain`.
-        pub const fn new(genesis_account_public_key: PublicKey) -> Self {
-            GenesisDomain {
-                genesis_account_public_key,
-            }
+        pub const fn new(genesis_key: PublicKey) -> Self {
+            Self { genesis_key }
         }
     }
 
@@ -1589,7 +1602,7 @@ pub mod domain {
                 name: GENESIS_DOMAIN_NAME.to_owned(),
                 accounts: iter::once((
                     <Account as Identifiable>::Id::genesis_account(),
-                    GenesisAccount::new(domain.genesis_account_public_key).into(),
+                    GenesisAccount::new(domain.genesis_key).into(),
                 ))
                 .collect(),
                 asset_definitions: BTreeMap::default(),
@@ -2057,7 +2070,7 @@ pub mod transaction {
         versioned = "VersionedPendingTransactions",
         derive = "Debug, Clone"
     )]
-    #[derive(Debug, Clone, Encode, Decode, Io, IntoSchema)]
+    #[derive(Debug, Clone, Encode, Decode, Deserialize, Serialize, Io, IntoSchema)]
     pub struct PendingTransactions(pub Vec<Transaction>);
 
     impl FromIterator<Transaction> for PendingTransactions {

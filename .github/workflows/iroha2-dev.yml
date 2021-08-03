@@ -122,3 +122,22 @@ jobs:
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
+
+  publish-artifacts:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container: rust:1.52-buster
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ hashFiles('Cargo.toml') }}
+      - name: Run schema generation
+        run: |
+          mkdir -p target/schema
+          cargo run -p iroha_schema_bin > target/schema/schema.json
+      - name: Upload schema
+        uses: actions/upload-artifact@v2
+        with:
+          name: schema
+          path: target/schema
