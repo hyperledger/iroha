@@ -48,7 +48,9 @@ where
     async fn handle(&mut self, actor: &mut A, ctx: &mut Context<A>) {
         match (self.channel.take(), self.msg.take()) {
             (Some(channel), Some(msg)) => actor.handle(ctx, msg).await.handle(channel).await,
-            (None, Some(msg)) => drop(actor.handle(ctx, msg).await),
+            (None, Some(msg)) => {
+                actor.handle(ctx, msg).await;
+            }
             (_, None) => unreachable!(),
         }
     }

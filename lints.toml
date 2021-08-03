@@ -19,10 +19,10 @@ deny = [
     'unsafe_code',
     'unused',
     'unused_import_braces',
-    'unused_results',
     'variant_size_differences',
 ]
 allow = [
+    'unused_results',
     'clippy::as_conversions',
     'clippy::cognitive_complexity',
     'clippy::default_numeric_fallback',

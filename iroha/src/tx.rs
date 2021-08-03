@@ -205,21 +205,19 @@ impl AcceptedTransaction {
         if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
-        drop(
-            self.signatures
-                .iter()
-                .map(|signature| {
-                    signature.verify(self.hash().as_ref()).map_err(|reason| {
-                        SignatureVerificationFail {
-                            signature: signature.clone(),
-                            // TODO: Should here also be iroha_error::Error?
-                            reason: reason.to_string(),
-                        }
-                    })
+        self.signatures
+            .iter()
+            .map(|signature| {
+                signature.verify(self.hash().as_ref()).map_err(|reason| {
+                    SignatureVerificationFail {
+                        signature: signature.clone(),
+                        // TODO: Should here also be iroha_error::Error?
+                        reason: reason.to_string(),
+                    }
                 })
-                .collect::<Result<Vec<()>, _>>()
-                .map_err(TransactionRejectionReason::SignatureVerification)?,
-        );
+            })
+            .collect::<Result<Vec<()>, _>>()
+            .map_err(TransactionRejectionReason::SignatureVerification)?;
 
         let option_reason = match self.check_signature_condition(wsv) {
             Ok(true) => None,

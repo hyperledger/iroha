@@ -499,7 +499,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
             let recipient_peers = self.topology.sorted_peers().to_vec();
             let peer_id = self.peer_id.clone();
             let tx_receipt_time = self.tx_receipt_time;
-            drop(task::spawn(async move {
+            task::spawn(async move {
                 time::sleep(tx_receipt_time).await;
                 if transactions_awaiting_receipts.contains_key(&transaction_hash) {
                     iroha_logger::warn!(
@@ -528,7 +528,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
                             )
                         });
                 }
-            }.in_current_span()));
+            }.in_current_span());
         }
         future::join_all(send_futures)
             .await
@@ -646,7 +646,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
         let recipient_peers = self.topology.sorted_peers().to_vec();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
-        drop(task::spawn(
+        task::spawn(
             async move {
                 time::sleep(commit_time).await;
                 let voting_block = if let Some(voting_block) = voting_block.write().await.clone() {
@@ -690,7 +690,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
                     });
             }
             .in_current_span(),
-        ));
+        );
     }
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
@@ -985,11 +985,11 @@ pub mod message {
                 let peers = sumeragi.peers();
                 let view_change_suggested_cloned = view_change_suggested.clone();
                 // Sending message in parallel as it can block peer and during consensus whole blockchain.
-                drop(task::spawn(async move {
+                task::spawn(async move {
                     view_change_suggested_cloned
                         .send_to_all(peers, peer_id)
                         .await
-                }));
+                });
                 view_change_suggested
             } else {
                 self.clone()
@@ -1064,15 +1064,13 @@ pub mod message {
         async fn send_to_all(&self, peers: HashSet<PeerId>, this_peer: PeerId) {
             let view_change_suggested =
                 VersionedMessage::from(Message::ViewChangeSuggested(self.clone()));
-            drop(
-                futures::future::join_all(
-                    peers
-                        .iter()
-                        .filter(|peer_id| peer_id != &&this_peer)
-                        .map(|peer| view_change_suggested.clone().send_to(peer)),
-                )
-                .await,
-            );
+            futures::future::join_all(
+                peers
+                    .iter()
+                    .filter(|peer_id| peer_id != &&this_peer)
+                    .map(|peer| view_change_suggested.clone().send_to(peer)),
+            )
+            .await;
         }
     }
 
@@ -1480,7 +1478,7 @@ pub mod message {
                     .wrap_err("Failed to put first signature.")?;
                 let _ = transactions_awaiting_created_block.insert(tx_hash);
                 let recipient_peers = sumeragi.topology.sorted_peers().to_vec();
-                drop(task::spawn(
+                task::spawn(
                     async move {
                         time::sleep(block_time).await;
                         // Suspect leader if the block was not yet created
@@ -1489,16 +1487,16 @@ pub mod message {
                             let block_creation_timeout_message = VersionedMessage::from(
                                 Message::ViewChangeSuggested(block_creation_timeout.into()),
                             );
-                            drop(
-                                futures::future::join_all(recipient_peers.iter().map(|peer| {
+                            futures::future::join_all(
+                                recipient_peers.iter().map(|peer| {
                                     block_creation_timeout_message.clone().send_to(peer)
-                                }))
-                                .await,
-                            );
+                                }),
+                            )
+                            .await;
                         }
                     }
                     .in_current_span(),
-                ));
+                );
             }
             Ok(())
         }

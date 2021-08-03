@@ -104,7 +104,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
     /// Construct `Torii` from `ToriiConfiguration`.
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn from_configuration(
         config: ToriiConfiguration,
         wsv: Arc<WorldStateView<W>>,
@@ -602,7 +602,7 @@ mod tests {
             vec![],
         )));
         let keys = KeyPair::generate().expect("Failed to generate keys");
-        drop(wsv.world.domains.insert(
+        wsv.world.domains.insert(
             "wonderland".to_owned(),
             Domain::with_accounts(
                 "wonderland",
@@ -611,7 +611,7 @@ mod tests {
                     keys.public_key.clone(),
                 )),
             ),
-        ));
+        );
         let queue = Queue::from_configuration(
             &config.queue_configuration,
             Arc::clone(&wsv),

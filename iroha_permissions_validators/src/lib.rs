@@ -773,7 +773,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into()));
+                params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into());
                 Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN, params))
             }
         }
@@ -880,10 +880,10 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetDefinitionId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(
+                params.insert(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     object_id.into(),
-                ));
+                );
                 Ok(PermissionToken::new(
                     CAN_UNREGISTER_ASSET_WITH_DEFINITION,
                     params,
@@ -992,10 +992,10 @@ pub mod public_blockchain {
                     return Err("Destination is not an Asset.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(
+                params.insert(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
-                ));
+                );
                 Ok(PermissionToken::new(
                     CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
                     params,
@@ -1106,10 +1106,10 @@ pub mod public_blockchain {
                     return Err("Destination is not an Asset.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(
+                params.insert(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
-                ));
+                );
                 Ok(PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION, params))
             }
         }
@@ -1200,7 +1200,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into()));
+                params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into());
                 Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN, params))
             }
         }
@@ -1311,7 +1311,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
+                params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN,
                     params,
@@ -1407,7 +1407,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AccountId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
+                params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_SET_KEY_VALUE_IN_USER_METADATA,
                     params,
@@ -1502,7 +1502,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
+                params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS,
                     params,
@@ -1598,7 +1598,7 @@ pub mod public_blockchain {
                     return Err("Source id is not an AccountId.".to_owned());
                 };
                 let mut params = BTreeMap::new();
-                drop(params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into()));
+                params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
                     CAN_REMOVE_KEY_VALUE_IN_USER_METADATA,
                     params,
@@ -1682,7 +1682,7 @@ pub mod public_blockchain {
                     ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
                 },
             ));
-            drop(domain.accounts.insert(bob_id.clone(), bob_account));
+            domain.accounts.insert(bob_id.clone(), bob_account);
             let domains = vec![("test".to_string(), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, BTreeSet::new()));
             let transfer = Instruction::Transfer(TransferBox {
@@ -1764,11 +1764,11 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
                 },
             ));
-            drop(domain.accounts.insert(bob_id.clone(), bob_account));
-            drop(domain.asset_definitions.insert(
+            domain.accounts.insert(bob_id.clone(), bob_account);
+            domain.asset_definitions.insert(
                 xor_id.clone(),
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-            ));
+            );
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
@@ -1795,10 +1795,10 @@ pub mod public_blockchain {
                 },
             );
             let mut domain = Domain::new("test");
-            drop(domain.asset_definitions.insert(
+            domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-            ));
+            );
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
@@ -1866,11 +1866,11 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
                 },
             ));
-            drop(domain.accounts.insert(bob_id.clone(), bob_account));
-            drop(domain.asset_definitions.insert(
+            domain.accounts.insert(bob_id.clone(), bob_account);
+            domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-            ));
+            );
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
@@ -1899,10 +1899,10 @@ pub mod public_blockchain {
                 },
             );
             let mut domain = Domain::new("test");
-            drop(domain.asset_definitions.insert(
+            domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-            ));
+            );
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
@@ -1971,11 +1971,11 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string() => xor_id.clone().into(),
                 },
             ));
-            drop(domain.accounts.insert(bob_id.clone(), bob_account));
-            drop(domain.asset_definitions.insert(
+            domain.accounts.insert(bob_id.clone(), bob_account);
+            domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-            ));
+            );
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
@@ -2004,10 +2004,10 @@ pub mod public_blockchain {
                 },
             );
             let mut domain = Domain::new("test");
-            drop(domain.asset_definitions.insert(
+            domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-            ));
+            );
             let domains = btreemap! {
                 "test".to_owned() => domain
             };
@@ -2051,7 +2051,7 @@ pub mod public_blockchain {
                     ASSET_ID_TOKEN_PARAM_NAME.to_string() => alice_xor_id.clone().into(),
                 },
             ));
-            drop(domain.accounts.insert(bob_id.clone(), bob_account));
+            domain.accounts.insert(bob_id.clone(), bob_account);
             let domains = vec![("test".to_string(), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let transfer = Instruction::Burn(BurnBox {

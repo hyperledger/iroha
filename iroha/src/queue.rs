@@ -182,11 +182,9 @@ impl<W: WorldTrait> Queue<W> {
             }
 
             if expired || tx.is_in_blockchain(&*self.wsv) {
-                drop(
-                    self.pending_tx_by_hash
-                        .remove(&tx_hash)
-                        .expect("Should always be present, as contained in queue"),
-                );
+                self.pending_tx_by_hash
+                    .remove(&tx_hash)
+                    .expect("Should always be present, as contained in queue");
                 continue;
             }
 
@@ -194,11 +192,9 @@ impl<W: WorldTrait> Queue<W> {
                 Ok(passed) => passed,
                 Err(e) => {
                     iroha_logger::error!(%e, "Not passed signature");
-                    drop(
-                        self.pending_tx_by_hash
-                            .remove(&tx_hash)
-                            .expect("Should always be present, as contained in queue"),
-                    );
+                    self.pending_tx_by_hash
+                        .remove(&tx_hash)
+                        .expect("Should always be present, as contained in queue");
                     continue;
                 }
             };
@@ -291,8 +287,8 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
         account.signatories.push(public_key);
-        drop(domain.accounts.insert(account_id, account));
-        drop(domains.insert("wonderland".to_string(), domain));
+        domain.accounts.insert(account_id, account);
+        domains.insert("wonderland".to_string(), domain);
         World::with(domains, PeersIds::new())
     }
 

@@ -113,16 +113,14 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchroni
             self.wsv.latest_block_hash(),
             self.peer_id.clone(),
         ));
-        drop(
-            futures::future::join_all(
-                self.sumeragi
-                    .send(GetSortedPeers)
-                    .await
-                    .iter()
-                    .map(|peer| message.clone().send_to(peer)),
-            )
-            .await,
-        );
+        futures::future::join_all(
+            self.sumeragi
+                .send(GetSortedPeers)
+                .await
+                .iter()
+                .map(|peer| message.clone().send_to(peer)),
+        )
+        .await;
     }
 }
 

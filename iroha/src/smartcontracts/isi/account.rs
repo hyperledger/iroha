@@ -62,7 +62,7 @@ pub mod isi {
                     .iter()
                     .position(|key| key == &public_key)
                 {
-                    drop(account.signatories.remove(index));
+                    account.signatories.remove(index);
                 }
                 Ok(())
             })?;
@@ -81,11 +81,11 @@ pub mod isi {
             let account_metadata_limits = wsv.config.account_metadata_limits;
             let id = self.object_id.clone();
             wsv.modify_account(&id, |account| {
-                drop(account.metadata.insert_with_limits(
+                account.metadata.insert_with_limits(
                     self.key.clone(),
                     self.value,
                     account_metadata_limits,
-                ));
+                )?;
                 Ok(())
             })?;
             Ok(())
@@ -101,12 +101,10 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             wsv.modify_account(&self.object_id, |account| {
-                drop(
-                    account
-                        .metadata
-                        .remove(&self.key)
-                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?,
-                );
+                account
+                    .metadata
+                    .remove(&self.key)
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
                 Ok(())
             })?;
             Ok(())
@@ -139,12 +137,10 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            drop(
-                wsv.world()
-                    .roles
-                    .get(&self.object)
-                    .ok_or_else(|| FindError::Role(self.object.clone()))?,
-            );
+            wsv.world()
+                .roles
+                .get(&self.object)
+                .ok_or_else(|| FindError::Role(self.object.clone()))?;
 
             let id = self.destination_id.clone();
             wsv.modify_account(&id, |account| {
@@ -212,7 +208,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get id")?;
-            Ok(wsv.map_account(&id, Clone::clone)?)
+            wsv.map_account(&id, Clone::clone)
         }
     }
 

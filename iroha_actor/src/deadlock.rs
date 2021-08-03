@@ -145,12 +145,12 @@ impl DeadlockActor {
 impl Actor for DeadlockActor {
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         let recipient = ctx.recipient::<Reminder>();
-        drop(task::spawn(async move {
+        task::spawn(async move {
             loop {
                 recipient.send(Reminder).await;
                 time::sleep(Duration::from_millis(100)).await
             }
-        }));
+        });
     }
 }
 

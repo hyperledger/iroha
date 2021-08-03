@@ -783,7 +783,7 @@ mod tests {
         let _ = bob_account
             .permission_tokens
             .insert(PermissionToken::new("token", BTreeMap::default()));
-        drop(domain.accounts.insert(bob_id.clone(), bob_account));
+        domain.accounts.insert(bob_id.clone(), bob_account);
         let domains = vec![("test".to_string(), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);

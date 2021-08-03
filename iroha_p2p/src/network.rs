@@ -142,7 +142,7 @@ where
         match Peer::new_to(id.clone(), self.broker.clone()) {
             Ok(peer) => {
                 let peer = peer.start().await;
-                drop(self.peers.insert(id, peer));
+                self.peers.insert(id, peer);
             }
             Err(e) => warn!(%e, "Unable to create peer"),
         }
@@ -187,7 +187,7 @@ where
                 }
             }
             PeerMessage::Disconnected(id) => {
-                drop(self.peers.remove(&id));
+                self.peers.remove(&id);
                 let _ = self.connected_peers.remove(&id.public_key);
             }
             PeerMessage::Message(_id, msg) => {
@@ -247,7 +247,7 @@ where
         match Peer::new_from(id.clone(), stream, self.broker.clone()) {
             Ok(peer) => {
                 let peer = peer.start().await;
-                drop(self.peers.insert(id, peer));
+                self.peers.insert(id, peer);
             }
             Err(e) => warn!(%e, "Unable to create peer"),
         }

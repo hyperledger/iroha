@@ -227,11 +227,9 @@ impl Client {
             }
             Ok(())
         });
-        drop(
-            init_receiver
-                .recv()
-                .wrap_err("Failed to receive init message.")?,
-        );
+        init_receiver
+            .recv()
+            .wrap_err("Failed to receive init message.")?;
         let _ = self.submit_transaction(transaction)?;
         event_receiver
             .recv_timeout(self.transaction_status_timout)
@@ -402,7 +400,7 @@ impl EventIterator {
                     return Err(error!("Expected `SubscriptionAccepted`."));
                 }
                 Ok(_) => continue,
-                Err(WebSocketError::ConnectionClosed) | Err(WebSocketError::AlreadyClosed) => {
+                Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
                     return Err(error!("WebSocket connection closed."))
                 }
                 Err(err) => return Err(err.into()),
@@ -444,7 +442,7 @@ impl Iterator for EventIterator {
                     };
                 }
                 Ok(_) => continue,
-                Err(WebSocketError::ConnectionClosed) | Err(WebSocketError::AlreadyClosed) => {
+                Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
                     return None
                 }
                 Err(err) => return Some(Err(err.into())),

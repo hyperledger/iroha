@@ -16,7 +16,7 @@ env:
 jobs:
   coverage:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - name: Set nightly toolchain

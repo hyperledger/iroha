@@ -50,7 +50,7 @@ pub mod isi {
                 wsv,
                 AssetValueType::Quantity,
             )?;
-            drop(wsv.asset_or_insert(&self.destination_id, 0_u32)?);
+            wsv.asset_or_insert(&self.destination_id, 0_u32)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity
@@ -75,7 +75,7 @@ pub mod isi {
                 wsv,
                 AssetValueType::BigQuantity,
             )?;
-            drop(wsv.asset_or_insert(&self.destination_id, 0_u128)?);
+            wsv.asset_or_insert(&self.destination_id, 0_u128)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u128 = asset.try_as_mut()?;
                 *quantity = quantity
@@ -97,14 +97,14 @@ pub mod isi {
         ) -> Result<(), Error> {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
-            drop(wsv.asset_or_insert(&self.object_id, Metadata::new())?);
+            wsv.asset_or_insert(&self.object_id, Metadata::new())?;
             wsv.modify_asset(&self.object_id, |asset| {
                 let store: &mut Metadata = asset.try_as_mut()?;
-                drop(store.insert_with_limits(
+                store.insert_with_limits(
                     self.key.clone(),
                     self.value.clone(),
                     asset_metadata_limits,
-                ));
+                )?;
                 Ok(())
             })?;
             Ok(())
@@ -170,11 +170,9 @@ pub mod isi {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             wsv.modify_asset(&self.object_id, |asset| {
                 let store: &mut Metadata = asset.try_as_mut()?;
-                drop(
-                    store
-                        .remove(&self.key)
-                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?,
-                );
+                store
+                    .remove(&self.key)
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
                 Ok(())
             })?;
             Ok(())
@@ -206,7 +204,7 @@ pub mod isi {
                     .ok_or_else(|| error!("Source account does not have enough asset quantity."))?;
                 Ok(())
             })?;
-            drop(wsv.asset_or_insert(&self.destination_id, 0_u32));
+            wsv.asset_or_insert(&self.destination_id, 0_u32)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity

@@ -272,7 +272,7 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::panic, clippy::expect_used, clippy::clippy::unwrap_used)]
+    #![allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 
     use std::sync::Arc;
 
@@ -297,6 +297,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn single_threaded_async() {
+        #[allow(clippy::unused_async)]
         async fn handle_request<S>(_state: State<S>, _request: Request) -> Result<Response>
         where
             State<S>: Send + Sync,
@@ -328,7 +329,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn single_threaded_async_stateful() {
-        #[allow(clippy::clippy::integer_arithmetic)]
+        #[allow(clippy::integer_arithmetic)]
         async fn handle_request(state: State<usize>, _request: Request) -> Result<Response> {
             *state.write().await += 1;
             Ok(Response::Ok(b"pong".to_vec()))

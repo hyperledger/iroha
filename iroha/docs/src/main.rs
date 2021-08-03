@@ -67,7 +67,7 @@ where
                 Value::String(s) => (s.clone(), false),
                 _ => unreachable!("Only strings and objects in docs"),
             };
-            let doc = doc.strip_prefix(" ").unwrap_or(&doc);
+            let doc = doc.strip_prefix(' ').unwrap_or(&doc);
             let defaults = Self::default()
                 .get_recursive(get_field)
                 .expect("Failed to get defaults.");
@@ -86,7 +86,7 @@ where
                 Self::get_markdown_with_depth(writer, docs, field, depth + 1)?;
             }
 
-            drop(field.pop());
+            field.pop();
         }
         Ok(())
     }

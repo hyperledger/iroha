@@ -22,7 +22,7 @@ use super::{Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldTrait};
 
 /// Instruction execution error type
-#[allow(clippy::clippy::pub_enum_variant_names)]
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, FromVariant, Error)]
 pub enum Error {
     /// Failed to find some entity
@@ -442,13 +442,13 @@ mod tests {
         let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
         account.signatories.push(key_pair.public_key);
-        drop(domain.accounts.insert(account_id.clone(), account));
+        domain.accounts.insert(account_id.clone(), account);
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
-        drop(domain.asset_definitions.insert(
+        domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
-        ));
-        drop(domains.insert("wonderland".to_string(), domain));
+        );
+        domains.insert("wonderland".to_string(), domain);
         Ok(World::with(domains, PeersIds::new()))
     }
 
