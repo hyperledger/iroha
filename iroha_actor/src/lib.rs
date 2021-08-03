@@ -322,12 +322,9 @@ impl<A: Actor> InitializedActor<A> {
         }
         .in_current_span();
         #[cfg(not(feature = "deadlock_detection"))]
-        drop(task::spawn(actor_future));
+        task::spawn(actor_future);
         #[cfg(feature = "deadlock_detection")]
-        drop(deadlock::spawn_task_with_actor_id(
-            address.actor_id,
-            actor_future,
-        ));
+        deadlock::spawn_task_with_actor_id(address.actor_id, actor_future);
         address
     }
 }
@@ -438,9 +435,7 @@ impl<A: Actor> Context<A> {
         A: ContextHandler<M>,
     {
         let addr = self.addr();
-        drop(task::spawn(
-            async move { addr.do_send(message).await }.in_current_span(),
-        ));
+        task::spawn(async move { addr.do_send(message).await }.in_current_span());
     }
 
     /// Sends actor specified message in some time
@@ -450,13 +445,13 @@ impl<A: Actor> Context<A> {
         A: Handler<M>,
     {
         let addr = self.addr();
-        drop(task::spawn(
+        task::spawn(
             async move {
                 time::sleep(later).await;
                 addr.do_send(message).await
             }
             .in_current_span(),
-        ));
+        );
     }
 
     /// Sends actor specified message in a loop with specified duration
@@ -466,7 +461,7 @@ impl<A: Actor> Context<A> {
         A: Handler<M>,
     {
         let addr = self.addr();
-        drop(task::spawn(
+        task::spawn(
             async move {
                 loop {
                     time::sleep(every).await;
@@ -474,7 +469,7 @@ impl<A: Actor> Context<A> {
                 }
             }
             .in_current_span(),
-        ));
+        );
     }
 
     /// Notifies actor with items from stream
@@ -485,7 +480,7 @@ impl<A: Actor> Context<A> {
         A: Handler<M>,
     {
         let addr = self.addr();
-        drop(task::spawn(
+        task::spawn(
             async move {
                 futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
@@ -493,7 +488,7 @@ impl<A: Actor> Context<A> {
                 }
             }
             .in_current_span(),
-        ));
+        );
     }
 
     /// Notifies actor with items from stream
@@ -504,7 +499,7 @@ impl<A: Actor> Context<A> {
         A: ContextHandler<M>,
     {
         let addr = self.addr();
-        drop(task::spawn(
+        task::spawn(
             async move {
                 futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
@@ -512,7 +507,7 @@ impl<A: Actor> Context<A> {
                 }
             }
             .in_current_span(),
-        ));
+        );
     }
 }
 

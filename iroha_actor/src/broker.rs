@@ -104,7 +104,7 @@ impl Broker {
                 .downcast_ref::<Recipient<M>>()
                 .map(|recipient| recipient.send(m.clone()))
         });
-        drop(future::join_all(send).await);
+        future::join_all(send).await;
     }
 
     fn subscribe_recipient<M: BrokerMessage>(&self, recipient: Recipient<M>) {
@@ -148,7 +148,7 @@ impl Broker {
             .iter()
             .position(|(actor_id, _)| actor_id == &TypeId::of::<Self>())
         {
-            drop(entry.get_mut().remove(pos));
+            entry.get_mut().remove(pos);
         }
     }
 }

@@ -11,7 +11,8 @@ use tokio_stream::{Stream, StreamExt};
 pub mod post_process {
     //! Module with telemetry post processing
 
-    #![allow(clippy::clippy::unwrap_used, clippy::fallible_impl_from)]
+    #![allow(clippy::unwrap_used, clippy::fallible_impl_from)]
+
     use super::*;
 
     /// Post processed info of function

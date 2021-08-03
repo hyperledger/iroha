@@ -133,7 +133,7 @@ pub mod config {
     const DEFAULT_MAX_LOG_LEVEL: LevelEnv = LevelEnv::DEBUG;
 
     /// Log level for reading from environment and se/deserializing
-    #[allow(clippy::clippy::upper_case_acronyms)]
+    #[allow(clippy::upper_case_acronyms)]
     #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
     pub enum LevelEnv {
         /// Error

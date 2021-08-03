@@ -211,16 +211,16 @@ mod tests {
         let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
         account.signatories.push(key_pair.public_key);
-        drop(domain.accounts.insert(account_id.clone(), account));
+        domain.accounts.insert(account_id.clone(), account);
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
-        drop(domain.asset_definitions.insert(
+        domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity),
                 account_id,
             ),
-        ));
-        drop(domains.insert("wonderland".to_string(), domain));
+        );
+        domains.insert("wonderland".to_string(), domain);
         Ok(World::with(domains, PeersIds::new()))
     }
 
@@ -231,11 +231,13 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id);
         let mut store = Metadata::new();
-        drop(store.insert_with_limits(
-            "Bytes".to_owned(),
-            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
-            MetadataLimits::new(10, 100),
-        ));
+        store
+            .insert_with_limits(
+                "Bytes".to_owned(),
+                Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+                MetadataLimits::new(10, 100),
+            )
+            .unwrap();
         wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
         let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_owned()).execute(&wsv)?;
         assert_eq!(
@@ -250,11 +252,11 @@ mod tests {
         let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::new("alice", "wonderland");
         wsv.modify_account(&account_id, |account| {
-            drop(account.metadata.insert_with_limits(
+            account.metadata.insert_with_limits(
                 "Bytes".to_string(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
-            )?);
+            )?;
             Ok(())
         })?;
         let bytes =

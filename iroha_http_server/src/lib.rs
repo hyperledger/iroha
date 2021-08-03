@@ -848,6 +848,7 @@ pub struct RouteBuilder<'s, State> {
     server: &'s mut Server<State>,
 }
 
+#[allow(clippy::type_repetition_in_bounds)]
 async fn wrapper_handler<State, Path, Query, Req, Fut, F>(
     fut: F,
     state: State,
@@ -886,6 +887,7 @@ where
     State: Clone + Send + Sync + 'static,
 {
     /// Add GET handler at the specified url.
+    #[allow(clippy::type_repetition_in_bounds)]
     pub fn get<Path, Query, Req, F, Fut>(&mut self, handler: F)
     where
         Path: TryFrom<PathParams> + Send + Sync + 'static,
@@ -927,6 +929,7 @@ where
     }
 
     /// Add POST handler at the specified url.
+    #[allow(clippy::type_repetition_in_bounds)]
     pub fn post<Path, Query, Req, F, Fut>(&mut self, handler: F)
     where
         Path: TryFrom<PathParams> + Send + Sync + 'static,
@@ -965,6 +968,7 @@ where
     }
 
     /// Add PUT handler at the specified url.
+    #[allow(clippy::type_repetition_in_bounds)]
     pub fn put<Path, Query, Req, F, Fut>(&mut self, handler: F)
     where
         Path: TryFrom<PathParams> + Send + Sync + 'static,

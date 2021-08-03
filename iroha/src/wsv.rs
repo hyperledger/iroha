@@ -190,7 +190,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Add new `Domain` entity.
     pub fn add_domain(&mut self, domain: Domain) {
-        drop(self.world.domains.insert(domain.name.clone(), domain));
+        self.world.domains.insert(domain.name.clone(), domain);
     }
 
     /// Returns reference for domains map
@@ -311,7 +311,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
             f(&mut asset)?;
             if asset.value.is_zero_value() {
-                drop(account.assets.remove(id));
+                account.assets.remove(id);
             }
             Ok(())
         })
@@ -342,7 +342,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn add_asset(&self, asset: Asset) -> Result<()> {
         let id = asset.id.account_id.clone();
         self.modify_account(&id, move |account| {
-            drop(account.assets.insert(asset.id.clone(), asset));
+            account.assets.insert(asset.id.clone(), asset);
             Ok(())
         })
     }

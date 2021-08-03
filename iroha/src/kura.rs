@@ -428,7 +428,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut kura =
             Kura::<World>::new(Mode::Strict, dir.path(), Arc::default(), Broker::new()).unwrap();
-        drop(kura.init().await.expect("Failed to init Kura."));
+        kura.init().await.expect("Failed to init Kura.");
         let _ = kura
             .store(block)
             .await

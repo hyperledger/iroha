@@ -50,11 +50,9 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let account_id = self.object_id;
-            drop(
-                wsv.domain_mut(&account_id.domain_name)?
-                    .accounts
-                    .remove(&account_id),
-            );
+            wsv.domain_mut(&account_id.domain_name)?
+                .accounts
+                .remove(&account_id);
             Ok(())
         }
     }
@@ -99,11 +97,9 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
-            drop(
-                wsv.domain_mut(&asset_definition_id.domain_name)?
-                    .asset_definitions
-                    .remove(&asset_definition_id),
-            );
+            wsv.domain_mut(&asset_definition_id.domain_name)?
+                .asset_definitions
+                .remove(&asset_definition_id);
             for mut domain in wsv.domains().iter_mut() {
                 for account in domain.accounts.values_mut() {
                     let keys = account
@@ -112,9 +108,9 @@ pub mod isi {
                         .filter(|(asset_id, _asset)| asset_id.definition_id == asset_definition_id)
                         .map(|(asset_id, _asset)| asset_id.clone())
                         .collect::<Vec<_>>();
-                    keys.iter().for_each(|asset_id| {
-                        drop(account.assets.remove(asset_id));
-                    });
+                    for id in &keys {
+                        account.assets.remove(id);
+                    }
                 }
             }
             Ok(())

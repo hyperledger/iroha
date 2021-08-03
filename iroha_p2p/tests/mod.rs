@@ -40,7 +40,7 @@ async fn network_create() {
         compact_mode: false,
         ..LoggerConfiguration::default()
     };
-    drop(iroha_logger::init(log_config));
+    iroha_logger::init(log_config);
     info!("Starting network tests...");
     let address = gen_address();
     let broker = Broker::new();
@@ -51,7 +51,7 @@ async fn network_create() {
     let network = Network::<TestMessage>::new(broker.clone(), address.clone(), public_key.clone())
         .await
         .unwrap();
-    drop(network.start().await);
+    network.start().await;
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
@@ -106,7 +106,7 @@ async fn two_networks() {
         compact_mode: false,
         ..LoggerConfiguration::default()
     };
-    drop(iroha_logger::init(log_config));
+    iroha_logger::init(log_config);
     let public_key = iroha_crypto::PublicKey::from_str(
         "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
     )
@@ -137,7 +137,7 @@ async fn two_networks() {
         broker: broker2.clone(),
         messages: Arc::clone(&messages2),
     };
-    drop(actor2.start().await);
+    actor2.start().await;
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");

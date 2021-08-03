@@ -219,13 +219,11 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     assert_eq!(expected_seller_eth, eth_quantity);
 
     // For the btc amount we expect an error, as zero assets are purged from accounts
-    drop(
-        iroha_client
-            .request(FindAssetQuantityById::new(AssetId::from_names(
-                "btc", "crypto", "seller", "company",
-            )))
-            .expect_err("Failed to execute Iroha Query"),
-    );
+    iroha_client
+        .request(FindAssetQuantityById::new(AssetId::from_names(
+            "btc", "crypto", "seller", "company",
+        )))
+        .expect_err("Failed to execute Iroha Query");
 
     let buyer_eth_quantity = iroha_client
         .request(FindAssetQuantityById::new(AssetId::from_names(

@@ -385,7 +385,7 @@ impl Topology {
         roles: &[Role],
         signatures: &[Signature],
     ) -> Vec<Signature> {
-        let roles: HashSet<Role> = roles.iter().cloned().collect();
+        let roles: HashSet<Role> = roles.iter().copied().collect();
         let public_keys: Vec<_> = roles
             .iter()
             .flat_map(|role| role.peers(self))

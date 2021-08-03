@@ -62,7 +62,7 @@ impl TryFrom<ClientResponse> for Response<Bytes> {
             .headers_mut()
             .ok_or_else(|| error!("Failed to get headers map reference."))?;
         for (key, value) in response.headers() {
-            drop(headers.insert(key, value.clone()));
+            headers.insert(key, value.clone());
         }
         response
             .bytes()

@@ -20,7 +20,7 @@ use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction
 use crate::{account::Account, Identifiable, Value};
 
 /// Sized container for all possible Queries.
-#[allow(clippy::pub_enum_variant_names)]
+#[allow(clippy::enum_variant_names)]
 #[derive(
     Debug,
     Clone,

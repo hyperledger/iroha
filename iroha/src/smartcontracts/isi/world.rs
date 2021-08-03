@@ -36,7 +36,7 @@ pub mod isi {
         ) -> Result<(), Error> {
             let domain = self.object;
             domain.validate_len(wsv.config.length_limits)?;
-            drop(wsv.domains().insert(domain.name.clone(), domain));
+            wsv.domains().insert(domain.name.clone(), domain);
             Ok(())
         }
     }
@@ -50,7 +50,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
-            drop(wsv.domains().remove(&self.object_id));
+            wsv.domains().remove(&self.object_id);
             Ok(())
         }
     }
@@ -65,7 +65,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let role = self.object;
-            drop(wsv.world.roles.insert(role.id.clone(), role));
+            wsv.world.roles.insert(role.id.clone(), role);
             Ok(())
         }
     }
@@ -79,7 +79,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            drop(wsv.world.roles.remove(&self.object_id));
+            wsv.world.roles.remove(&self.object_id);
             for mut domain in wsv.domains().iter_mut() {
                 for account in domain.accounts.values_mut() {
                     let _ = account.roles.remove(&self.object_id);

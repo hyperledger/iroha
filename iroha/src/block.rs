@@ -52,7 +52,7 @@ impl Chain {
     /// Put latest block.
     pub fn push(&self, block: VersionedCommittedBlock) {
         let height = block.as_inner_v1().header.height;
-        drop(self.blocks.insert(height, block));
+        self.blocks.insert(height, block);
     }
 
     /// Iterator over height and block.
@@ -633,7 +633,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             .header
             .invalidated_blocks_hashes
             .iter()
-            .cloned()
+            .copied()
             .map(|hash| {
                 PipelineEvent::new(
                     PipelineEntityType::Block,

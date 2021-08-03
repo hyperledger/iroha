@@ -162,7 +162,7 @@ pub type ValueBox = Box<Value>;
     Ord,
     IntoSchema,
 )]
-#[allow(clippy::pub_enum_variant_names)]
+#[allow(clippy::enum_variant_names)]
 pub enum Value {
     /// `u32` integer.
     U32(u32),
@@ -1400,7 +1400,7 @@ pub mod asset {
             limits: MetadataLimits,
         ) -> Result<Self> {
             let mut store = Metadata::new();
-            drop(store.insert_with_limits(key, value, limits)?);
+            store.insert_with_limits(key, value, limits)?;
             Ok(Asset {
                 id,
                 value: store.into(),
@@ -2351,10 +2351,10 @@ pub mod pagination {
         fn from(pagination: Pagination) -> Self {
             let mut query_params = Self::new();
             if let Some(start) = pagination.start {
-                drop(query_params.insert(PAGINATION_START.to_owned(), start.to_string()));
+                query_params.insert(PAGINATION_START.to_owned(), start.to_string());
             }
             if let Some(limit) = pagination.limit {
-                drop(query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string()));
+                query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string());
             }
             query_params
         }

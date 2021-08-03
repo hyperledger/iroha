@@ -14,7 +14,7 @@ env:
 jobs:
   check:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -53,7 +53,7 @@ jobs:
 
   test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -73,7 +73,7 @@ jobs:
 
   test-iroha_network-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -97,7 +97,7 @@ jobs:
 
   test-deadlock_detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -128,7 +128,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.52
+          toolchain: 1.54
       - name: Install dependencies
         if: ${{ false }}
         run: |
@@ -152,7 +152,7 @@ jobs:
 
   print-telemetry:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -240,7 +240,7 @@ jobs:
   # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
@@ -277,7 +277,7 @@ jobs:
 
   bench:
     runs-on: [self-hosted, Linux]
-    container: rust:1.52-buster
+    container: rust:1.54-buster
     if: ${{ false }}
     steps:
       - uses: actions/checkout@v2

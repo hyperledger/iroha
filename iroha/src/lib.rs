@@ -145,11 +145,9 @@ where
 
         #[cfg(feature = "telemetry")]
         if let Some(telemetry) = telemetry {
-            drop(
-                telemetry::start(&config.telemetry, telemetry)
-                    .await
-                    .wrap_err("Failed to setup telemetry")?,
-            );
+            telemetry::start(&config.telemetry, telemetry)
+                .await
+                .wrap_err("Failed to setup telemetry")?;
         }
         let query_validator = Arc::new(query_validator);
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
