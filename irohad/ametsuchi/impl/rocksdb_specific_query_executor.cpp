@@ -328,14 +328,6 @@ RocksDbSpecificQueryExecutor::readTxs(
   ordering.get(ordering_ptr, count);
   assert(count > 0ull);
 
-  bool first_hash_found = !query.paginationMeta().firstTxHash();
-  std::string target_hash;
-
-  if (query.paginationMeta().firstTxHash()) {
-    auto const str = query.paginationMeta().firstTxHash()->toString();
-    toLowerAppend(str, target_hash);
-  }
-
   RDB_TRY_GET_VALUE(opt_txs_total,
                     forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
                         common, query.accountId()));
@@ -351,12 +343,6 @@ RocksDbSpecificQueryExecutor::readTxs(
       if (asset.empty())
         return true;
 
-    if (!first_hash_found) {
-      if (tx_hash != target_hash)
-        return true;
-      first_hash_found = true;
-    }
-
     auto const position =
         staticSplitId<5ull>(p.ToStringView(), fmtstrings::kDelimiter);
 
@@ -371,11 +357,11 @@ RocksDbSpecificQueryExecutor::readTxs(
 
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
-      auto txs_result =
-          getTransactionsFromBlock(tx_position.height,
-                                   tx_position.index,
-                                   [](auto &) { return true; },
-                                   std::back_inserter(response_txs));
+      auto txs_result = getTransactionsFromBlock(
+          tx_position.height,
+          tx_position.index,
+          [](auto &) { return true; },
+          std::back_inserter(response_txs));
       if (auto e = iroha::expected::resultToOptionalError(txs_result))
         return true;
 
@@ -386,16 +372,58 @@ RocksDbSpecificQueryExecutor::readTxs(
     }
   };
 
-  // TODO(iceseer): find first entry by log(N)
-  rocksdb::Status status =
-      (ordering_ptr->field
-       == shared_model::interface::Ordering::Field::kCreatedTime)
-      ? enumerateKeysAndValues(
+  rocksdb::Status status = rocksdb::Status::OK();
+  if (query.paginationMeta().firstTxHash()) {
+    std::string target_hash;
+    if (auto result =
+            forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common,
+                toLowerAppend(query.paginationMeta().firstTxHash()->toString(),
+                              target_hash));
+        expected::hasValue(result)) {
+      assert(ordering_ptr->field
+                 == shared_model::interface::Ordering::Field::kCreatedTime
+             || ordering_ptr->field
+                 == shared_model::interface::Ordering::Field::kPosition);
+
+      auto const &[tx_status, tx_height, tx_index, tx_ts] =
+          staticSplitId<4ull>(*result.template assumeValue(), "#");
+
+      if (ordering_ptr->field
+          == shared_model::interface::Ordering::Field::kCreatedTime)
+        status = enumerateKeysAndValues(
+            common,
+            parser,
+            common.template seek(fmtstrings::kTransactionByTs,
+                                 query.accountId(),
+                                 tx_ts,
+                                 tx_height,
+                                 tx_index),
+            fmtstrings::kPathTransactionByTs,
+            query.accountId());
+      else
+        status = enumerateKeysAndValues(
+            common,
+            parser,
+            common.template seek(fmtstrings::kTransactionByPosition,
+                                 query.accountId(),
+                                 tx_height,
+                                 tx_index,
+                                 tx_ts),
+            fmtstrings::kPathTransactionByPosition,
+            query.accountId());
+    }
+  } else {
+    status = (ordering_ptr->field
+              == shared_model::interface::Ordering::Field::kCreatedTime)
+        ? enumerateKeysAndValues(
             common, parser, fmtstrings::kPathTransactionByTs, query.accountId())
-      : enumerateKeysAndValues(common,
-                               parser,
-                               fmtstrings::kPathTransactionByPosition,
-                               query.accountId());
+        : enumerateKeysAndValues(common,
+                                 parser,
+                                 fmtstrings::kPathTransactionByPosition,
+                                 query.accountId());
+  }
+
   RDB_ERROR_CHECK(canExist(status, [&]() {
     return fmt::format("Enumerate transactions for account {}",
                        query.accountId());
