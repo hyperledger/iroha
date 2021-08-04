@@ -400,6 +400,9 @@ namespace iroha::ametsuchi {
    * RocksDB transaction context.
    */
   struct RocksDBContext {
+    RocksDBContext(RocksDBContext const &) = delete;
+    RocksDBContext &operator=(RocksDBContext const &) = delete;
+
     explicit RocksDBContext(std::shared_ptr<RocksDBPort> dbp)
         : db_port(std::move(dbp)) {
       assert(db_port);
@@ -423,9 +426,6 @@ namespace iroha::ametsuchi {
 
     /// Mutex to guard multithreaded access to this context
     std::mutex this_context_cs;
-
-    RocksDBContext(RocksDBContext const &) = delete;
-    RocksDBContext &operator=(RocksDBContext const &) = delete;
   };
 
   enum DbErrorCode {
@@ -541,8 +541,8 @@ namespace iroha::ametsuchi {
       return tx_context_->transaction;
     }
 
-    bool isTransaction() const {
-      return !!tx_context_->transaction;
+    [[nodiscard]] bool isTransaction() const {
+      return tx_context_->transaction != nullptr;
     }
 
    public:
@@ -678,6 +678,27 @@ namespace iroha::ametsuchi {
       return it;
     }
 
+    /// Iterate over all the keys begins from it, and matches a prefix from keybuffer and call lambda
+    /// with key-value. To stop enumeration callback F must return false.
+    template <typename F>
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> it, F &&func) {
+      rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
+      for (; it->Valid() && it->key().starts_with(key); it->Next())
+        if (!std::forward<F>(func)(it, key.size()))
+          break;
+
+      return it->status();
+    }
+
+    /// Iterate over all the keys begins from it, and matches a prefix and call lambda
+    /// with key-value. To stop enumeration callback F must return false.
+    template <typename F, typename S, typename... Args>
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> it, F &&func, S const &fmtstring, Args &&... args) {
+      keyBuffer().clear();
+      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      return enumerate(std::move(it), std::forward<F>(func));
+    }
+
     /// Iterate over all the keys that matches a prefix and call lambda
     /// with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
@@ -685,13 +706,7 @@ namespace iroha::ametsuchi {
       auto it = seek(fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
         return it->status();
-
-      rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
-      for (; it->Valid() && it->key().starts_with(key); it->Next())
-        if (!std::forward<F>(func)(it, key.size()))
-          break;
-
-      return it->status();
+      return enumerate(std::move(it), std::forward<F>(func));
     }
 
     /// Removes range of items by key-filter
@@ -931,14 +946,14 @@ namespace iroha::ametsuchi {
       if (status.assumeValue().ok()) {
         auto const &[major, minor, patch] =
             staticSplitId<3ull>(common.valueBuffer(), "#");
-        IrohadVersion version;
+        IrohadVersion version{0ul, 0ul, 0ul};
         std::from_chars(
             major.data(), major.data() + major.size(), version.major);
         std::from_chars(
             minor.data(), minor.data() + minor.size(), version.minor);
         std::from_chars(
             patch.data(), patch.data() + patch.size(), version.patch);
-        value = std::move(version);
+        value = version;
       }
     }
     return value;
