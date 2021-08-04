@@ -357,11 +357,11 @@ RocksDbSpecificQueryExecutor::readTxs(
 
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
-      auto txs_result = getTransactionsFromBlock(
-          tx_position.height,
-          tx_position.index,
-          [](auto &) { return true; },
-          std::back_inserter(response_txs));
+      auto txs_result =
+          getTransactionsFromBlock(tx_position.height,
+                                   tx_position.index,
+                                   [](auto &) { return true; },
+                                   std::back_inserter(response_txs));
       if (auto e = iroha::expected::resultToOptionalError(txs_result))
         return true;
 
@@ -416,8 +416,10 @@ RocksDbSpecificQueryExecutor::readTxs(
   } else {
     status = (ordering_ptr->field
               == shared_model::interface::Ordering::Field::kCreatedTime)
-        ? enumerateKeysAndValues(
-            common, parser, fmtstrings::kPathTransactionByTs, query.accountId())
+        ? enumerateKeysAndValues(common,
+                                 parser,
+                                 fmtstrings::kPathTransactionByTs,
+                                 query.accountId())
         : enumerateKeysAndValues(common,
                                  parser,
                                  fmtstrings::kPathTransactionByPosition,

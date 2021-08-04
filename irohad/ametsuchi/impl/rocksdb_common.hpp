@@ -564,8 +564,9 @@ namespace iroha::ametsuchi {
       return tx_context_->transaction != nullptr;
     }
 
-    /// Iterate over all the keys begins from it, and matches a prefix from keybuffer and call lambda
-    /// with key-value. To stop enumeration callback F must return false.
+    /// Iterate over all the keys begins from it, and matches a prefix from
+    /// keybuffer and call lambda with key-value. To stop enumeration callback F
+    /// must return false.
     template <typename F>
     auto enumerate(std::unique_ptr<rocksdb::Iterator> it, F &&func) {
       if (!it->status().ok())
@@ -695,10 +696,13 @@ namespace iroha::ametsuchi {
       return it;
     }
 
-    /// Iterate over all the keys begins from it, and matches a prefix and call lambda
-    /// with key-value. To stop enumeration callback F must return false.
+    /// Iterate over all the keys begins from it, and matches a prefix and call
+    /// lambda with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
-    auto enumerate(std::unique_ptr<rocksdb::Iterator> it, F &&func, S const &fmtstring, Args &&... args) {
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> it,
+                   F &&func,
+                   S const &fmtstring,
+                   Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
       return enumerate(std::move(it), std::forward<F>(func));
@@ -774,7 +778,7 @@ namespace iroha::ametsuchi {
         std::forward<Args>(args)...);
   }
 
-  template<typename F>
+  template <typename F>
   inline auto makeKVLambda(F &&func) {
     return [func{std::forward<F>(func)}](auto const &it,
                                          auto const prefix_size) mutable {
@@ -799,7 +803,8 @@ namespace iroha::ametsuchi {
                          std::forward<Args>(args)...);
   }
 
-  /// Enumerating through the keys, begins from it and matched to prefix and read the value
+  /// Enumerating through the keys, begins from it and matched to prefix and
+  /// read the value
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeysAndValues(RocksDbCommon &rdb,
                                      F &&func,
