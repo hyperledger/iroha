@@ -29,8 +29,7 @@ use tokio::{
         mpsc::{self, Receiver},
         oneshot::{self, error::RecvError},
     },
-    task::{self},
-    time,
+    task, time,
 };
 #[cfg(feature = "deadlock_detection")]
 use {deadlock::ActorId, std::any::type_name};
@@ -51,6 +50,7 @@ pub mod prelude {
 #[derive(Debug)]
 pub struct Addr<A: Actor> {
     sender: mpsc::Sender<Envelope<A>>,
+    stopper: mpsc::Sender<Stop>,
     #[cfg(feature = "deadlock_detection")]
     actor_id: ActorId,
 }
@@ -59,6 +59,7 @@ impl<A: Actor> Clone for Addr<A> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            stopper: self.stopper.clone(),
             #[cfg(feature = "deadlock_detection")]
             actor_id: self.actor_id,
         }
@@ -77,9 +78,10 @@ pub enum Error {
 }
 
 impl<A: Actor> Addr<A> {
-    fn new(sender: mpsc::Sender<Envelope<A>>) -> Self {
+    fn new(sender: mpsc::Sender<Envelope<A>>, stopper: mpsc::Sender<Stop>) -> Self {
         Self {
             sender,
+            stopper,
             #[cfg(feature = "deadlock_detection")]
             actor_id: ActorId::new(Some(type_name::<A>())),
         }
@@ -117,8 +119,6 @@ impl<A: Actor> Addr<A> {
         result
     }
 
-    //FIXME: In fact this method still waits for an answer and just drops it, this should be corrected.
-    // Waiting for the answer introduces deadlock possibilities!
     /// Send a message without waiting for an answer.
     /// # Errors
     /// Fails if queue is full or actor is disconnected
@@ -285,6 +285,7 @@ pub struct InitializedActor<A: Actor> {
     pub address: Addr<A>,
     /// Actor itself
     pub actor: A,
+    stopper: mpsc::Receiver<Stop>,
     receiver: Receiver<Envelope<A>>,
 }
 
@@ -292,11 +293,30 @@ impl<A: Actor> InitializedActor<A> {
     /// Constructor.
     pub fn new(actor: A, mailbox_capacity: usize) -> Self {
         let (sender, receiver) = mpsc::channel(mailbox_capacity);
+        let (sender_stopper, stopper) = mpsc::channel(1);
         InitializedActor {
             actor,
-            address: Addr::new(sender),
+            address: Addr::new(sender, sender_stopper),
+            stopper,
             receiver,
         }
+    }
+
+    async fn terminate(
+        actor: &mut A,
+        ctx: &mut Context<A>,
+        termination: Stop,
+        receiver: &mut Receiver<Envelope<A>>,
+    ) {
+        if let Stop::Gentle = termination {
+            receiver.close();
+            while let Some(Envelope(mut message)) = receiver.recv().await {
+                EnvelopeProxy::handle(&mut *message, actor, ctx).await;
+            }
+        }
+
+        iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
+        actor.on_stop(ctx).await;
     }
 
     /// Start actor
@@ -305,20 +325,25 @@ impl<A: Actor> InitializedActor<A> {
         let mut receiver = self.receiver;
         let mut actor = self.actor;
         let move_addr = address.clone();
+        let stopper = self.stopper;
         let actor_future = async move {
-            let mut ctx = Context::new(move_addr.clone());
+            let mut ctx = Context::new(move_addr.clone(), stopper);
             actor.on_start(&mut ctx).await;
-            while let Some(Envelope(mut message)) = receiver.recv().await {
-                EnvelopeProxy::handle(&mut *message, &mut actor, &mut ctx).await;
-                if let Some(termination) = &ctx.should_stop {
-                    match termination {
-                        Stop::Now => break,
-                        Stop::AfterBufferedMessagesProcessed => receiver.close(),
+
+            loop {
+                tokio::select! {
+                    Some(Envelope(message)) = receiver.recv() => {
+                        let mut message = message;
+                        EnvelopeProxy::handle(&mut *message, &mut actor, &mut ctx).await
                     }
+                    Some(termination) = ctx.stopper.recv() =>
+                        Self::terminate(&mut actor, &mut ctx, termination, &mut receiver).await,
+
+                    else => break,
                 }
             }
-            iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
-            actor.on_stop(&mut ctx).await;
+
+            Self::terminate(&mut actor, &mut ctx, Stop::Now, &mut receiver).await
         }
         .in_current_span();
         #[cfg(not(feature = "deadlock_detection"))]
@@ -382,36 +407,33 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Stop {
     Now,
-    AfterBufferedMessagesProcessed,
+    Gentle,
 }
 
 /// Context for execution of actor
 #[derive(Debug)]
 pub struct Context<A: Actor> {
     addr: Addr<A>,
-    should_stop: Option<Stop>,
+    stopper: mpsc::Receiver<Stop>,
 }
 
 impl<A: Actor> Context<A> {
     /// Default constructor
-    pub fn new(addr: Addr<A>) -> Self {
-        Self {
-            addr,
-            should_stop: None,
-        }
+    fn new(addr: Addr<A>, stopper: mpsc::Receiver<Stop>) -> Self {
+        Self { addr, stopper }
     }
 
     /// Will stop this actor after the current message is processed.
     pub fn stop_now(&mut self) {
-        self.should_stop = Some(Stop::Now);
+        let _error = self.addr.stopper.send(Stop::Now);
     }
 
     /// Will stop this actor after all currently buffered messages are processed.
-    pub fn stop_after_buffered_processed(&mut self) {
-        self.should_stop = Some(Stop::AfterBufferedMessagesProcessed);
+    pub fn stop(&mut self) {
+        let _error = self.addr.stopper.send(Stop::Gentle);
     }
 
     /// Gets an address of current actor
