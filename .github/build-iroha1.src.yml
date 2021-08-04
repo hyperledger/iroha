@@ -433,11 +433,13 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - &step_cmake_configure
         name: CMake configure
+        ## Takes 13s on regular GitHub runner
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
           -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }}
-          -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
+          -GNinja ${{ matrix.CMAKE_USE }}
+          -DTESTING=ON
+          -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON
-        ## Takes 13s on regular GitHub runner
       - &step_cmake_build
         name: CMake build
         run: |
@@ -501,24 +503,36 @@ jobs:
             build/test_data/**
       - &step_ctest
         timeout-minutes: 10
-        name: CTest, FIXME integration_fake_peer_example_test
+        name: CTest
         run: |
           set -x
-          if [[ $(uname) = Darwin ]] ;then
+          if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
             postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           else
-            ## Need to go debian-specific way because
-            ## initdb is not allowed to be run as root, but we need to run as root
-            ## because GitHub actions runners have much issues with permissions.
-            pg_createcluster --start 12 iroha -- --locale=C --encoding=UTF-8
-            #pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+            mkdir postgres_database && chown iroha-ci postgres_database
+            echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
+            echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database                                        | su iroha-ci
+          #   ## Need to go debian-specific way because
+          #   ## initdb is not allowed to be run as root, but we need to run as root
+          #   ## because GitHub actions runners have much issues with permissions.
+          #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
+          #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
+          #     local   all             all                                     trust
+          #     host    all             all             127.0.0.1/32            trust
+          #     host    all             all             ::1/128                 trust
+          #     local   replication     all                                     trust
+          #     host    replication     all             127.0.0.1/32            trust
+          #     host    replication     all             ::1/128                 trust
+          # END
+          #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+          #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
           ## Run module_* tests in parallel and others subsequently
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 8
-          ctest --output-on-failure -E '^module_' --repeat until-pass:3
+          ctest --output-on-failure --no-tests=error -R '^module_' --parallel 8
+          ctest --output-on-failure --no-tests=error -E '^module_' --repeat until-pass:3
 
   ## Just because release is built 2..3 times faster make it a different job
   build-iroha-ubuntu-release:

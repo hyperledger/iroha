@@ -472,9 +472,9 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
-        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
           set -x
@@ -530,24 +530,36 @@ jobs:
             build/test_bin/**
             build/test_data/**
       - timeout-minutes: 10
-        name: CTest, FIXME integration_fake_peer_example_test
+        name: CTest
         run: |
           set -x
-          if [[ $(uname) = Darwin ]] ;then
+          if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
             postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           else
-            ## Need to go debian-specific way because
-            ## initdb is not allowed to be run as root, but we need to run as root
-            ## because GitHub actions runners have much issues with permissions.
-            pg_createcluster --start 12 iroha -- --locale=C --encoding=UTF-8
-            #pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+            mkdir postgres_database && chown iroha-ci postgres_database
+            echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
+            echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database                                        | su iroha-ci
+          #   ## Need to go debian-specific way because
+          #   ## initdb is not allowed to be run as root, but we need to run as root
+          #   ## because GitHub actions runners have much issues with permissions.
+          #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
+          #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
+          #     local   all             all                                     trust
+          #     host    all             all             127.0.0.1/32            trust
+          #     host    all             all             ::1/128                 trust
+          #     local   replication     all                                     trust
+          #     host    replication     all             127.0.0.1/32            trust
+          #     host    replication     all             ::1/128                 trust
+          # END
+          #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+          #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
           ## Run module_* tests in parallel and others subsequently
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 8
-          ctest --output-on-failure -E '^module_' --repeat until-pass:3
+          ctest --output-on-failure --no-tests=error -R '^module_' --parallel 8
+          ctest --output-on-failure --no-tests=error -E '^module_' --repeat until-pass:3
   ## Just because release is built 2..3 times faster make it a different job
   build-iroha-ubuntu-release:
     needs:
@@ -684,9 +696,9 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
-        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
           set -x
@@ -742,24 +754,36 @@ jobs:
             build/test_bin/**
             build/test_data/**
       - timeout-minutes: 10
-        name: CTest, FIXME integration_fake_peer_example_test
+        name: CTest
         run: |
           set -x
-          if [[ $(uname) = Darwin ]] ;then
+          if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
             postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           else
-            ## Need to go debian-specific way because
-            ## initdb is not allowed to be run as root, but we need to run as root
-            ## because GitHub actions runners have much issues with permissions.
-            pg_createcluster --start 12 iroha -- --locale=C --encoding=UTF-8
-            #pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+            mkdir postgres_database && chown iroha-ci postgres_database
+            echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
+            echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database                                        | su iroha-ci
+          #   ## Need to go debian-specific way because
+          #   ## initdb is not allowed to be run as root, but we need to run as root
+          #   ## because GitHub actions runners have much issues with permissions.
+          #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
+          #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
+          #     local   all             all                                     trust
+          #     host    all             all             127.0.0.1/32            trust
+          #     host    all             all             ::1/128                 trust
+          #     local   replication     all                                     trust
+          #     host    replication     all             127.0.0.1/32            trust
+          #     host    replication     all             ::1/128                 trust
+          # END
+          #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+          #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
           ## Run module_* tests in parallel and others subsequently
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 8
-          ctest --output-on-failure -E '^module_' --repeat until-pass:3
+          ctest --output-on-failure --no-tests=error -R '^module_' --parallel 8
+          ctest --output-on-failure --no-tests=error -E '^module_' --repeat until-pass:3
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
@@ -902,9 +926,9 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
-        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
           set -x
@@ -957,24 +981,36 @@ jobs:
         run: brew install postgresql
         ## ToDo may be optimize, i.e. cache package
       - timeout-minutes: 10
-        name: CTest, FIXME integration_fake_peer_example_test
+        name: CTest
         run: |
           set -x
-          if [[ $(uname) = Darwin ]] ;then
+          if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
             postgres -D $PWD/postgres_database -p5432 & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
           else
-            ## Need to go debian-specific way because
-            ## initdb is not allowed to be run as root, but we need to run as root
-            ## because GitHub actions runners have much issues with permissions.
-            pg_createcluster --start 12 iroha -- --locale=C --encoding=UTF-8
-            #pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+            mkdir postgres_database && chown iroha-ci postgres_database
+            echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
+            echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database                                        | su iroha-ci
+          #   ## Need to go debian-specific way because
+          #   ## initdb is not allowed to be run as root, but we need to run as root
+          #   ## because GitHub actions runners have much issues with permissions.
+          #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
+          #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
+          #     local   all             all                                     trust
+          #     host    all             all             127.0.0.1/32            trust
+          #     host    all             all             ::1/128                 trust
+          #     local   replication     all                                     trust
+          #     host    replication     all             127.0.0.1/32            trust
+          #     host    replication     all             ::1/128                 trust
+          # END
+          #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+          #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
           ## Run module_* tests in parallel and others subsequently
           cd build
-          ctest --output-on-failure -R '^module_' --parallel 8
-          ctest --output-on-failure -E '^module_' --repeat until-pass:3
+          ctest --output-on-failure --no-tests=error -R '^module_' --parallel 8
+          ctest --output-on-failure --no-tests=error -E '^module_' --repeat until-pass:3
   ## Just to align picture
   prepare-windows-env:
     needs: check_workflow_yaml_coressponds_to_src_yaml
@@ -1057,9 +1093,9 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DPACKAGE_DEB=ON
-        #-DCMAKE_VERBOSE_MAKEFILE=ON
         ## Takes 13s on regular GitHub runner
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
           set -x

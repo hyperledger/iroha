@@ -66,7 +66,7 @@ handle_user_line(){
          cygwin)                    compilers+=" $1 " ;;
          dockerpush)                dockerpush=yes ;;
          nodockerpush)              dockerpush=no ;;
-         all|everything|before_merge|before-merge)
+         all|everything|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses="$ALL_oses" build_types="$ALL_build_types" cmake_opts="$ALL_cmake_opts" compilers="$ALL_compilers"
             ;;
          *)
