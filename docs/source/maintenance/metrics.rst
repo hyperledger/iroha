@@ -19,8 +19,10 @@ Here is an example:
 
   > curl http://127.0.0.1:8080/metrics
 
-  	will give you results like: 
 
+will give you results like: 
+
+.. code-block:: shell
 
 	# HELP blocks_height Total number of blocks in chain
 	# TYPE blocks_height gauge
