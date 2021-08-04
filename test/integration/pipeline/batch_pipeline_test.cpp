@@ -33,6 +33,9 @@ class BatchPipelineTest
     : public AcceptanceFixture,
       public WithParamInterface<interface::types::BatchType> {
  public:
+  static constexpr iroha::StorageType storage_types[] = {
+      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
   /**
    * Create transaction to create first user
    * @return transaction to create first user
@@ -246,25 +249,29 @@ MATCHER_P(RefAndPointerEq, arg1, "") {
  * @then both transactions are committed
  */
 TEST_P(BatchPipelineTest, ValidBatch) {
-  auto batch_transactions = framework::batch::makeTestBatchTransactions(
-      GetParam(),
-      prepareTransferAssetBuilder(kFirstUserId, kSecondUserId, kAssetA, "1.0"),
-      prepareTransferAssetBuilder(kSecondUserId, kFirstUserId, kAssetB, "1.0"));
+  for (auto const type : storage_types) {
+    auto batch_transactions = framework::batch::makeTestBatchTransactions(
+        GetParam(),
+        prepareTransferAssetBuilder(
+            kFirstUserId, kSecondUserId, kAssetA, "1.0"),
+        prepareTransferAssetBuilder(
+            kSecondUserId, kFirstUserId, kAssetB, "1.0"));
 
-  SCOPED_TRACE("From valid batch test");
-  auto transaction_sequence = createTransactionSequence(
-      {signedTx(batch_transactions[0], kFirstUserKeypair),
-       signedTx(batch_transactions[1], kSecondUserKeypair)});
-  integration_framework::IntegrationTestFramework itf(2);
-  prepareState(itf, "1.0", "1.0")
-      .sendTxSequenceAwait(
-          transaction_sequence, [&transaction_sequence](const auto &block) {
-            // check that transactions from block are the same as transactions
-            // from transaction sequence
-            ASSERT_THAT(block->transactions(),
-                        Pointwise(RefAndPointerEq(),
-                                  transaction_sequence.transactions()));
-          });
+    SCOPED_TRACE("From valid batch test");
+    auto transaction_sequence = createTransactionSequence(
+        {signedTx(batch_transactions[0], kFirstUserKeypair),
+         signedTx(batch_transactions[1], kSecondUserKeypair)});
+    integration_framework::IntegrationTestFramework itf(2, type);
+    prepareState(itf, "1.0", "1.0")
+        .sendTxSequenceAwait(
+            transaction_sequence, [&transaction_sequence](const auto &block) {
+              // check that transactions from block are the same as transactions
+              // from transaction sequence
+              ASSERT_THAT(block->transactions(),
+                          Pointwise(RefAndPointerEq(),
+                                    transaction_sequence.transactions()));
+            });
+  }
 }
 
 /**
@@ -274,47 +281,51 @@ TEST_P(BatchPipelineTest, ValidBatch) {
  * @then no transaction is committed
  */
 TEST_F(BatchPipelineTest, InvalidAtomicBatch) {
-  auto batch_transactions = framework::batch::makeTestBatchTransactions(
-      interface::types::BatchType::ATOMIC,
-      prepareTransferAssetBuilder(kFirstUserId, kSecondUserId, kAssetA, "1.0"),
-      prepareTransferAssetBuilder(kSecondUserId,
-                                  kFirstUserId,
-                                  kAssetB,
-                                  "2.0")  // invalid tx due to too big transfer
-  );
+  for (auto const type : storage_types) {
+    auto batch_transactions = framework::batch::makeTestBatchTransactions(
+        interface::types::BatchType::ATOMIC,
+        prepareTransferAssetBuilder(
+            kFirstUserId, kSecondUserId, kAssetA, "1.0"),
+        prepareTransferAssetBuilder(
+            kSecondUserId,
+            kFirstUserId,
+            kAssetB,
+            "2.0")  // invalid tx due to too big transfer
+    );
 
-  SCOPED_TRACE("From invalid atomic batch test");
-  auto transaction_sequence = createTransactionSequence(
-      {signedTx(batch_transactions[0], kFirstUserKeypair),
-       signedTx(batch_transactions[1], kSecondUserKeypair)});
+    SCOPED_TRACE("From invalid atomic batch test");
+    auto transaction_sequence = createTransactionSequence(
+        {signedTx(batch_transactions[0], kFirstUserKeypair),
+         signedTx(batch_transactions[1], kSecondUserKeypair)});
 
-  integration_framework::IntegrationTestFramework itf(2);
-  prepareState(itf, "1.0", "1.0")
-      .sendTxSequence(
-          transaction_sequence,
-          [](const auto &statuses) {
-            for (const auto &status : statuses) {
-              EXPECT_NO_THROW(
-                  boost::get<const shared_model::interface::
-                                 StatelessValidTxResponse &>(status.get()));
-            }
-          })
-      .checkStatus(batch_transactions[0]->hash(), CHECK_STATELESS_VALID)
-      .checkStatus(batch_transactions[0]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATELESS_VALID)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATEFUL_INVALID)
-      .checkProposal([&transaction_sequence](const auto proposal) {
-        ASSERT_THAT(
-            proposal->transactions(),
-            Pointwise(RefAndPointerEq(), transaction_sequence.transactions()));
-      })
-      .checkVerifiedProposal([](const auto verified_proposal) {
-        ASSERT_THAT(verified_proposal->transactions(), IsEmpty());
-      })
-      .checkBlock([](const auto block) {
-        ASSERT_THAT(block->transactions(), IsEmpty());
-      });
+    integration_framework::IntegrationTestFramework itf(2, type);
+    prepareState(itf, "1.0", "1.0")
+        .sendTxSequence(
+            transaction_sequence,
+            [](const auto &statuses) {
+              for (const auto &status : statuses) {
+                EXPECT_NO_THROW(
+                    boost::get<const shared_model::interface::
+                                   StatelessValidTxResponse &>(status.get()));
+              }
+            })
+        .checkStatus(batch_transactions[0]->hash(), CHECK_STATELESS_VALID)
+        .checkStatus(batch_transactions[0]->hash(), CHECK_ENOUGH_SIGNATURES)
+        .checkStatus(batch_transactions[1]->hash(), CHECK_STATELESS_VALID)
+        .checkStatus(batch_transactions[1]->hash(), CHECK_ENOUGH_SIGNATURES)
+        .checkStatus(batch_transactions[1]->hash(), CHECK_STATEFUL_INVALID)
+        .checkProposal([&transaction_sequence](const auto proposal) {
+          ASSERT_THAT(proposal->transactions(),
+                      Pointwise(RefAndPointerEq(),
+                                transaction_sequence.transactions()));
+        })
+        .checkVerifiedProposal([](const auto verified_proposal) {
+          ASSERT_THAT(verified_proposal->transactions(), IsEmpty());
+        })
+        .checkBlock([](const auto block) {
+          ASSERT_THAT(block->transactions(), IsEmpty());
+        });
+  }
 }
 
 /**
@@ -324,31 +335,35 @@ TEST_F(BatchPipelineTest, InvalidAtomicBatch) {
  * @then all transactions except stateful invalid one are committed
  */
 TEST_F(BatchPipelineTest, InvalidOrderedBatch) {
-  auto batch_transactions = framework::batch::makeTestBatchTransactions(
-      interface::types::BatchType::ORDERED,
-      prepareTransferAssetBuilder(kFirstUserId, kSecondUserId, kAssetA, "0.3"),
-      prepareTransferAssetBuilder(
-          kSecondUserId,
-          kFirstUserId,
-          kAssetB,
-          "2.0"),  // stateful invalid tx due to too big transfer
-      prepareTransferAssetBuilder(kFirstUserId, kSecondUserId, kAssetA, "0.7"));
+  for (auto const type : storage_types) {
+    auto batch_transactions = framework::batch::makeTestBatchTransactions(
+        interface::types::BatchType::ORDERED,
+        prepareTransferAssetBuilder(
+            kFirstUserId, kSecondUserId, kAssetA, "0.3"),
+        prepareTransferAssetBuilder(
+            kSecondUserId,
+            kFirstUserId,
+            kAssetB,
+            "2.0"),  // stateful invalid tx due to too big transfer
+        prepareTransferAssetBuilder(
+            kFirstUserId, kSecondUserId, kAssetA, "0.7"));
 
-  SCOPED_TRACE("From InvalidOrderedBatch");
-  auto transaction_sequence = createTransactionSequence(
-      {signedTx(batch_transactions[0], kFirstUserKeypair),
-       signedTx(batch_transactions[1], kSecondUserKeypair),
-       signedTx(batch_transactions[2], kFirstUserKeypair)});
+    SCOPED_TRACE("From InvalidOrderedBatch");
+    auto transaction_sequence = createTransactionSequence(
+        {signedTx(batch_transactions[0], kFirstUserKeypair),
+         signedTx(batch_transactions[1], kSecondUserKeypair),
+         signedTx(batch_transactions[2], kFirstUserKeypair)});
 
-  integration_framework::IntegrationTestFramework itf(3);
-  prepareState(itf, "1.0", "1.0")
-      .sendTxSequenceAwait(transaction_sequence, [&](const auto block) {
-        ASSERT_THAT(
-            block->transactions(),
-            ElementsAre(
-                RefAndPointerEq(transaction_sequence.transactions()[0]),
-                RefAndPointerEq(transaction_sequence.transactions()[2])));
-      });
+    integration_framework::IntegrationTestFramework itf(3, type);
+    prepareState(itf, "1.0", "1.0")
+        .sendTxSequenceAwait(transaction_sequence, [&](const auto block) {
+          ASSERT_THAT(
+              block->transactions(),
+              ElementsAre(
+                  RefAndPointerEq(transaction_sequence.transactions()[0]),
+                  RefAndPointerEq(transaction_sequence.transactions()[2])));
+        });
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(BatchPipelineParameterizedTest,
@@ -375,25 +390,28 @@ INSTANTIATE_TEST_SUITE_P(BatchPipelineParameterizedTest,
  *   because the second transaction has no signatures
  */
 TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
-  auto batch = framework::batch::makeTestBatch(
-      prepareTransferAssetBuilder(
-          kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
-      prepareTransferAssetBuilder(kSecondUserId, kFirstUserId, kAssetB, "1.0"));
+  for (auto const type : storage_types) {
+    auto batch = framework::batch::makeTestBatch(
+        prepareTransferAssetBuilder(
+            kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
+        prepareTransferAssetBuilder(
+            kSecondUserId, kFirstUserId, kAssetB, "1.0"));
 
-  batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
-  auto firstTxHash = batch->transactions()[0]->hash();
+    batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
+    auto firstTxHash = batch->transactions()[0]->hash();
 
-  integration_framework::IntegrationTestFramework itf(2);
-  prepareState(itf, "10.0", "20.0")
-      .sendTxAwait(raiseFirstUserQuorum(), CHECK_TXS_QUANTITY(1))
-      .sendTxSequence(batchToSequence(batch))
-      .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
-      .checkStatus(firstTxHash, CHECK_MST_PENDING);
+    integration_framework::IntegrationTestFramework itf(2, type);
+    prepareState(itf, "10.0", "20.0")
+        .sendTxAwait(raiseFirstUserQuorum(), CHECK_TXS_QUANTITY(1))
+        .sendTxSequence(batchToSequence(batch))
+        .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
+        .checkStatus(firstTxHash, CHECK_MST_PENDING);
 
-  batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserSecondKeypair);
-  itf.sendTxSequence(batchToSequence(batch))
-      .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
-      .checkStatus(firstTxHash, CHECK_MST_PENDING);
+    batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserSecondKeypair);
+    itf.sendTxSequence(batchToSequence(batch))
+        .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
+        .checkStatus(firstTxHash, CHECK_MST_PENDING);
+  }
 }
 
 /**
@@ -411,30 +429,33 @@ TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
  *   batch remains pending till all signatures are collected
  */
 TEST_F(BatchPipelineTest, CommitAtomicBatchStepByStepSigning) {
-  auto batch = framework::batch::makeTestBatch(
-      prepareTransferAssetBuilder(
-          kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
-      prepareTransferAssetBuilder(kSecondUserId, kFirstUserId, kAssetB, "1.0"));
+  for (auto const type : storage_types) {
+    auto batch = framework::batch::makeTestBatch(
+        prepareTransferAssetBuilder(
+            kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
+        prepareTransferAssetBuilder(
+            kSecondUserId, kFirstUserId, kAssetB, "1.0"));
 
-  auto batch1 = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
-  auto firstTxHash = batch->transactions()[0]->hash();
+    auto batch1 = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
+    auto firstTxHash = batch->transactions()[0]->hash();
 
-  integration_framework::IntegrationTestFramework itf(2);
-  prepareState(itf, "10.0", "20.0")
-      .sendTxAwait(raiseFirstUserQuorum(), CHECK_TXS_QUANTITY(1))
-      .sendTxSequence(batchToSequence(batch1))
-      .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
-      .checkStatus(firstTxHash, CHECK_MST_PENDING);
+    integration_framework::IntegrationTestFramework itf(2, type);
+    prepareState(itf, "10.0", "20.0")
+        .sendTxAwait(raiseFirstUserQuorum(), CHECK_TXS_QUANTITY(1))
+        .sendTxSequence(batchToSequence(batch1))
+        .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
+        .checkStatus(firstTxHash, CHECK_MST_PENDING);
 
-  auto batch2 = addSignaturesFromKeyPairs(batch, 0, kFirstUserSecondKeypair);
-  itf.sendTxSequence(batchToSequence(batch2))
-      .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
-      .checkStatus(firstTxHash, CHECK_MST_PENDING);
+    auto batch2 = addSignaturesFromKeyPairs(batch, 0, kFirstUserSecondKeypair);
+    itf.sendTxSequence(batchToSequence(batch2))
+        .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
+        .checkStatus(firstTxHash, CHECK_MST_PENDING);
 
-  auto batch3 = addSignaturesFromKeyPairs(batch, 1, kSecondUserKeypair);
-  itf.sendTxSequence(batchToSequence(batch3))
-      .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
-      .checkStatus(firstTxHash, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(firstTxHash, CHECK_STATEFUL_VALID)
-      .checkStatus(firstTxHash, CHECK_COMMITTED);
+    auto batch3 = addSignaturesFromKeyPairs(batch, 1, kSecondUserKeypair);
+    itf.sendTxSequence(batchToSequence(batch3))
+        .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
+        .checkStatus(firstTxHash, CHECK_ENOUGH_SIGNATURES)
+        .checkStatus(firstTxHash, CHECK_STATEFUL_VALID)
+        .checkStatus(firstTxHash, CHECK_COMMITTED);
+  }
 }

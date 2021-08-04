@@ -33,14 +33,12 @@ namespace iroha::ametsuchi {
                       result.assumeError().code,
                       result.assumeError().description));
 
-    common.commit();
     return {};
   }
 
-  RocksDBWsvCommand::RocksDBWsvCommand(std::shared_ptr<RocksDBPort> db_port)
-      : db_port_{std::move(db_port)},
-        db_context_(std::make_shared<RocksDBContext>(db_port_)) {
-    assert(db_port_);
+  RocksDBWsvCommand::RocksDBWsvCommand(
+      std::shared_ptr<RocksDBContext> db_context)
+      : db_context_(std::move(db_context)) {
     assert(db_context_);
   }
 
@@ -85,21 +83,23 @@ namespace iroha::ametsuchi {
   WsvCommandResult RocksDBWsvCommand::deleteAccountRole(
       const shared_model::interface::types::AccountIdType &account_id,
       const shared_model::interface::types::RoleIdType &role_name) {
-    return execute(db_context_,
-                   [&](auto &common) -> expected::Result<void, DbError> {
-                     auto const names = staticSplitId<2ull>(account_id);
-                     auto const &account_name = names.at(0);
-                     auto const &domain_id = names.at(1);
+    return execute(
+        db_context_,
+        [&](auto &common) -> expected::Result<void, DbError> {
+          auto const names = staticSplitId<2ull>(account_id);
+          auto const &account_name = names.at(0);
+          auto const &domain_id = names.at(1);
 
-                     RDB_ERROR_CHECK(forAccountRole<kDbOperation::kDel>(
-                         common, account_name, domain_id, role_name));
+          RDB_ERROR_CHECK(
+              forAccountRole<kDbOperation::kDel, kDbEntry::kCanExist>(
+                  common, account_name, domain_id, role_name));
 
-                     return {};
-                   },
-                   [&]() {
-                     return fmt::format(
-                         "Delete account {} role {}", account_id, role_name);
-                   });
+          return {};
+        },
+        [&]() {
+          return fmt::format(
+              "Delete account {} role {}", account_id, role_name);
+        });
   }
 
   WsvCommandResult RocksDBWsvCommand::insertRolePermissions(
@@ -123,10 +123,6 @@ namespace iroha::ametsuchi {
     return execute(
         db_context_,
         [&](auto &common) -> expected::Result<void, DbError> {
-          auto grantee_names = staticSplitId<2ull>(permittee_account_id);
-          auto &grantee_account_name = grantee_names.at(0);
-          auto &grantee_domain_id = grantee_names.at(1);
-
           auto names = staticSplitId<2ull>(account_id);
           auto &account_name = names.at(0);
           auto &domain_id = names.at(1);
@@ -134,14 +130,11 @@ namespace iroha::ametsuchi {
           shared_model::interface::GrantablePermissionSet
               granted_account_permissions;
           {
-            RDB_TRY_GET_VALUE(perm,
-                              forGrantablePermissions<kDbOperation::kGet,
-                                                      kDbEntry::kCanExist>(
-                                  common,
-                                  account_name,
-                                  domain_id,
-                                  grantee_account_name,
-                                  grantee_domain_id));
+            RDB_TRY_GET_VALUE(
+                perm,
+                forGrantablePermissions<kDbOperation::kGet,
+                                        kDbEntry::kCanExist>(
+                    common, account_name, domain_id, permittee_account_id));
             if (perm)
               granted_account_permissions = std::move(*perm);
           }
@@ -151,11 +144,7 @@ namespace iroha::ametsuchi {
               granted_account_permissions.toBitstring());
           RDB_ERROR_CHECK(
               forGrantablePermissions<kDbOperation::kPut, kDbEntry::kMustExist>(
-                  common,
-                  account_name,
-                  domain_id,
-                  grantee_account_name,
-                  grantee_domain_id));
+                  common, account_name, domain_id, permittee_account_id));
 
           return {};
         },
@@ -174,10 +163,6 @@ namespace iroha::ametsuchi {
     return execute(
         db_context_,
         [&](auto &common) -> expected::Result<void, DbError> {
-          auto const grantee_names = staticSplitId<2ull>(permittee_account_id);
-          auto const &grantee_account_name = grantee_names.at(0);
-          auto const &grantee_domain_id = grantee_names.at(1);
-
           auto const names = staticSplitId<2ull>(account_id);
           auto const &account_name = names.at(0);
           auto const &domain_id = names.at(1);
@@ -185,14 +170,11 @@ namespace iroha::ametsuchi {
           shared_model::interface::GrantablePermissionSet
               granted_account_permissions;
           {
-            RDB_TRY_GET_VALUE(perm,
-                              forGrantablePermissions<kDbOperation::kGet,
-                                                      kDbEntry::kCanExist>(
-                                  common,
-                                  account_name,
-                                  domain_id,
-                                  grantee_account_name,
-                                  grantee_domain_id));
+            RDB_TRY_GET_VALUE(
+                perm,
+                forGrantablePermissions<kDbOperation::kGet,
+                                        kDbEntry::kCanExist>(
+                    common, account_name, domain_id, permittee_account_id));
             if (perm)
               granted_account_permissions = std::move(*perm);
           }
@@ -202,11 +184,7 @@ namespace iroha::ametsuchi {
               granted_account_permissions.toBitstring());
           RDB_ERROR_CHECK(
               forGrantablePermissions<kDbOperation::kPut, kDbEntry::kMustExist>(
-                  common,
-                  account_name,
-                  domain_id,
-                  grantee_account_name,
-                  grantee_domain_id));
+                  common, account_name, domain_id, permittee_account_id));
 
           return {};
         },
@@ -315,27 +293,27 @@ namespace iroha::ametsuchi {
   WsvCommandResult RocksDBWsvCommand::deleteAccountSignatory(
       const shared_model::interface::types::AccountIdType &account_id,
       shared_model::interface::types::PublicKeyHexStringView signatory) {
-    return execute(db_context_,
-                   [&](auto &common) -> expected::Result<void, DbError> {
-                     auto const names = staticSplitId<2ull>(account_id);
-                     auto const &account_name = names.at(0);
-                     auto const &domain_id = names.at(1);
+    return execute(
+        db_context_,
+        [&](auto &common) -> expected::Result<void, DbError> {
+          auto const names = staticSplitId<2ull>(account_id);
+          auto const &account_name = names.at(0);
+          auto const &domain_id = names.at(1);
 
-                     std::string result;
-                     std::transform(((std::string_view)signatory).begin(),
-                                    ((std::string_view)signatory).end(),
-                                    std::back_inserter(result),
-                                    [](auto c) { return std::tolower(c); });
+          std::string result;
+          std::transform(((std::string_view)signatory).begin(),
+                         ((std::string_view)signatory).end(),
+                         std::back_inserter(result),
+                         [](auto c) { return std::tolower(c); });
 
-                     RDB_ERROR_CHECK(forSignatory<kDbOperation::kDel>(
-                         common, account_name, domain_id, result));
-                     return {};
-                   },
-                   [&]() {
-                     return fmt::format("Account {} delete signatory {}",
-                                        account_id,
-                                        signatory);
-                   });
+          RDB_ERROR_CHECK(forSignatory<kDbOperation::kDel, kDbEntry::kCanExist>(
+              common, account_name, domain_id, result));
+          return {};
+        },
+        [&]() {
+          return fmt::format(
+              "Account {} delete signatory {}", account_id, signatory);
+        });
   }
 
   WsvCommandResult RocksDBWsvCommand::deleteSignatory(
@@ -385,8 +363,11 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
-          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kDel>(common, result));
-          RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel>(common, result));
+          RDB_ERROR_CHECK(
+              forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(common,
+                                                                      result));
+          RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
+              common, result));
           return {};
         },
         [&]() {
@@ -468,4 +449,5 @@ namespace iroha::ametsuchi {
                              top_block_info.top_hash.hex());
         });
   }
+
 }  // namespace iroha::ametsuchi

@@ -108,6 +108,24 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys) {
   ASSERT_EQ(counter, 2);
 }
 
+TEST_F(RocksDBTest, FilterDelete) {
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(common.filterDelete("keY").ok());
+    ASSERT_TRUE(common.commit().ok());
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(common.get(key1_).IsNotFound());
+    ASSERT_TRUE(common.get(key2_).IsNotFound());
+  }
+  {
+    ASSERT_TRUE(readDb(key3_) == value3_);
+    ASSERT_TRUE(readDb(key4_) == value4_);
+    ASSERT_TRUE(readDb(key5_) == value5_);
+  }
+}
+
 TEST_F(RocksDBTest, SimpleEnumerateKeys2) {
   RocksDbCommon common(tx_context_);
   int counter = 0;
@@ -162,6 +180,20 @@ TEST_F(RocksDBTest, NumberRewrite) {
     common.decode(value);
   }
   ASSERT_TRUE(value == 55ull);
+}
+
+TEST_F(RocksDBTest, Skip) {
+  {
+    RocksDbCommon common(tx_context_);
+    common.encode(55ull);
+    ASSERT_TRUE(common.put("123").ok());
+    common.skip();
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_FALSE(common.get("123").ok());
+    ASSERT_TRUE(common.get("123").IsNotFound());
+  }
 }
 
 TEST_F(RocksDBTest, Quorum) {

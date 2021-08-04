@@ -47,16 +47,16 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
 }
 
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
-  for (auto &batch : batches) {
-    if (not batchAlreadyProcessed(*batch)) {
-      insertBatchToCache(batch);
-    }
-  }
+  for (auto &batch : batches)
+    if (not batchAlreadyProcessed(*batch))
+      if (!insertBatchToCache(batch))
+        break;
+
   log_->info("onBatches => collection size = {}", batches.size());
 }
 
 // ---------------------------------| Private |---------------------------------
-void OnDemandOrderingServiceImpl::insertBatchToCache(
+bool OnDemandOrderingServiceImpl::insertBatchToCache(
     std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
   std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
   if (used_batches_cache_.find(batch) == used_batches_cache_.end()) {
@@ -64,6 +64,7 @@ void OnDemandOrderingServiceImpl::insertBatchToCache(
     getSubscription()->notify(EventTypes::kOnNewBatchInCache,
                               std::shared_ptr(batch));
   }
+  return true;
 }
 
 void OnDemandOrderingServiceImpl::removeFromBatchesCache(
@@ -90,7 +91,7 @@ bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() const {
 }
 
 void OnDemandOrderingServiceImpl::forCachedBatches(
-    std::function<void(const BatchesSetType &)> const &f) {
+    std::function<void(const BatchesSetType &)> const &f) const {
   std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
   f(batches_cache_);
 }
