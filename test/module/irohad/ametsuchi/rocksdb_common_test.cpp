@@ -228,6 +228,21 @@ TEST_F(RocksDBTest, Quorum) {
   }
 }
 
+TEST_F(RocksDBTest, LowerBoundSearch) {
+  RocksDbCommon common(tx_context_);
+
+  char const* target = "1234569#1#2";
+
+  common.valueBuffer().clear();
+  ASSERT_TRUE(common.put("1234367#1#1").ok());
+  ASSERT_TRUE(common.put(target).ok());
+  ASSERT_TRUE(common.put("1234570#2#1").ok());
+
+  auto it = common.seek("1234411#0#0");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_TRUE(it->key().ToStringView() == target);
+}
+
 TEST_F(RocksDBTest, Signatories) {
   RocksDbCommon common(tx_context_);
   auto cmd_check = [&](std::string_view pk) {
