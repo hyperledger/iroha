@@ -471,6 +471,9 @@ RocksDbSpecificQueryExecutor::readTxs(
               == shared_model::interface::Ordering::Field::kCreatedTime)
         ? enumerateKeysAndValues(common,
                                  parser,
+                                 common.template seek(fmtstrings::kTransactionByTsLowerBound,
+                                                      query.accountId(),
+                                                      bounds.tsFrom),
                                  fmtstrings::kPathTransactionByTs,
                                  query.accountId())
         : enumerateKeysAndValues(common,
