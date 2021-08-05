@@ -59,7 +59,6 @@
  *                |                |            |             |             +-<ts_2, value:tx_hash_2>
  *                |                |            |             |             +-<ts_3, value:tx_hash_3>
  *                |                |            |             |
- *                |                |            |             +-<first_tx_ts>
  *                |                |            |             +-<tx_total_count>
  *                |                |            |
  *                |                |            +-<account_2>-+-|POSITION|-+-<height_index, value:tx_hash_4>
@@ -70,7 +69,6 @@
  *                |                |                          |             +-<ts_2, value:tx_hash_5>
  *                |                |                          |             +-<ts_3, value:tx_hash_6>
  *                |                |                          |
- *                |                |                          +-<first_tx_ts>
  *                |                |                          +-<tx_total_count>
  *                |                |
  *                |                +-|STATUSES|-+-<tx_hash_1, value:status_height_index>
@@ -144,7 +142,6 @@
  * ### F_PEERS COUNT ##       Z       ###
  * ### F_TOTAL COUNT ##       V       ###
  * ### F_VERSION     ##       v       ###
- * ### F_FIRST       ##       H       ###
  * ######################################
  *
  * ######################################
@@ -186,7 +183,6 @@
 #define RDB_F_PEERS_COUNT "Z"
 #define RDB_F_TOTAL_COUNT "V"
 #define RDB_F_VERSION "v"
-#define RDB_F_FIRST "H"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -348,11 +344,6 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_TOTAL_COUNT)};
 
-  // account ➡️ first_tx_ts
-  static auto constexpr kAccountFirstTxTs{
-      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
-                     RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_FIRST)};
-
   // ➡️ txs total count
   static auto constexpr kAllTxsTotalCount{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_F_TOTAL_COUNT)};
@@ -405,16 +396,12 @@ namespace iroha::ametsuchi::fmtstrings {
 #undef RDB_F_PEERS_COUNT
 #undef RDB_F_TOTAL_COUNT
 #undef RDB_F_VERSION
-#undef RDB_F_FIRST
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
 }
 
 namespace iroha::ametsuchi {
-
-  /// time frame between markers.
-  static constexpr uint64_t framepoint = 86400'000ull;
 
   struct RocksDBPort;
   class RocksDbCommon;
@@ -440,9 +427,6 @@ namespace iroha::ametsuchi {
 
     /// Buffer for key data
     fmt::memory_buffer key_buffer;
-
-    /// Buffer for lower bound data
-    fmt::memory_buffer lower_bound_buffer;
 
     /// Buffer for value data
     std::string value_buffer;
@@ -577,10 +561,6 @@ namespace iroha::ametsuchi {
     /// Get key buffer
     auto &keyBuffer() {
       return tx_context_->key_buffer;
-    }
-
-    auto &lowerBoundBuffer() {
-      return tx_context_->lower_bound_buffer;
     }
 
    private:
@@ -721,32 +701,6 @@ namespace iroha::ametsuchi {
 
       std::unique_ptr<rocksdb::Iterator> it(
           transaction()->GetIterator(rocksdb::ReadOptions()));
-      it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
-
-      return it;
-    }
-
-    /// Makes lower bound prefix
-    template <typename S, typename... Args>
-    void makeLowerBoundPrefix(S const &fmtstring, Args &&... args) {
-      lowerBoundBuffer().clear();
-      fmt::format_to(lowerBoundBuffer(), fmtstring, std::forward<Args>(args)...);
-    }
-
-    /// Searches for the first key that matches a prefix more or equal lower bound prefix
-    template <typename S, typename... Args>
-    auto seekLowerBound(S const &fmtstring, Args &&... args) {
-      keyBuffer().clear();
-      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
-
-      rocksdb::Slice const bound(lowerBoundBuffer().data(), lowerBoundBuffer().size());
-      assert(0ull < lowerBoundBuffer().size());
-
-      rocksdb::ReadOptions opt;
-      opt.iterate_lower_bound = &bound;
-
-      std::unique_ptr<rocksdb::Iterator> it(
-          transaction()->GetIterator(opt));
       it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
 
       return it;
@@ -1180,22 +1134,6 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common, std::string_view account_id) {
     return dbCall<uint64_t, kOp, kSc>(
         common, fmtstrings::kTxsTotalCount, account_id);
-  }
-
-  /**
-   * Access to account's first transaction timestamp.
-   * @tparam kOp @see kDbOperation
-   * @tparam kSc @see kDbEntry
-   * @param common @see RocksDbCommon
-   * @param account_id name
-   * @return operation result
-   */
-  template <kDbOperation kOp = kDbOperation::kGet,
-      kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<uint64_t>, DbError> forAccountFirstTxTs(
-      RocksDbCommon &common, std::string_view account_id) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common, fmtstrings::kAccountFirstTxTs, account_id);
   }
 
   /**
@@ -1782,22 +1720,6 @@ namespace iroha::ametsuchi {
                              "Clear WSV failed.");
     return {};
   }
-
-  struct TsMarker {
-    using TimestampType = shared_model::interface::types::TimestampType;
-
-    TimestampType ts_;
-    TimestampType frame_current_;
-    TimestampType frame_next_;
-
-    explicit TsMarker(TimestampType ts)
-    : ts_(ts), frame_current_((ts / framepoint) * framepoint), frame_next_(frame_current_ + framepoint) {
-      static_assert(framepoint != 0ull, "Frame size can not be null!");
-      static_assert(
-          offsetof(TsMarker, frame_current_) < offsetof(TsMarker, frame_next_),
-          "Current frame must be before next because of init order.");
-    }
-  };
 
 }  // namespace iroha::ametsuchi
 
