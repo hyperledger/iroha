@@ -408,6 +408,9 @@ namespace {
 
 namespace iroha::ametsuchi {
 
+  /// time frame between markers.
+  static constexpr uint64_t framepoint = 86400'000ull;
+
   struct RocksDBPort;
   class RocksDbCommon;
 
@@ -1741,6 +1744,22 @@ namespace iroha::ametsuchi {
                              "Clear WSV failed.");
     return {};
   }
+
+  struct TsMarker {
+    using TimestampType = shared_model::interface::types::TimestampType;
+
+    TimestampType ts_;
+    TimestampType frame_current_;
+    TimestampType frame_next_;
+
+    explicit TsMarker(TimestampType ts)
+    : ts_(ts), frame_current_((ts / framepoint) * framepoint), frame_next_(frame_current_ + framepoint) {
+      static_assert(framepoint != 0ull, "Frame size can not be null!");
+      static_assert(
+          offsetof(TsMarker, frame_current_) < offsetof(TsMarker, frame_next_),
+          "Current frame must be before next because of init order.");
+    }
+  };
 
 }  // namespace iroha::ametsuchi
 
