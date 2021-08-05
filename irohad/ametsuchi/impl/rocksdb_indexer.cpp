@@ -70,9 +70,9 @@ void RocksDBIndexer::txPositions(
     TxPosition const &position) {
   RocksDbCommon common(db_context_);
 
-  if (auto res =
-          forTransactionByPosition<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-              common, account, ts, position.height, position.index);
+  if (auto res = forTransactionByPosition<kDbOperation::kCheck,
+                                          kDbEntry::kMustNotExist>(
+          common, account, ts, position.height, position.index);
       expected::hasError(res))
     return;
 
@@ -85,6 +85,15 @@ void RocksDBIndexer::txPositions(
   forTransactionByTimestamp<kDbOperation::kPut>(
       common, account, ts, position.height, position.index);
 
+  uint64_t txs_count = 0ull;
+  if (auto result = forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+          common, account);
+      expected::hasValue(result) && result.assumeValue())
+    txs_count = *result.assumeValue();
+
+  common.encode(txs_count + 1ull);
+  forTxsTotalCount<kDbOperation::kPut>(common, account);
+
   /// update first transaction ts from this account
   if (TimestampType(0ull) != ts) {
     uint64_t first_tx_time = std::numeric_limits<TimestampType>::max();
@@ -94,21 +103,25 @@ void RocksDBIndexer::txPositions(
         expected::hasValue(res))
       first_tx_time = *res.assumeValue();
 
-    auto const frame_begin = std::min(first_tx_time, (ts / framepoint) * framepoint);
+    auto const frame_begin =
+        std::min(first_tx_time, (ts / framepoint) * framepoint);
     if (frame_begin != first_tx_time) {
       common.encode(frame_begin);
       forAccountFirstTxTs<kDbOperation::kPut>(common, account);
     }
+
+    common.valueBuffer().clear();
+    auto frame = frame_begin + framepoint;
+    while (frame >= first_tx_time
+           && !expected::hasError(
+               forTransactionByTimestamp<kDbOperation::kCheck,
+                                         kDbEntry::kMustNotExist>(
+                   common, account, frame, 0ull, 0ull))) {
+      forTransactionByTimestamp<kDbOperation::kPut>(
+          common, account, frame, 0ull, 0ull);
+      frame -= framepoint;
+    }
   }
-
-  uint64_t txs_count = 0ull;
-  if (auto result = forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
-          common, account);
-      expected::hasValue(result) && result.assumeValue())
-    txs_count = *result.assumeValue();
-
-  common.encode(txs_count + 1ull);
-  forTxsTotalCount<kDbOperation::kPut>(common, account);
 }
 
 iroha::expected::Result<void, std::string> RocksDBIndexer::flush() {
