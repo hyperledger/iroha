@@ -436,6 +436,9 @@ namespace iroha::ametsuchi {
     /// Buffer for key data
     fmt::memory_buffer key_buffer;
 
+    /// Buffer for lower bound data
+    fmt::memory_buffer lower_bound_buffer;
+
     /// Buffer for value data
     std::string value_buffer;
 
@@ -569,6 +572,10 @@ namespace iroha::ametsuchi {
     /// Get key buffer
     auto &keyBuffer() {
       return tx_context_->key_buffer;
+    }
+
+    auto &lowerBoundBuffer() {
+      return tx_context_->lower_bound_buffer;
     }
 
    private:
@@ -709,6 +716,32 @@ namespace iroha::ametsuchi {
 
       std::unique_ptr<rocksdb::Iterator> it(
           transaction()->GetIterator(rocksdb::ReadOptions()));
+      it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
+
+      return it;
+    }
+
+    /// Makes lower bound prefix
+    template <typename S, typename... Args>
+    void makeLowerBoundPrefix(S const &fmtstring, Args &&... args) {
+      lowerBoundBuffer().clear();
+      fmt::format_to(lowerBoundBuffer(), fmtstring, std::forward<Args>(args)...);
+    }
+
+    /// Searches for the first key that matches a prefix more or equal lower bound prefix
+    template <typename S, typename... Args>
+    auto seekLowerBound(S const &fmtstring, Args &&... args) {
+      keyBuffer().clear();
+      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+
+      rocksdb::Slice const bound(lowerBoundBuffer().data(), lowerBoundBuffer().size());
+      assert(0ull < lowerBoundBuffer().size());
+
+      rocksdb::ReadOptions opt;
+      opt.iterate_lower_bound = &bound;
+
+      std::unique_ptr<rocksdb::Iterator> it(
+          transaction()->GetIterator(opt));
       it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
 
       return it;
