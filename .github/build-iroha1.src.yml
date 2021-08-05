@@ -131,12 +131,21 @@ jobs:
         name: Generate default matrix for regular builds
         if: ${{ steps.comment_body.outcome == 'skipped' }}
         run: |
+          set -x
+          commit_message_body_build_spec(){
+            git fetch origin ${{github.event.after}} --depth=1
+            git log --format=%B -n1 ${{github.event.after}} | grep '^/build '
+          }
           case ${{github.event_name}} in
-            pull_request)       echo >/tmp/comment_body "/build debug" ;;
-            push)               echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos debug" ;;  ##TODO windows
-            schedule)           echo >/tmp/comment_body "/build ubuntu debug release"$'\n' "/build macos windows debug" ;;  ##TODO arm64
+            pull_request)       commit_message_body_build_spec >/tmp/comment_body ||
+                                  echo  >/tmp/comment_body "/build debug" ;;
+            push)               commit_message_body_build_spec >/tmp/comment_body || {
+                                  echo "/build ubuntu debug release"
+                                  echo "/build macos debug"
+                                  echo "/build windows debug"
+                                } >/tmp/comment_body ;;
+            schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
-            #issue_comment)      echo >/tmp/comment_body "${{github.event.comment.body}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
           esac
       -
