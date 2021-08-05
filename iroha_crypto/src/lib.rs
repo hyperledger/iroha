@@ -36,8 +36,6 @@ use ursa::{
     },
 };
 
-/// Length of hash
-pub const HASH_LENGTH: usize = 32;
 /// ed25519
 pub const ED_25519: &str = "ed25519";
 /// secp256k1
@@ -62,17 +60,20 @@ pub const BLS_SMALL: &str = "bls_small";
     Hash,
     IntoSchema,
 )]
-pub struct Hash(pub [u8; HASH_LENGTH]);
+pub struct Hash(pub [u8; Self::LENGTH]);
 
 impl Hash {
+    /// Length of hash
+    pub const LENGTH: usize = 32;
+
     /// new hash from bytes
     #[allow(clippy::expect_used)]
     pub fn new(bytes: &[u8]) -> Self {
-        let vec_hash = VarBlake2b::new(HASH_LENGTH)
+        let vec_hash = VarBlake2b::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
             .finalize_boxed();
-        let mut hash = [0; HASH_LENGTH];
+        let mut hash = [0; Self::LENGTH];
         hash.copy_from_slice(&vec_hash);
         Hash(hash)
     }

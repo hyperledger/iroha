@@ -1816,12 +1816,8 @@ pub mod transaction {
     };
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
-    #[cfg(feature = "http_error")]
-    use {
-        iroha_http_server::http::HttpResponse,
-        iroha_version::{error::Error as VersionError, scale::EncodeVersioned},
-        std::collections::BTreeMap,
-    };
+    #[cfg(feature = "warp")]
+    use warp::{reply::Response, Reply};
 
     use crate::{
         account::Account, isi::Instruction, metadata::UnlimitedMetadata,
@@ -2031,12 +2027,15 @@ pub mod transaction {
 
     declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_derive::FromVariant, Clone, Debug);
 
-    #[cfg(feature = "http_error")]
-    impl std::convert::TryInto<HttpResponse> for VersionedPendingTransactions {
-        type Error = VersionError;
-        fn try_into(self) -> Result<HttpResponse, Self::Error> {
-            self.encode_versioned()
-                .map(|pending| HttpResponse::ok(BTreeMap::default(), pending))
+    #[cfg(feature = "warp")]
+    impl Reply for VersionedPendingTransactions {
+        fn into_response(self) -> Response {
+            use iroha_version::scale::EncodeVersioned;
+
+            match self.encode_versioned() {
+                Ok(bytes) => Response::new(bytes.into()),
+                Err(e) => e.into_response(),
+            }
         }
     }
 
@@ -2243,11 +2242,15 @@ pub mod transaction {
 
 /// Structures and traits related to pagination.
 pub mod pagination {
-    use std::{collections::BTreeMap, convert::TryFrom, fmt};
+    use std::{collections::BTreeMap, fmt};
 
-    use iroha_error::Result;
-    #[cfg(feature = "http_error")]
-    use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
+    use serde::{Deserialize, Serialize};
+    #[cfg(feature = "warp")]
+    use warp::{
+        http::StatusCode,
+        reply::{self, Response},
+        Filter, Rejection, Reply,
+    };
 
     /// Describes a collection to which pagination can be applied.
     /// Implemented for the [`Iterator`] implementors.
@@ -2295,7 +2298,7 @@ pub mod pagination {
     }
 
     /// Structure for pagination requests
-    #[derive(Clone, Eq, PartialEq, Debug, Default, Copy)]
+    #[derive(Clone, Eq, PartialEq, Debug, Default, Copy, Deserialize, Serialize)]
     pub struct Pagination {
         /// start of indexing
         pub start: Option<usize>,
@@ -2328,36 +2331,17 @@ pub mod pagination {
     }
     impl std::error::Error for PaginateError {}
 
-    #[cfg(feature = "http_error")]
-    impl HttpResponseError for PaginateError {
-        fn status_code(&self) -> StatusCode {
-            HTTP_CODE_BAD_REQUEST
-        }
-        fn error_body(&self) -> Vec<u8> {
-            self.to_string().into()
+    #[cfg(feature = "warp")]
+    impl Reply for PaginateError {
+        fn into_response(self) -> Response {
+            reply::with_status(self.to_string(), StatusCode::BAD_REQUEST).into_response()
         }
     }
 
-    impl<'a> TryFrom<&'a BTreeMap<String, String>> for Pagination {
-        type Error = PaginateError;
-
-        fn try_from(query_params: &'a BTreeMap<String, String>) -> Result<Self, PaginateError> {
-            let get_num = |key| {
-                query_params
-                    .get(key)
-                    .map(|value| value.parse::<usize>())
-                    .transpose()
-            };
-            let start = get_num(PAGINATION_START).map_err(PaginateError)?;
-            let limit = get_num(PAGINATION_LIMIT).map_err(PaginateError)?;
-            Ok(Self { start, limit })
-        }
-    }
-    impl TryFrom<BTreeMap<String, String>> for Pagination {
-        type Error = PaginateError;
-        fn try_from(query_params: BTreeMap<String, String>) -> Result<Self, PaginateError> {
-            Self::try_from(&query_params)
-        }
+    #[cfg(feature = "warp")]
+    /// Filter for warp which extracts pagination
+    pub fn paginate() -> impl Filter<Extract = (Pagination,), Error = Rejection> + Copy {
+        warp::query()
     }
 
     impl From<Pagination> for BTreeMap<String, String> {

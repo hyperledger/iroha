@@ -21,8 +21,13 @@ use serde::{Deserialize, Serialize};
 pub mod error {
     use iroha_derive::FromVariant;
     use iroha_error::derive::Error;
-    #[cfg(feature = "http_error")]
-    use iroha_http_server::http::{HttpResponseError, StatusCode, HTTP_CODE_BAD_REQUEST};
+    #[cfg(feature = "warp")]
+    use warp::{
+        http::StatusCode,
+        reject::Reject,
+        reply::{self, Response},
+        Reply,
+    };
 
     use super::UnsupportedVersion;
 
@@ -55,15 +60,14 @@ pub mod error {
         UnsupportedVersion(UnsupportedVersion),
     }
 
-    #[cfg(feature = "http_error")]
-    impl HttpResponseError for Error {
-        fn status_code(&self) -> StatusCode {
-            HTTP_CODE_BAD_REQUEST
-        }
-        fn error_body(&self) -> Vec<u8> {
-            self.to_string().into()
+    #[cfg(feature = "warp")]
+    impl Reply for Error {
+        fn into_response(self) -> Response {
+            reply::with_status(self.to_string(), StatusCode::BAD_REQUEST).into_response()
         }
     }
+    #[cfg(feature = "warp")]
+    impl Reject for Error {}
 
     /// Result type for versioning
     pub type Result<T, E = Error> = std::result::Result<T, E>;

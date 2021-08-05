@@ -136,7 +136,7 @@ impl Client {
         let transaction: VersionedTransaction = transaction.into();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post(
-            &format!("http://{}{}", self.torii_url, uri::INSTRUCTIONS_URI),
+            &format!("http://{}{}", self.torii_url, uri::TRANSACTION),
             transaction_bytes,
         )
         .wrap_err_with(|| {
@@ -257,7 +257,7 @@ impl Client {
         let request = QueryRequest::new(request.into(), self.account_id.clone());
         let request: VersionedSignedQueryRequest = request.sign(&self.key_pair)?.into();
         let response = http_client::get(
-            &format!("http://{}{}", self.torii_url, uri::QUERY_URI),
+            &format!("http://{}{}", self.torii_url, uri::QUERY),
             request.encode_versioned()?,
             pagination,
         )?;
@@ -293,7 +293,7 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
         EventIterator::new(
-            &format!("ws://{}{}", self.torii_url, uri::SUBSCRIPTION_URI),
+            &format!("ws://{}{}", self.torii_url, uri::SUBSCRIPTION),
             event_filter,
         )
     }
@@ -317,7 +317,7 @@ impl Client {
                 &format!(
                     "http://{}{}",
                     self.torii_url,
-                    uri::PENDING_TRANSACTIONS_ON_LEADER_URI
+                    uri::PENDING_TRANSACTIONS_ON_LEADER
                 ),
                 Vec::new(),
                 pagination.clone(),
@@ -535,20 +535,20 @@ pub mod uri {
     //! Module with uri constants
 
     /// Query URI is used to handle incoming Query requests.
-    pub const QUERY_URI: &str = "/query";
+    pub const QUERY: &str = "/query";
     /// Instructions URI is used to handle incoming ISI requests.
-    pub const INSTRUCTIONS_URI: &str = "/instruction";
+    pub const TRANSACTION: &str = "/transaction";
     /// Block URI is used to handle incoming Block requests.
-    pub const CONSENSUS_URI: &str = "/consensus";
+    pub const CONSENSUS: &str = "/consensus";
     /// Health URI is used to handle incoming Healthcheck requests.
-    pub const HEALTH_URI: &str = "/health";
+    pub const HEALTH: &str = "/health";
     /// Metrics URI is used to export metrics according to [Prometheus
     /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    pub const METRICS_URI: &str = "/metrics";
+    pub const METRICS: &str = "/metrics";
     /// The URI used for block synchronization.
-    pub const BLOCK_SYNC_URI: &str = "/block";
+    pub const BLOCK_SYNC: &str = "/block";
     /// The web socket uri used to subscribe to pipeline and data events.
-    pub const SUBSCRIPTION_URI: &str = "/events";
+    pub const SUBSCRIPTION: &str = "/events";
     /// Get pending transactions on leader.
-    pub const PENDING_TRANSACTIONS_ON_LEADER_URI: &str = "/pending_transactions_on_leader";
+    pub const PENDING_TRANSACTIONS_ON_LEADER: &str = "/pending_transactions_on_leader";
 }
