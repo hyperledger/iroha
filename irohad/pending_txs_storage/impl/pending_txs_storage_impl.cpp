@@ -77,12 +77,12 @@ PendingTransactionStorageImpl::getPendingTransactions(
             last_tx_time ? tx->createdTime() < last_tx_time : true;
         return first_tx_time_valid && last_tx_time_valid;
       };
-      auto filtered_txs_size = std::count_if(txs.begin(), txs.end(), time_predicate);
+      auto iter_before_copy = std::end(response.transactions);
       std::copy_if(txs.begin(),
-                   txs.end(),
-                   std::back_inserter(response.transactions),
-                   time_predicate);
-      remaining_space -= filtered_txs_size;
+                       txs.end(),
+                       std::back_inserter(response.transactions),
+                       time_predicate);
+      remaining_space -= std::distance(iter_before_copy, response.transactions.end());
       ++batch_iterator;
     } else {
       response.transactions.insert(
