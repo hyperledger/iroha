@@ -24,18 +24,18 @@ will give you results like:
 
 .. code-block:: shell
 
-	# HELP blocks_height Total number of blocks in chain
-	# TYPE blocks_height gauge
-	blocks_height 135543
-	# HELP peers_number Total number peers to send transactions and request proposals
-	# TYPE peers_number gauge
-	peers_number 7
-	# HELP number_of_domains Total number of domains in WSV
-	# TYPE number_of_domains gauge
-	number_of_domains 14
-	# HELP total_number_of_transactions Total number of transactions in blockchain
-	# TYPE total_number_of_transactions gauge
-	total_number_of_transactions 216499
-	# HELP number_of_signatures_in_last_block Number of signatures in last block
-	# TYPE number_of_signatures_in_last_block gauge
-	number_of_signatures_in_last_block 5
+  # HELP blocks_height Total number of blocks in chain
+  # TYPE blocks_height gauge
+  blocks_height 135543
+  # HELP peers_number Total number peers to send transactions and request proposals
+  # TYPE peers_number gauge
+  peers_number 7
+  # HELP number_of_domains Total number of domains in WSV
+  # TYPE number_of_domains gauge
+  number_of_domains 14
+  # HELP total_number_of_transactions Total number of transactions in blockchain
+  # TYPE total_number_of_transactions gauge
+  total_number_of_transactions 216499
+  # HELP number_of_signatures_in_last_block Number of signatures in last block
+  # TYPE number_of_signatures_in_last_block gauge
+  number_of_signatures_in_last_block 5
