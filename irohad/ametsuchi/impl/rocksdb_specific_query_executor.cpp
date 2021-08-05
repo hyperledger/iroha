@@ -41,6 +41,38 @@
 using namespace iroha;
 using namespace iroha::ametsuchi;
 
+namespace {
+  struct PaginationBounds {
+    using HeightType = shared_model::interface::types::HeightType;
+    using TimestampType = shared_model::interface::types::TimestampType;
+
+    HeightType heightFrom;
+    HeightType heightTo;
+
+    TimestampType tsFrom;
+    TimestampType tsTo;
+  };
+
+  template <typename T>
+  inline T getMinValue() {
+    return std::numeric_limits<T>::min();
+  }
+
+  template <typename T>
+  inline T getMaxValue() {
+    return std::numeric_limits<T>::max();
+  }
+
+  template <typename T>
+  inline T getValueOr(std::optional<T> value, T def) {
+    static_assert(std::is_integral_v<T> || std::is_floating_point_v<T>,
+                  "T must be numeric or derived from numeric.");
+    if (value)
+      return *value;
+    return def;
+  }
+}
+
 using ErrorQueryType =
     shared_model::interface::QueryResponseFactory::ErrorQueryType;
 
@@ -337,6 +369,19 @@ RocksDbSpecificQueryExecutor::readTxs(
   uint64_t remains = query.paginationMeta().pageSize() + 1ull;
   std::optional<shared_model::crypto::Hash> next_page;
 
+  static_assert(std::is_same_v<typename decltype(query.paginationMeta().firstTxTime())::value_type,typename decltype(query.paginationMeta().lastTxTime())::value_type>, "Ts types must be the same!");
+  static_assert(std::is_same_v<decltype(PaginationBounds::tsFrom),typename decltype(query.paginationMeta().lastTxTime())::value_type>, "Ts types must be the same!");
+
+  static_assert(std::is_same_v<typename decltype(query.paginationMeta().firstTxHeight())::value_type,typename decltype(query.paginationMeta().lastTxHeight())::value_type>, "Height types must be the same!");
+  static_assert(std::is_same_v<decltype(PaginationBounds::heightFrom),typename decltype(query.paginationMeta().lastTxHeight())::value_type>, "Height types must be the same!");
+
+  PaginationBounds const bounds{
+      getValueOr(query.paginationMeta().firstTxHeight(), getMinValue<typename decltype(query.paginationMeta().firstTxHeight())::value_type>()),
+      getValueOr(query.paginationMeta().lastTxHeight(), getMaxValue<typename decltype(query.paginationMeta().lastTxHeight())::value_type>()),
+      getValueOr(query.paginationMeta().firstTxTime(), getMinValue<typename decltype(query.paginationMeta().firstTxTime())::value_type>()),
+      getValueOr(query.paginationMeta().lastTxTime(), getMaxValue<typename decltype(query.paginationMeta().lastTxTime())::value_type>())
+  };
+
   auto parser = [&](auto p, auto d) {
     auto const &[asset, tx_hash] = staticSplitId<2ull>(d.ToStringView(), "%");
     if (readTxsWithAssets)
@@ -355,13 +400,21 @@ RocksDbSpecificQueryExecutor::readTxs(
       decodePosition(
           position.at(4), position.at(0), position.at(2), tx_position);
 
+    static_assert(std::is_unsigned_v<decltype(tx_position.height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>, "Height must be unsigned");
+    if ((tx_position.height - bounds.heightFrom) > (bounds.heightTo - bounds.heightFrom))
+      return true;
+
+    static_assert(std::is_unsigned_v<decltype(tx_position.ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>, "TS must be unsigned");
+    if ((tx_position.ts - bounds.tsFrom) > (bounds.tsTo - bounds.tsFrom))
+      return true;
+
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
-      auto txs_result =
-          getTransactionsFromBlock(tx_position.height,
-                                   tx_position.index,
-                                   [](auto &) { return true; },
-                                   std::back_inserter(response_txs));
+      auto txs_result = getTransactionsFromBlock(
+          tx_position.height,
+          tx_position.index,
+          [](auto &) { return true; },
+          std::back_inserter(response_txs));
       if (auto e = iroha::expected::resultToOptionalError(txs_result))
         return true;
 
