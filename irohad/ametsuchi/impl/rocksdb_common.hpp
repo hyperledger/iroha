@@ -256,13 +256,13 @@ namespace iroha::ametsuchi::fmtstrings {
 
   // account/height ➡️ tx_hash
   static auto constexpr kTransactionByHeight{FMT_STRING(
-                                                   RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
-                                                   RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX)};
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+          RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX)};
 
   // account/ts/height/index ➡️ tx_hash
   static auto constexpr kTransactionByTsLowerBound{FMT_STRING(
-                                             RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
-                                             RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX)};
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+          RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX)};
 
   // tx_hash ➡️ status
   static auto constexpr kTransactionStatus{
