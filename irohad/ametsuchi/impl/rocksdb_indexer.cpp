@@ -103,16 +103,17 @@ void RocksDBIndexer::txPositions(
         expected::hasValue(res))
       first_tx_time = *res.assumeValue();
 
+    auto const current_frame = (ts / framepoint) * framepoint;
     auto const frame_begin =
-        std::min(first_tx_time, (ts / framepoint) * framepoint);
+        std::min(first_tx_time, current_frame);
     if (frame_begin != first_tx_time) {
       common.encode(frame_begin);
       forAccountFirstTxTs<kDbOperation::kPut>(common, account);
     }
 
     common.valueBuffer().clear();
-    auto frame = frame_begin + framepoint;
-    while (frame >= first_tx_time
+    auto frame = current_frame + framepoint;
+    while (frame >= frame_begin
            && !expected::hasError(
                forTransactionByTimestamp<kDbOperation::kCheck,
                                          kDbEntry::kMustNotExist>(
