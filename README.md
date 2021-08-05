@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/960/badge)](https://bestpractices.coreinfrastructure.org/projects/960)
-[![Build Status](https://jenkins.soramitsu.co.jp/buildStatus/icon?job=iroha/iroha-hyperledger/master)](https://jenkins.soramitsu.co.jp/job/iroha/job/iroha-hyperledger/job/master/)
+[![Build Status](https://jenkins.soramitsu.co.jp/buildStatus/icon?job=iroha/iroha-hyperledger/main)](https://jenkins.soramitsu.co.jp/job/iroha/job/iroha-hyperledger/job/main/)
 
 Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri).
 Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs.
@@ -41,7 +41,7 @@ There is also a great [sandbox](https://katacoda.com/hyperledger-iroha/scenarios
 
 ### How to build Iroha?
 
-Use [build guide](https://iroha.readthedocs.io/en/master/build/index.html), which might be helpful if you want to modify the code and contribute.
+Use [build guide](https://iroha.readthedocs.io/en/main/build/index.html), which might be helpful if you want to modify the code and contribute.
 
 ### Is there SDK available?
 
@@ -62,7 +62,7 @@ It is based on JS Wallet but is up-to-date.
 ### Want to help us develop Iroha?
 
 That's great!
-Check out [this document](https://github.com/hyperledger/iroha/blob/master/CONTRIBUTING.rst)
+Check out [this document](https://github.com/hyperledger/iroha/blob/main/CONTRIBUTING.rst)
 
 ## Need help?
 
