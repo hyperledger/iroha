@@ -232,8 +232,8 @@ TEST_F(RocksDBTest, LowerBoundSearch) {
   RocksDbCommon common(tx_context_);
   common.filterDelete("");
 
-  char const* target = "wta1234569#1#2";
-  char const* target2 = "wta1234367#1#1";
+  char const *target = "wta1234569#1#2";
+  char const *target2 = "wta1234367#1#1";
 
   common.valueBuffer().clear();
   ASSERT_TRUE(common.put(target2).ok());

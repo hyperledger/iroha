@@ -71,7 +71,7 @@ namespace {
       return *value;
     return def;
   }
-}
+}  // namespace
 
 using ErrorQueryType =
     shared_model::interface::QueryResponseFactory::ErrorQueryType;
@@ -369,18 +369,40 @@ RocksDbSpecificQueryExecutor::readTxs(
   uint64_t remains = query.paginationMeta().pageSize() + 1ull;
   std::optional<shared_model::crypto::Hash> next_page;
 
-  static_assert(std::is_same_v<typename decltype(query.paginationMeta().firstTxTime())::value_type,typename decltype(query.paginationMeta().lastTxTime())::value_type>, "Ts types must be the same!");
-  static_assert(std::is_same_v<decltype(PaginationBounds::tsFrom),typename decltype(query.paginationMeta().lastTxTime())::value_type>, "Ts types must be the same!");
+  static_assert(
+      std::is_same_v<
+          typename decltype(query.paginationMeta().firstTxTime())::value_type,
+          typename decltype(query.paginationMeta().lastTxTime())::value_type>,
+      "Ts types must be the same!");
+  static_assert(
+      std::is_same_v<decltype(PaginationBounds::tsFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxTime())::value_type>,
+      "Ts types must be the same!");
 
-  static_assert(std::is_same_v<typename decltype(query.paginationMeta().firstTxHeight())::value_type,typename decltype(query.paginationMeta().lastTxHeight())::value_type>, "Height types must be the same!");
-  static_assert(std::is_same_v<decltype(PaginationBounds::heightFrom),typename decltype(query.paginationMeta().lastTxHeight())::value_type>, "Height types must be the same!");
+  static_assert(
+      std::is_same_v<
+          typename decltype(query.paginationMeta().firstTxHeight())::value_type,
+          typename decltype(query.paginationMeta().lastTxHeight())::value_type>,
+      "Height types must be the same!");
+  static_assert(
+      std::is_same_v<decltype(PaginationBounds::heightFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxHeight())::value_type>,
+      "Height types must be the same!");
 
   PaginationBounds const bounds{
-      getValueOr(query.paginationMeta().firstTxHeight(), shared_model::interface::types::HeightType (1ull)),
-      getValueOr(query.paginationMeta().lastTxHeight(), getMaxValue<typename decltype(query.paginationMeta().lastTxHeight())::value_type>()),
-      getValueOr(query.paginationMeta().firstTxTime(), getMinValue<typename decltype(query.paginationMeta().firstTxTime())::value_type>()),
-      getValueOr(query.paginationMeta().lastTxTime(), getMaxValue<typename decltype(query.paginationMeta().lastTxTime())::value_type>())
-  };
+      getValueOr(query.paginationMeta().firstTxHeight(),
+                 shared_model::interface::types::HeightType(1ull)),
+      getValueOr(query.paginationMeta().lastTxHeight(),
+                 getMaxValue<typename decltype(
+                     query.paginationMeta().lastTxHeight())::value_type>()),
+      getValueOr(query.paginationMeta().firstTxTime(),
+                 getMinValue<typename decltype(
+                     query.paginationMeta().firstTxTime())::value_type>()),
+      getValueOr(query.paginationMeta().lastTxTime(),
+                 getMaxValue<typename decltype(
+                     query.paginationMeta().lastTxTime())::value_type>())};
 
   auto parser = [&](auto p, auto d) {
     auto const &[asset, tx_hash] = staticSplitId<2ull>(d.ToStringView(), "%");
@@ -400,21 +422,29 @@ RocksDbSpecificQueryExecutor::readTxs(
       decodePosition(
           position.at(4), position.at(0), position.at(2), tx_position);
 
-    static_assert(std::is_unsigned_v<decltype(tx_position.height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>, "Height must be unsigned");
-    if ((tx_position.height - bounds.heightFrom) > (bounds.heightTo - bounds.heightFrom))
+    static_assert(
+        std::is_unsigned_v<decltype(
+                tx_position
+                    .height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>,
+        "Height must be unsigned");
+    if ((tx_position.height - bounds.heightFrom)
+        > (bounds.heightTo - bounds.heightFrom))
       return true;
 
-    static_assert(std::is_unsigned_v<decltype(tx_position.ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>, "TS must be unsigned");
+    static_assert(
+        std::is_unsigned_v<decltype(
+                tx_position.ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>,
+        "TS must be unsigned");
     if ((tx_position.ts - bounds.tsFrom) > (bounds.tsTo - bounds.tsFrom))
       return true;
 
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
-      auto txs_result = getTransactionsFromBlock(
-          tx_position.height,
-          tx_position.index,
-          [](auto &) { return true; },
-          std::back_inserter(response_txs));
+      auto txs_result =
+          getTransactionsFromBlock(tx_position.height,
+                                   tx_position.index,
+                                   [](auto &) { return true; },
+                                   std::back_inserter(response_txs));
       if (auto e = iroha::expected::resultToOptionalError(txs_result))
         return true;
 
@@ -469,20 +499,22 @@ RocksDbSpecificQueryExecutor::readTxs(
   } else {
     status = (ordering_ptr->field
               == shared_model::interface::Ordering::Field::kCreatedTime)
-        ? enumerateKeysAndValues(common,
-                                 parser,
-                                 common.template seek(fmtstrings::kTransactionByTsLowerBound,
-                                                      query.accountId(),
-                                                      bounds.tsFrom),
-                                 fmtstrings::kPathTransactionByTs,
-                                 query.accountId())
-        : enumerateKeysAndValues(common,
-                                 parser,
-                                 common.template seek(fmtstrings::kTransactionByHeight,
-                                                      query.accountId(),
-                                                      bounds.heightFrom),
-                                 fmtstrings::kPathTransactionByPosition,
-                                 query.accountId());
+        ? enumerateKeysAndValues(
+              common,
+              parser,
+              common.template seek(fmtstrings::kTransactionByTsLowerBound,
+                                   query.accountId(),
+                                   bounds.tsFrom),
+              fmtstrings::kPathTransactionByTs,
+              query.accountId())
+        : enumerateKeysAndValues(
+              common,
+              parser,
+              common.template seek(fmtstrings::kTransactionByHeight,
+                                   query.accountId(),
+                                   bounds.heightFrom),
+              fmtstrings::kPathTransactionByPosition,
+              query.accountId());
   }
 
   RDB_ERROR_CHECK(canExist(status, [&]() {
