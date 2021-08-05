@@ -7,7 +7,6 @@ pub mod event;
 pub mod genesis;
 mod init;
 pub mod kura;
-pub mod maintenance;
 mod merkle;
 pub mod modules;
 pub mod queue;
@@ -26,7 +25,7 @@ use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
 use iroha_error::{error, Result, WrapErr};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{sync::broadcast, task::JoinHandle};
 use wsv::{World, WorldTrait};
 
 use crate::{
@@ -35,7 +34,6 @@ use crate::{
     config::Configuration,
     genesis::GenesisNetwork,
     kura::{Kura, KuraTrait},
-    maintenance::System,
     prelude::*,
     queue::{Queue, QueueTrait},
     sumeragi::{Sumeragi, SumeragiTrait},
@@ -120,7 +118,7 @@ where
 
         //iroha_logger::info!(?config, "Loaded configuration");
 
-        let (events_sender, events_receiver) = mpsc::channel(100);
+        let (events_sender, _) = broadcast::channel(100);
         let wsv = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             W::with(
@@ -152,7 +150,7 @@ where
         let query_validator = Arc::new(query_validator);
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi_configuration,
-            events_sender,
+            events_sender.clone(),
             Arc::clone(&wsv),
             instruction_validator,
             Arc::clone(&query_validator),
@@ -190,11 +188,10 @@ where
         let torii = Torii::from_configuration(
             config.torii_configuration.clone(),
             Arc::clone(&wsv),
-            System::new(config),
             queue.clone(),
             sumeragi.clone(),
             query_validator,
-            events_receiver,
+            events_sender,
             broker.clone(),
         );
         let torii = Some(torii);

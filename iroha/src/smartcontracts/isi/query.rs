@@ -5,12 +5,14 @@ use std::{convert::TryFrom, error::Error as StdError, fmt};
 use iroha_data_model::{prelude::*, query};
 use iroha_derive::Io;
 use iroha_error::{derive::Error, error, Error, Result};
-use iroha_http_server::http::{
-    HttpResponseError, RawHttpRequest, StatusCode, HTTP_CODE_BAD_REQUEST,
-    HTTP_CODE_INTERNAL_SERVER_ERROR,
-};
 use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
+use warp::{
+    http::StatusCode,
+    hyper::body::Bytes,
+    reply::{self, Response},
+    Reply,
+};
 
 use super::permissions::IsQueryAllowedBoxed;
 use crate::{prelude::*, WorldTrait};
@@ -121,26 +123,25 @@ pub enum AcceptQueryError {
     VerifyQuery(iroha_error::Error),
 }
 
-impl HttpResponseError for AcceptQueryError {
-    fn status_code(&self) -> StatusCode {
-        match *self {
-            Self::UnsupportedQueryVersion(_) | Self::VerifyQuery(_) => {
-                HTTP_CODE_INTERNAL_SERVER_ERROR
+impl Reply for AcceptQueryError {
+    fn into_response(self) -> Response {
+        const fn status_code(err: &AcceptQueryError) -> StatusCode {
+            use AcceptQueryError::*;
+            match *err {
+                UnsupportedQueryVersion(_) | VerifyQuery(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                DecodeVersionedSignedQuery(_) => StatusCode::BAD_REQUEST,
             }
-            Self::DecodeVersionedSignedQuery(_) => HTTP_CODE_BAD_REQUEST,
         }
-    }
 
-    fn error_body(&self) -> Vec<u8> {
-        self.to_string().into()
+        reply::with_status(self.to_string(), status_code(&self)).into_response()
     }
 }
+impl warp::reject::Reject for AcceptQueryError {}
 
-impl TryFrom<&RawHttpRequest> for VerifiedQueryRequest {
+impl TryFrom<&Bytes> for VerifiedQueryRequest {
     type Error = AcceptQueryError;
-
-    fn try_from(request: &RawHttpRequest) -> Result<Self, Self::Error> {
-        let query = VersionedSignedQueryRequest::decode_versioned(&request.body)
+    fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
+        let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
             .map_err(AcceptQueryError::DecodeVersionedSignedQuery)?;
         let version = query.version();
         let query: SignedQueryRequest = query
@@ -150,13 +151,6 @@ impl TryFrom<&RawHttpRequest> for VerifiedQueryRequest {
             ))?
             .into();
         VerifiedQueryRequest::try_from(query).map_err(AcceptQueryError::VerifyQuery)
-    }
-}
-impl TryFrom<RawHttpRequest> for VerifiedQueryRequest {
-    type Error = AcceptQueryError;
-
-    fn try_from(request: RawHttpRequest) -> Result<Self, Self::Error> {
-        Self::try_from(&request)
     }
 }
 

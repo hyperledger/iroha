@@ -370,7 +370,7 @@ pub mod message {
             let message: VersionedMessage = self.into();
             match Network::send_request_to(
                 &peer.address,
-                Request::new(uri::BLOCK_SYNC_URI, message.encode_versioned()?),
+                Request::new(uri::BLOCK_SYNC, message.encode_versioned()?),
             )
             .await?
             {

@@ -589,7 +589,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
             block.hash(),
         );
         for event in Vec::<Event>::from(&block.clone()) {
-            if let Err(err) = self.events_sender.send(event).await {
+            if let Err(err) = self.events_sender.send(event) {
                 iroha_logger::warn!("Failed to publish event: {}", err);
             }
         }
@@ -706,7 +706,7 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<Q, G, W> {
         let block = block.commit();
 
         for event in Vec::<Event>::from(&block) {
-            if let Err(error) = self.events_sender.send(event).await {
+            if let Err(error) = self.events_sender.send(event) {
                 iroha_logger::warn!(%error, "Failed to publish event");
             }
         }
@@ -866,7 +866,7 @@ pub mod message {
         pub async fn send_to(self, peer: &PeerId) -> Result<()> {
             match Network::send_request_to(
                 &peer.address,
-                Request::new(uri::CONSENSUS_URI, self.encode_versioned()?),
+                Request::new(uri::CONSENSUS, self.encode_versioned()?),
             )
             .await
             .wrap_err_with(|| format!("Failed to send to peer {} with error", peer.address))?
@@ -1127,7 +1127,7 @@ pub mod message {
                 return Ok(());
             }
             for event in Vec::<Event>::from(&self.block.clone()) {
-                if let Err(err) = sumeragi.events_sender.send(event).await {
+                if let Err(err) = sumeragi.events_sender.send(event) {
                     iroha_logger::error!("Failed to send block created event: {}", err)
                 }
             }

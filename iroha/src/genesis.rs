@@ -136,8 +136,7 @@ async fn check_peers_status(
             let reached = if &peer == this_peer_id {
                 true
             } else {
-                match Network::send_request_to(&peer.address, Request::empty(uri::HEALTH_URI)).await
-                {
+                match Network::send_request_to(&peer.address, Request::empty(uri::HEALTH)).await {
                     Ok(Response::Ok(_)) => true,
                     Ok(Response::InternalError) => {
                         iroha_logger::info!(

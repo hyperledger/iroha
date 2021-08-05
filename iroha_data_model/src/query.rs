@@ -7,12 +7,12 @@ use std::{convert::TryFrom, time::SystemTime};
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
 use iroha_error::Result;
-#[cfg(feature = "http_error")]
-use iroha_http_server::http::HttpResponse;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "warp")]
+use warp::{reply::Response, Reply};
 
 #[cfg(feature = "roles")]
 use self::role::*;
@@ -149,17 +149,17 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_der
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, IntoSchema)]
 pub struct QueryResult(pub Value);
 
-#[cfg(feature = "http_error")]
-impl From<&QueryResult> for HttpResponse {
-    fn from(result: &QueryResult) -> Self {
-        use std::collections::BTreeMap;
-        Self::ok(BTreeMap::default(), result.into())
+#[cfg(feature = "warp")]
+impl Reply for &QueryResult {
+    fn into_response(self) -> Response {
+        Response::new(Vec::from(self).into())
     }
 }
-#[cfg(feature = "http_error")]
-impl From<QueryResult> for HttpResponse {
-    fn from(result: QueryResult) -> Self {
-        (&result).into()
+
+#[cfg(feature = "warp")]
+impl Reply for QueryResult {
+    fn into_response(self) -> Response {
+        (&self).into_response()
     }
 }
 
