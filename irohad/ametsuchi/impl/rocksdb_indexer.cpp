@@ -14,6 +14,8 @@
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
 
+static constexpr uint64_t framepoint = 30'000ull;
+
 RocksDBIndexer::RocksDBIndexer(std::shared_ptr<RocksDBContext> db_context)
     : db_context_(std::move(db_context)) {}
 
@@ -69,9 +71,9 @@ void RocksDBIndexer::txPositions(
   RocksDbCommon common(db_context_);
 
   if (auto res =
-          forTransactionByPosition<kDbOperation::kCheck, kDbEntry::kMustExist>(
+          forTransactionByPosition<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
               common, account, ts, position.height, position.index);
-      expected::hasValue(res))
+      expected::hasError(res))
     return;
 
   std::string h_hex;
@@ -82,6 +84,22 @@ void RocksDBIndexer::txPositions(
       common, account, ts, position.height, position.index);
   forTransactionByTimestamp<kDbOperation::kPut>(
       common, account, ts, position.height, position.index);
+
+  /// update first transaction ts from this account
+  if (TimestampType(0ull) != ts) {
+    uint64_t first_tx_time = std::numeric_limits<TimestampType>::max();
+    if (auto res =
+            forAccountFirstTxTs<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common, account);
+        expected::hasValue(res))
+      first_tx_time = *res.assumeValue();
+
+    auto const frame_begin = std::min(first_tx_time, (ts / framepoint) * framepoint);
+    if (frame_begin != first_tx_time) {
+      common.encode(frame_begin);
+      forAccountFirstTxTs<kDbOperation::kPut>(common, account);
+    }
+  }
 
   uint64_t txs_count = 0ull;
   if (auto result = forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(

@@ -59,6 +59,7 @@
  *                |                |            |             |             +-<ts_2, value:tx_hash_2>
  *                |                |            |             |             +-<ts_3, value:tx_hash_3>
  *                |                |            |             |
+ *                |                |            |             +-<first_tx_ts>
  *                |                |            |             +-<tx_total_count>
  *                |                |            |
  *                |                |            +-<account_2>-+-|POSITION|-+-<height_index, value:tx_hash_4>
@@ -69,6 +70,7 @@
  *                |                |                          |             +-<ts_2, value:tx_hash_5>
  *                |                |                          |             +-<ts_3, value:tx_hash_6>
  *                |                |                          |
+ *                |                |                          +-<first_tx_ts>
  *                |                |                          +-<tx_total_count>
  *                |                |
  *                |                +-|STATUSES|-+-<tx_hash_1, value:status_height_index>
@@ -142,6 +144,7 @@
  * ### F_PEERS COUNT ##       Z       ###
  * ### F_TOTAL COUNT ##       V       ###
  * ### F_VERSION     ##       v       ###
+ * ### F_FIRST       ##       H       ###
  * ######################################
  *
  * ######################################
@@ -183,6 +186,7 @@
 #define RDB_F_PEERS_COUNT "Z"
 #define RDB_F_TOTAL_COUNT "V"
 #define RDB_F_VERSION "v"
+#define RDB_F_FIRST "H"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -339,6 +343,11 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_TOTAL_COUNT)};
 
+  // account ➡️ first_tx_ts
+  static auto constexpr kAccountFirstTxTs{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
+                     RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_FIRST)};
+
   // ➡️ txs total count
   static auto constexpr kAllTxsTotalCount{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_F_TOTAL_COUNT)};
@@ -391,6 +400,7 @@ namespace iroha::ametsuchi::fmtstrings {
 #undef RDB_F_PEERS_COUNT
 #undef RDB_F_TOTAL_COUNT
 #undef RDB_F_VERSION
+#undef RDB_F_FIRST
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -1129,6 +1139,22 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common, std::string_view account_id) {
     return dbCall<uint64_t, kOp, kSc>(
         common, fmtstrings::kTxsTotalCount, account_id);
+  }
+
+  /**
+   * Access to account's first transaction timestamp.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param account_id name
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+      kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forAccountFirstTxTs(
+      RocksDbCommon &common, std::string_view account_id) {
+    return dbCall<uint64_t, kOp, kSc>(
+        common, fmtstrings::kAccountFirstTxTs, account_id);
   }
 
   /**
