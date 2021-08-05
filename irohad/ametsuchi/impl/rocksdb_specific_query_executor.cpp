@@ -376,7 +376,7 @@ RocksDbSpecificQueryExecutor::readTxs(
   static_assert(std::is_same_v<decltype(PaginationBounds::heightFrom),typename decltype(query.paginationMeta().lastTxHeight())::value_type>, "Height types must be the same!");
 
   PaginationBounds const bounds{
-      getValueOr(query.paginationMeta().firstTxHeight(), getMinValue<typename decltype(query.paginationMeta().firstTxHeight())::value_type>()),
+      getValueOr(query.paginationMeta().firstTxHeight(), shared_model::interface::types::HeightType (1ull)),
       getValueOr(query.paginationMeta().lastTxHeight(), getMaxValue<typename decltype(query.paginationMeta().lastTxHeight())::value_type>()),
       getValueOr(query.paginationMeta().firstTxTime(), getMinValue<typename decltype(query.paginationMeta().firstTxTime())::value_type>()),
       getValueOr(query.paginationMeta().lastTxTime(), getMaxValue<typename decltype(query.paginationMeta().lastTxTime())::value_type>())
@@ -475,6 +475,9 @@ RocksDbSpecificQueryExecutor::readTxs(
                                  query.accountId())
         : enumerateKeysAndValues(common,
                                  parser,
+                                 common.template seek(fmtstrings::kTransactionByHeight,
+                                                      query.accountId(),
+                                                      bounds.heightFrom),
                                  fmtstrings::kPathTransactionByPosition,
                                  query.accountId());
   }
