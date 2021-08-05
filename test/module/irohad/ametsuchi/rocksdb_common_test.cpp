@@ -232,27 +232,34 @@ TEST_F(RocksDBTest, LowerBoundSearch) {
   RocksDbCommon common(tx_context_);
   common.filterDelete("");
 
-  char const* target = "1234569#1#2";
+  char const* target = "wta1234569#1#2";
+  char const* target2 = "wta1234367#1#1";
 
   common.valueBuffer().clear();
-  ASSERT_TRUE(common.put("1234367#1#1").ok());
+  ASSERT_TRUE(common.put(target2).ok());
   ASSERT_TRUE(common.put(target).ok());
-  ASSERT_TRUE(common.put("1234570#2#1").ok());
+  ASSERT_TRUE(common.put("wta1234570#2#1").ok());
 
   {
-    auto it = common.seek("1234411#0#0");
+    auto it = common.seek("wta0");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_TRUE(it->key().ToStringView() == target2);
+  }
+
+  {
+    auto it = common.seek("wta1234411#0#0");
     ASSERT_TRUE(it->Valid());
     ASSERT_TRUE(it->key().ToStringView() == target);
   }
 
   {
-    auto it = common.seek("1234411");
+    auto it = common.seek("wta1234411");
     ASSERT_TRUE(it->Valid());
     ASSERT_TRUE(it->key().ToStringView() == target);
   }
 
   {
-    auto it = common.seek("1239411");
+    auto it = common.seek("wta1239411");
     ASSERT_FALSE(it->Valid());
   }
 }
