@@ -230,6 +230,7 @@ TEST_F(RocksDBTest, Quorum) {
 
 TEST_F(RocksDBTest, LowerBoundSearch) {
   RocksDbCommon common(tx_context_);
+  common.filterDelete("");
 
   char const* target = "1234569#1#2";
 
@@ -238,9 +239,22 @@ TEST_F(RocksDBTest, LowerBoundSearch) {
   ASSERT_TRUE(common.put(target).ok());
   ASSERT_TRUE(common.put("1234570#2#1").ok());
 
-  auto it = common.seek("1234411#0#0");
-  ASSERT_TRUE(it->Valid());
-  ASSERT_TRUE(it->key().ToStringView() == target);
+  {
+    auto it = common.seek("1234411#0#0");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_TRUE(it->key().ToStringView() == target);
+  }
+
+  {
+    auto it = common.seek("1234411");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_TRUE(it->key().ToStringView() == target);
+  }
+
+  {
+    auto it = common.seek("1239411");
+    ASSERT_FALSE(it->Valid());
+  }
 }
 
 TEST_F(RocksDBTest, Signatories) {
