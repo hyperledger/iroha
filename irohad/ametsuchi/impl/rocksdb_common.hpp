@@ -254,6 +254,11 @@ namespace iroha::ametsuchi::fmtstrings {
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
           RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX /**/ RDB_XXX /**/ RDB_XXX)};
 
+  // account/height ➡️ tx_hash
+  static auto constexpr kTransactionByHeight{FMT_STRING(
+                                                   RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+                                                   RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX)};
+
   // tx_hash ➡️ status
   static auto constexpr kTransactionStatus{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
