@@ -91,36 +91,6 @@ void RocksDBIndexer::txPositions(
 
   common.encode(txs_count + 1ull);
   forTxsTotalCount<kDbOperation::kPut>(common, account);
-
-  /// update first transaction ts from this account
-  if (TimestampType(0ull) != ts) {
-    uint64_t first_tx_time = std::numeric_limits<TimestampType>::max();
-    if (auto res =
-            forAccountFirstTxTs<kDbOperation::kGet, kDbEntry::kMustExist>(
-                common, account);
-        expected::hasValue(res))
-      first_tx_time = *res.assumeValue();
-
-    auto const current_frame = (ts / framepoint) * framepoint;
-    auto const frame_begin =
-        std::min(first_tx_time, current_frame);
-    if (frame_begin != first_tx_time) {
-      common.encode(frame_begin);
-      forAccountFirstTxTs<kDbOperation::kPut>(common, account);
-    }
-
-    common.valueBuffer().clear();
-    auto frame = current_frame + framepoint;
-    while (frame >= frame_begin
-           && !expected::hasError(
-               forTransactionByTimestamp<kDbOperation::kCheck,
-                                         kDbEntry::kMustNotExist>(
-                   common, account, frame, 0ull, 0ull))) {
-      forTransactionByTimestamp<kDbOperation::kPut>(
-          common, account, frame, 0ull, 0ull);
-      frame -= framepoint;
-    }
-  }
 }
 
 iroha::expected::Result<void, std::string> RocksDBIndexer::flush() {
