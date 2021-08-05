@@ -14,7 +14,7 @@
 using namespace iroha::ametsuchi;
 using namespace shared_model::interface::types;
 
-static constexpr uint64_t framepoint = 30'000ull;
+static constexpr uint64_t framepoint = 86400'000ull;
 
 RocksDBIndexer::RocksDBIndexer(std::shared_ptr<RocksDBContext> db_context)
     : db_context_(std::move(db_context)) {}
