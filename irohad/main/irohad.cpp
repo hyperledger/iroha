@@ -88,6 +88,19 @@ DEFINE_bool(wait_for_new_blocks,
             "Startup synchronization policy - waits for new blocks in "
             "blockstore, does not run network");
 
+/**
+ * Legacy configuration precedence: CONFIG_FILE -> ENV
+ *
+ * Non-legacy configuration precedence: ENV -> CONFIG_FILE
+ *
+ * Flag is needed so that configuration precedence can be refactored
+ * without it being a breaking change to existing deployments of 1.x
+ */
+DEFINE_bool(legacy_config_precedence,
+            true,
+            "Run with legacy configuration precedence of CONFIG_FILE -> ENV. "
+            "Non-legacy configuration precedence: ENV -> CONFIG_FILE");
+
 static bool validateVerbosity(const char *flagname, const std::string &val) {
   if (val == kLogSettingsFromConfigFile) {
     return true;
@@ -168,6 +181,74 @@ static shared_model::crypto::Keypair getKeypairFromFile(
                throw std::runtime_error{
                    fmt::format("Failed to load keypair: {}", e.error)};
              });
+}
+
+std::optional<std::string> getEnvVar(std::string const &key) {
+  char const *val = getenv(key.c_str());
+  return val == nullptr ? std::nullopt : std::optional(std::string(val));
+}
+
+/**
+ * Assembles the Postgres credentials from the environment variables
+ * and the configuration file.
+ * If an environment variable is not specified for some parts of the
+ * configuration then the configuration file is used as the fallback.
+ */
+std::optional<IrohadConfig::DbConfig> getPostgresCredsFromEnv(
+    boost::optional<IrohadConfig::DbConfig> config_file) {
+  auto pg_host = getEnvVar("IROHA_POSTGRES_HOST");
+  auto pg_port_str = getEnvVar("IROHA_POSTGRES_PORT");
+  auto pg_user = getEnvVar("IROHA_POSTGRES_USER");
+  auto pg_pass = getEnvVar("IROHA_POSTGRES_PASSWORD");
+  auto pg_w_dbname = getEnvVar("IROHA_POSTGRES_DATABASE");
+  auto pg_m_dbname = getEnvVar("IROHA_POSTGRES_MAINTENANCE_DATABASE");
+
+  std::uint16_t pg_port;
+  if (pg_port_str.has_value()) {
+    auto pg_port_int = std::stoi(pg_port_str.value());
+    if (pg_port_int == static_cast<std::uint16_t>(pg_port_int)) {
+      pg_port = static_cast<std::uint16_t>(pg_port_int);
+    } else {
+      auto errorMessage =
+          "The IROHA_POSTGRES_PORT environment variable value MUST be between "
+          "0 and 65535, but received: "
+          + std::to_string(pg_port_int);
+      throw std::invalid_argument(std::move(errorMessage));
+    }
+  }
+
+  if (config_file.has_value()) {
+    IrohadConfig::DbConfig db_config = {
+        kDbTypePostgres,
+        "",
+        pg_host.has_value() ? pg_host.value() : config_file->host,
+        pg_port_str.has_value() ? pg_port : config_file->port,
+        pg_user.has_value() ? pg_user.value() : config_file->user,
+        pg_pass.has_value() ? pg_pass.value() : config_file->password,
+        pg_w_dbname.has_value() ? pg_w_dbname.value()
+                                : config_file->working_dbname,
+        pg_m_dbname.has_value() ? pg_m_dbname.value()
+                                : config_file->maintenance_dbname,
+    };
+
+    return std::optional<IrohadConfig::DbConfig>(db_config);
+  } else if (pg_host.has_value() and pg_port_str.has_value()
+             and pg_user.has_value() and pg_pass.has_value()
+             and pg_w_dbname.has_value() and pg_m_dbname.has_value()) {
+    IrohadConfig::DbConfig db_config = {
+        kDbTypePostgres,
+        "",
+        pg_host.value(),
+        pg_port,
+        pg_user.value(),
+        pg_pass.value(),
+        pg_w_dbname.value(),
+        pg_m_dbname.value(),
+    };
+
+    return std::optional<IrohadConfig::DbConfig>(db_config);
+  }
+  return std::nullopt;
 }
 
 void initUtilityService(
@@ -252,12 +333,13 @@ int main(int argc, char *argv[]) {
     }
 
     if (config.utility_service) {
-      initUtilityService(config.utility_service.value(),
-                         [] {
-                           exit_requested.set_value();
-                           std::lock_guard<std::mutex>{shutdown_wait_mutex};
-                         },
-                         log_manager);
+      initUtilityService(
+          config.utility_service.value(),
+          [] {
+            exit_requested.set_value();
+            std::lock_guard<std::mutex>{shutdown_wait_mutex};
+          },
+          log_manager);
     }
 
     daemon_status_notifier->notify(
@@ -272,7 +354,26 @@ int main(int argc, char *argv[]) {
 
     std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt;
     std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt;
-    if (config.database_config) {
+
+    // If legacy config precedence is disabled AND pg creds are specified in
+    // the environment variables, then apply those instead of parsing the
+    // config file's "pg_opt" property. The extra check with the flag ensures
+    // backwards compatibility.
+    if (auto db_config_env = getPostgresCredsFromEnv(config.database_config);
+        !FLAGS_legacy_config_precedence and db_config_env.has_value()) {
+      log->info("Parsing env vars for PG creds");
+      auto db_config = std::move(db_config_env).value();
+      log->debug("Parsing env vars for PG creds unwrapped OK");
+      pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
+          db_config.host,
+          db_config.port,
+          db_config.user,
+          db_config.password,
+          db_config.working_dbname,
+          db_config.maintenance_dbname,
+          log);
+      log->info("Environment variables parsed for PG creds OK");
+    } else if (config.database_config) {
       if (config.database_config->type == kDbTypeRocksdb)
         rdb_opt = std::make_unique<iroha::ametsuchi::RocksDbOptions>(
             config.database_config->path);
