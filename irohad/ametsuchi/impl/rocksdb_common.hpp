@@ -36,8 +36,8 @@
  *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
  *                |           |         |           +-<peer_2_pubkey, value:address>
  *                |           |         |
- *                |           |         +-|TLS|-+-<peer_1, value:tls>
- *                |           |         |       +-<peer_2, value:tls>
+ *                |           |         +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |         |       +-<peer_2_pubkey, value:tls>
  *                |           |         |
  *                |           |         +-<count, value>
  *                |           |
@@ -91,8 +91,8 @@
  *                |          |                                  +-|ROLES|-+-<role_1, value:flag>
  *                |          |                                  |         +-<role_2, value:flag>
  *                |          |                                  |
- *                |          |                                  +-|GRANTABLE_PER|-+-<account_id_1, value:permissions>
- *                |          |                                  |                 +-<account_id_2, value:permissions>
+ *                |          |                                  +-|GRANTABLE_PER|-+-<permitee_id_1, value:permissions>
+ *                |          |                                  |                 +-<permitee_id_2, value:permissions>
  *                |          |                                  |
  *                |          |                                  +-|SIGNATORIES|-+-<signatory_1>
  *                |          |                                                  +-<signatory_2>
@@ -155,6 +155,7 @@
 
 #define RDB_DELIMITER "/"
 #define RDB_XXX RDB_DELIMITER "{}" RDB_DELIMITER
+#define RDB_BLOCK_XXX RDB_DELIMITER "{:016}" RDB_DELIMITER
 
 #define RDB_ROOT ""
 #define RDB_STORE "s"
@@ -376,36 +377,9 @@ namespace iroha::ametsuchi::fmtstrings {
 
 }  // namespace iroha::ametsuchi::fmtstrings
 
-#undef RDB_ADDRESS
-#undef RDB_TLS
-#undef RDB_OPTIONS
-#undef RDB_F_ASSET_SIZE
 #undef RDB_PATH_DOMAIN
 #undef RDB_PATH_ACCOUNT
-#undef RDB_F_QUORUM
-#undef RDB_DELIMITER
-#undef RDB_ROOT
-#undef RDB_STORE
-#undef RDB_WSV
-#undef RDB_NETWORK
-#undef RDB_SETTINGS
-#undef RDB_ASSETS
-#undef RDB_ROLES
-#undef RDB_TRANSACTIONS
-#undef RDB_ACCOUNTS
-#undef RDB_PEERS
-#undef RDB_STATUSES
-#undef RDB_DETAILS
-#undef RDB_GRANTABLE_PER
-#undef RDB_POSITION
-#undef RDB_TIMESTAMP
-#undef RDB_DOMAIN
-#undef RDB_SIGNATORIES
 #undef RDB_ITEM
-#undef RDB_F_TOP_BLOCK
-#undef RDB_F_PEERS_COUNT
-#undef RDB_F_TOTAL_COUNT
-#undef RDB_F_VERSION
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -847,12 +821,12 @@ namespace iroha::ametsuchi {
 
     if (!status.ok())
       return makeError<void>(DbErrorCode::kInvalidStatus,
-                             "{}. Failed with status: {}.",
+                             "'{}' failed with status: {}.",
                              std::forward<F>(op_formatter)(),
                              status.ToString());
 
     return makeError<void>(DbErrorCode::kMustNotExist,
-                           "{}. Must not exist.",
+                           "Key '{}' must not exist.",
                            std::forward<F>(op_formatter)());
   }
 
@@ -1726,7 +1700,7 @@ namespace iroha::ametsuchi {
             if (prev_writer.empty())
               result += '\"';
             else
-              result += "},\"";
+              result += "}, \"";
             result += cur_writer;
             result += "\": {";
             prev_writer = cur_writer;
