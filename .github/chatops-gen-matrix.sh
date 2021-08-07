@@ -108,7 +108,7 @@ handle_user_line(){
          cygwin)                    compilers+=" $1 " ;;
          dockerpush)                dockerpush=yes ;;
          nodockerpush)              dockerpush=no ;;
-         all|everything|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
+         all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses="$ALL_oses" build_types="$ALL_build_types" cmake_opts="$ALL_cmake_opts" compilers="$ALL_compilers"
             ;;
          ## END BUILDSPEC ARGUMENTS
@@ -141,10 +141,12 @@ test -n "${MATRIX:-}" ||
    { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
 
 
-if echo "$MATRIX" | awk -v IGNORECASE=1 '!/gcc-9/ && /release/' >matrix_dropped ;then
-   echowarn "FIXME At the moment we are able to build Rlease only with GCC-9, other compilers dropped: "$(cat matrix_dropped | while read line ;do echo "'$line'" ;done; )
-fi
+############# FIXME remove this after build fixed #############
+echo "$MATRIX" | awk -v IGNORECASE=1 '!/gcc-9/ && /release/' | while read line ;do echo "'$line'" ;done |
+   echowarn "FIXME At the moment we are able to build Release only with GCC-9, other buildspecs are dropped: "$(cat)
 MATRIX="$(echo "$MATRIX" | awk -v IGNORECASE=1 '!(!/gcc-9/ && /release/)' )"  ##FIXME lifehack to disable always failing build during linkage
+############# END fixme remove this after build fixed #########
+
 
 to_json(){
    echo "{
