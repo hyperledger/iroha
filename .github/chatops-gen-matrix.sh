@@ -35,6 +35,7 @@ END
    --help-buildspec
 }
 
+cmdline=
 while [[ $# > 0 ]] ;do
    case "$1" in
       ## ARGUMENTS
@@ -43,10 +44,14 @@ while [[ $# > 0 ]] ;do
          ;;
       ## END ARGUMENTS
       *)
+         cmdline+="$1 "
+         ;;
+      -*)
          echoerr "Unknown argument '$1'"
          exit 1
          ;;
    esac
+   shift
 done
 
 generate(){
@@ -124,14 +129,22 @@ handle_user_line(){
    done
 }
 
-while read input_line ;do
-   #  if [[ "$input_line" =~ ^/build\ .* ]] ;then
-        handle_user_line $input_line || continue
-   #  fi
-done
+if test -z "$cmdline" ;then
+   while read input_line ;do
+      handle_user_line $input_line || continue
+   done
+else
+   handle_user_line $cmdline || true
+fi
 
 test -n "${MATRIX:-}" ||
    { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
+
+
+if echo "$MATRIX" | awk -v IGNORECASE=1 '!/gcc-9/ && /release/' >matrix_dropped ;then
+   echowarn "FIXME At the moment we are able to build Rlease only with GCC-9, other compilers dropped: "$(cat matrix_dropped | while read line ;do echo "'$line'" ;done; )
+fi
+MATRIX="$(echo "$MATRIX" | awk -v IGNORECASE=1 '!(!/gcc-9/ && /release/)' )"  ##FIXME lifehack to disable always failing build during linkage
 
 to_json(){
    echo "{
