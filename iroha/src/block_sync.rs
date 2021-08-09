@@ -103,6 +103,10 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
         self.broker.subscribe::<ContinueSync, _>(ctx);
         ctx.notify_every::<ReceiveUpdates>(self.gossip_period);
     }
+
+    fn broker(&self) -> Option<&broker::Broker> {
+        Some(&self.broker)
+    }
 }
 
 #[async_trait::async_trait]

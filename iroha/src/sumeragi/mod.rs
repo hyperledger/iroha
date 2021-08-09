@@ -213,6 +213,10 @@ impl<Q: QueueTrait, G: GenesisNetworkTrait, W: WorldTrait> Actor for Sumeragi<Q,
         self.broker.subscribe::<Init, _>(ctx);
         self.broker.subscribe::<CommitBlock, _>(ctx);
     }
+
+    fn broker(&self) -> Option<&broker::Broker> {
+        Some(&self.broker)
+    }
 }
 
 #[async_trait::async_trait]
