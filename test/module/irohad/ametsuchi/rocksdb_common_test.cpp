@@ -228,6 +228,76 @@ TEST_F(RocksDBTest, Quorum) {
   }
 }
 
+TEST_F(RocksDBTest, SortingOrder) {
+  RocksDbCommon common(tx_context_);
+  common.filterDelete("");
+
+  common.valueBuffer().clear();
+  ASSERT_TRUE(common.put("5").ok());
+  ASSERT_TRUE(common.put("3").ok());
+  ASSERT_TRUE(common.put("11").ok());
+  ASSERT_TRUE(common.put("6").ok());
+  ASSERT_TRUE(common.put("27").ok());
+  ASSERT_TRUE(common.put("1").ok());
+  ASSERT_TRUE(common.put("144").ok());
+  ASSERT_TRUE(common.put("2").ok());
+
+  std::vector<std::string> s;
+  common.enumerate(
+      [&s](auto const &it, auto const prefix_size) mutable {
+        assert(it->Valid());
+        auto const key = it->key();
+        s.push_back(std::string(key.ToStringView()));
+        return true;
+      },
+      "");
+
+  ASSERT_EQ(s[0], "1");
+  ASSERT_EQ(s[1], "11");
+  ASSERT_EQ(s[2], "144");
+  ASSERT_EQ(s[3], "2");
+  ASSERT_EQ(s[4], "27");
+  ASSERT_EQ(s[5], "3");
+  ASSERT_EQ(s[6], "5");
+  ASSERT_EQ(s[7], "6");
+}
+
+TEST_F(RocksDBTest, LowerBoundSearch) {
+  RocksDbCommon common(tx_context_);
+  common.filterDelete("");
+
+  char const *target = "wta1234569#1#2";
+  char const *target2 = "wta1234367#1#1";
+
+  common.valueBuffer().clear();
+  ASSERT_TRUE(common.put(target2).ok());
+  ASSERT_TRUE(common.put(target).ok());
+  ASSERT_TRUE(common.put("wta1234570#2#1").ok());
+
+  {
+    auto it = common.seek("wta0");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_TRUE(it->key().ToStringView() == target2);
+  }
+
+  {
+    auto it = common.seek("wta1234411#0#0");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_TRUE(it->key().ToStringView() == target);
+  }
+
+  {
+    auto it = common.seek("wta1234411");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_TRUE(it->key().ToStringView() == target);
+  }
+
+  {
+    auto it = common.seek("wta1239411");
+    ASSERT_FALSE(it->Valid());
+  }
+}
+
 TEST_F(RocksDBTest, Signatories) {
   RocksDbCommon common(tx_context_);
   auto cmd_check = [&](std::string_view pk) {
