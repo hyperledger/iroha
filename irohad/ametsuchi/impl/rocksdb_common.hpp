@@ -578,7 +578,7 @@ namespace iroha::ametsuchi {
     /// keybuffer and call lambda with key-value. To stop enumeration callback F
     /// must return false.
     template <typename F>
-    auto enumerate(std::unique_ptr<rocksdb::Iterator> it, F &&func) {
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> &it, F &&func) {
       if (!it->status().ok())
         return it->status();
 
@@ -709,21 +709,21 @@ namespace iroha::ametsuchi {
     /// Iterate over all the keys begins from it, and matches a prefix and call
     /// lambda with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
-    auto enumerate(std::unique_ptr<rocksdb::Iterator> it,
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> &it,
                    F &&func,
                    S const &fmtstring,
                    Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
-      return enumerate(std::move(it), std::forward<F>(func));
+      return enumerate(it, std::forward<F>(func));
     }
 
     /// Iterate over all the keys that matches a prefix and call lambda
     /// with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
     auto enumerate(F &&func, S const &fmtstring, Args &&... args) {
-      return enumerate(seek(fmtstring, std::forward<Args>(args)...),
-                       std::forward<F>(func));
+      auto it = seek(fmtstring, std::forward<Args>(args)...);
+      return enumerate(it, std::forward<F>(func));
     }
 
     /// Removes range of items by key-filter
@@ -777,6 +777,7 @@ namespace iroha::ametsuchi {
     return rdb.enumerate(
         [func{std::forward<F>(func)}](auto const &it,
                                       auto const prefix_size) mutable {
+          assert(it->Valid());
           auto const key = it->key();
           return std::forward<F>(func)(rocksdb::Slice(
               key.data() + prefix_size + fmtstrings::kDelimiterSize,
@@ -792,6 +793,7 @@ namespace iroha::ametsuchi {
   inline auto makeKVLambda(F &&func) {
     return [func{std::forward<F>(func)}](auto const &it,
                                          auto const prefix_size) mutable {
+      assert(it->Valid());
       auto const key = it->key();
       return std::forward<F>(func)(
           rocksdb::Slice(key.data() + prefix_size + fmtstrings::kDelimiterSize,
@@ -818,10 +820,10 @@ namespace iroha::ametsuchi {
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeysAndValues(RocksDbCommon &rdb,
                                      F &&func,
-                                     std::unique_ptr<rocksdb::Iterator> it,
+                                     std::unique_ptr<rocksdb::Iterator> &it,
                                      S const &strformat,
                                      Args &&... args) {
-    return rdb.enumerate(std::move(it),
+    return rdb.enumerate(it,
                          makeKVLambda(std::forward<F>(func)),
                          strformat,
                          std::forward<Args>(args)...);

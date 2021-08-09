@@ -52,25 +52,6 @@ namespace {
     TimestampType tsFrom;
     TimestampType tsTo;
   };
-
-  template <typename T>
-  inline T getMinValue() {
-    return std::numeric_limits<T>::min();
-  }
-
-  template <typename T>
-  inline T getMaxValue() {
-    return std::numeric_limits<T>::max();
-  }
-
-  template <typename T>
-  inline T getValueOr(std::optional<T> value, T def) {
-    static_assert(std::is_integral_v<T> || std::is_floating_point_v<T>,
-                  "T must be numeric or derived from numeric.");
-    if (value)
-      return *value;
-    return def;
-  }
 }  // namespace
 
 using ErrorQueryType =
@@ -373,12 +354,12 @@ RocksDbSpecificQueryExecutor::readTxs(
       std::is_same_v<
           typename decltype(query.paginationMeta().firstTxTime())::value_type,
           typename decltype(query.paginationMeta().lastTxTime())::value_type>,
-      "Ts types must be the same!");
+      "Type of firstTxTime and lastTxTime must be the same!");
   static_assert(
       std::is_same_v<decltype(PaginationBounds::tsFrom),
                      typename decltype(
                          query.paginationMeta().lastTxTime())::value_type>,
-      "Ts types must be the same!");
+      "Type of firstTxTime and lastTxTime must be the same!");
 
   static_assert(
       std::is_same_v<
@@ -392,17 +373,17 @@ RocksDbSpecificQueryExecutor::readTxs(
       "Height types must be the same!");
 
   PaginationBounds const bounds{
-      getValueOr(query.paginationMeta().firstTxHeight(),
-                 shared_model::interface::types::HeightType(1ull)),
-      getValueOr(query.paginationMeta().lastTxHeight(),
-                 getMaxValue<typename decltype(
-                     query.paginationMeta().lastTxHeight())::value_type>()),
-      getValueOr(query.paginationMeta().firstTxTime(),
-                 getMinValue<typename decltype(
-                     query.paginationMeta().firstTxTime())::value_type>()),
-      getValueOr(query.paginationMeta().lastTxTime(),
-                 getMaxValue<typename decltype(
-                     query.paginationMeta().lastTxTime())::value_type>())};
+      query.paginationMeta().firstTxHeight().value_or(
+          shared_model::interface::types::HeightType(1ull)),
+      query.paginationMeta().lastTxHeight().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxHeight())::value_type>::max()),
+      query.paginationMeta().firstTxTime().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().firstTxTime())::value_type>::min()),
+      query.paginationMeta().lastTxTime().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxTime())::value_type>::max())};
 
   auto parser = [&](auto p, auto d) {
     auto const &[asset, tx_hash] = staticSplitId<2ull>(d.ToStringView(), "%");
@@ -473,48 +454,51 @@ RocksDbSpecificQueryExecutor::readTxs(
           staticSplitId<4ull>(*result.template assumeValue(), "#");
 
       if (ordering_ptr->field
-          == shared_model::interface::Ordering::Field::kCreatedTime)
-        status = enumerateKeysAndValues(
-            common,
-            parser,
-            common.template seek(fmtstrings::kTransactionByTs,
-                                 query.accountId(),
-                                 tx_ts,
-                                 tx_height,
-                                 tx_index),
-            fmtstrings::kPathTransactionByTs,
-            query.accountId());
-      else
-        status = enumerateKeysAndValues(
-            common,
-            parser,
-            common.template seek(fmtstrings::kTransactionByPosition,
-                                 query.accountId(),
-                                 tx_height,
-                                 tx_index,
-                                 tx_ts),
-            fmtstrings::kPathTransactionByPosition,
-            query.accountId());
+          == shared_model::interface::Ordering::Field::kCreatedTime) {
+        auto it = common.template seek(fmtstrings::kTransactionByTs,
+                                       query.accountId(),
+                                       tx_ts,
+                                       tx_height,
+                                       tx_index);
+        status = enumerateKeysAndValues(common,
+                                        parser,
+                                        it,
+                                        fmtstrings::kPathTransactionByTs,
+                                        query.accountId());
+      } else {
+        auto it = common.template seek(fmtstrings::kTransactionByPosition,
+                                       query.accountId(),
+                                       tx_height,
+                                       tx_index,
+                                       tx_ts);
+        status = enumerateKeysAndValues(common,
+                                        parser,
+                                        it,
+                                        fmtstrings::kPathTransactionByPosition,
+                                        query.accountId());
+      }
     }
   } else {
-    status = (ordering_ptr->field
-              == shared_model::interface::Ordering::Field::kCreatedTime)
-        ? enumerateKeysAndValues(
-              common,
-              parser,
-              common.template seek(fmtstrings::kTransactionByTsLowerBound,
-                                   query.accountId(),
-                                   bounds.tsFrom),
-              fmtstrings::kPathTransactionByTs,
-              query.accountId())
-        : enumerateKeysAndValues(
-              common,
-              parser,
-              common.template seek(fmtstrings::kTransactionByHeight,
-                                   query.accountId(),
-                                   bounds.heightFrom),
-              fmtstrings::kPathTransactionByPosition,
-              query.accountId());
+    if (ordering_ptr->field
+        == shared_model::interface::Ordering::Field::kCreatedTime) {
+      auto it = common.template seek(fmtstrings::kTransactionByTsLowerBound,
+                                     query.accountId(),
+                                     bounds.tsFrom);
+      status = enumerateKeysAndValues(common,
+                                      parser,
+                                      it,
+                                      fmtstrings::kPathTransactionByTs,
+                                      query.accountId());
+    } else {
+      auto it = common.template seek(fmtstrings::kTransactionByHeight,
+                                     query.accountId(),
+                                     bounds.heightFrom);
+      status = enumerateKeysAndValues(common,
+                                      parser,
+                                      it,
+                                      fmtstrings::kPathTransactionByPosition,
+                                      query.accountId());
+    }
   }
 
   RDB_ERROR_CHECK(canExist(status, [&]() {
