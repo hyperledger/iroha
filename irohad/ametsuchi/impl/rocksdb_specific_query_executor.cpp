@@ -41,6 +41,19 @@
 using namespace iroha;
 using namespace iroha::ametsuchi;
 
+namespace {
+  struct PaginationBounds {
+    using HeightType = shared_model::interface::types::HeightType;
+    using TimestampType = shared_model::interface::types::TimestampType;
+
+    HeightType heightFrom;
+    HeightType heightTo;
+
+    TimestampType tsFrom;
+    TimestampType tsTo;
+  };
+}  // namespace
+
 using ErrorQueryType =
     shared_model::interface::QueryResponseFactory::ErrorQueryType;
 
@@ -328,14 +341,6 @@ RocksDbSpecificQueryExecutor::readTxs(
   ordering.get(ordering_ptr, count);
   assert(count > 0ull);
 
-  bool first_hash_found = !query.paginationMeta().firstTxHash();
-  std::string target_hash;
-
-  if (query.paginationMeta().firstTxHash()) {
-    auto const str = query.paginationMeta().firstTxHash()->toString();
-    toLowerAppend(str, target_hash);
-  }
-
   RDB_TRY_GET_VALUE(opt_txs_total,
                     forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
                         common, query.accountId()));
@@ -345,17 +350,46 @@ RocksDbSpecificQueryExecutor::readTxs(
   uint64_t remains = query.paginationMeta().pageSize() + 1ull;
   std::optional<shared_model::crypto::Hash> next_page;
 
+  static_assert(
+      std::is_same_v<
+          typename decltype(query.paginationMeta().firstTxTime())::value_type,
+          typename decltype(query.paginationMeta().lastTxTime())::value_type>,
+      "Type of firstTxTime and lastTxTime must be the same!");
+  static_assert(
+      std::is_same_v<decltype(PaginationBounds::tsFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxTime())::value_type>,
+      "Type of firstTxTime and lastTxTime must be the same!");
+
+  static_assert(
+      std::is_same_v<
+          typename decltype(query.paginationMeta().firstTxHeight())::value_type,
+          typename decltype(query.paginationMeta().lastTxHeight())::value_type>,
+      "Height types must be the same!");
+  static_assert(
+      std::is_same_v<decltype(PaginationBounds::heightFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxHeight())::value_type>,
+      "Height types must be the same!");
+
+  PaginationBounds const bounds{
+      query.paginationMeta().firstTxHeight().value_or(
+          shared_model::interface::types::HeightType(1ull)),
+      query.paginationMeta().lastTxHeight().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxHeight())::value_type>::max()),
+      query.paginationMeta().firstTxTime().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().firstTxTime())::value_type>::min()),
+      query.paginationMeta().lastTxTime().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxTime())::value_type>::max())};
+
   auto parser = [&](auto p, auto d) {
     auto const &[asset, tx_hash] = staticSplitId<2ull>(d.ToStringView(), "%");
     if (readTxsWithAssets)
       if (asset.empty())
         return true;
-
-    if (!first_hash_found) {
-      if (tx_hash != target_hash)
-        return true;
-      first_hash_found = true;
-    }
 
     auto const position =
         staticSplitId<5ull>(p.ToStringView(), fmtstrings::kDelimiter);
@@ -368,6 +402,22 @@ RocksDbSpecificQueryExecutor::readTxs(
     else
       decodePosition(
           position.at(4), position.at(0), position.at(2), tx_position);
+
+    static_assert(
+        std::is_unsigned_v<decltype(
+                tx_position
+                    .height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>,
+        "Height must be unsigned");
+    if ((tx_position.height - bounds.heightFrom)
+        > (bounds.heightTo - bounds.heightFrom))
+      return true;
+
+    static_assert(
+        std::is_unsigned_v<decltype(
+                tx_position.ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>,
+        "TS must be unsigned");
+    if ((tx_position.ts - bounds.tsFrom) > (bounds.tsTo - bounds.tsFrom))
+      return true;
 
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
@@ -386,16 +436,71 @@ RocksDbSpecificQueryExecutor::readTxs(
     }
   };
 
-  // TODO(iceseer): find first entry by log(N)
-  rocksdb::Status status =
-      (ordering_ptr->field
-       == shared_model::interface::Ordering::Field::kCreatedTime)
-      ? enumerateKeysAndValues(
-            common, parser, fmtstrings::kPathTransactionByTs, query.accountId())
-      : enumerateKeysAndValues(common,
-                               parser,
-                               fmtstrings::kPathTransactionByPosition,
-                               query.accountId());
+  rocksdb::Status status = rocksdb::Status::OK();
+  if (query.paginationMeta().firstTxHash()) {
+    std::string target_hash;
+    if (auto result =
+            forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common,
+                toLowerAppend(query.paginationMeta().firstTxHash()->toString(),
+                              target_hash));
+        expected::hasValue(result)) {
+      assert(ordering_ptr->field
+                 == shared_model::interface::Ordering::Field::kCreatedTime
+             || ordering_ptr->field
+                 == shared_model::interface::Ordering::Field::kPosition);
+
+      auto const &[tx_status, tx_height, tx_index, tx_ts] =
+          staticSplitId<4ull>(*result.template assumeValue(), "#");
+
+      if (ordering_ptr->field
+          == shared_model::interface::Ordering::Field::kCreatedTime) {
+        auto it = common.template seek(fmtstrings::kTransactionByTs,
+                                       query.accountId(),
+                                       tx_ts,
+                                       tx_height,
+                                       tx_index);
+        status = enumerateKeysAndValues(common,
+                                        parser,
+                                        it,
+                                        fmtstrings::kPathTransactionByTs,
+                                        query.accountId());
+      } else {
+        auto it = common.template seek(fmtstrings::kTransactionByPosition,
+                                       query.accountId(),
+                                       tx_height,
+                                       tx_index,
+                                       tx_ts);
+        status = enumerateKeysAndValues(common,
+                                        parser,
+                                        it,
+                                        fmtstrings::kPathTransactionByPosition,
+                                        query.accountId());
+      }
+    }
+  } else {
+    if (ordering_ptr->field
+        == shared_model::interface::Ordering::Field::kCreatedTime) {
+      auto it = common.template seek(fmtstrings::kTransactionByTsLowerBound,
+                                     query.accountId(),
+                                     bounds.tsFrom);
+      status = enumerateKeysAndValues(common,
+                                      parser,
+                                      it,
+                                      fmtstrings::kPathTransactionByTs,
+                                      query.accountId());
+    } else {
+      auto it = common.template seek(fmtstrings::kTransactionByHeight,
+                                     query.accountId(),
+                                     bounds.heightFrom);
+      status = enumerateKeysAndValues(common,
+                                      parser,
+                                      it,
+                                      fmtstrings::kPathTransactionByPosition,
+                                      query.accountId());
+    }
+  }
+
   RDB_ERROR_CHECK(canExist(status, [&]() {
     return fmt::format("Enumerate transactions for account {}",
                        query.accountId());
