@@ -24,6 +24,7 @@ use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
 use futures::{Stream, StreamExt};
 use iroha_error::{derive::Error, error};
 use iroha_logger::InstrumentFutures;
+use prelude::broker::{MessageType, SubscriptionId};
 use tokio::{
     sync::{
         mpsc::{self, Receiver},
@@ -232,7 +233,9 @@ where
     M: Message<Result = ()> + Send + 'static + Debug,
 {
     async fn send(&self, m: M) {
-        let _result = self.send(m).await;
+        if let Err(err) = self.send(m).await {
+            iroha_logger::warn!("Failed to send message to actor: {}", err)
+        }
     }
 }
 
@@ -276,6 +279,24 @@ pub trait Actor: Send + Sized + 'static {
     {
         Self::default().start().await
     }
+
+    /// If this actor subscribes to some broker messages it needs to return broker instance here
+    /// For the subscribtions to be properly canceled on actor stop.
+    fn broker(&self) -> Option<&broker::Broker> {
+        None
+    }
+
+    /// At stop hook of actor. Generally should not be overriden. Calls `on_stop`.
+    async fn on_stop_internal(&mut self, ctx: &mut Context<Self>) {
+        if let Some(broker) = self.broker() {
+            ctx.unsubscribe_from_on_stop
+                .iter()
+                .for_each(|(subscription_id, message_type)| {
+                    broker.unsubscribe_by_type_id(*message_type, *subscription_id)
+                });
+        }
+        self.on_stop(ctx).await;
+    }
 }
 
 /// Initialized actor. Mainly used to take address before starting it.
@@ -318,7 +339,7 @@ impl<A: Actor> InitializedActor<A> {
                 }
             }
             iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
-            actor.on_stop(&mut ctx).await;
+            actor.on_stop_internal(&mut ctx).await;
         }
         .in_current_span();
         #[cfg(not(feature = "deadlock_detection"))]
@@ -393,6 +414,7 @@ enum Stop {
 pub struct Context<A: Actor> {
     addr: Addr<A>,
     should_stop: Option<Stop>,
+    unsubscribe_from_on_stop: Vec<(SubscriptionId, MessageType)>,
 }
 
 impl<A: Actor> Context<A> {
@@ -401,6 +423,7 @@ impl<A: Actor> Context<A> {
         Self {
             addr,
             should_stop: None,
+            unsubscribe_from_on_stop: Vec::new(),
         }
     }
 
