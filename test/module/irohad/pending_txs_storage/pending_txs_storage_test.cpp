@@ -149,7 +149,6 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestFirsTimeLastTimeSpecified) {
                                transactions->transactions().begin(),
                                transactions->transactions().end());
   expected.all_transactions_size = transactions->transactions().size();
-
   storage_->updatedBatchesHandler(state);
   const auto &creator = "alice@iroha";
   auto pending = storage_->getPendingTransactions(creator, kPageSize, std::nullopt, first_time, last_time);
