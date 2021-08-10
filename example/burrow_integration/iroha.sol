@@ -28,13 +28,14 @@ contract Iroha {
         result = ret;
     }
 
-        //Transfers asset from one iroha account to another
-    function transferAsset(string memory src, string memory dst, string memory asset, string memory amount) public returns (bytes memory result) {
+    //Transfers asset from one iroha account to another
+    function transferAsset(string memory src, string memory dst, string memory asset, string memory description, string memory amount) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "transferAsset(string,string,string,string)",
+            "transferAsset(string,string,string,string,string)",
             src,
             dst,
             asset,
+            description,
             amount);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");

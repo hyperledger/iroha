@@ -31,6 +31,7 @@ var (
 				* @notice Transfers a certain amount of asset from some source account to destination account
 				* @param Src source account address
 				* @param Dst destination account address
+				* @param Description description of the transfer
 				* @param Asset asset ID
 				* @param Amount amount to transfer
 				* @return 'true' if successful, 'false' otherwise
@@ -40,7 +41,7 @@ var (
 		},
 		native.Function{
 			Comment: `
-				* @notice Creates a new iroha ccount
+				* @notice Creates a new iroha account
 				* @param Name account name
 				* @param Domain domain of account
 				* @param Key key of account
@@ -51,7 +52,7 @@ var (
 		},
 		native.Function{
 			Comment: `
-				* @notice Adds asset from iroha accountt
+				* @notice Adds asset to iroha account
 				* @param Asset name of asset
 				* @param Amount mount of asset to be added
 				* @return 'true' if successful, 'false' otherwise
@@ -63,7 +64,7 @@ var (
 			Comment: `
 				* @notice Subtracts asset from iroha account
 				* @param Asset name of asset
-				* @param Amount mount of asset to be subtracted
+				* @param Amount amount of asset to be subtracted
 				* @return 'true' if successful, 'false' otherwise
 				`,
 			PermFlag: permission.Call,
@@ -78,7 +79,7 @@ var (
 				* @return 'true' if successful, 'false' otherwise
 				`,
 			PermFlag: permission.Call,
-			F:        setDetail,
+			F:        setAccountDetail,
 		},
 		native.Function{
 			Comment: `
@@ -87,7 +88,7 @@ var (
 				* @return details of the account
 				`,
 			PermFlag: permission.Call,
-			F:        getDetail,
+			F:        getAccountDetail,
 		},
 		native.Function{
 			Comment: `
@@ -97,7 +98,7 @@ var (
 				* @return 'true' if successful, 'false' otherwise
 				`,
 			PermFlag: permission.Call,
-			F:        setQuorum,
+			F:        setAccountQuorum,
 		},
 		native.Function{
 			Comment: `
@@ -199,7 +200,7 @@ var (
 		},
 		native.Function{
 			Comment: `
-				* @notice Adds a new peer
+				* @notice Removes a peer
 				* @param PeerKey key of the peer to be removed
 				* @return 'true' if successful, 'false' otherwise
 				`,
@@ -216,9 +217,9 @@ var (
 		},
 		native.Function{
 			Comment: `
-				* @notice Gets block details
+				* @notice Gets block 
 				* @param Height height of block to be used
-				* @return details of the block
+				* @return the block at the given height 
 				`,
 			PermFlag: permission.Call,
 			F:        getBlock,
@@ -253,7 +254,6 @@ type getAssetBalanceRets struct {
 }
 
 func getAssetBalance(ctx native.Context, args getAssetBalanceArgs) (getAssetBalanceRets, error) {
-
 	balances, err := iroha.GetAccountAssets(args.Account)
 	if err != nil {
 		return getAssetBalanceRets{}, err
@@ -288,7 +288,6 @@ type transferAssetRets struct {
 }
 
 func transferAsset(ctx native.Context, args transferAssetArgs) (transferAssetRets, error) {
-
 	err := iroha.TransferAsset(args.Src, args.Dst, args.Asset, args.Desc, args.Amount)
 	if err != nil {
 		return transferAssetRets{Result: false}, err
@@ -315,7 +314,6 @@ type createAccountRets struct {
 }
 
 func createAccount(ctx native.Context, args createAccountArgs) (createAccountRets, error) {
-
 	err := iroha.CreateAccount(args.Name, args.Domain, args.Key)
 	if err != nil {
 		return createAccountRets{Result: false}, err
@@ -339,7 +337,6 @@ type addAssetRets struct {
 }
 
 func addAsset(ctx native.Context, args addAssetArgs) (addAssetRets, error) {
-
 	err := iroha.AddAssetQuantity(args.Asset, args.Amount)
 	if err != nil {
 		return addAssetRets{Result: false}, err
@@ -362,7 +359,6 @@ type subtractAssetRets struct {
 }
 
 func subtractAsset(ctx native.Context, args subtractAssetArgs) (subtractAssetRets, error) {
-
 	err := iroha.SubtractAssetQuantity(args.Asset, args.Amount)
 	if err != nil {
 		return subtractAssetRets{Result: false}, err
@@ -375,20 +371,20 @@ func subtractAsset(ctx native.Context, args subtractAssetArgs) (subtractAssetRet
 	return subtractAssetRets{Result: true}, nil
 }
 
-type setDetailArgs struct {
+type setAccountDetailArgs struct {
 	Account string
 	Key     string
 	Value   string
 }
 
-type setDetailRets struct {
+type setAccountDetailRets struct {
 	Result bool
 }
 
-func setDetail(ctx native.Context, args setDetailArgs) (setDetailRets, error) {
+func setAccountDetail(ctx native.Context, args setAccountDetailArgs) (setAccountDetailRets, error) {
 	err := iroha.SetAccountDetail(args.Account, args.Key, args.Value)
 	if err != nil {
-		return setDetailRets{Result: false}, err
+		return setAccountDetailRets{Result: false}, err
 	}
 
 	ctx.Logger.Trace.Log("function", "SetDetail",
@@ -396,47 +392,47 @@ func setDetail(ctx native.Context, args setDetailArgs) (setDetailRets, error) {
 		"key", args.Key,
 		"value", args.Value)
 
-	return setDetailRets{Result: true}, nil
+	return setAccountDetailRets{Result: true}, nil
 }
 
-type getDetailArgs struct {
+type getAccountDetailArgs struct {
 }
 
-type getDetailRets struct {
+type getAccountDetailRets struct {
 	Result string
 }
 
-func getDetail(ctx native.Context, args getDetailArgs) (getDetailRets, error) {
+func getAccountDetail(ctx native.Context, args getAccountDetailArgs) (getAccountDetailRets, error) {
 	details, err := iroha.GetAccountDetail()
 	if err != nil {
-		return getDetailRets{}, err
+		return getAccountDetailRets{}, err
 	}
 
 	ctx.Logger.Trace.Log("function", "GetAccountDetail")
 
-	return getDetailRets{Result: details}, nil
+	return getAccountDetailRets{Result: details}, nil
 }
 
-type setQuorumArgs struct {
+type setAccountQuorumArgs struct {
 	Account string
 	Quorum  string
 }
 
-type setQuorumRets struct {
+type setAccountQuorumRets struct {
 	Result bool
 }
 
-func setQuorum(ctx native.Context, args setQuorumArgs) (setQuorumRets, error) {
+func setAccountQuorum(ctx native.Context, args setAccountQuorumArgs) (setAccountQuorumRets, error) {
 	err := iroha.SetAccountQuorum(args.Account, args.Quorum)
 	if err != nil {
-		return setQuorumRets{Result: false}, err
+		return setAccountQuorumRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "SetQuorum",
+	ctx.Logger.Trace.Log("function", "setAccountQuorum",
 		"account", args.Account,
 		"quorum", args.Quorum)
 
-	return setQuorumRets{Result: true}, nil
+	return setAccountQuorumRets{Result: true}, nil
 }
 
 type addSignatoryArgs struct {
@@ -449,7 +445,6 @@ type addSignatoryRets struct {
 }
 
 func addSignatory(ctx native.Context, args addSignatoryArgs) (addSignatoryRets, error) {
-
 	err := iroha.AddSignatory(args.Account, args.Key)
 	if err != nil {
 		return addSignatoryRets{Result: false}, err
@@ -494,7 +489,6 @@ type createDomainRets struct {
 }
 
 func createDomain(ctx native.Context, args createDomainArgs) (createDomainRets, error) {
-
 	err := iroha.CreateDomain(args.Domain, args.Role)
 	if err != nil {
 		return createDomainRets{Result: false}, err
@@ -526,7 +520,6 @@ func getAccount(ctx native.Context, args getAccountArgs) (getAccountRets, error)
 		"quorum", fmt.Sprint(account.GetQuorum()))
 	result, err := json.Marshal(account)
 	return getAccountRets{Result: string(result)}, nil
-
 }
 
 type createAssetArgs struct {
@@ -540,7 +533,6 @@ type createAssetRets struct {
 }
 
 func createAsset(ctx native.Context, args createAssetArgs) (createAssetRets, error) {
-
 	err := iroha.CreateAsset(args.Name, args.Domain, args.Precision)
 	if err != nil {
 		return createAssetRets{Result: false}, err

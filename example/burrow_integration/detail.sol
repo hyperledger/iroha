@@ -2,7 +2,7 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
-contract DetailAccount {
+contract Detail {
     address public serviceContractAddress;
 
     event Updated(string indexed name, string indexed key, string indexed value);
@@ -12,28 +12,36 @@ contract DetailAccount {
         serviceContractAddress = 0xA6Abc17819738299B3B2c1CE46d55c74f04E290C;
     }
 
-    // Queries the balance in _asset of an Iroha _account
-    function setDetail(string memory name, string memory key, string memory value) public returns (bytes memory result) {
+    // Sets the account detail
+    function setAccountDetail(string memory name, string memory key, string memory value) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "setDetail(string,string,string)",
+            "setAccountDetail(string,string,string)",
             name,
             key,
             value);
-        (bool success, bytes memory ret) =
-            address(serviceContractAddress).delegatecall(payload);
+        (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
-
         emit Updated(name, key, value);
         result = ret;
     }
 
-    function getDetail() public returns (bytes memory result) {
-         bytes memory payload = abi.encodeWithSignature(
-            "getDetail()");
-        (bool success, bytes memory ret) =
-            address(serviceContractAddress).delegatecall(payload);
+    // Sets the account quorum
+    function setAccountQuorum(string memory name, string memory quorum) public returns (bytes memory result) {
+        bytes memory payload = abi.encodeWithSignature(
+            "setAccountQuorum(string,string)",
+            name,
+            quorum);
+        (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
+        result = ret;
+    }
 
+    // Gets account details
+    function getAccountDetail() public returns (bytes memory result) {
+         bytes memory payload = abi.encodeWithSignature(
+            "getAccountDetail()");
+        (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
+        require(success, "Error calling service contract function");
         result = ret;
     }
 }

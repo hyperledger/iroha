@@ -48,4 +48,3 @@ contract Query {
         result = ret;
     }
 }
-
