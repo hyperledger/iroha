@@ -44,7 +44,7 @@ def make_number_hex_left_padded(number: str, width: int = 64):
 def left_padded_address_of_param(
     param_index: int, number_of_params: int, width: int = 64
 ):
-    """Specifies the position of each argument according to Contract AbI specifications."""
+    """Specifies the position of each argument according to Contract ABI specifications."""
     bits_offset = 32 * number_of_params
     bits_per_param = 64
     bits_for_the_param = bits_offset + bits_per_param * param_index
