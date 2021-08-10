@@ -69,41 +69,34 @@ PendingTransactionStorageImpl::getPendingTransactions(
          and remaining_space >= batch_iterator->get()->transactions().size()) {
     auto &txs = batch_iterator->get()->transactions();
     // can be easily extended by adding more conditions if needed
-    if (first_tx_time or last_tx_time) {
-      std::function<bool(int64_t)> time_pred_f;
-      if (first_tx_time) {
-        time_pred_f = [&first_tx_time](int64_t tx_tms) {
-          return tx_tms > first_tx_time;
-        };
-      } else {
-        time_pred_f = [](auto tx_tms) { return true; };
-      }
-      std::function<bool(int64_t)> time_pred_l;
-      if (last_tx_time) {
-        time_pred_l = [&last_tx_time](int64_t tx_tms) {
-          return tx_tms < last_tx_time;
-        };
-      } else {
-        time_pred_l = [](auto tx_tms) { return true; };
-      }
-      auto time_predicate = [&time_pred_f, &time_pred_l](auto &tx) {
-        auto created_time = tx->createdTime();
-        return time_pred_f(created_time) and time_pred_l(created_time);
+    std::function<bool(int64_t)> time_pred_f;
+    if (first_tx_time) {
+      time_pred_f = [&first_tx_time](int64_t tx_tms) {
+        return tx_tms > first_tx_time;
       };
-      auto iter_before_copy = std::end(response.transactions);
-      std::copy_if(txs.begin(),
-                   txs.end(),
-                   std::back_inserter(response.transactions),
-                   time_predicate);
-      remaining_space -=
-          std::distance(iter_before_copy, response.transactions.end());
-      ++batch_iterator;
     } else {
-      response.transactions.insert(
-          response.transactions.end(), txs.begin(), txs.end());
-      remaining_space -= txs.size();
-      ++batch_iterator;
+      time_pred_f = [](auto tx_tms) { return true; };
     }
+    std::function<bool(int64_t)> time_pred_l;
+    if (last_tx_time) {
+      time_pred_l = [&last_tx_time](int64_t tx_tms) {
+        return tx_tms < last_tx_time;
+      };
+    } else {
+      time_pred_l = [](auto tx_tms) { return true; };
+    }
+    auto time_predicate = [&time_pred_f, &time_pred_l](auto &tx) {
+      auto created_time = tx->createdTime();
+      return time_pred_f(created_time) and time_pred_l(created_time);
+    };
+
+    auto size_before_copy = response.transactions.size();
+    std::copy_if(txs.begin(),
+                 txs.end(),
+                 std::back_inserter(response.transactions),
+                 time_predicate);
+    remaining_space -= (response.transactions.size() - size_before_copy);
+    ++batch_iterator;
   }
   if (account_batches.batches.end() != batch_iterator) {
     shared_model::interface::PendingTransactionsPageResponse::BatchInfo
