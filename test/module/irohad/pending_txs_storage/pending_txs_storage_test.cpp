@@ -51,6 +51,14 @@ class PendingTxsStorageFixture : public ::testing::Test {
         makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
   }
 
+  auto twoTransactionsBatch(const int64_t first_tx_time,
+                            const int64_t last_tx_time) {
+    return addSignatures(
+        makeTestBatch(txBuilder(2, first_tx_time, 2, "alice@iroha"),
+                      txBuilder(2, last_tx_time, 2, "bob@iroha")),
+        0,
+        makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey));
+  }
   void checkResponse(const Response &actual, const Response &expected) {
     EXPECT_EQ(actual.transactions.size(), expected.transactions.size());
     // generally it's illegal way to verify the correctness.
@@ -137,11 +145,11 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
  */
 TEST_F(PendingTxsStorageFixture, TxPaginationTestFirsTimeLastTimeSpecified) {
   auto state = emptyState();
-  auto first_time = getUniqueTime();
-  auto transactions = twoTransactionsBatch();
-  auto last_time = getUniqueTime();
+  auto first_time = 1000001;
+  auto transactions = twoTransactionsBatch(1000010, 1000015);
+  auto last_time = 1000020;
   *state += transactions;
-  auto transactions1 = twoTransactionsBatch();
+  auto transactions1 = twoTransactionsBatch(1000025, 1000030);
   *state += transactions1;
   const auto kPageSize = 100u;
   Response expected;
@@ -165,10 +173,10 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestFirsTimeLastTimeSpecified) {
  */
 TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeSpecified) {
   auto state = emptyState();
-  auto transactions = twoTransactionsBatch();
+  auto transactions = twoTransactionsBatch(1000020,1000030);
   *state += transactions;
-  auto first_time = getUniqueTime();
-  auto transactions1 = twoTransactionsBatch();
+  auto first_time = 1000040;
+  auto transactions1 = twoTransactionsBatch(1000050, 1000060);
   *state += transactions1;
   const auto kPageSize = 100u;
   Response expected;
@@ -196,11 +204,11 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeSpecified) {
  */
 TEST_F(PendingTxsStorageFixture, TxPaginationTestLastTimeSpecified) {
   auto state = emptyState();
-  auto transactions = twoTransactionsBatch();
+  auto transactions = twoTransactionsBatch(1000040, 1000050);
   *state += transactions;
-  auto transactions1 = twoTransactionsBatch();
+  auto transactions1 = twoTransactionsBatch(1000060, 1000070);
   *state += transactions1;
-  auto last_time = getUniqueTime();
+  auto last_time = 1000080;
   const auto kPageSize = 100u;
   Response expected;
   expected.transactions.insert(expected.transactions.end(),
@@ -231,9 +239,9 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestLastTimeSpecified) {
  */
 TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeAfterLastTransactionSpecified) {
   auto state = emptyState();
-  auto transactions = twoTransactionsBatch();
+  auto transactions = twoTransactionsBatch(1000030, 1000040);
   *state += transactions;
-  auto first_time = getUniqueTime();
+  auto first_time = 1000050;
   const auto kPageSize = 100u;
   Response expected;
   expected.transactions.insert(expected.transactions.end(),

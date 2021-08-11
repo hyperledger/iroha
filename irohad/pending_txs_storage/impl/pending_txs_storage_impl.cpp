@@ -68,33 +68,15 @@ PendingTransactionStorageImpl::getPendingTransactions(
   while (account_batches.batches.end() != batch_iterator
          and remaining_space >= batch_iterator->get()->transactions().size()) {
     auto &txs = batch_iterator->get()->transactions();
-    // can be easily extended by adding more conditions if needed
-    std::function<bool(int64_t)> time_pred_f;
-    if (first_tx_time) {
-      time_pred_f = [&first_tx_time](int64_t tx_tms) {
-        return tx_tms > first_tx_time;
-      };
-    } else {
-      time_pred_f = [](auto tx_tms) { return true; };
-    }
-    std::function<bool(int64_t)> time_pred_l;
-    if (last_tx_time) {
-      time_pred_l = [&last_tx_time](int64_t tx_tms) {
-        return tx_tms < last_tx_time;
-      };
-    } else {
-      time_pred_l = [](auto tx_tms) { return true; };
-    }
-    auto time_predicate = [&time_pred_f, &time_pred_l](auto &tx) {
-      auto created_time = tx->createdTime();
-      return time_pred_f(created_time) and time_pred_l(created_time);
-    };
-
     auto size_before_copy = response.transactions.size();
     std::copy_if(txs.begin(),
                  txs.end(),
                  std::back_inserter(response.transactions),
-                 time_predicate);
+                 [&first_tx_time, &last_tx_time](auto const &tx) {
+                   auto const ts = tx->createdTime();
+                   return (!first_tx_time || ts > *first_tx_time)
+                       && (!last_tx_time || ts < *last_tx_time);
+                 });
     remaining_space -= (response.transactions.size() - size_before_copy);
     ++batch_iterator;
   }
