@@ -157,3 +157,27 @@ impl Broker {
 pub trait BrokerMessage: Message<Result = ()> + Clone + 'static + Send {}
 
 impl<M: Message<Result = ()> + Clone + 'static + Send> BrokerMessage for M {}
+
+#[tokio::test]
+async fn two_channels_subscribe_to_same_message() {
+    #[derive(Clone, Debug)]
+    struct Message1;
+
+    impl Message for Message1 {
+        type Result = ();
+    }
+
+    let broker = Broker::new();
+    let mut receiver1 = broker.subscribe_with_channel::<Message1>();
+    let mut receiver2 = broker.subscribe_with_channel::<Message1>();
+
+    broker.issue_send(Message1).await;
+    let Message1: Message1 = tokio::time::timeout(Duration::from_millis(100), receiver1.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let Message1: Message1 = tokio::time::timeout(Duration::from_millis(100), receiver2.recv())
+        .await
+        .unwrap()
+        .unwrap();
+}
