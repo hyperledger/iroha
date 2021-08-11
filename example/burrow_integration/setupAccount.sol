@@ -135,4 +135,9 @@ contract SetupAccount {
         result = transferAsset(adminAccountId, userAccountId, assetId, description, amount);
         result = setAccountDetail(userAccountId, key, value);
     }
+
+    function setsAsset(string memory assetName, string memory domainName, string memory precision, string memory assetId, string memory amount) public returns (bytes memory result) {
+        result = createAsset(assetName, domainName, precision);
+        result = addAsset(assetId, amount);
+    }
 }
