@@ -8,11 +8,12 @@ function(strictmode target)
       )
   # Enable more warnings and turn them into compile errors.
   if ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
-  (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") OR
-  (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
-    target_compile_options(${target} PRIVATE -Wall -Wpedantic -Werror -Wno-potentially-evaluated-expression)
-  elseif ((CMAKE_CXX_COMPILER_ID STREQUAL "MSVC") OR
-  (CMAKE_CXX_COMPILER_ID STREQUAL "Intel"))
+      (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") OR
+      (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
+    #target_compile_options(${target} PRIVATE -Wall -Wpedantic -Werror -Wno-potentially-/evaluated-expression)
+    #target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override -Wno-gnu-zero-variadic-macro-arguments)
+    elseif ((CMAKE_CXX_COMPILER_ID STREQUAL "MSVC") OR
+          (CMAKE_CXX_COMPILER_ID STREQUAL "Intel"))
     target_compile_options(${target} PRIVATE /W3 /WX)
   else ()
     message(AUTHOR_WARNING "Unknown compiler: building target ${target} with default options")
@@ -41,15 +42,6 @@ function(addtest test_name SOURCES)
   if (NOT MSVC)
     # protobuf generates warnings at the moment
     strictmode(${test_name})
-  endif ()
-  if ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
-  (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") OR
-  (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
-    target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override -Wno-gnu-zero-variadic-macro-arguments)
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    # do nothing, but also don't spam warning on each test
-  else ()
-    message(AUTHOR_WARNING "Unknown compiler: building target ${target} with default options")
   endif ()
 endfunction()
 
