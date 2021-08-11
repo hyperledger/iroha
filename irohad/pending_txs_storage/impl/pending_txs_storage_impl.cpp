@@ -64,11 +64,11 @@ PendingTransactionStorageImpl::getPendingTransactions(
 
   PendingTransactionStorage::Response response;
   response.all_transactions_size = account_batches.all_transactions_quantity;
-  auto remaining_space = page_size;
   while (account_batches.batches.end() != batch_iterator
-         and remaining_space >= batch_iterator->get()->transactions().size()) {
+         and (response.transactions.size()
+              + (*batch_iterator)->transactions().size())
+             <= page_size) {
     auto &txs = batch_iterator->get()->transactions();
-    auto size_before_copy = response.transactions.size();
     std::copy_if(txs.begin(),
                  txs.end(),
                  std::back_inserter(response.transactions),
@@ -77,7 +77,6 @@ PendingTransactionStorageImpl::getPendingTransactions(
                    return (!first_tx_time || ts > *first_tx_time)
                        && (!last_tx_time || ts < *last_tx_time);
                  });
-    remaining_space -= (response.transactions.size() - size_before_copy);
     ++batch_iterator;
   }
   if (account_batches.batches.end() != batch_iterator) {
