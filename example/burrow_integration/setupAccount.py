@@ -1,0 +1,298 @@
+import os
+import binascii
+from iroha import IrohaCrypto, Iroha, IrohaGrpc, primitive_pb2
+from functools import wraps
+import integration_helpers
+
+IROHA_HOST_ADDR = os.getenv('IROHA_HOST_ADDR', '127.0.0.1')
+IROHA_PORT = os.getenv('IROHA_PORT', '50051')
+
+net = IrohaGrpc(f'{IROHA_HOST_ADDR}:{IROHA_PORT}')
+
+ADMIN_ACCOUNT_ID = os.getenv('ADMIN_ACCOUNT_ID', 'admin@test')
+ADMIN_PRIVATE_KEY = os.getenv(
+    'ADMIN_PRIVATE_KEY', 'f101537e319568c765b2cc89698325604991dca57b9716b58016b253506cab70')
+iroha_admin = Iroha(ADMIN_ACCOUNT_ID)
+
+
+DOMAIN = 'test'
+
+
+user_account_short_id = 'newly_registered'
+user_account_full_id = f'{user_account_short_id}@{DOMAIN}'
+user_private_key = '1234567890123456789012345678901234567890123456789012345678901234'
+user_public_key = IrohaCrypto.derive_public_key(user_private_key).decode('utf-8')
+
+user_private_key_extra = 'abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcd'
+user_public_key_extra = IrohaCrypto.derive_public_key(user_private_key_extra).decode('utf-8')
+
+ASSET_ID = f'lemurcoin#{DOMAIN}'
+
+
+@integration_helpers.trace
+def create_then_set_up_account(address: str, account_short_id: str, user_private_key: str, user_mail: str):
+    account_full_id = f'{account_short_id}@{DOMAIN}'
+
+    ############# admin's actions:
+    create_account(contract_address=address, user_account_short_id=account_short_id, user_public_key=user_public_key)
+
+    initial_account_balance = "100"
+    transfer_asset(contract_address=address, user_id=account_full_id, asset_id=ASSET_ID, amount=initial_account_balance)
+
+    ############# user's actions:
+    user_sets_account_detail(contract_address=address, user_account=account_full_id, user_private_key=user_private_key,
+                             key='mail', value=user_mail)
+    user_adds_signature_to_his_account(contract_address=address, user_full_id=account_full_id,
+                                       user_private_key=user_private_key,
+                                       new_signature=user_public_key_extra)
+    
+
+@integration_helpers.trace
+def create_account(contract_address: str, user_account_short_id: str, user_public_key: str):
+    params = integration_helpers.get_first_four_bytes_of_keccak(
+        b"createAccount(string,string,string)"
+    )
+    no_of_param = 3
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(user_account_short_id)  # source account id
+    params = params + integration_helpers.argument_encoding(DOMAIN)  # domain id
+    params = params + integration_helpers.argument_encoding(user_public_key)  #  key
+    tx = iroha_admin.transaction(
+        [
+            iroha_admin.command(
+                "CallEngine", caller=ADMIN_ACCOUNT_ID, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+
+
+@integration_helpers.trace
+def user_sets_account_detail(contract_address: str, user_account: str, user_private_key: str, key: str, value: str):
+    iroha_user = Iroha(user_account)
+    params = integration_helpers.get_first_four_bytes_of_keccak(
+        b"setAccountDetail(string,string,string)"
+    )
+    no_of_param = 3
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(
+        user_account
+    )  # source account id
+    params = params + integration_helpers.argument_encoding(key)  # key
+    params = params + integration_helpers.argument_encoding(value)  #  value
+    tx = iroha_user.transaction(
+        [
+            iroha_user.command(
+                "CallEngine", caller=user_account, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, user_private_key)
+    response = net.send_tx(tx)
+    print(response)
+    for status in net.tx_status_stream(tx):
+        print(status)
+
+@integration_helpers.trace
+def transfer_asset(contract_address: str, user_id: str, asset_id: str, amount: str):
+    params = integration_helpers.get_first_four_bytes_of_keccak(
+        b"transferAsset(string,string,string,string,string)"
+    )
+    no_of_param = 5
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(
+        ADMIN_ACCOUNT_ID
+    )  # source account
+    params = params + integration_helpers.argument_encoding(
+        user_id
+    )  # destination account
+    params = params + integration_helpers.argument_encoding(asset_id)  # asset id
+    params = params + integration_helpers.argument_encoding("setup account balance")  # description
+    params = params + integration_helpers.argument_encoding(amount)  # amount of asset
+    tx = iroha_admin.transaction(
+        [
+            iroha_admin.command(
+                "CallEngine", caller=ADMIN_ACCOUNT_ID, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+
+
+
+@integration_helpers.trace
+def user_adds_signature_to_his_account(contract_address: str,user_full_id: str, user_private_key: str, new_signature: str):
+    iroha_user = Iroha(user_full_id)
+    params = integration_helpers.get_first_four_bytes_of_keccak(
+        b"addSignatory(string,string)"
+    )
+    no_of_param = 2
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(
+        user_full_id
+    )  # account id
+    params = params + integration_helpers.argument_encoding(
+        new_signature
+    )  # public key
+    tx = iroha_user.transaction(
+        [
+            iroha_user.command(
+                "CallEngine", caller=user_full_id, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, user_private_key)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+
+
+@integration_helpers.trace
+def create_contract():
+    bytecode = "608060405234801561001057600080fd5b5073a6abc17819738299b3b2c1ce46d55c74f04e290c6000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550611f3c806100746000396000f3fe608060405234801561001057600080fd5b50600436106100cf5760003560e01c806395256b2c1161008c578063bc53c0c411610066578063bc53c0c414610272578063cd5286d0146102a2578063d4e804ab146102d2578063de58d156146102f0576100cf565b806395256b2c146101e2578063a28abc6e14610212578063b7d66df714610242576100cf565b80632c74aaaf146100d457806337410dfa146101045780635bdb3a411461013457806368649379146101525780637fcd103614610182578063866bd458146101b2575b600080fd5b6100ee60048036038101906100e991906117fe565b610320565b6040516100fb9190611b62565b60405180910390f35b61011e600480360381019061011991906117fe565b61048f565b60405161012b9190611b62565b60405180910390f35b61013c61064b565b6040516101499190611b62565b60405180910390f35b61016c600480360381019061016791906117fe565b6107aa565b6040516101799190611b62565b60405180910390f35b61019c600480360381019061019791906117fe565b610971565b6040516101a99190611b62565b60405180910390f35b6101cc60048036038101906101c791906117bd565b610b38565b6040516101d99190611b62565b60405180910390f35b6101fc60048036038101906101f79190611901565b610ca4565b6040516102099190611b62565b60405180910390f35b61022c600480360381019061022791906117fe565b610e7f565b6040516102399190611b62565b60405180910390f35b61025c6004803603810190610257919061186a565b61103b565b6040516102699190611b62565b60405180910390f35b61028c6004803603810190610287919061186a565b61121b565b6040516102999190611b62565b60405180910390f35b6102bc60048036038101906102b791906117bd565b6113e5565b6040516102c99190611b62565b60405180910390f35b6102da611551565b6040516102e79190611b47565b60405180910390f35b61030a6004803603810190610305919061186a565b611575565b6040516103179190611b62565b60405180910390f35b606060008383604051602401610337929190611ba6565b6040516020818303038152906040527f260b5d52000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16836040516103fe9190611b19565b600060405180830381855af49150503d8060008114610439576040519150601f19603f3d011682016040523d82523d6000602084013e61043e565b606091505b509150915081610483576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161047a90611cbf565b60405180910390fd5b80935050505092915050565b6060600083836040516024016104a6929190611ba6565b6040516020818303038152906040527f37410dfa000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168360405161056d9190611b19565b600060405180830381855af49150503d80600081146105a8576040519150601f19603f3d011682016040523d82523d6000602084013e6105ad565b606091505b5091509150816105f2576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016105e990611c9f565b60405180910390fd5b856040516106009190611b30565b60405180910390207fa6f5bb79d2e3abb706e921433d10213c20741696fef51dd4153f5dc73d9e4d00866040516106379190611b84565b60405180910390a280935050505092915050565b606060006040516024016040516020818303038152906040527f5bdb3a41000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168360405161071c9190611b19565b600060405180830381855af49150503d8060008114610757576040519150601f19603f3d011682016040523d82523d6000602084013e61075c565b606091505b5091509150816107a1576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161079890611c9f565b60405180910390fd5b80935050505090565b6060600083836040516024016107c1929190611ba6565b6040516020818303038152906040527f68649379000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16836040516108889190611b19565b600060405180830381855af49150503d80600081146108c3576040519150601f19603f3d011682016040523d82523d6000602084013e6108c8565b606091505b50915091508161090d576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161090490611c9f565b60405180910390fd5b8460405161091b9190611b30565b6040518091039020866040516109319190611b30565b60405180910390207f8d72069943c3cc6e44b6fd24c5aec4ae9c76f6923336203dc824a6c8c12064f360405160405180910390a380935050505092915050565b606060008383604051602401610988929190611ba6565b6040516020818303038152906040527f7fcd1036000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1683604051610a4f9190611b19565b600060405180830381855af49150503d8060008114610a8a576040519150601f19603f3d011682016040523d82523d6000602084013e610a8f565b606091505b509150915081610ad4576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610acb90611c9f565b60405180910390fd5b84604051610ae29190611b30565b604051809103902086604051610af89190611b30565b60405180910390207fdd72c73ca40ba5767d7ef6a5c4a8546d4c1a41675a83ebfe3b5054022955f15a60405160405180910390a380935050505092915050565b6060600082604051602401610b4d9190611b84565b6040516020818303038152906040527f866bd458000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1683604051610c149190611b19565b600060405180830381855af49150503d8060008114610c4f576040519150601f19603f3d011682016040523d82523d6000602084013e610c54565b606091505b509150915081610c99576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610c9090611c9f565b60405180910390fd5b809350505050919050565b606060008686868686604051602401610cc1959493929190611c29565b6040516020818303038152906040527f95256b2c000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1683604051610d889190611b19565b600060405180830381855af49150503d8060008114610dc3576040519150601f19603f3d011682016040523d82523d6000602084013e610dc8565b606091505b509150915081610e0d576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610e0490611c9f565b60405180910390fd5b87604051610e1b9190611b30565b604051809103902089604051610e319190611b30565b60405180910390207f6a739057159b3f3e2efcba00d44b0fa47de56972ed8776a2da7682bcf7c67de187604051610e689190611b84565b60405180910390a380935050505095945050505050565b606060008383604051602401610e96929190611ba6565b6040516020818303038152906040527fa28abc6e000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1683604051610f5d9190611b19565b600060405180830381855af49150503d8060008114610f98576040519150601f19603f3d011682016040523d82523d6000602084013e610f9d565b606091505b509150915081610fe2576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610fd990611c9f565b60405180910390fd5b85604051610ff09190611b30565b60405180910390207f10eebd74a1bfcec9b2e208fad2742f3ce9fde2f1ff95b30db42e2bc6b6b713e3866040516110279190611b84565b60405180910390a280935050505092915050565b6060600084848460405160240161105493929190611bdd565b6040516020818303038152906040527fb7d66df7000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168360405161111b9190611b19565b600060405180830381855af49150503d8060008114611156576040519150601f19603f3d011682016040523d82523d6000602084013e61115b565b606091505b5091509150816111a0576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161119790611c9f565b60405180910390fd5b846040516111ae9190611b30565b6040518091039020866040516111c49190611b30565b6040518091039020886040516111da9190611b30565b60405180910390207f5e1b38cd47cf21b75d5051af29fa321eedd94877db5ac62067a076770eddc9d060405160405180910390a48093505050509392505050565b6060600084848460405160240161123493929190611bdd565b6040516020818303038152906040527fbc53c0c4000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16836040516112fb9190611b19565b600060405180830381855af49150503d8060008114611336576040519150601f19603f3d011682016040523d82523d6000602084013e61133b565b606091505b509150915081611380576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161137790611c9f565b60405180910390fd5b8560405161138e9190611b30565b6040518091039020876040516113a49190611b30565b60405180910390207f2681f9ea8419cbc4844760d23371ce7e9bd5686e78f2a7988ff6e8430abd39b860405160405180910390a38093505050509392505050565b60606000826040516024016113fa9190611b84565b6040516020818303038152906040527fcd5286d0000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16836040516114c19190611b19565b600060405180830381855af49150503d80600081146114fc576040519150601f19603f3d011682016040523d82523d6000602084013e611501565b606091505b509150915081611546576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161153d90611c9f565b60405180910390fd5b809350505050919050565b60008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b6060600084848460405160240161158e93929190611bdd565b6040516020818303038152906040527fde58d156000000000000000000000000000000000000000000000000000000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff19166020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff8381831617835250505050905060008060008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16836040516116559190611b19565b600060405180830381855af49150503d8060008114611690576040519150601f19603f3d011682016040523d82523d6000602084013e611695565b606091505b5091509150816116da576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016116d190611c9f565b60405180910390fd5b846040516116e89190611b30565b6040518091039020866040516116fe9190611b30565b6040518091039020886040516117149190611b30565b60405180910390207fe5ab145c34a2b2599d0b309bd4b0141f99353ee85ae41cf5afb5761105b177a860405160405180910390a48093505050509392505050565b600061176861176384611d04565b611cdf565b90508281526020810184848401111561178057600080fd5b61178b848285611db5565b509392505050565b600082601f8301126117a457600080fd5b81356117b4848260208601611755565b91505092915050565b6000602082840312156117cf57600080fd5b600082013567ffffffffffffffff8111156117e957600080fd5b6117f584828501611793565b91505092915050565b6000806040838503121561181157600080fd5b600083013567ffffffffffffffff81111561182b57600080fd5b61183785828601611793565b925050602083013567ffffffffffffffff81111561185457600080fd5b61186085828601611793565b9150509250929050565b60008060006060848603121561187f57600080fd5b600084013567ffffffffffffffff81111561189957600080fd5b6118a586828701611793565b935050602084013567ffffffffffffffff8111156118c257600080fd5b6118ce86828701611793565b925050604084013567ffffffffffffffff8111156118eb57600080fd5b6118f786828701611793565b9150509250925092565b600080600080600060a0868803121561191957600080fd5b600086013567ffffffffffffffff81111561193357600080fd5b61193f88828901611793565b955050602086013567ffffffffffffffff81111561195c57600080fd5b61196888828901611793565b945050604086013567ffffffffffffffff81111561198557600080fd5b61199188828901611793565b935050606086013567ffffffffffffffff8111156119ae57600080fd5b6119ba88828901611793565b925050608086013567ffffffffffffffff8111156119d757600080fd5b6119e388828901611793565b9150509295509295909350565b6119f981611d83565b82525050565b6000611a0a82611d35565b611a148185611d4b565b9350611a24818560208601611dc4565b611a2d81611e57565b840191505092915050565b6000611a4382611d35565b611a4d8185611d5c565b9350611a5d818560208601611dc4565b80840191505092915050565b6000611a7482611d40565b611a7e8185611d67565b9350611a8e818560208601611dc4565b611a9781611e57565b840191505092915050565b6000611aad82611d40565b611ab78185611d78565b9350611ac7818560208601611dc4565b80840191505092915050565b6000611ae0602783611d67565b9150611aeb82611e68565b604082019050919050565b6000611b03602883611d67565b9150611b0e82611eb7565b604082019050919050565b6000611b258284611a38565b915081905092915050565b6000611b3c8284611aa2565b915081905092915050565b6000602082019050611b5c60008301846119f0565b92915050565b60006020820190508181036000830152611b7c81846119ff565b905092915050565b60006020820190508181036000830152611b9e8184611a69565b905092915050565b60006040820190508181036000830152611bc08185611a69565b90508181036020830152611bd48184611a69565b90509392505050565b60006060820190508181036000830152611bf78186611a69565b90508181036020830152611c0b8185611a69565b90508181036040830152611c1f8184611a69565b9050949350505050565b600060a0820190508181036000830152611c438188611a69565b90508181036020830152611c578187611a69565b90508181036040830152611c6b8186611a69565b90508181036060830152611c7f8185611a69565b90508181036080830152611c938184611a69565b90509695505050505050565b60006020820190508181036000830152611cb881611ad3565b9050919050565b60006020820190508181036000830152611cd881611af6565b9050919050565b6000611ce9611cfa565b9050611cf58282611df7565b919050565b6000604051905090565b600067ffffffffffffffff821115611d1f57611d1e611e28565b5b611d2882611e57565b9050602081019050919050565b600081519050919050565b600081519050919050565b600082825260208201905092915050565b600081905092915050565b600082825260208201905092915050565b600081905092915050565b6000611d8e82611d95565b9050919050565b600073ffffffffffffffffffffffffffffffffffffffff82169050919050565b82818337600083830152505050565b60005b83811015611de2578082015181840152602081019050611dc7565b83811115611df1576000848401525b50505050565b611e0082611e57565b810181811067ffffffffffffffff82111715611e1f57611e1e611e28565b5b80604052505050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b6000601f19601f8301169050919050565b7f4572726f722063616c6c696e67207365727669636520636f6e7472616374206660008201527f756e6374696f6e00000000000000000000000000000000000000000000000000602082015250565b7f4572726f722063616c6c696e67207365727669636520636f6e7472616374206660008201527f756e6374696f6e2000000000000000000000000000000000000000000000000060208201525056fea26469706673582212207d24321be9046f0a34adf821a9f091160b5d837c0d974e2914953102c085d7b564736f6c63430008040033"
+    """Bytecode was generated using remix editor  https://remix.ethereum.org/ from file setupAccount.sol. """
+    tx = iroha_admin.transaction(
+        [iroha_admin.command("CallEngine", caller=ADMIN_ACCOUNT_ID, input=bytecode)]
+    )
+    IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+    net.send_tx(tx)
+    hex_hash = binascii.hexlify(IrohaCrypto.hash(tx))
+    for status in net.tx_status_stream(tx):
+        print(status)
+    return hex_hash
+
+
+@integration_helpers.trace
+def create_asset(contract_address:str, asset_id: str):
+    asset, domain = asset_id.split('#')
+    params = integration_helpers.get_first_four_bytes_of_keccak(
+        b"createAsset(string,string,string)"
+    )
+    no_of_param = 3
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(asset)  # asset id
+    params = params + integration_helpers.argument_encoding(domain)  # domain name
+    params = params + integration_helpers.argument_encoding("4")  #  precision
+    tx = iroha_admin.transaction(
+        [
+            iroha_admin.command(
+                "CallEngine", caller=ADMIN_ACCOUNT_ID, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+    
+
+@integration_helpers.trace
+def admin_creates_assets(contract_address: str, asset_id: str, amount: str):
+    params = integration_helpers.get_first_four_bytes_of_keccak(
+        b"addAsset(string,string)"
+    )
+    no_of_param = 2
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(asset_id)  # asset id
+    params = params + integration_helpers.argument_encoding(amount)  # amount of asset
+    tx = iroha_admin.transaction(
+        [
+            iroha_admin.command(
+                "CallEngine", caller=ADMIN_ACCOUNT_ID, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+
+
+def print_paragraph(text: str):
+    print(10 * '-', text, ':', 10 * '-')
+
+
+@integration_helpers.trace
+def get_account_details(contract_address: str, user_account: str):
+    iroha_user = Iroha(user_account)
+    params = integration_helpers.get_first_four_bytes_of_keccak(b"getAccountDetail()")
+    no_of_param = 0
+    tx = iroha_user.transaction(
+        [
+            iroha_user.command(
+                "CallEngine", caller=user_account, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, user_private_key)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+    hex_hash = binascii.hexlify(IrohaCrypto.hash(tx))
+    return hex_hash
+
+
+@integration_helpers.trace
+def get_account_signatures(contract_address: str, account_id: str):
+    params = integration_helpers.get_first_four_bytes_of_keccak(b"getSignatory(string)")
+    no_of_param = 1
+    for x in range(no_of_param):
+        params = params + integration_helpers.left_padded_address_of_param(
+            x, no_of_param
+        )
+    params = params + integration_helpers.argument_encoding(
+        account_id
+    )  # account id
+    tx = iroha_admin.transaction(
+        [
+            iroha_admin.command(
+                "CallEngine", caller=ADMIN_ACCOUNT_ID, callee=contract_address, input=params
+            )
+        ]
+    )
+    IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+    response = net.send_tx(tx)
+    for status in net.tx_status_stream(tx):
+        print(status)
+    hex_hash = binascii.hexlify(IrohaCrypto.hash(tx))
+    return hex_hash
+
+if __name__ == '__main__':
+    print_paragraph('Preparation')
+    hash = create_contract()
+    address = integration_helpers.get_engine_receipts_address(hash)
+    create_asset(address, ASSET_ID)
+    admin_creates_assets(address, ASSET_ID, "10000")
+
+    print_paragraph('Creating account')
+    create_then_set_up_account(address, user_account_short_id, user_private_key, 'john@hyperledger.com')
+
+    print_paragraph('Checking account')
+    hash = get_account_details(address, user_account_full_id)
+    integration_helpers.get_engine_receipts_result(hash)
+    hash = get_account_signatures(address, user_account_full_id)
+    integration_helpers.get_engine_receipts_result(hash)

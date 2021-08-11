@@ -63,7 +63,7 @@ contract Asset {
         result = ret;
     }
 
-    // Adds asset to iroha account
+    // Subtracts asset to iroha account
     function subtractAsset(string memory asset, string memory amount) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
             "subtractAsset(string,string)",

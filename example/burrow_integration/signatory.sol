@@ -37,7 +37,7 @@ contract Signatory {
         result = ret;
     }
 
-    // Gets asset info
+    // Gets signatories of account
     function getSignatory(string memory name) public  returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
             "getSignatory(string)",
