@@ -130,37 +130,9 @@ contract SetupAccount {
         result = ret;
     }
 
-    // Adds a signatory
-    function addSignatory(string memory name, string memory key) public returns (bytes memory result) {
-        bytes memory payload = abi.encodeWithSignature(
-            "addSignatory(string,string)",
-            name,
-            key);
-        (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
-        require(success, "Error calling service contract function");
-        emit AddedSignatory(name, key);
-        result = ret;
-    }
-
-    // Removes a signatory
-    function removeSignatory(string memory name, string memory key) public returns (bytes memory result) {
-        bytes memory payload = abi.encodeWithSignature(
-            "removeSignatory(string,string)",
-            name,
-            key);
-        (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
-        require(success, "Error calling service contract function");
-        emit RemovedSignatory(name, key);
-        result = ret;
-    }
-
-    // Gets signatories of account
-    function getSignatory(string memory name) public  returns (bytes memory result) {
-        bytes memory payload = abi.encodeWithSignature(
-            "getSignatory(string)",
-            name);
-        (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
-        require(success, "Error calling service contract function");
-        result = ret;
+    function createAndSetupAccount(string memory adminAccountId, string memory userAccountName, string memory userAccountId, string memory assetId, string memory domain, string memory description, string memory amount, string memory key, string memory value, string memory publicKey) public returns (bytes memory result) {
+        result = createAccount(userAccountName, domain, publicKey);
+        result = transferAsset(adminAccountId, userAccountId, assetId, description, amount);
+        result = setAccountDetail(userAccountId, key, value);
     }
 }
