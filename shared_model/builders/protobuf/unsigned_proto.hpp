@@ -22,7 +22,7 @@ namespace shared_model {
      * finish() throws an exception
      */
     template <typename T>
-    class [[deprecated]] UnsignedWrapper {
+    class /*[[deprecated]]*/ UnsignedWrapper {
      public:
       using ModelType = T;
 
