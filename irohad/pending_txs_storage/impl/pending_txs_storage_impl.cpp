@@ -74,8 +74,8 @@ PendingTransactionStorageImpl::getPendingTransactions(
                  std::back_inserter(response.transactions),
                  [&first_tx_time, &last_tx_time](auto const &tx) {
                    auto const ts = tx->createdTime();
-                   return (!first_tx_time || ts > *first_tx_time)
-                       && (!last_tx_time || ts < *last_tx_time);
+                   return (!first_tx_time || ts >= *first_tx_time)
+                       && (!last_tx_time || ts <= *last_tx_time);
                  });
     ++batch_iterator;
   }
