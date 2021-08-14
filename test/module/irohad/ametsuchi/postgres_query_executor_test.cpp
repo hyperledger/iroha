@@ -712,7 +712,6 @@ namespace iroha {
           if (i == last_tx_no) {
             last_tx_time = tx.createdTime();
           }
-          std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
         tx_hashes_.reserve(target_txs.size());
         initial_txs.reserve(initial_txs.size() + target_txs.size());
@@ -853,7 +852,7 @@ namespace iroha {
           transactions.emplace_back(
               TestTransactionBuilder()
                   .creatorAccountId(account_id)
-                  .createdTime(iroha::time::now(std::chrono::milliseconds(i)))
+                  .createdTime(1000ull + i)
                   .setAccountDetail(account_id,
                                     "key_" + std::to_string(i),
                                     "val_" + std::to_string(i))
@@ -919,7 +918,7 @@ namespace iroha {
           transactions.emplace_back(
               TestTransactionBuilder()
                   .creatorAccountId(account_id)
-                  .createdTime(iroha::time::now(std::chrono::milliseconds(i)))
+                  .createdTime(1000ull + i)
                   .transferAsset(account_id,
                                  another_account_id,
                                  asset_id,
@@ -1507,15 +1506,14 @@ namespace iroha {
      * @then response contains all 10 committed transactions
      */
     TYPED_TEST(GetPagedTransactionsExecutorTest, ValidTimeRange) {
-      auto first_tx_time = iroha::time::now();
-      this->createTransactionsAndCommit(10);
-      auto last_tx_time = iroha::time::now() + 1;
       auto size = 10;
+      this->createTransactionsAndCommit(size);
+      auto first_tx_time = 900ull;
+      auto last_tx_time = 10'000ull;
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, first_tx_time, last_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1529,16 +1527,14 @@ namespace iroha {
 
     TYPED_TEST(GetPagedTransactionsExecutorTest,
                FirstAndLastTimeSpecifiedInside) {
-      uint64_t first_tx_time;
-      uint64_t last_tx_time;
-      this->createTransactionsAndCommitGetTime(
-          10, 2, 5, first_tx_time, last_tx_time);
-      auto size = 2;
+      size_t size = 2ull;
+      uint64_t first_tx_time = 1005ull;
+      uint64_t last_tx_time = first_tx_time + size;
+      this->createTransactionsAndCommit(10ull);
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, first_tx_time, last_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1549,14 +1545,13 @@ namespace iroha {
      * @then response contains 10 committed transactions
      */
     TYPED_TEST(GetPagedTransactionsExecutorTest, TimeRangeNoEnd) {
-      auto first_tx_time = iroha::time::now();
-      this->createTransactionsAndCommit(10);
       auto size = 10;
+      this->createTransactionsAndCommit(size);
+      auto first_tx_time = 1000ull;
       auto query_response =
           this->queryPage(size, std::nullopt, nullptr, first_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1568,14 +1563,14 @@ namespace iroha {
      * @then response contains 10 committed transactions
      */
     TYPED_TEST(GetPagedTransactionsExecutorTest, LastTimeSpecified) {
-      this->createTransactionsAndCommit(10);
-      auto last_tx_time = iroha::time::now() + 1;
       auto size = 10;
+      this->createTransactionsAndCommit(size);
+      auto first_tx_time = 1000ull;
+      auto last_tx_time = first_tx_time + size;
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, std::nullopt, last_tx_time);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1593,8 +1588,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, std::nullopt, std::nullopt, 1);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1615,8 +1609,7 @@ namespace iroha {
                                             std::nullopt,
                                             5);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1631,15 +1624,14 @@ namespace iroha {
      */
     TYPED_TEST(GetPagedTransactionsExecutorTest,
                FirstTimeLastTimeFirstHeightLastHeightSpecified) {
-      auto first_tx_time = iroha::time::now();
+      auto first_tx_time = 900ull;
       this->createTransactionsAndCommit(10, true);
-      auto last_tx_time = iroha::time::now();
+      auto last_tx_time = 10'000ull;
       auto size = 2;
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, first_tx_time, last_tx_time, 2, 5);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
@@ -1656,8 +1648,7 @@ namespace iroha {
       auto query_response = this->queryPage(
           size, std::nullopt, nullptr, std::nullopt, std::nullopt, 2, 5);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, size](const auto &tx_page_response) {
+          std::move(query_response), [size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
