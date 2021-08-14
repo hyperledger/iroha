@@ -484,10 +484,10 @@ namespace iroha {
                ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = lower(:hash) LIMIT 1))"
                : ""),
           (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : ""),
-          "AND (:first_tx_time::text IS NULL OR :first_tx_time<ts)",
-          "AND (:last_tx_time::text IS NULL OR :last_tx_time>ts )",
-          "AND (:first_tx_height::text IS NULL OR :first_tx_height<height)",
-          "AND (:last_tx_height::text IS NULL OR :last_tx_height>height )");
+          "AND (:first_tx_time::text IS NULL OR :first_tx_time<=ts)",
+          "AND (:last_tx_time::text IS NULL OR :last_tx_time>=ts )",
+          "AND (:first_tx_height::text IS NULL OR :first_tx_height<=height)",
+          "AND (:last_tx_height::text IS NULL OR :last_tx_height>=height )");
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
@@ -786,7 +786,7 @@ namespace iroha {
       std::string hash_str = boost::algorithm::join(
           q.transactionHashes()
               | boost::adaptors::transformed(
-                  [](const auto &h) { return "lower('" + h.hex() + "')"; }),
+                    [](const auto &h) { return "lower('" + h.hex() + "')"; }),
           ", ");
 
       using QueryTuple =

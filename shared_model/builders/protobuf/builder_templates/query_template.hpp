@@ -36,7 +36,7 @@ namespace shared_model {
     template <int S = 0,
               typename SV = validation::DefaultUnsignedQueryValidator,
               typename BT = UnsignedWrapper<Query>>
-    class [[deprecated]] TemplateQueryBuilder {
+    class /*[[deprecated]]*/ TemplateQueryBuilder {
      private:
       template <int, typename, typename>
       friend class TemplateQueryBuilder;
@@ -111,6 +111,7 @@ namespace shared_model {
 
                 default:
                   BOOST_ASSERT_MSG(false, "Unexpected Field value!");
+                  return iroha::protocol::Field::kCreatedTime; //FIXME -Wreturn-type
               }
             };
 
@@ -125,6 +126,7 @@ namespace shared_model {
 
                 default: {
                   BOOST_ASSERT_MSG(false, "Unexpected Direction value!");
+                  return iroha::protocol::Direction::kAscending;  // suppress -Wreturn-type=error
                 }
               }
             };
