@@ -84,10 +84,6 @@ impl<W: WorldTrait> Actor for Queue<W> {
         self.broker
             .subscribe::<VersionedAcceptedTransaction, _>(ctx);
     }
-
-    fn broker(&self) -> Option<&broker::Broker> {
-        Some(&self.broker)
-    }
 }
 
 #[async_trait::async_trait]

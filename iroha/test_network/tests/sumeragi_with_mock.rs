@@ -600,7 +600,7 @@ async fn all_peers_commit_block() {
 
     let mut channels = network
         .peers()
-        .map(|peer| peer.broker.subscribe_with_channel::<Stored>().0)
+        .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
 
     // Send tx to leader
@@ -626,7 +626,7 @@ async fn change_view_on_commit_timeout() {
 
     let mut channels = network
         .peers()
-        .map(|peer| peer.broker.subscribe_with_channel::<Stored>().0)
+        .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
 
     // send to leader
@@ -664,7 +664,7 @@ async fn change_view_on_tx_receipt_timeout() {
 
     let mut channels = network
         .peers()
-        .map(|peer| peer.broker.subscribe_with_channel::<Stored>().0)
+        .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
 
     // send to not leader
@@ -706,7 +706,7 @@ async fn change_view_on_block_creation_timeout() {
 
     let mut channels = network
         .peers()
-        .map(|peer| peer.broker.subscribe_with_channel::<Stored>().0)
+        .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
 
     // send to not leader
@@ -740,7 +740,7 @@ async fn not_enough_votes() {
 
     let mut channels = network
         .peers()
-        .map(|peer| peer.broker.subscribe_with_channel::<Stored>().0)
+        .map(|peer| peer.broker.subscribe_with_channel::<Stored>())
         .collect::<Vec<_>>();
 
     // send to not leader

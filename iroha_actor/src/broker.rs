@@ -22,10 +22,6 @@
 ///         self.0.subscribe::<Message1, _>(ctx);
 ///         self.0.issue_send(Message2("Hello".to_string())).await;
 ///     }
-///
-///     fn broker(&self) -> Option<&Broker> {
-///         Some(&self.0)
-///     }
 /// }
 ///
 /// #[async_trait::async_trait]
@@ -40,10 +36,6 @@
 /// impl Actor for Actor2 {
 ///     async fn on_start(&mut self, ctx: &mut Context<Self>) {
 ///         self.0.subscribe::<Message2, _>(ctx);
-///     }
-///
-///     fn broker(&self) -> Option<&Broker> {
-///         Some(&self.0)
 ///     }
 /// }
 ///
@@ -62,97 +54,21 @@
 /// })
 /// ```
 use std::any::{Any, TypeId};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use dashmap::DashMap;
-use futures::stream::{FuturesUnordered, StreamExt};
+use dashmap::{mapref::entry::Entry, DashMap};
+use futures::future;
 
 use super::*;
 
-const CHANNEL_SUBSCRIBER_SIZE: usize = 100;
-
-/// Type alias for Message Type.
-pub type MessageType = TypeId;
-
-/// Type alias for Actor Type.
-pub type ActorType = TypeId;
-
-/// Type alias for Subscription Id.
-pub type SubscriptionId = u128;
-
-/// Channel to the Actor.
+type TypeMap<V> = DashMap<TypeId, V>;
 type BrokerRecipient = Box<dyn Any + Sync + Send + 'static>;
 
-#[derive(Debug, Default)]
-/// Subscribers for a particular `MessageType`.
-pub struct Subscribers {
-    subscribers: HashMap<SubscriptionId, BrokerRecipient>,
-    next_subscripton_id: SubscriptionId,
-}
-
-impl Subscribers {
-    /// Constructor.
-    pub fn new() -> Subscribers {
-        Subscribers::default()
-    }
-
-    #[allow(clippy::expect_used)]
-    fn subscribe_recipient(&mut self, recipient: BrokerRecipient) -> SubscriptionId {
-        let id = self.next_subscripton_id;
-        self.subscribers.insert(id, recipient);
-        self.next_subscripton_id = self.next_subscripton_id.checked_add(1).expect(
-            "Subscription Id counter overflow. Too many subscription for this message were created.",
-        );
-        id
-    }
-
-    /// Subscribe actor to this [`MessageType`].
-    pub fn subscribe_actor(&mut self, recipient: BrokerRecipient) -> SubscriptionId {
-        self.subscribe_recipient(recipient)
-    }
-
-    /// Create and subscribe channel to this [`MessageType`].
-    pub fn subscribe_channel<M: BrokerMessage + Debug>(
-        &mut self,
-    ) -> (mpsc::Receiver<M>, SubscriptionId) {
-        let (sender, receiver) = mpsc::channel(CHANNEL_SUBSCRIBER_SIZE);
-        let sender: Recipient<M> = sender.into();
-        (receiver, self.subscribe_recipient(Box::new(sender)))
-    }
-
-    /// Unsubscribe channel from this [`MessageType`] by channel id.
-    pub fn unsubscribe(&mut self, id: SubscriptionId) {
-        self.subscribers.remove(&id);
-    }
-
-    /// Send message to subscribers of this [`MessageType`].
-    pub async fn publish_message<M: BrokerMessage + Send + Sync>(&self, message: M) {
-        let mut send_futures: FuturesUnordered<_> = self
-            .subscribers
-            .iter()
-            .filter_map(|(_, recipient)| {
-                recipient
-                    .downcast_ref::<Recipient<M>>()
-                    .map(|recipient| recipient.send(message.clone()))
-            })
-            .collect();
-        while let Some(()) = send_futures.next().await {}
-    }
-
-    /// Number of subscribers.
-    pub fn len(&self) -> usize {
-        self.subscribers.len()
-    }
-
-    /// If there are no subscribers.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
 /// Broker type. Can be cloned and shared between many actors.
+///
+/// TODO: There might be several actors of one type. We should handle this case!
 #[derive(Debug)]
-pub struct Broker(Arc<DashMap<MessageType, Subscribers>>);
+pub struct Broker(Arc<TypeMap<Vec<(TypeId, BrokerRecipient)>>>);
 
 impl Clone for Broker {
     fn clone(&self) -> Self {
@@ -172,58 +88,67 @@ impl Broker {
         Self(Arc::new(DashMap::new()))
     }
 
+    fn message_entry(&'_ self, id: TypeId) -> Entry<'_, TypeId, Vec<(TypeId, BrokerRecipient)>> {
+        self.0.entry(id)
+    }
+
     /// Send message via broker
-    pub async fn issue_send<M: BrokerMessage + Send + Sync>(&self, message: M) {
-        let warn_empty = || {
-            iroha_logger::warn!(
-                "The message {:?} was send but no entity is subscribed to it.",
-                TypeId::of::<M>()
-            )
-        };
-        if let Some(subscribers) = self.0.get(&TypeId::of::<M>()) {
-            if subscribers.is_empty() {
-                warn_empty();
-            } else {
-                subscribers.value().publish_message(message).await;
-            }
+    pub async fn issue_send<M: BrokerMessage + Send + Sync>(&self, m: M) {
+        let entry = if let Entry::Occupied(entry) = self.message_entry(TypeId::of::<M>()) {
+            entry
         } else {
-            warn_empty();
+            return;
+        };
+        let send = entry.get().iter().filter_map(|(_, recipient)| {
+            recipient
+                .downcast_ref::<Recipient<M>>()
+                .map(|recipient| recipient.send(m.clone()))
+        });
+        future::join_all(send).await;
+    }
+
+    fn subscribe_recipient<M: BrokerMessage>(&self, recipient: Recipient<M>) {
+        let mut entry = self
+            .message_entry(TypeId::of::<M>())
+            .or_insert_with(|| Vec::with_capacity(1));
+        if entry
+            .iter()
+            .any(|(actor_id, _)| *actor_id == TypeId::of::<Self>())
+        {
+            return;
         }
+        entry.push((TypeId::of::<Self>(), Box::new(recipient)));
     }
 
     /// Subscribe actor to specific message type
     pub fn subscribe<M: BrokerMessage, A: Actor + ContextHandler<M>>(&self, ctx: &mut Context<A>) {
-        let id = self
-            .0
-            .entry(TypeId::of::<M>())
-            .or_insert(Subscribers::new())
-            .subscribe_actor(Box::new(ctx.recipient::<M>()));
-        ctx.unsubscribe_from_on_stop.push((id, TypeId::of::<M>()));
+        self.subscribe_recipient(ctx.recipient::<M>())
     }
 
-    /// Subscribe with channel to specific message type.
-    pub fn subscribe_with_channel<M: BrokerMessage + Debug>(
+    /// Subscribe with channel to specific message type
+    pub fn subscribe_with_channel<M: BrokerMessage + Debug>(&self) -> mpsc::Receiver<M> {
+        let (sender, receiver) = mpsc::channel(100);
+        self.subscribe_recipient(sender.into());
+        receiver
+    }
+
+    /// Unsubscribe actor to this specific message type
+    pub fn unsubscribe<M: BrokerMessage, A: Actor + ContextHandler<M>>(
         &self,
-    ) -> (mpsc::Receiver<M>, SubscriptionId) {
-        self.0
-            .entry(TypeId::of::<M>())
-            .or_insert(Subscribers::new())
-            .subscribe_channel()
-    }
-
-    /// Unsubscribe actor to this specific message type.
-    pub fn unsubscribe<M: BrokerMessage>(&self, subscription_id: SubscriptionId) {
-        self.unsubscribe_by_type_id(TypeId::of::<M>(), subscription_id);
-    }
-
-    /// Unsubscribe actor to this specific message type id.
-    pub fn unsubscribe_by_type_id(
-        &self,
-        message_type: MessageType,
-        subscription_id: SubscriptionId,
+        _ctx: &mut Context<A>,
     ) {
-        if let Some(mut subscribers) = self.0.get_mut(&message_type) {
-            subscribers.value_mut().unsubscribe(subscription_id);
+        let mut entry = if let Entry::Occupied(entry) = self.message_entry(TypeId::of::<M>()) {
+            entry
+        } else {
+            return;
+        };
+
+        if let Some(pos) = entry
+            .get()
+            .iter()
+            .position(|(actor_id, _)| actor_id == &TypeId::of::<Self>())
+        {
+            entry.get_mut().remove(pos);
         }
     }
 }
@@ -233,176 +158,26 @@ pub trait BrokerMessage: Message<Result = ()> + Clone + 'static + Send {}
 
 impl<M: Message<Result = ()> + Clone + 'static + Send> BrokerMessage for M {}
 
-#[cfg(test)]
-mod tests {
-    use async_trait::async_trait;
-    use tokio::sync::RwLock;
-
-    use super::*;
-
-    pub struct Actor1(Broker, Arc<RwLock<u32>>);
-
-    #[async_trait]
-    impl Actor for Actor1 {
-        async fn on_start(&mut self, ctx: &mut Context<Self>) {
-            self.0.subscribe::<StopMessage, _>(ctx);
-            self.0.subscribe::<Message1, _>(ctx);
-        }
-
-        fn broker(&self) -> Option<&broker::Broker> {
-            Some(&self.0)
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    pub struct StopMessage;
-
-    impl Message for StopMessage {
-        type Result = ();
-    }
-
-    #[async_trait::async_trait]
-    impl ContextHandler<StopMessage> for Actor1 {
-        type Result = ();
-
-        async fn handle(
-            &mut self,
-            ctx: &mut Context<Self>,
-            StopMessage: StopMessage,
-        ) -> Self::Result {
-            ctx.stop_now()
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    pub struct Message1;
+#[tokio::test]
+async fn two_channels_subscribe_to_same_message() {
+    #[derive(Clone, Debug)]
+    struct Message1;
 
     impl Message for Message1 {
         type Result = ();
     }
 
-    #[async_trait::async_trait]
-    impl Handler<Message1> for Actor1 {
-        type Result = ();
+    let broker = Broker::new();
+    let mut receiver1 = broker.subscribe_with_channel::<Message1>();
+    let mut receiver2 = broker.subscribe_with_channel::<Message1>();
 
-        async fn handle(&mut self, Message1: Message1) -> Self::Result {
-            *self.1.write().await += 1;
-        }
-    }
-
-    #[tokio::test]
-    #[allow(clippy::unwrap_used)]
-    async fn actor_unsubscribes_on_stop() {
-        let broker = Broker::new();
-        Actor1(broker.clone(), Arc::default()).start().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(
-            broker
-                .0
-                .get(&TypeId::of::<StopMessage>())
-                .unwrap()
-                .subscribers
-                .len(),
-            1
-        );
-        assert_eq!(
-            broker
-                .0
-                .get(&TypeId::of::<Message1>())
-                .unwrap()
-                .subscribers
-                .len(),
-            1
-        );
-        broker.issue_send(StopMessage).await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(broker
-            .0
-            .get(&TypeId::of::<StopMessage>())
-            .unwrap()
-            .subscribers
-            .is_empty());
-        assert!(broker
-            .0
-            .get(&TypeId::of::<Message1>())
-            .unwrap()
-            .subscribers
-            .is_empty());
-    }
-
-    #[tokio::test]
-    #[allow(clippy::unwrap_used)]
-    async fn actors_of_the_same_type() {
-        let broker = Broker::new();
-        let actor1_counter = Arc::new(RwLock::new(0));
-        Actor1(broker.clone(), Arc::clone(&actor1_counter))
-            .start()
-            .await;
-        let actor2_counter = Arc::new(RwLock::new(0));
-        Actor1(broker.clone(), Arc::clone(&actor2_counter))
-            .start()
-            .await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(
-            broker
-                .0
-                .get(&TypeId::of::<StopMessage>())
-                .unwrap()
-                .subscribers
-                .len(),
-            2
-        );
-        assert_eq!(
-            broker
-                .0
-                .get(&TypeId::of::<Message1>())
-                .unwrap()
-                .subscribers
-                .len(),
-            2
-        );
-        broker.issue_send(Message1).await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(*actor1_counter.read().await, 1);
-        assert_eq!(*actor2_counter.read().await, 1);
-        broker.issue_send(StopMessage).await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(broker
-            .0
-            .get(&TypeId::of::<StopMessage>())
-            .unwrap()
-            .subscribers
-            .is_empty());
-        assert!(broker
-            .0
-            .get(&TypeId::of::<Message1>())
-            .unwrap()
-            .subscribers
-            .is_empty());
-    }
-
-    #[tokio::test]
-    #[allow(clippy::unwrap_used)]
-    async fn two_channels_subscribe_to_same_message() {
-        #[derive(Clone, Debug)]
-        struct Message1;
-
-        impl Message for Message1 {
-            type Result = ();
-        }
-
-        let broker = Broker::new();
-        let mut receiver1 = broker.subscribe_with_channel::<Message1>().0;
-        let mut receiver2 = broker.subscribe_with_channel::<Message1>().0;
-
-        broker.issue_send(Message1).await;
-        let Message1: Message1 = tokio::time::timeout(Duration::from_millis(100), receiver1.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        let Message1: Message1 = tokio::time::timeout(Duration::from_millis(100), receiver2.recv())
-            .await
-            .unwrap()
-            .unwrap();
-    }
+    broker.issue_send(Message1).await;
+    let Message1: Message1 = tokio::time::timeout(Duration::from_millis(100), receiver1.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let Message1: Message1 = tokio::time::timeout(Duration::from_millis(100), receiver2.recv())
+        .await
+        .unwrap()
+        .unwrap();
 }

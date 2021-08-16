@@ -116,10 +116,6 @@ impl<W: WorldTrait> Actor for Kura<W> {
             }
         }
     }
-
-    fn broker(&self) -> Option<&broker::Broker> {
-        Some(&self.broker)
-    }
 }
 
 #[async_trait::async_trait]
