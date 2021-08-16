@@ -2,7 +2,7 @@ HL Burrow Integration
 =====================
 
 As Iroha maintainers, we have received many questions and requests for custom smart-contracts support from our users.
-And to provide them more freedom in fulfilling their business needs, we integrated HL Burrow EVM – another great project of the Hyperledger greenhouse, – into Iroha.
+And to provide them more freedom in fulfilling their business needs, we integrated HL Burrow EVM – another great project of the Hyperledger greenhouse, into Iroha.
 
 .. note:: In the context of Iroha, HL Burrow provides an Ethereum Virtual Machine that can run Solidity smart-contracts.
 	We did our best to provide you with the best user experience possible – and to use it with Iroha, you only need to add a `CMake flag during Iroha build <../build/index.html#cmake-parameters>`_ and it will start working right away.
@@ -64,15 +64,85 @@ Schematically the interaction between different parts of the system looks as fol
 	From the Burrow EVM perspective such Service Contract is hosted in a Native external VM and is callable via the same interfaces as if it was deployed at some special address in the EVM itself.
 	These methods are used specifically for Iroha integration, so the address of the Service Contract can only be found while working with it via Iroha.
 
-Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 2 methods to query Iroha assets balances and transfer assets between accounts.
+Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes the following Iroha commands and queries:
 
-The signatures of these two methods look like this:
+.. list-table:: Integrated Commands/Queries
+   :widths: 3 35 35
+   :header-rows: 1
 
-	**function** getAssetBalance(string memory *accountID*, string memory *assetID*) public view
-	returns (string memory *result*) {}
+   * - S No.
+     - Signature of exposed API methods
+     - Arguments
+   * - 1
+     - `addAssetQuantity(string,string) <../develop/api/commands.html#add-asset-quantity>`_
+     - asset_id, amount
+   * - 2 
+     - `addPeer(string,string) <../develop/api/commands.html#add-peer>`_
+     - address, peer_key
+   * - 3 
+     - `addSignatory(string,string) <../develop/api/commands.html#add-signatory>`_
+     - account_id, public_key
+   * - 4 
+     - `appendRole(string,string) <../develop/api/commands.html#append-role>`_
+     - account_id, role_name
+   * - 5 
+     - `createAccount(string,string,string) <../develop/api/commands.html#create-account>`_
+     - account_name, domain_id, public_key
+   * - 6 
+     - `createAsset(string,string,string) <../develop/api/commands.html#create-asset>`_
+     - asset_name, domain_id, precision
+   * - 7 
+     - `createDomain(string,string) <../develop/api/commands.html#create-domain>`_
+     - domain_id, default_role
+   * - 8 
+     - `detachRole(string,string) <../develop/api/commands.html#detach-role>`_
+     - account_id, role_name
+   * - 9 
+     - `removePeer(string) <../develop/api/commands.html#remove-peer>`_
+     - public_key
+   * - 10 
+     - `removeSignatory(string,string) <../develop/api/commands.html#remove-signatory>`_
+     - account_id, public_key
+   * - 11 
+     - `setAccountDetail(string,string,string) <../develop/api/commands.html#set-account-detail>`_
+     - account_id, key, value
+   * - 12 
+     - `setAccountQuorum(string,string) <../develop/api/commands.html#set-account-quorum>`_
+     - account_id, quorum
+   * - 13 
+     - `subtractAssetQuantity(string,string) <../develop/api/commands.html#subtract-asset-quantity>`_
+     - asset_id, amount 
+   * - 14 
+     - `transferAsset(string,string,string,string,string) <../develop/api/commands.html#transfer-asset>`_
+     - src_account_id, dest_account_id, asset_id, description, amount
+   * - 15 
+     - `getAccount(string) <../develop/api/queries.html#get-account>`_
+     - account_id 
+   * - 16 
+     - `getBlock(string) <../develop/api/queries.html#get-block>`_
+     - height
+   * - 17 
+     - `getSignatories(string) <../develop/api/queries.html#get-signatories>`_
+     - account_id
+   * - 18 
+     - `getAssetBalance(string,string) <../develop/api/queries.html#get-account-assets>`_
+     - account_id, asset_id
+   * - 19 
+     - `getAccountDetail() <../develop/api/queries.html#get-account-detail>`_
+     -	 
+   * - 20
+     - `getAssetInfo(string) <../develop/api/queries.html#get-asset-info>`_
+     - asset_id
+   * - 21 
+     - `getRoles() <../develop/api/queries.html#get-roles>`_
+     -	 
+   * - 22 
+     - `getRolePermissions(string) <../develop/api/queries.html#get-role-permissions>`_
+     - role_id
+   * - 23 
+     - `getPeers() <../develop/api/queries.html#get-peers>`_
+     -	 
 
-	**function** transferAsset(string memory *src*, string memory *dst*, string memory *assetID*,
-	string memory *amount*) public view returns (string memory *result*) {}
 
 .. hint:: From a developer’s perspective calling a function of a native contract is no different from calling a method of any other smart contract provided the address of the latter is known:
 
