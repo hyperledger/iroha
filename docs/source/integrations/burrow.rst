@@ -67,10 +67,10 @@ Schematically the interaction between different parts of the system looks as fol
 Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes the following Iroha commands and queries:
 
 .. list-table:: Integratd Commands/Queries
-   :widths: 5 35 35
+   :widths: 3 35 35
    :header-rows: 1
 
-   * - S. No.
+   * - S No.
      - Signature of exposed API methods
      - Arguments
    * - 1
