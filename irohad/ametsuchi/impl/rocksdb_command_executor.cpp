@@ -752,10 +752,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     bool do_validation,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
   auto const &[account_name, domain_id] = staticSplitId<2>(command.accountId());
-
   auto const revoked_perm = command.permissionName();
-  auto const required_perm =
-      shared_model::interface::permissions::permissionFor(revoked_perm);
 
   if (do_validation) {
     // check if account exists

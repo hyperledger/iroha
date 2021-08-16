@@ -31,6 +31,7 @@
  *        |         +-<height_2, value:block>
  *        |         +-<height_3, value:block>
  *        |         +-<version>
+ *        |         +-<blocks_total_count, value>
  *        |
  *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
  *                |           |         |           +-<peer_2_pubkey, value:address>
@@ -41,7 +42,6 @@
  *                |           |         +-<count, value>
  *                |           |
  *                |           +-|STORE|-+-<top_block, value: store height#top block hash>
- *                |                     +-<total transactions count>
  *                |
  *                +-|SETTINGS|-+-<key_1, value_1>
  *                |            +-<key_2, value_2>
@@ -206,6 +206,8 @@ namespace iroha::ametsuchi::fmtstrings {
 
   static auto constexpr kPathWsv{FMT_STRING(RDB_ROOT /**/ RDB_WSV)};
 
+  static auto constexpr kPathStore{FMT_STRING(RDB_ROOT /**/ RDB_STORE)};
+
   // domain_id/account_name
   static auto constexpr kPathAccount{FMT_STRING(RDB_PATH_ACCOUNT)};
 
@@ -244,6 +246,10 @@ namespace iroha::ametsuchi::fmtstrings {
    * ############# FOLDERS ################
    * ######################################
    */
+  // height ➡️ block data
+  static auto constexpr kBlockDataInStore{
+      FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_XXX)};
+
   // account/height/index/ts ➡️ tx_hash
   static auto constexpr kTransactionByPosition{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
@@ -343,6 +349,10 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kTxsTotalCount{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_TOTAL_COUNT)};
+
+  // ➡️ value
+  static auto constexpr kBlocksTotalCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_F_TOTAL_COUNT)};
 
   // ➡️ txs total count
   static auto constexpr kAllTxsTotalCount{FMT_STRING(
@@ -1101,6 +1111,36 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<IrohadVersion>, DbError> forWSVVersion(
       RocksDbCommon &common) {
     return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kWsvVersion);
+  }
+
+  /**
+   * Access to Stored blocks data.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param height of the block
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError> forBlock(
+      RocksDbCommon &common, uint64_t height) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kBlockDataInStore, height);
+  }
+
+  /**
+   * Access to Block store size.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forBlocksTotalCount(
+      RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kBlocksTotalCount);
   }
 
   /**
