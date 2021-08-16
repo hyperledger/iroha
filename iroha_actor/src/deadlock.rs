@@ -3,11 +3,8 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::{
-    cmp::{Eq, PartialEq},
-    fmt::{self, Debug, Display},
     future::Future,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -22,8 +19,6 @@ use tokio::{
 };
 
 use super::*;
-
-static ACTOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 tokio::task_local! {
     static ACTOR_ID: ActorId;
@@ -42,44 +37,6 @@ where
 pub fn task_local_actor_id() -> Option<ActorId> {
     ACTOR_ID.try_with(|id| *id).ok()
 }
-
-#[derive(Clone, Copy)]
-pub struct ActorId {
-    pub name: Option<&'static str>,
-    pub id: usize,
-}
-
-impl ActorId {
-    pub fn new(name: Option<&'static str>) -> Self {
-        Self {
-            name,
-            id: ACTOR_ID_COUNTER.fetch_add(1, Ordering::SeqCst),
-        }
-    }
-}
-
-impl Display for ActorId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(name) = &self.name {
-            write!(f, "{}:{}", name, self.id)
-        } else {
-            write!(f, "<unknown>:{}", self.id)
-        }
-    }
-}
-
-impl Debug for ActorId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Display::fmt(&self, f)
-    }
-}
-
-impl PartialEq for ActorId {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-impl Eq for ActorId {}
 
 #[derive(Default)]
 struct DeadlockActor(Graph<ActorId, ()>);

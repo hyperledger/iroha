@@ -2,6 +2,8 @@
 //! Iroha simple actor framework.
 //!
 
+#[cfg(feature = "deadlock_detection")]
+use std::any::type_name;
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
@@ -20,6 +22,7 @@ use std::{
 /// struct MessageResponse(i32);
 /// ```
 pub use actor_derive::Message;
+use actor_id::*;
 use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
 use futures::{Stream, StreamExt};
 use iroha_error::{derive::Error, error};
@@ -32,9 +35,8 @@ use tokio::{
     task::{self},
     time,
 };
-#[cfg(feature = "deadlock_detection")]
-use {deadlock::ActorId, std::any::type_name};
 
+mod actor_id;
 pub mod broker;
 #[cfg(feature = "deadlock_detection")]
 mod deadlock;
@@ -213,6 +215,8 @@ impl<M: Message<Result = ()> + Send> Recipient<M> {
 #[async_trait::async_trait]
 trait Sender<M: Message<Result = ()>> {
     async fn send(&self, m: M);
+
+    fn is_closed(&self) -> bool;
 }
 
 #[async_trait::async_trait]
@@ -224,6 +228,10 @@ where
     async fn send(&self, m: M) {
         self.do_send(m).await
     }
+
+    fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
 }
 
 #[async_trait::async_trait]
@@ -233,6 +241,10 @@ where
 {
     async fn send(&self, m: M) {
         let _result = self.send(m).await;
+    }
+
+    fn is_closed(&self) -> bool {
+        mpsc::Sender::is_closed(self)
     }
 }
 
@@ -393,14 +405,20 @@ enum Stop {
 pub struct Context<A: Actor> {
     addr: Addr<A>,
     should_stop: Option<Stop>,
+    actor_id: ActorId,
 }
 
 impl<A: Actor> Context<A> {
     /// Default constructor
     pub fn new(addr: Addr<A>) -> Self {
+        #[cfg(feature = "deadlock_detection")]
+        let actor_id = addr.actor_id;
+        #[cfg(not(feature = "deadlock_detection"))]
+        let actor_id = ActorId::new(None);
         Self {
             addr,
             should_stop: None,
+            actor_id,
         }
     }
 
