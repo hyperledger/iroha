@@ -64,15 +64,85 @@ Schematically the interaction between different parts of the system looks as fol
 	From the Burrow EVM perspective such Service Contract is hosted in a Native external VM and is callable via the same interfaces as if it was deployed at some special address in the EVM itself.
 	These methods are used specifically for Iroha integration, so the address of the Service Contract can only be found while working with it via Iroha.
 
-Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 2 methods to query Iroha assets balances and transfer assets between accounts.
+Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes the following Iroha commands and queries:
 
-The signatures of these two methods look like this:
+.. list-table:: Integratd Commands/Queries
+   :widths: 5 35 35
+   :header-rows: 1
 
-	**function** getAssetBalance(string memory *accountID*, string memory *assetID*) public view
-	returns (string memory *result*) {}
+   * - S. No.
+     - Signature of exposed API methods
+     - Arguments
+   * - 1
+     - addAsset(string,string)
+     - asset_id, amount
+   * - 2 
+     - addPeer(string,string)
+     - address, peer_key
+   * - 3 
+     - addSignatory(string,string)
+     - account_id, public_key
+   * - 4 
+     - appendRole(string,string)
+     - account_id, role_name
+   * - 5 
+     - createAccount(string,string,string)
+     - account_name, domain_id, public_key
+   * - 6 
+     - createAsset(string,string,string)
+     - asset_name, domain_id, precision
+   * - 7 
+     - createDomain(string,string)
+     - domain_id, default_role
+   * - 8 
+     - detachRole(string,string)
+     - account_id, role_name
+   * - 9 
+     - removePeer(string)
+     - public_key
+   * - 10 
+     - removeSignatory(string,string)
+     - account_id, public_key
+   * - 11 
+     - setAccountDetail(string,string,string)
+     - account_id, key, value
+   * - 12 
+     - setAccountQuorum(string,string)
+     - account_id, quorum
+   * - 13 
+     - subtractAsset(string,string)
+     - asset_id, amount 
+   * - 14 
+     - transferAsset(string,string,string,string,string)
+     - src_account_id, dest_account_id, asset_id, description, amount
+   * - 15 
+     - getAccount(string)
+     - account_id 
+   * - 16 
+     - getBlock(string)
+     - height
+   * - 17 
+     - getSignatory(string)
+     - account_id
+   * - 18 
+     - getAssetBalance(string,string)
+     - account_id, asset_id
+   * - 19 
+     - getAccountDetail()
+     -	 
+   * - 20
+     - getAsset(string)
+     - asset_id
+   * - 21 
+     - getRoles()
+     -	 
+   * - 22 
+     - getRolePermissions(string)
+     - role_id
+   * - 23 
+     - getPeers()
+     -	 
 
-	**function** transferAsset(string memory *src*, string memory *dst*, string memory *assetID*,
-	string memory *amount*) public view returns (string memory *result*) {}
 
 .. hint:: From a developer’s perspective calling a function of a native contract is no different from calling a method of any other smart contract provided the address of the latter is known:
 

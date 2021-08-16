@@ -77,7 +77,7 @@ Having got the bytecode, we can now send a  transaction from the Python Iroha cl
 	            "030033")
 
 	tx = iroha.transaction([
-	    iroha.command('CallEngine', caller='admin@energy', input=bytecode)
+	    iroha.command('CallEngine', caller='admin@test', input=bytecode)
 	])
 	IrohaCrypto.sign_transaction(tx, admin_key)
 
@@ -150,7 +150,7 @@ Note the last line of the send function that emits a Sent event which gets recor
 	emit Sent(msg.sender, receiver, amount);
 
 
-Case 2. Querying Iroha state
+Case 2. Interacting with Iroha state
 ----------------------------
 
 Earlier we looked at an example of a contract that didn’t interact with Iroha state.
@@ -158,77 +158,112 @@ However, in most real life applications one could imagine running on top of Iroh
 In this section we will consider an example of how one can query balances of Iroha accounts (provided the query creator has respective permissions) from inside an EVM smart contract.
 
 
-The code of the contract is presented on the diagram below:
+Here is a sample code of contact to do so:
 
 .. code-block:: solidity
 
-	contract QueryIroha {
-	    address public serviceContractAddress;
+	contract Iroha {
+		address public serviceContractAddress;
 
-	    // Initializing service contract address in constructor
-	    constructor() public {
-	        serviceContractAddress = 0xA6Abc17819738299B3B2c1CE46d55c74f04E290C;
-	    }
+		event Created(string indexed name, string indexed domain);
+		event Transferred(string indexed source, string indexed destination, string amount);
+		event Added(string indexed asset, string amount);
 
-	    // Queries the balance in _asset of an Iroha _account
-	    function queryBalance(string memory _account, string memory _asset) public
-	                    returns (bytes memory result) {
-	        bytes memory payload = abi.encodeWithSignature(
-	            "getAssetBalance(string,string)",
-	            _account,
-	            _asset);
-	        (bool success, bytes memory ret) =
-	            address(serviceContractAddress).delegatecall(payload);
-	        require(success, "Error calling service contract function");
-	        result = ret;
-	    }
+
+		// Initializing service contract address in constructor
+		constructor(){
+			serviceContractAddress = 0xA6Abc17819738299B3B2c1CE46d55c74f04E290C;
+		}
+
+		// Creates an iroha ccount
+		function createAccount(string memory name, string memory domain, string memory key) public  returns (bytes memory result) {
+			bytes memory payload = abi.encodeWithSignature(
+				"createAccount(string,string,string)",
+				name,
+				domain,
+				key);
+			(bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
+			require(success, "Error calling service contract function");
+			emit Created(name, domain);
+			result = ret;
+		}
+
+		//Transfers asset from one iroha account to another
+		function transferAsset(string memory src, string memory dst, string memory asset, string memory description, string memory amount) public returns (bytes memory result) {
+			bytes memory payload = abi.encodeWithSignature(
+				"transferAsset(string,string,string,string,string)",
+				src,
+				dst,
+				asset,
+				description,
+				amount);
+			(bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
+			require(success, "Error calling service contract function");
+
+			emit Transferred(src, dst, amount);
+			result = ret;
+		}
+		// Adds asset to iroha account
+		function addAsset(string memory asset, string memory amount) public returns (bytes memory result) {
+			bytes memory payload = abi.encodeWithSignature(
+				"addAsset(string,string)",
+				asset,
+				amount);
+			(bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
+			require(success, "Error calling service contract function");
+
+			emit Added(asset, amount);
+			result = ret;
+		}
+		//Queries balance of an iroha account
+		function queryBalance(string memory _account, string memory _asset) public returns (bytes memory result) {
+			bytes memory payload = abi.encodeWithSignature(
+				"getAssetBalance(string,string)",
+				_account,
+				_asset);
+			(bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
+			require(success,"Error calling service contract function ");
+			result = ret;
+		}
 	}
 
-In the constructor we initialize the EVM address of the `ServiceContract <burrow.html#running-native-iroha-commands-in-evm>`_ which exposes an API to interact with Iroha state.
-The contract function *queryBalance* calls the *getAssetBalance* method of the Iroha *ServiceContract* API.
+In the constructor we initialize the EVM address of the `ServiceContract <burrow.html#running-native-iroha-commands-in-evm>`_ which exposes multiple APIs to interact with Iroha state.
+These APIs can be used to query as well as modify the Iroha state. Most of the Iroha commands and queries have been integrated.
+This contract calls the *getAssetBalance*, *createAccount*, *addAsset* and *transferAsset* methods of the Iroha *ServiceContract* API.
 
-Case 3. Changing Iroha state
-----------------------------
+We need to compile the contract above to get the bytecode using a full-fledged Solidity compiler or the Web-based *Remix IDE*.
+Now, we can send transactions from the Python Iroha client to deploy the contract to the EVM and also to call the different functions of the contact.
+The contract is deployed in a similar manner as shown above. To call a function of the deployed contract, function signature and it's arguments must be encoded following the ABI specifications.
 
-The final example we consider here is a transfer of an asset from one Iroha account to another.
+Here is a sample python code that calls a function of a deployed contract:
 
+.. code-block:: python
 
-The contract code is as follows:
+	def add_asset(address):
+		params = integration_helpers.get_first_four_bytes_of_keccak(
+			b"addAsset(string,string)"
+		)
+		no_of_param = 2
+		for x in range(no_of_param):
+			params = params + integration_helpers.left_padded_address_of_param(
+				x, no_of_param
+			)
+		params = params + integration_helpers.argument_encoding("coin#test")  # asset id
+		params = params + integration_helpers.argument_encoding("500")  # amount of asset
+		tx = iroha.transaction(
+			[
+				iroha.command(
+					"CallEngine", caller=ADMIN_ACCOUNT_ID, callee=address, input=params
+				)
+			]
+		)
+		IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+		response = net.send_tx(tx)
+		for status in net.tx_status_stream(tx):
+			print(status)
 
-.. code-block:: solidity
+For more examples and how the code works, you can visit `here  <https://github.com/hyperledger/iroha/tree/support/1.2.x/example/burrow_integration>`_ .
 
-	contract Transfer {
-	    address public serviceContractAddress;
-
-	    event Transferred(string indexed source, string indexed destination, string amount);
-
-	    // Initializing service contract address in constructor
-	    constructor() public {
-	        serviceContractAddress = 0xA6Abc17819738299B3B2c1CE46d55c74f04E290C;
-	    }
-
-	    // Queries the balance in _asset of an Iroha _account
-	    function transferAsset(string memory src, string memory dst,
-	                           string memory asset, string memory amount) public
-	                    returns (bytes memory result) {
-	        bytes memory payload = abi.encodeWithSignature(
-	            "transferAsset(string,string,string,string)",
-	            src,
-	            dst,
-	            asset,
-	            amount);
-	        (bool success, bytes memory ret) =
-	            address(serviceContractAddress).delegatecall(payload);
-	        require(success, "Error calling service contract function");
-
-	        emit Transferred(src, dst, amount);
-	        result = ret;
-	    }
-	}
-
-
-Similarly to querying Iroha state, a command can be sent to modify  the latter.
-In the example above the API method *transferAssetBalance* of the `ServiceContract <burrow.html#running-native-iroha-commands-in-evm>`_ sends some *amount* of the *asset* from Iroha account *src* to the account *dst*. Of course, if the transaction creator has sufficient permissions to execute this operation.
 
 
 
