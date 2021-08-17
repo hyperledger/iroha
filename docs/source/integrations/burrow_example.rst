@@ -3,7 +3,7 @@ Examples of How to Use HL Burrow EVM
 
 This section demonstrates a few examples of how one can deploy and run smart contracts in an EVM on top of Iroha blockchain.
 
-To interact with Iroha, we will be using a `Python Iroha client <https://iroha.readthedocs.io/en/master/getting_started/python-guide.html>`_. Assuming Iroha node is listening on a local port 50051, the client code will look something like:
+To interact with Iroha, we will be using a `Python Iroha client <https://iroha.readthedocs.io/en/main/getting_started/python-guide.html>`_. Assuming Iroha node is listening on a local port 50051, the client code will look something like:
 
 .. code-block:: python
 
@@ -59,7 +59,8 @@ The contract code is the following (the reader may refer to the original documen
     }
 
 To start off, we need to compile the source code above to the bytecode.
-For that we can either use the full-fledged Solidity compiler or the Web-based *Remix IDE*.
+For that we can either use the full-fledged Solidity compiler or the Web-based `*Remix IDE* <https://remix.ethereum.org>`_ .
+
 Having got the bytecode, we can now send a  transaction from the Python Iroha client which will deploy the contract to the EVM:
 
 .. code-block:: python
