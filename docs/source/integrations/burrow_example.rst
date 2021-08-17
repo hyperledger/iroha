@@ -128,7 +128,7 @@ Putting it all together, we will get the following client code to call the *mint
 	net = IrohaGrpc('127.0.0.1:50051')
 
 	admin_key = os.getenv(ADMIN_PRIVATE_KEY, IrohaCrypto.private_key())
-	params = ("40c10f19”                                                             # selector
+	params = ("40c10f19”                                                          # selector
 	          "000000000000000000000000f205c4a929072dd6e7fc081c2a78dbc79c76070b"  # address
 	          "00000000000000000000000000000000000000000000000000000000000003e8"  # amount
 	         )
@@ -263,7 +263,7 @@ Here is a sample python code that calls a function of a deployed contract:
 		for status in net.tx_status_stream(tx):
 			print(status)
 
-For more examples and how the code works, you can visit `here  <https://github.com/hyperledger/iroha/tree/support/1.2.x/example/burrow_integration>`_ .
+For more examples and how the code works, you can visit `here  <https://github.com/hyperledger/iroha/tree/main/example/burrow_integration>`_ .
 
 
 
