@@ -92,8 +92,8 @@ Environment-specific parameters
 
 - ``vote_delay`` \* is a waiting time in milliseconds before sending vote to the
   next peer. Optimal value depends heavily on the amount of Iroha peers in the
-  network (higher amount of nodes requires longer ``vote_delay``). We recommend
-  to start with 100-1000 milliseconds.
+  network (higher amount of nodes requires longer ``vote_delay``). ** We strongly recommend
+  to set it to at least one second - otherwise when some of the peers are not easily reachable, the chain of blocks will grow very slowly or even stop growing.**
     **This parameter only affects consensus mechanism.** If your network is fast - you are good and this parameter does not effect your network much. But if your network is on a slower side, increase it to give more time for the peers to respond.
 
 - ``mst_enable`` enables or disables multisignature transaction network
@@ -108,7 +108,7 @@ Environment-specific parameters
   (in minutes).
   The default value is 1440.
 
-- ``max_rounds_delay`` \* is an optional parameter specifying the maximum delay
+- ``proposal_creation_timeout`` (previously - ``max_rounds_delay``)\* is an optional parameter specifying the maximum delay
   between two consensus rounds (in milliseconds).
   The default value is 3000.
   When Iroha is idle, it gradually increases the delay to reduce CPU, network
