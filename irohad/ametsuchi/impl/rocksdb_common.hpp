@@ -155,7 +155,6 @@
 
 #define RDB_DELIMITER "/"
 #define RDB_XXX RDB_DELIMITER "{}" RDB_DELIMITER
-#define RDB_BLOCK_XXX RDB_DELIMITER "{:016}" RDB_DELIMITER
 
 #define RDB_ROOT ""
 #define RDB_STORE "s"
@@ -568,8 +567,13 @@ namespace iroha::ametsuchi {
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
       for (; it->Valid() && it->key().starts_with(key); it->Next())
-        if (!std::forward<F>(func)(it, key.size()))
-          break;
+        if constexpr (std::is_void_v<decltype(
+                          std::declval<F>()(it, key.size()))>) {
+          std::forward<F>(func)(it, key.size());
+        } else {
+          if (!std::forward<F>(func)(it, key.size()))
+            break;
+        }
 
       return it->status();
     }
