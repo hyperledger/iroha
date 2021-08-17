@@ -59,7 +59,7 @@ The contract code is the following (the reader may refer to the original documen
     }
 
 To start off, we need to compile the source code above to the bytecode.
-For that we can either use the full-fledged Solidity compiler or the Web-based `*Remix IDE* <https://remix.ethereum.org>`_ .
+For that we can either use the full-fledged Solidity compiler or the Web-based `Remix IDE <https://remix.ethereum.org>`_ .
 
 Having got the bytecode, we can now send a  transaction from the Python Iroha client which will deploy the contract to the EVM:
 
