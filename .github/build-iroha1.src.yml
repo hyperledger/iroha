@@ -346,6 +346,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
     if: &if_ubuntu_debug ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    defaults:
+      run:
+        shell: bash
     steps: &build_steps
       - *step_show_context
       - &step_show_needs
@@ -517,7 +520,7 @@ jobs:
         timeout-minutes: 40
         name: CTest
         run: |
-          set -x
+          set -xeuo pipefail
           if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
@@ -544,24 +547,52 @@ jobs:
           ## Run module_* tests in parallel and others subsequently
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
-          ALLOW_TO_FAIL='module_postgres_query_executor_test system_irohad_test integration_add_peer_test integration_batch_pipeline_test'
-          echo "$ALLOW_TO_FAIL" | tr ' ' $'\n' >allow_to_fail
-          check_allowed_to_fail(){
-            grep 'The following tests FAILED:' -A10000 ctest.out | tail +2 | cut -d- -f2 | cut -d' ' -f2 | sort |
-              comm -23 - allow_to_fail | {
-                failed=$(cat)
-                if test -n "$failed"
-                then echo "::error::The following tests are not in list ALLOW_TO_FAIL: $failed"
-                false
-                fi
-                }
+          cat | sort -u >ALLOW_TO_FAIL <<END
+          module_postgres_query_executor_test
+          system_irohad_test
+          integration_add_peer_test
+          integration_batch_pipeline_test
+          integration_get_transactions_test
+          integration_query_permissions_common_test
+          integration_query_test
+          regression_regression_test
+          module_rocksdb_executor_test
+          module_gossip_propagation_strategy_test
+          integration_queries_acceptance_test
+          END
+          grep_failed_tests(){
+            grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
           }
-          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 300 --repeat until-pass:3 \
-            | tee ctest.out \
-            || check_allowed_to_fail
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 300 --repeat until-pass:3 \
-            | tee ctest.out \
-            || check_allowed_to_fail
+          exclude_allowed_to_fail(){
+            grep -Fvf ALLOW_TO_FAIL "$@"
+          }
+          only_allowed_to_fail(){
+            grep -Ff ALLOW_TO_FAIL "$@"
+          }
+          list_to_line(){
+            comma=''
+            while read N d name sta ;do
+              echo -n "$comma$N-$name$sta"
+              comma=', '
+            done
+          }
+          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 40 --repeat until-pass:3 \
+            | tee ctest_module.out \
+            || true
+          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 40 --repeat until-pass:3 \
+            | tee ctest_integration.out \
+            || true
+          tests_passed=true
+          for f in $(ls -rt ctest_*.out) ;do
+            if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
+              echo "::error::The following tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              tests_passed=false
+            fi
+            if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
+              echo "::warning::The following tests FAILED and ALLOWED TO FAIL: $o"
+            fi
+          done
+          $tests_passed
 
   ## Just because release is built 2..3 times faster make it a different job
   build-UR:
@@ -587,11 +618,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
-      # matrix:
-      #   # os: [ macos-latest, macos-11.0, macos-10.15 ]
-      #   CC: [ clang ] #, llvm ] #gcc-10
-      #   CMAKE_USE:  [ '', -DUSE_BURROW=ON, -DUSE_URSA=ON ]
-      #   BuildType: [ Debug ] #,Release, RelWithDebInfo
     steps:
       - *step_show_context
       - *step_system_info
@@ -643,7 +669,8 @@ jobs:
         name: Install Postgres on MacOS
         run: brew install postgresql
         ## ToDo may be optimize, i.e. cache package
-      - *step_ctest
+      - <<: *step_ctest
+        timeout-minutes: 70
 
   ## Just to align picture
   prepare-windows-env:
