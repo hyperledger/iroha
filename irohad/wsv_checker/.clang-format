@@ -1,0 +1,16 @@
+BasedOnStyle: Mozilla
+#BasedOnStyle: Microsoft
+#BasedOnStyle: Google
+#BasedOnStyle: Chromium
+#BasedOnStyle: WebKit
+#BasedOnStyle: LLVM
+IndentWidth: 3
+ColumnLimit: 120
+#Cpp11BracedListStyle: false
+Cpp11BracedListStyle: true
+FixNamespaceComments: true
+SortIncludes: true
+SortUsingDeclarations: true
+SpaceBeforeCtorInitializerColon: true
+SpacesBeforeTrailingComments: 3
+AllowAllArgumentsOnNextLine: true
