@@ -12,6 +12,8 @@
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
+#include "ametsuchi/impl/rocksdb_block_storage.hpp"
+#include "ametsuchi/impl/rocksdb_block_storage_factory.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
 #include "ametsuchi/impl/storage_base.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -43,13 +45,19 @@ namespace {
     if (auto err = iroha::expected::resultToOptionalError(flat_file)) {
       throw StorageInitException{err.value()};
     }
-    std::shared_ptr<shared_model::interface::BlockJsonConverter>
-        block_converter =
-            std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
     return std::make_unique<ametsuchi::FlatFileBlockStorage>(
         std::move(flat_file.assumeValue()),
-        block_converter,
+        std::make_shared<shared_model::proto::ProtoBlockJsonConverter>(),
         log_manager->getChild("FlatFileBlockStorage")->getLogger());
+  }
+
+  std::unique_ptr<ametsuchi::BlockStorage> makeRocksDbBlockStorage(
+      std::shared_ptr<ametsuchi::RocksDBContext> db_context,
+      logger::LoggerManagerTreePtr log_manager) {
+    return std::make_unique<ametsuchi::RocksDbBlockStorage>(
+        std::move(db_context),
+        std::make_shared<shared_model::proto::ProtoBlockJsonConverter>(),
+        log_manager->getChild("RocksDbBlockStorage")->getLogger());
   }
 
   std::unique_ptr<ametsuchi::BlockStorage> makePostgresBlockStorage(
@@ -104,14 +112,11 @@ iroha::initStorage(
       temporary_block_storage_factory =
           std::make_unique<ametsuchi::InMemoryBlockStorageFactory>();
 
-  if (!block_storage_dir)
-    return iroha::expected::makeError(
-        fmt::format("Flat file block storage is not present."));
-
   auto persistent_block_storage =
-      makeFlatFileBlockStorage(block_storage_dir.value(), log_manager);
+      makeRocksDbBlockStorage(db_context, log_manager);
+
   return ametsuchi::RocksDbStorageImpl::create(
-      db_context,
+      std::move(db_context),
       perm_converter,
       std::move(pending_txs_storage),
       std::move(query_response_factory),
