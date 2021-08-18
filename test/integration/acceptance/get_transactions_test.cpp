@@ -18,10 +18,10 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class GetTransactions : public AcceptanceFixture {
+class GetTransactions : public AcceptanceFixture, public testing::WithParamInterface<iroha::StorageType> {
  public:
   static constexpr iroha::StorageType storage_types[] = {
-      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+      iroha::StorageType::kPostgres};//, iroha::StorageType::kRocksDb};
 
   /**
    * Creates the transaction with the user creation commands
@@ -97,8 +97,8 @@ TEST_F(GetTransactions, HaveNoGetPerms) {
  * @when query GetTransactions of existing transaction of the user
  * @then receive TransactionsResponse with the transaction hash
  */
-TEST_F(GetTransactions, HaveGetAllTx) {
-  for (auto const type : storage_types) {
+TEST_P(GetTransactions, HaveGetAllTx) {
+  //for (auto const type : storage_types) {
     auto dummy_tx = dummyTx();
     auto check = [&dummy_tx](auto &status) {
       ASSERT_NO_THROW({
@@ -110,7 +110,7 @@ TEST_F(GetTransactions, HaveGetAllTx) {
       });
     };
 
-    IntegrationTestFramework(1, type)
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms({interface::permissions::Role::kGetAllTxs}))
         .skipProposal()
@@ -119,8 +119,9 @@ TEST_F(GetTransactions, HaveGetAllTx) {
             dummy_tx,
             [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
         .sendQuery(makeQuery(dummy_tx.hash()), check);
-  }
+  //}
 }
+INSTANTIATE_TEST_SUITE_P(GetTransactions_PostgresAndRocksdb, GetTransactions, testing::ValuesIn(GetTransactions::storage_types));
 
 /**
  * TODO mboldyrev 18.01.2019 IR-215 remove, covered by
