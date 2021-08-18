@@ -2,7 +2,7 @@ HL Burrow Integration
 =====================
 
 As Iroha maintainers, we have received many questions and requests for custom smart-contracts support from our users.
-And to provide them more freedom in fulfilling their business needs, we integrated HL Burrow EVM – another great project of the Hyperledger greenhouse, – into Iroha.
+And to provide them more freedom in fulfilling their business needs, we integrated HL Burrow EVM – another great project of the Hyperledger greenhouse, into Iroha.
 
 .. note:: In the context of Iroha, HL Burrow provides an Ethereum Virtual Machine that can run Solidity smart-contracts.
 	We did our best to provide you with the best user experience possible – and to use it with Iroha, you only need to add a `CMake flag during Iroha build <../build/index.html#cmake-parameters>`_ and it will start working right away.
@@ -74,73 +74,73 @@ Current release of the Iroha EVM wrapper contains a single service contract depl
      - Signature of exposed API methods
      - Arguments
    * - 1
-     - addAsset(string,string)
+     - `addAsset(string,string) <../develop/api/commands.html#add-asset-quantity>`_
      - asset_id, amount
    * - 2 
-     - addPeer(string,string)
+     - `addPeer(string,string) <../develop/api/commands.html#add-peer>`_
      - address, peer_key
    * - 3 
-     - addSignatory(string,string)
+     - `addSignatory(string,string) <../develop/api/commands.html#add-signatory>`_
      - account_id, public_key
    * - 4 
-     - appendRole(string,string)
+     - `appendRole(string,string) <../develop/api/commands.html#append-role>`_
      - account_id, role_name
    * - 5 
-     - createAccount(string,string,string)
+     - `createAccount(string,string,string) <../develop/api/commands.html#create-account>`_
      - account_name, domain_id, public_key
    * - 6 
-     - createAsset(string,string,string)
+     - `createAsset(string,string,string) <../develop/api/commands.html#create-asset>`_
      - asset_name, domain_id, precision
    * - 7 
-     - createDomain(string,string)
+     - `createDomain(string,string) <../develop/api/commands.html#create-domain>`_
      - domain_id, default_role
    * - 8 
-     - detachRole(string,string)
+     - `detachRole(string,string) <../develop/api/commands.html#detach-role>`_
      - account_id, role_name
    * - 9 
-     - removePeer(string)
+     - `removePeer(string) <../develop/api/commands.html#remove-peer>`_
      - public_key
    * - 10 
-     - removeSignatory(string,string)
+     - `removeSignatory(string,string) <../develop/api/commands.html#remove-signatory>`_
      - account_id, public_key
    * - 11 
-     - setAccountDetail(string,string,string)
+     - `setAccountDetail(string,string,string) <../develop/api/commands.html#set-account-detail>`_
      - account_id, key, value
    * - 12 
-     - setAccountQuorum(string,string)
+     - `setAccountQuorum(string,string) <../develop/api/commands.html#set-account-quorum>`_
      - account_id, quorum
    * - 13 
-     - subtractAsset(string,string)
+     - `subtractAsset(string,string) <../develop/api/commands.html#subtract-asset-quantity>`_
      - asset_id, amount 
    * - 14 
-     - transferAsset(string,string,string,string,string)
+     - `transferAsset(string,string,string,string,string) <../develop/api/commands.html#transfer-asset>`_
      - src_account_id, dest_account_id, asset_id, description, amount
    * - 15 
-     - getAccount(string)
+     - `getAccount(string) <../develop/api/queries.html#get-account>`_
      - account_id 
    * - 16 
-     - getBlock(string)
+     - `getBlock(string) <../develop/api/queries.html#get-block>`_
      - height
    * - 17 
-     - getSignatory(string)
+     - `getSignatory(string) <../develop/api/queries.html#get-signatories>`_
      - account_id
    * - 18 
-     - getAssetBalance(string,string)
+     - `getAssetBalance(string,string) <../develop/api/queries.html#get-account-assets>`_
      - account_id, asset_id
    * - 19 
-     - getAccountDetail()
+     - `getAccountDetail() <../develop/api/queries.html#get-account-detail>`_
      -	 
    * - 20
-     - getAsset(string)
+     - `getAsset(string) <../develop/api/queries.html#get-asset-info>`_
      - asset_id
    * - 21 
-     - getRoles()
+     - `getRoles() <../develop/api/queries.html#get-roles>`_
      -	 
    * - 22 
-     - getRolePermissions(string)
+     - `getRolePermissions(string) <../develop/api/queries.html#get-role-permissions>`_
      - role_id
    * - 23 
-     - getPeers()
+     - `getPeers() <../develop/api/queries.html#get-peers>`_
      -	 
 
 

@@ -234,34 +234,64 @@ This contract calls the *getAssetBalance*, *createAccount*, *addAsset* and *tran
 
 We need to compile the contract above to get the bytecode using a full-fledged Solidity compiler or the Web-based *Remix IDE*.
 Now, we can send transactions from the Python Iroha client to deploy the contract to the EVM and also to call the different functions of the contact.
-The contract is deployed in a similar manner as shown above. To call a function of the deployed contract, function signature and it's arguments must be encoded following the ABI specifications.
+The contract is deployed in a similar manner as shown above. To call a function of the deployed contract, function signature and it's arguments must be encoded following the `ABI-specification <https://solidity.readthedocs.io/en/v0.6.5/abi-spec.html>`_.
 
 Here is a sample python code that calls a function of a deployed contract:
 
 .. code-block:: python
 
 	def add_asset(address):
-		params = integration_helpers.get_first_four_bytes_of_keccak(
+		params = get_first_four_bytes_of_keccak(
 			b"addAsset(string,string)"
 		)
 		no_of_param = 2
 		for x in range(no_of_param):
-			params = params + integration_helpers.left_padded_address_of_param(
+			params = params + left_padded_address_of_param(
 				x, no_of_param
 			)
-		params = params + integration_helpers.argument_encoding("coin#test")  # asset id
-		params = params + integration_helpers.argument_encoding("500")  # amount of asset
+		params = params + argument_encoding("coin#test")  # asset id
+		params = params + argument_encoding("500")  # amount of asset
 		tx = iroha.transaction(
 			[
-				iroha.command(
-					"CallEngine", caller=ADMIN_ACCOUNT_ID, callee=address, input=params
-				)
+				iroha.command("CallEngine", caller=ADMIN_ACCOUNT_ID, callee=address, input=params)
 			]
 		)
 		IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
 		response = net.send_tx(tx)
 		for status in net.tx_status_stream(tx):
 			print(status)
+
+	def make_number_hex_left_padded(number: str, width: int = 64):
+		number_hex = "{:x}".format(number)
+		return str(number_hex).zfill(width)
+
+
+	def left_padded_address_of_param(param_index: int, number_of_params: int, width: int = 64):
+		"""Specifies the position of each argument according to Contract ABI specifications."""
+		bits_offset = 32 * number_of_params
+		bits_per_param = 64
+		bits_for_the_param = bits_offset + bits_per_param * param_index
+		return make_number_hex_left_padded(bits_for_the_param, width)
+
+
+	def argument_encoding(arg):
+		"""Encodes the argument according to Contract ABI specifications."""
+		encoded_argument = str(hex(len(arg)))[2:].zfill(64)
+		encoded_argument = (
+			encoded_argument + arg.encode("utf8").hex().ljust(64, "0").upper()
+		)
+		return encoded_argument
+
+
+	def get_first_four_bytes_of_keccak(function_signature: str):
+		"""Generates the first 4 bytes of the keccak256 hash of the function signature. """
+		k = keccak.new(digest_bits=256)
+		k.update(function_signature)
+		return k.hexdigest()[:8]
+
+An argument of type string, a dynamic type, is encoded in the following way:
+First we provide the location part of the argument measured in bytes from the start of the arguments block which is then, left padded to 32 bytes. The data part of the argument starts with the length of the byte array in elements, also left padded to 32 bytes. Then UTF-8 encoding of the string, padded on the right to 32 bytes.
+This can be achieved with the help of functions in the example.
 
 For more examples and how the code works, you can visit `here  <https://github.com/hyperledger/iroha/tree/main/example/burrow_integration>`_ .
 
