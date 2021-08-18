@@ -8,7 +8,9 @@ use std::{
     },
 };
 
+use futures::future::join_all;
 use iroha_actor::{broker::*, prelude::*};
+use iroha_crypto::{KeyPair, PublicKey};
 use iroha_logger::{
     config::{LevelEnv, LoggerConfiguration},
     info,
@@ -92,7 +94,7 @@ impl Handler<TestMessage> for TestActor {
 
     async fn handle(&mut self, msg: TestMessage) -> Self::Result {
         info!("Actor got message {:?}", msg);
-        let _ = self.messages.fetch_add(1, Ordering::Relaxed);
+        let _ = self.messages.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -107,8 +109,12 @@ async fn two_networks() {
         ..LoggerConfiguration::default()
     };
     iroha_logger::init(log_config);
-    let public_key = iroha_crypto::PublicKey::from_str(
+    let public_key1 = iroha_crypto::PublicKey::from_str(
         "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+    )
+    .unwrap();
+    let public_key2 = iroha_crypto::PublicKey::from_str(
+        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c1",
     )
     .unwrap();
     info!("Starting first network...");
@@ -116,7 +122,7 @@ async fn two_networks() {
 
     let broker1 = Broker::new();
     let network1 =
-        Network::<TestMessage>::new(broker1.clone(), address1.clone(), public_key.clone())
+        Network::<TestMessage>::new(broker1.clone(), address1.clone(), public_key1.clone())
             .await
             .unwrap();
     let network1 = network1.start().await;
@@ -126,7 +132,7 @@ async fn two_networks() {
     let address2 = gen_address();
     let broker2 = Broker::new();
     let network2 =
-        Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key.clone())
+        Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key2.clone())
             .await
             .unwrap();
     let network2 = network2.start().await;
@@ -143,7 +149,7 @@ async fn two_networks() {
     info!("Connecting to peer...");
     let peer2 = PeerId {
         address: address2.clone(),
-        public_key,
+        public_key: public_key2,
     };
     // Connecting to second peer from network1
     broker1.issue_send(Connect { id: peer2.clone() }).await;
@@ -158,7 +164,7 @@ async fn two_networks() {
         .await;
 
     tokio::time::sleep(delay).await;
-    assert_eq!(messages2.load(Ordering::Relaxed), 1);
+    assert_eq!(messages2.load(Ordering::SeqCst), 1);
 
     let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
     assert_eq!(connected_peers.peers.len(), 1);
@@ -172,6 +178,119 @@ async fn two_networks() {
 
     let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
     assert_eq!(connected_peers.peers.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multiple_networks() {
+    let log_config = LoggerConfiguration {
+        max_log_level: LevelEnv::TRACE,
+        compact_mode: false,
+        ..LoggerConfiguration::default()
+    };
+    drop(iroha_logger::init(log_config));
+    iroha_logger::info!("Starting...");
+
+    let delay = Duration::from_millis(200);
+    tokio::time::sleep(delay).await;
+
+    let mut peers = Vec::new();
+    for _ in 0..10 {
+        let addr = gen_address();
+        peers.push(addr);
+    }
+
+    let mut brokers = Vec::new();
+    let mut peer_ids = Vec::new();
+    let messages = Arc::new(AtomicU32::new(0));
+    let mut futures = Vec::new();
+    for addr in &peers {
+        futures.push(start_network(
+            addr.clone(),
+            peers.clone(),
+            Arc::clone(&messages),
+        ));
+    }
+    join_all(futures)
+        .await
+        .into_iter()
+        .for_each(|(address, broker, public_key)| {
+            brokers.push(broker);
+            let peer_id = PeerId {
+                address,
+                public_key,
+            };
+            peer_ids.push(peer_id);
+        });
+
+    tokio::time::sleep(delay * 3).await;
+
+    iroha_logger::info!("Sending posts...");
+    for b in &brokers {
+        for id in &peer_ids {
+            let post = Post {
+                data: TestMessage(String::from("Some data to send to peer")),
+                id: id.clone(),
+            };
+            b.issue_send(post).await;
+        }
+    }
+    iroha_logger::info!("Posts sent");
+    tokio::time::sleep(delay * 5).await;
+
+    assert_eq!(messages.load(Ordering::SeqCst), 90);
+}
+
+async fn start_network(
+    addr: String,
+    peers: Vec<String>,
+    messages: Arc<AtomicU32>,
+) -> (String, Broker, PublicKey) {
+    info!("Starting network on {}...", &addr);
+
+    let keypair = KeyPair::generate().unwrap();
+    let broker = Broker::new();
+    // This actor will get the messages from other peers and increment the counter
+    let actor = TestActor {
+        broker: broker.clone(),
+        messages,
+    };
+    drop(actor.start().await);
+
+    let network =
+        Network::<TestMessage>::new(broker.clone(), addr.clone(), keypair.public_key.clone())
+            .await
+            .unwrap();
+    let network = network.start().await;
+    // The most needed delay!!!
+    let delay: u64 = rand::random();
+    tokio::time::sleep(Duration::from_millis(250 + (delay % 500))).await;
+
+    let mut count = 0;
+    let mut test_count = 0;
+    for p in &peers {
+        if *p != addr {
+            let peer = PeerId {
+                address: p.clone(),
+                public_key: keypair.public_key.clone(),
+            };
+
+            broker.issue_send(Connect { id: peer }).await;
+            count += 1;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
+        let connections = result.peers.len();
+        info!("[{}] Connections: {}", &addr, connections);
+        if connections == count || test_count >= 10 {
+            break;
+        }
+        test_count += 1;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+    }
+    info!("[{}] Got all {} connections!", &addr, count);
+
+    (addr, broker, keypair.public_key.clone())
 }
 
 #[test]
