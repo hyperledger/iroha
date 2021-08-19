@@ -134,12 +134,10 @@ jobs:
           set -x
           git fetch origin ${{github.event.after}} --depth=2
           git log -1 FETCH_HEAD
-          #test ${{github.event.after}} = $(git rev-parse HEAD)
           commit_message_body_build_spec(){
             git log -n1 $1 --format=%B | grep '^/build '
           }
           git_is_merge_commit(){
-            #test $(git rev-list $1^..$1 -1 --merges) = $1
             git rev-parse ${1:-HEAD}^2 &>/dev/null
           }
           commit_was_merged_build_spec(){
@@ -613,10 +611,10 @@ jobs:
               comma=', '
             done
           }
-          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 40 --repeat until-pass:3 \
+          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
             | tee ctest_module.out \
             || true
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 40 --repeat until-pass:3 \
+          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
             | tee ctest_integration.out \
             || true
           tests_passed=true
