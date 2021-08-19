@@ -6,7 +6,8 @@
 set(CMAKE_CXX_STANDARD 20)
 add_executable(migration-tool migration-tool.cpp ../main/impl/storage_init.cpp)
 #target_compile_features(migration-tool PUBLIC cxx_std_20)
-target_compile_options(migration-tool PUBLIC -Werror -Wno-error=unused-variable -Wno-error=comment)
+target_compile_options(migration-tool PUBLIC -Werror
+        -Wno-error=unused-variable -Wno-error=comment -Wno-error=maybe-uninitialized)
 target_link_libraries(migration-tool PRIVATE
         gflags
         logger_manager
