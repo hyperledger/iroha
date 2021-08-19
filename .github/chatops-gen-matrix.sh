@@ -142,16 +142,13 @@ handle_user_line(){
    done
 }
 
-if test -z "$cmdline" ;then
-   while read input_line ;do
+{ test -n "$cmdline" && echo "$cmdline" || cat; } |
+   tr ';' '\n' | while read input_line ;do
       handle_user_line $input_line || continue
    done
-else
-   handle_user_line $cmdline || true
-fi
 
 test -n "${MATRIX:-}" ||
-   { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
+   { echoerr "MATRIX is empty!"$'\n'; --help-buildspec >&2; exit 1; }
 
 
 ############# FIXME remove this after build fixed #############
