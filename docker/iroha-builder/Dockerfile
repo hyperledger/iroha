@@ -28,7 +28,7 @@ RUN apt-get update && \
             postgresql postgresql-contrib; \
     if [ $(uname -m) = "x86_64" ] ;then \
         apt-get -y --no-install-recommends install \
-            clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format; \
+            clang-10 lldb-10 lld-10 libc++-10-dev libc++abi-10-dev clang-format clang-format-7 clang-format-12; \
     fi; \
     apt-get -y clean && \
     rm -rf /var/lib/apt/lists/* && \
