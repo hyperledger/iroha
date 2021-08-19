@@ -2,6 +2,13 @@
 set -euo pipefail
 shopt -s lastpipe
 
+if test $(uname) = Darwin ;then
+   set -a # export the following funcs instead of aliases
+   sed() { gsed "$@"; }
+   grep() { ggrep "$@"; }
+   set +a # stop exporting
+fi
+
 echowarn(){
    echo >&2 '::warning::'"$@"
 }
@@ -21,6 +28,8 @@ EXAMPLE build_spec:
    /build ubuntu release gcc10
    /build macos llvm release
    /build all
+   /build ubuntu all              ## build all possible configurations on Ubuntu
+   /build ubuntu burrow all       ## build all possible configurations on Ubuntu with Burrow
 AVAILABLE build_spec keywords:
 END
    awk '/^\s*## BUILDSPEC ARGUMENTS/,/^\s*## END BUILDSPEC ARGUMENTS/ ' $0 | sed -n 's,).*,,gp' | sed -E 's,^ +,   ,'
@@ -66,6 +75,7 @@ generate(){
       used_compilers+=$cc' '
       for bt in $build_types ;do
          for co in $cmake_opts ;do
+            if test $os = macos -a $co = burrow; then continue; fi
             MATRIX+="$os $cc $bt $co"$'\n'
          done
       done
@@ -102,16 +112,19 @@ handle_user_line(){
          gcc-10|gcc10)              compilers+=" gcc-10 " ;;
          clang|clang-10|clang10)    compilers+=" clang clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
-         clang)                     compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
-         mingw)                     compilers+=" $1 " ;;
-         cygwin)                    compilers+=" $1 " ;;
          dockerpush)                dockerpush=yes ;;
          nodockerpush)              dockerpush=no ;;
          all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
-            oses="$ALL_oses" build_types="$ALL_build_types" cmake_opts="$ALL_cmake_opts" compilers="$ALL_compilers"
+            oses=${oses:-"$ALL_oses"}
+            build_types=${build_types:-"$ALL_build_types"}
+            cmake_opts=${cmake_opts:-"$ALL_cmake_opts"}
+            compilers=${compilers:-"$ALL_compilers"}
             ;;
          ## END BUILDSPEC ARGUMENTS
+         \#*)
+            break  ## stop parsing buildspec
+            ;;
          *)
             echoerr "Unknown /build argument '$1'"
             return 1
@@ -142,9 +155,17 @@ test -n "${MATRIX:-}" ||
 
 
 ############# FIXME remove this after build fixed #############
-echo "$MATRIX" | awk -v IGNORECASE=1 '!/gcc-9/ && /release/' | while read line ;do echo "'$line'" ;done |
-   echowarn "FIXME At the moment we are able to build Release only with GCC-9, other buildspecs are dropped: "$(cat)
-MATRIX="$(echo "$MATRIX" | awk -v IGNORECASE=1 '!(!/gcc-9/ && /release/)' )"  ##FIXME lifehack to disable always failing build during linkage
+quoted(){
+   while read line ;do echo -n "'$line' " ;done
+}
+ignored=$(mktemp)
+echo "$MATRIX" | awk -v IGNORECASE=1 '/clang-10/ && /release/' >$ignored
+MATRIX="$( grep -Fvx -f $ignored <<<"$MATRIX" )"
+if test -s $ignored
+then cat $ignored | quoted | echowarn "FIXME At the moment NOT able to build Release with Clang-10," \
+                                      "because civetweb-cpp from vcpkg. Buildspecs are dropped: $(cat)"
+fi
+rm -f $ignored
 ############# END fixme remove this after build fixed #########
 
 
