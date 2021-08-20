@@ -41,9 +41,9 @@ contract Asset {
     }
 
     // Gets asset info
-    function getAsset(string memory name) public  returns (bytes memory result) {
+    function getAssetInfo(string memory name) public  returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "getAsset(string)",
+            "getAssetInfo(string)",
             name);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
@@ -51,9 +51,9 @@ contract Asset {
     }
 
     // Adds asset to iroha account
-    function addAsset(string memory asset, string memory amount) public returns (bytes memory result) {
+    function addAssetQuantity(string memory asset, string memory amount) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "addAsset(string,string)",
+            "addAssetQuantity(string,string)",
             asset,
             amount);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
@@ -64,9 +64,9 @@ contract Asset {
     }
 
     // Subtracts asset to iroha account
-    function subtractAsset(string memory asset, string memory amount) public returns (bytes memory result) {
+    function subtractAssetQuantity(string memory asset, string memory amount) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "subtractAsset(string,string)",
+            "subtractAssetQuantity(string,string)",
             asset,
             amount);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);

@@ -44,9 +44,9 @@ contract Iroha {
         result = ret;
     }
     // Adds asset to iroha account
-    function addAsset(string memory asset, string memory amount) public returns (bytes memory result) {
+    function addAssetQuantity(string memory asset, string memory amount) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "addAsset(string,string)",
+            "addAssetQuantity(string,string)",
             asset,
             amount);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);

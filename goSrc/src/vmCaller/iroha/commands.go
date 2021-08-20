@@ -37,19 +37,7 @@ func TransferAsset(src, dst, asset, description, amount string) error {
 			Amount:        amount,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing TransferAsset command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "TransferAsset")
 }
 
 func CreateAccount(name string, domain string, key string) error {
@@ -60,19 +48,7 @@ func CreateAccount(name string, domain string, key string) error {
 			PublicKey:   key,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing CreateAccount command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "CreateAccount")
 }
 
 func AddAssetQuantity(asset string, amount string) error {
@@ -82,19 +58,7 @@ func AddAssetQuantity(asset string, amount string) error {
 			Amount:  amount,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing AddAssetQuantity command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "AddAssetQuantity")
 }
 
 func SubtractAssetQuantity(asset string, amount string) error {
@@ -104,19 +68,7 @@ func SubtractAssetQuantity(asset string, amount string) error {
 			Amount:  amount,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing SubtractAssetQuantity command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "SubtractAssetQuantity")
 }
 
 func SetAccountDetail(account string, key string, value string) error {
@@ -127,19 +79,7 @@ func SetAccountDetail(account string, key string, value string) error {
 			Value:     value,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing SetAccountDetail command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "SetAccountDetail")
 }
 
 func AddPeer(address string, key string) error {
@@ -151,18 +91,7 @@ func AddPeer(address string, key string) error {
 			},
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing AddPeer command: %s", error_extra)
-	}
-	return nil
+	return handleErrors(commandResult, err, "AddPeer")
 }
 
 func RemovePeer(key string) error {
@@ -171,18 +100,7 @@ func RemovePeer(key string) error {
 			PublicKey: key,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing RemovePeer command: %s", error_extra)
-	}
-	return nil
+	return handleErrors(commandResult, err, "RemovePeer")
 }
 
 func SetAccountQuorum(account string, quorum string) error {
@@ -193,18 +111,7 @@ func SetAccountQuorum(account string, quorum string) error {
 			Quorum:    uint32(quorum_uint),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing SetAccountQuorum command: %s", error_extra)
-	}
-	return nil
+	return handleErrors(commandResult, err, "SetAccountQuorum")
 }
 
 func AddSignatory(account string, key string) error {
@@ -214,19 +121,7 @@ func AddSignatory(account string, key string) error {
 			PublicKey: key,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing AddSignatory command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "AddSignatory")
 }
 
 func RemoveSignatory(account string, key string) error {
@@ -236,19 +131,7 @@ func RemoveSignatory(account string, key string) error {
 			PublicKey: key,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing RemoveSignatory command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "RemoveSignatory")
 }
 
 func CreateDomain(domain string, role string) error {
@@ -258,19 +141,7 @@ func CreateDomain(domain string, role string) error {
 			DefaultRole: role,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing CreateDomain command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "CreateDomain")
 }
 
 func CreateAsset(name string, domain string, precision string) error {
@@ -282,19 +153,7 @@ func CreateAsset(name string, domain string, precision string) error {
 			Precision: uint32(precision_uint),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing CreateAsset command: %s", error_extra)
-	}
-
-	return nil
+	return handleErrors(commandResult, err, "CreateAsset")
 }
 
 func AppendRole(account string, role string) error {
@@ -304,18 +163,7 @@ func AppendRole(account string, role string) error {
 			RoleName:  role,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing AppendRole command: %s", error_extra)
-	}
-	return nil
+	return handleErrors(commandResult, err, "AppendRole")
 }
 
 func DetachRole(account string, role string) error {
@@ -325,18 +173,7 @@ func DetachRole(account string, role string) error {
 			RoleName:  role,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	if commandResult.error_code != 0 {
-		error_extra := ""
-		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
-		if error_extra_ptr != nil {
-			error_extra = ": " + *error_extra_ptr
-		}
-		return fmt.Errorf("Error executing DetachRole command: %s", error_extra)
-	}
-	return nil
+	return handleErrors(commandResult, err, "DetachRole")
 }
 
 // -----------------------Iroha queries---------------------------------------
@@ -615,4 +452,20 @@ func makeProtobufQueryAndExecute(queryExecutor unsafe.Pointer, query *pb.Query) 
 		return nil, err
 	}
 	return queryResponse, nil
+}
+
+//Performs Error Handling
+func handleErrors(result *C.Iroha_CommandError, err error, commandName string) (e error) {
+	if err != nil {
+		return err
+	}
+	if result.error_code != 0 {
+		error_extra := ""
+		error_extra_ptr := result.error_extra.toStringAndRelease()
+		if error_extra_ptr != nil {
+			error_extra = ": " + *error_extra_ptr
+		}
+		return fmt.Errorf("Error executing %s command: %s", commandName, error_extra)
+	}
+	return nil
 }

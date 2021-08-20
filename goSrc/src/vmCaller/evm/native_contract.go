@@ -58,7 +58,7 @@ var (
 				* @return 'true' if successful, 'false' otherwise
 				`,
 			PermFlag: permission.Call,
-			F:        addAsset,
+			F:        addAssetQuantity,
 		},
 		native.Function{
 			Comment: `
@@ -68,7 +68,7 @@ var (
 				* @return 'true' if successful, 'false' otherwise
 				`,
 			PermFlag: permission.Call,
-			F:        subtractAsset,
+			F:        subtractAssetQuantity,
 		},
 		native.Function{
 			Comment: `
@@ -157,7 +157,7 @@ var (
 				* @return signatories of the account
 				`,
 			PermFlag: permission.Call,
-			F:        getSignatory,
+			F:        getSignatories,
 		},
 		native.Function{
 			Comment: `
@@ -166,7 +166,7 @@ var (
 				* @return details of the asset
 				`,
 			PermFlag: permission.Call,
-			F:        getAsset,
+			F:        getAssetInfo,
 		},
 		native.Function{
 			Comment: `
@@ -319,7 +319,7 @@ func createAccount(ctx native.Context, args createAccountArgs) (createAccountRet
 		return createAccountRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "CreateAccount",
+	ctx.Logger.Trace.Log("function", "createAccount",
 		"name", args.Name,
 		"domain", args.Domain,
 		"key", args.Key)
@@ -327,48 +327,48 @@ func createAccount(ctx native.Context, args createAccountArgs) (createAccountRet
 	return createAccountRets{Result: true}, nil
 }
 
-type addAssetArgs struct {
+type addAssetQuantityArgs struct {
 	Asset  string
 	Amount string
 }
 
-type addAssetRets struct {
+type addAssetQuantityRets struct {
 	Result bool
 }
 
-func addAsset(ctx native.Context, args addAssetArgs) (addAssetRets, error) {
+func addAssetQuantity(ctx native.Context, args addAssetQuantityArgs) (addAssetQuantityRets, error) {
 	err := iroha.AddAssetQuantity(args.Asset, args.Amount)
 	if err != nil {
-		return addAssetRets{Result: false}, err
+		return addAssetQuantityRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "AddAsset",
+	ctx.Logger.Trace.Log("function", "addAssetQuantity",
 		"asset", args.Asset,
 		"amount", args.Amount)
 
-	return addAssetRets{Result: true}, nil
+	return addAssetQuantityRets{Result: true}, nil
 }
 
-type subtractAssetArgs struct {
+type subtractAssetQuantityArgs struct {
 	Asset  string
 	Amount string
 }
 
-type subtractAssetRets struct {
+type subtractAssetQuantityRets struct {
 	Result bool
 }
 
-func subtractAsset(ctx native.Context, args subtractAssetArgs) (subtractAssetRets, error) {
+func subtractAssetQuantity(ctx native.Context, args subtractAssetQuantityArgs) (subtractAssetQuantityRets, error) {
 	err := iroha.SubtractAssetQuantity(args.Asset, args.Amount)
 	if err != nil {
-		return subtractAssetRets{Result: false}, err
+		return subtractAssetQuantityRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "subtractAsset",
+	ctx.Logger.Trace.Log("function", "subtractAssetQuantity",
 		"asset", args.Asset,
 		"amount", args.Amount)
 
-	return subtractAssetRets{Result: true}, nil
+	return subtractAssetQuantityRets{Result: true}, nil
 }
 
 type setAccountDetailArgs struct {
@@ -387,7 +387,7 @@ func setAccountDetail(ctx native.Context, args setAccountDetailArgs) (setAccount
 		return setAccountDetailRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "SetDetail",
+	ctx.Logger.Trace.Log("function", "setAccountDetail",
 		"account", args.Account,
 		"key", args.Key,
 		"value", args.Value)
@@ -408,7 +408,7 @@ func getAccountDetail(ctx native.Context, args getAccountDetailArgs) (getAccount
 		return getAccountDetailRets{}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "GetAccountDetail")
+	ctx.Logger.Trace.Log("function", "getAccountDetail")
 
 	return getAccountDetailRets{Result: details}, nil
 }
@@ -450,7 +450,7 @@ func addSignatory(ctx native.Context, args addSignatoryArgs) (addSignatoryRets, 
 		return addSignatoryRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "AddSignatory",
+	ctx.Logger.Trace.Log("function", "addSignatory",
 		"account id", args.Account,
 		"public key", args.Key)
 
@@ -472,7 +472,7 @@ func removeSignatory(ctx native.Context, args removeSignatoryArgs) (removeSignat
 		return removeSignatoryRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "RemoveSignatory",
+	ctx.Logger.Trace.Log("function", "removeSignatory",
 		"account id", args.Account,
 		"public key", args.Key)
 
@@ -494,7 +494,7 @@ func createDomain(ctx native.Context, args createDomainArgs) (createDomainRets, 
 		return createDomainRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "CreateDomain",
+	ctx.Logger.Trace.Log("function", "createDomain",
 		"domain name", args.Domain,
 		"default role", args.Role)
 
@@ -514,7 +514,7 @@ func getAccount(ctx native.Context, args getAccountArgs) (getAccountRets, error)
 	if err != nil {
 		return getAccountRets{}, err
 	}
-	ctx.Logger.Trace.Log("function", "GetAccount",
+	ctx.Logger.Trace.Log("function", "getAccount",
 		"account", args.Account,
 		"domain", account.GetDomainId(),
 		"quorum", fmt.Sprint(account.GetQuorum()))
@@ -538,7 +538,7 @@ func createAsset(ctx native.Context, args createAssetArgs) (createAssetRets, err
 		return createAssetRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "CreateAsset",
+	ctx.Logger.Trace.Log("function", "createAsset",
 		"asset name", args.Name,
 		"domain id", args.Domain,
 		"precision", args.Precision)
@@ -546,46 +546,46 @@ func createAsset(ctx native.Context, args createAssetArgs) (createAssetRets, err
 	return createAssetRets{Result: true}, nil
 }
 
-type getSignatoryArgs struct {
+type getSignatoriesArgs struct {
 	Account string
 }
 
-type getSignatoryRets struct {
+type getSignatoriesRets struct {
 	Keys []string
 }
 
-func getSignatory(ctx native.Context, args getSignatoryArgs) (getSignatoryRets, error) {
+func getSignatories(ctx native.Context, args getSignatoriesArgs) (getSignatoriesRets, error) {
 	signatory, err := iroha.GetSignatories(args.Account)
 	if err != nil {
-		return getSignatoryRets{}, err
+		return getSignatoriesRets{}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "GetSignatory",
+	ctx.Logger.Trace.Log("function", "getSignatories",
 		"account", args.Account,
 		"key", signatory)
 
-	return getSignatoryRets{Keys: signatory}, nil
+	return getSignatoriesRets{Keys: signatory}, nil
 }
 
-type getAssetArgs struct {
+type getAssetInfoArgs struct {
 	Asset string
 }
 
-type getAssetRets struct {
+type getAssetInfoRets struct {
 	Result string
 }
 
-func getAsset(ctx native.Context, args getAssetArgs) (getAssetRets, error) {
+func getAssetInfo(ctx native.Context, args getAssetInfoArgs) (getAssetInfoRets, error) {
 	asset, err := iroha.GetAssetInfo(args.Asset)
 	if err != nil {
-		return getAssetRets{}, err
+		return getAssetInfoRets{}, err
 	}
-	ctx.Logger.Trace.Log("function", "getAsset",
+	ctx.Logger.Trace.Log("function", "getAssetInfo",
 		"asset", args.Asset,
 		"domain", asset.GetDomainId(),
 		"precision", fmt.Sprint(asset.GetPrecision()))
 	result, err := json.Marshal(asset)
-	return getAssetRets{Result: string(result)}, nil
+	return getAssetInfoRets{Result: string(result)}, nil
 }
 
 type appendRoleArgs struct {
@@ -603,7 +603,7 @@ func appendRole(ctx native.Context, args appendRoleArgs) (appendRoleRets, error)
 		return appendRoleRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "AppendRole",
+	ctx.Logger.Trace.Log("function", "appendRole",
 		"account name", args.Account,
 		"new role", args.Role)
 
@@ -625,7 +625,7 @@ func detachRole(ctx native.Context, args detachRoleArgs) (detachRoleRets, error)
 		return detachRoleRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "DetachRole",
+	ctx.Logger.Trace.Log("function", "detachRole",
 		"account name", args.Account,
 		"removed role", args.Role)
 
@@ -647,7 +647,7 @@ func addPeer(ctx native.Context, args addPeerArgs) (addPeerRets, error) {
 		return addPeerRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "DetachRole",
+	ctx.Logger.Trace.Log("function", "addPeer",
 		"peer address", args.Address,
 		"peer key", args.PeerKey)
 
@@ -668,7 +668,7 @@ func removePeer(ctx native.Context, args removePeerArgs) (removePeerRets, error)
 		return removePeerRets{Result: false}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "RemovePeer",
+	ctx.Logger.Trace.Log("function", "removePeer",
 		"peer key", args.PeerKey)
 
 	return removePeerRets{Result: true}, nil

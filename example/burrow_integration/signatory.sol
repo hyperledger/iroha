@@ -38,9 +38,9 @@ contract Signatory {
     }
 
     // Gets signatories of account
-    function getSignatory(string memory name) public  returns (bytes memory result) {
+    function getSignatories(string memory name) public  returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "getSignatory(string)",
+            "getSignatories(string)",
             name);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
