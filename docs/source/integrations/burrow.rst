@@ -74,7 +74,7 @@ Current release of the Iroha EVM wrapper contains a single service contract depl
      - Signature of exposed API methods
      - Arguments
    * - 1
-     - `addAsset(string,string) <../develop/api/commands.html#add-asset-quantity>`_
+     - `addAssetQuantity(string,string) <../develop/api/commands.html#add-asset-quantity>`_
      - asset_id, amount
    * - 2 
      - `addPeer(string,string) <../develop/api/commands.html#add-peer>`_
@@ -110,7 +110,7 @@ Current release of the Iroha EVM wrapper contains a single service contract depl
      - `setAccountQuorum(string,string) <../develop/api/commands.html#set-account-quorum>`_
      - account_id, quorum
    * - 13 
-     - `subtractAsset(string,string) <../develop/api/commands.html#subtract-asset-quantity>`_
+     - `subtractAssetQuantity(string,string) <../develop/api/commands.html#subtract-asset-quantity>`_
      - asset_id, amount 
    * - 14 
      - `transferAsset(string,string,string,string,string) <../develop/api/commands.html#transfer-asset>`_
@@ -122,7 +122,7 @@ Current release of the Iroha EVM wrapper contains a single service contract depl
      - `getBlock(string) <../develop/api/queries.html#get-block>`_
      - height
    * - 17 
-     - `getSignatory(string) <../develop/api/queries.html#get-signatories>`_
+     - `getSignatories(string) <../develop/api/queries.html#get-signatories>`_
      - account_id
    * - 18 
      - `getAssetBalance(string,string) <../develop/api/queries.html#get-account-assets>`_
@@ -131,7 +131,7 @@ Current release of the Iroha EVM wrapper contains a single service contract depl
      - `getAccountDetail() <../develop/api/queries.html#get-account-detail>`_
      -	 
    * - 20
-     - `getAsset(string) <../develop/api/queries.html#get-asset-info>`_
+     - `getAssetInfo(string) <../develop/api/queries.html#get-asset-info>`_
      - asset_id
    * - 21 
      - `getRoles() <../develop/api/queries.html#get-roles>`_
