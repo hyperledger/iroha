@@ -43,6 +43,7 @@ namespace shared_model::proto {
                 RESPONSE_NOT_SET:
               assert(!"Unexpected response case.");
           };
+          std::abort();  // suppress -Wreturn-type
         }()};
 
     const QueryResponseVariantType ivariant_{variant_};

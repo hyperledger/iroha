@@ -80,6 +80,7 @@ namespace shared_model::proto {
         case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
           assert(!"Unexpected query response case.");
       }
+      std::abort();  // noreturn, suppress -Wreturn-type
     }()};
 
     const QueryResponseVariantType ivariant_{variant_};

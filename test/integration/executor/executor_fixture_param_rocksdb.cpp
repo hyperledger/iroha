@@ -32,7 +32,6 @@ using namespace iroha::integration_framework;
 namespace fs = boost::filesystem;
 
 namespace {
-  constexpr size_t kDataBaseSessionPoolSize = 5;  // sessions for:
   ExecutorItfTarget createRocksDBExecutorItfTarget(
       std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port, VmCaller &);
 }  // namespace

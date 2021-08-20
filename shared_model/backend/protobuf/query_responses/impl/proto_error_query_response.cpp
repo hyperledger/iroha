@@ -56,6 +56,7 @@ namespace shared_model::proto {
               default:
                 assert(!"Unexpected query error response case.");
             }
+            std::abort();  // suppress -Wreturn-type
           }()},
           ivariant_{variant_} {}
 

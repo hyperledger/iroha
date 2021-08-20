@@ -95,6 +95,7 @@ namespace shared_model::proto {
         case iroha::protocol::Command::CommandCase::COMMAND_NOT_SET:
           assert(!"Unexpected command case.");
       };
+      std::abort();  // never return, suppress -Wreturn-type
     }()};
 
     CommandVariantType ivariant_{variant_};

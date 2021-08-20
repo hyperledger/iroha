@@ -231,7 +231,7 @@ makeStorage() {
       query_response_factory_ =
           std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
-#if defined(USE_BURROW)
+#if 0 and defined(USE_BURROW)
   vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
 #endif
   std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
@@ -269,6 +269,7 @@ class FlatBlockQuery : public BlockQueryBase {
   std::optional<int32_t> getTxStatus(
       const shared_model::crypto::Hash &hash) override {
     assert(0);
+    return {};
   }
 };
 expected::Result<void, std::string> restoreWsv() {
