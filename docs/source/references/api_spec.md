@@ -8,7 +8,7 @@
 
 **Encoding**: Parity Scale Codec
 
-**Endpoint**: `/instruction`
+**Endpoint**: `/transaction`
 
 **Method**: `POST`
 
