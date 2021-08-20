@@ -275,12 +275,15 @@ async fn handle_queries<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait>(
     Ok(Scale(result))
 }
 
+#[derive(Serialize)]
+#[non_exhaustive]
+enum Health {
+    Healthy,
+}
+
 #[iroha_futures::telemetry_future]
 async fn handle_health() -> Json {
-    #[derive(Serialize)]
-    struct Healthy;
-
-    reply::json(&Healthy)
+    reply::json(&Health::Healthy)
 }
 
 #[iroha_futures::telemetry_future]
