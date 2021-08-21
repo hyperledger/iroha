@@ -153,6 +153,22 @@ fi
 test -n "${MATRIX:-}" ||
    { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
 
+
+############# FIXME remove this after build fixed #############
+quoted(){
+   while read line ;do echo -n "'$line' " ;done
+}
+ignored=$(mktemp)
+echo "$MATRIX" | awk -v IGNORECASE=1 '/clang-10/ && /release/' >$ignored
+MATRIX="$( grep -Fvx -f $ignored <<<"$MATRIX" )"
+if test -s $ignored
+then cat $ignored | quoted | echowarn "FIXME At the moment we are NOT able to build Release with Clang-10," \
+                                      "because civetweb-cpp from vcpkg. Buildspecs are dropped: $(cat)"
+fi
+rm -f $ignored
+############# END fixme remove this after build fixed #########
+
+
 to_json(){
    echo "{
          os:\"$1\",
