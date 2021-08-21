@@ -140,14 +140,6 @@ fi
 test -n "${MATRIX:-}" ||
    { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
 
-
-############# FIXME remove this after build fixed #############
-echo "$MATRIX" | awk -v IGNORECASE=1 '!/gcc-9/ && /release/' | while read line ;do echo "'$line'" ;done |
-   echowarn "FIXME At the moment we are able to build Release only with GCC-9, other buildspecs are dropped: "$(cat)
-MATRIX="$(echo "$MATRIX" | awk -v IGNORECASE=1 '!(!/gcc-9/ && /release/)' )"  ##FIXME lifehack to disable always failing build during linkage
-############# END fixme remove this after build fixed #########
-
-
 to_json(){
    echo "{
          os:\"$1\",
