@@ -449,25 +449,26 @@ jobs:
           $(realpath $CCACHE_PATH/gcc) --show-config
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
-      - name: Restore cache ccache
+          echo >>$GITHUB_ENV HOME=$HOME
+      - name: Restore cache CCache
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache
+          key: ${{runner.os}}-ccache-${{matrix.CC}}.${{ github.event.after }}
+          restore-keys: ${{runner.os}}-ccache-${{matrix.CC}}.
       - run: ccache --show-stats | tee /tmp/ccache-stats
-      - if: ${{false}} ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
+      - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
         ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env.HOME }}/.cache/vcpkg/archives
-          #  $HOME/.cache/vcpkg
+            ${{env.HOME}}/.cache/vcpkg/archives
           #  build-vcpkg/installed
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
-          key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
-          # key:          ${{ runner.os }}-vcpkg-${{matrix.CC}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.CC}}-
+          # key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
+          key: ${{runner.os}}-vcpkg-${{matrix.CC}}.${{ hashFiles('vcpkg/**') }}
+          restore-keys: ${{runner.os}}-vcpkg-${{matrix.CC}}.
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg; test -f $PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
@@ -722,25 +723,26 @@ jobs:
           $(realpath $CCACHE_PATH/gcc) --show-config
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
-      - name: Restore cache ccache
+          echo >>$GITHUB_ENV HOME=$HOME
+      - name: Restore cache CCache
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache
+          key: ${{runner.os}}-ccache-${{matrix.CC}}.${{ github.event.after }}
+          restore-keys: ${{runner.os}}-ccache-${{matrix.CC}}.
       - run: ccache --show-stats | tee /tmp/ccache-stats
-      - if: ${{false}} ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
+      - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
         ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env.HOME }}/.cache/vcpkg/archives
-          #  $HOME/.cache/vcpkg
+            ${{env.HOME}}/.cache/vcpkg/archives
           #  build-vcpkg/installed
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
-          key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
-          # key:          ${{ runner.os }}-vcpkg-${{matrix.CC}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.CC}}-
+          # key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
+          key: ${{runner.os}}-vcpkg-${{matrix.CC}}.${{ hashFiles('vcpkg/**') }}
+          restore-keys: ${{runner.os}}-vcpkg-${{matrix.CC}}.
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg; test -f $PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
@@ -990,28 +992,29 @@ jobs:
           $(realpath $CCACHE_PATH/gcc) --show-config
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          echo >>$GITHUB_ENV HOME=$HOME
         env:
           CC: ${{matrix.CC}}
           CCACHE_PATH: /usr/local/opt/ccache/libexec
-      - name: Restore cache ccache
+      - name: Restore cache CCache
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache
+          key: ${{runner.os}}-ccache-${{matrix.CC}}.${{ github.event.after }}
+          restore-keys: ${{runner.os}}-ccache-${{matrix.CC}}.
       - run: ccache --show-stats | tee /tmp/ccache-stats
-      - if: ${{false}} ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
+      - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
         ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env.HOME }}/.cache/vcpkg/archives
-          #  $HOME/.cache/vcpkg
+            ${{env.HOME}}/.cache/vcpkg/archives
           #  build-vcpkg/installed
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
-          key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
-          # key:          ${{ runner.os }}-vcpkg-${{matrix.CC}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.CC}}-
+          # key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
+          key: ${{runner.os}}-vcpkg-${{matrix.CC}}.${{ hashFiles('vcpkg/**') }}
+          restore-keys: ${{runner.os}}-vcpkg-${{matrix.CC}}.
       - name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg; test -f $PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
@@ -1587,6 +1590,3 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
-    # env:
-    #   <<: *env_dockerhub_release
-    #   IMAGE_NAME: iroha-debug

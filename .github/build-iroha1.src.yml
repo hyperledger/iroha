@@ -407,28 +407,29 @@ jobs:
           $(realpath $CCACHE_PATH/gcc) --show-config
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          echo >>$GITHUB_ENV HOME=$HOME
       - &step_restore_ccache
-        name: Restore cache ccache
+        name: Restore cache CCache
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key:  ${{ runner.os }}-ccache
+          key:          ${{runner.os}}-ccache-${{matrix.CC}}.${{ github.event.after }}
+          restore-keys: ${{runner.os}}-ccache-${{matrix.CC}}.
       - &step_store_ccache_stats
         run: ccache --show-stats | tee /tmp/ccache-stats
       - &step_vcpkg_cache
-        if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
+        #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
         ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache vcpkg
         uses: actions/cache@v2
         with:
           path: |
-            ${{ env.HOME }}/.cache/vcpkg/archives
-          #  $HOME/.cache/vcpkg
+            ${{env.HOME}}/.cache/vcpkg/archives
           #  build-vcpkg/installed
           #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
-          key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
-          # key:          ${{ runner.os }}-vcpkg-${{matrix.CC}}-${{ hashFiles('build-vcpkg/installed/vcpkg/status') }}
-          # restore-keys: ${{ runner.os }}-vcpkg-${{matrix.CC}}-
+          # key: ${{ runner.os }}-${{matrix.CC}}-vcpkg
+          key:          ${{runner.os}}-vcpkg-${{matrix.CC}}.${{ hashFiles('vcpkg/**') }}
+          restore-keys: ${{runner.os}}-vcpkg-${{matrix.CC}}.
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg; test -f $PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -449,7 +450,8 @@ jobs:
         ## Takes 13s on regular GitHub runner
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
           -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }}
-          -GNinja ${{ matrix.CMAKE_USE }}
+          -GNinja
+          ${{ matrix.CMAKE_USE }}
           -DTESTING=ON
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON
@@ -801,6 +803,3 @@ jobs:
       - generate_matrixes
     strategy: *strategy_ubuntu_debug
     if: *if_ubuntu_debug
-    # env:
-    #   <<: *env_dockerhub_release
-    #   IMAGE_NAME: iroha-debug
