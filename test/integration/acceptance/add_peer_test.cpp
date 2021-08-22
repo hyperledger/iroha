@@ -14,7 +14,6 @@
 #include "ametsuchi/storage.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "common/bind.hpp"
-#include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"

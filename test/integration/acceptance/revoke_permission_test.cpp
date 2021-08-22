@@ -299,7 +299,7 @@ namespace grantables {
     }
 
     IntegrationTestFramework &prepare(GrantablePermissionsFixture &f,
-                                      IntegrationTestFramework &itf) {
+                                      IntegrationTestFramework &itf) override {
       auto create_and_transfer_coins =
           GrantablePermissionsFixture::TxBuilder()
               .createdTime(f.getUniqueTime())

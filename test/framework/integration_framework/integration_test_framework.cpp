@@ -21,6 +21,7 @@
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction_sequence_builder.hpp"
+#include "common/disable_warnings.h"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "cryptography/blob.hpp"
 #include "cryptography/default_hash_provider.hpp"
@@ -254,8 +255,11 @@ IntegrationTestFramework::IntegrationTestFramework(
       config_.block_store_path = block_store_path;
     } break;
     case iroha::StorageType::kRocksDb: {
+      DISABLE_WARNING_PUSH
+      DISABLE_WARNING_MISSING_FIELD_INITIALIZERS
       config_.database_config =
           IrohadConfig::DbConfig{kDbTypeRocksdb, db_wsv_path_};
+      DISABLE_WARNING_POP
       config_.block_store_path =
           !block_store_path ? db_store_path_ : block_store_path;
     } break;
