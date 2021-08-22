@@ -3,13 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "integration/acceptance/fake_peer_fixture.hpp"
-
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-observe_on.hpp>
 #include <rxcpp/operators/rx-replay.hpp>
 #include <rxcpp/operators/rx-take.hpp>
 #include <rxcpp/operators/rx-timeout.hpp>
+
 #include "ametsuchi/block_query.hpp"
 #include "ametsuchi/storage.hpp"
 #include "builders/protobuf/transaction.hpp"
@@ -21,6 +20,7 @@
 #include "framework/integration_framework/iroha_instance.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/test_logger.hpp"
+#include "integration/acceptance/fake_peer_fixture.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "main/subscription.hpp"
@@ -61,8 +61,9 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   auto subscriber =
       SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
           template create<EventTypes::kOnSynchronization>(
-              static_cast<SubscriptionEngineHandlers>(decltype(
-                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
+              static_cast<SubscriptionEngineHandlers>(
+                  decltype(getSubscription())::element_type::Dispatcher::
+                      kExecuteInPool),
               [prepared_height,
                &completed,
                itf_peer = itf_->getThisPeer(),
@@ -93,7 +94,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
 
   // query WSV peers
   auto opt_peers = itf.getIrohaInstance()
-                       .getIrohaInstance()
+                       .getTestIrohad()
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
@@ -166,7 +167,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
   auto initial_peer = itf_->addFakePeer(boost::none);
 
   // create a genesis block without only initial fake peer in it
-  shared_model::interface::RolePermissionSet all_perms{};
+  shared_model::interface::RolePermissionSet all_perms {};
   for (size_t i = 0; i < all_perms.size(); ++i) {
     auto perm = static_cast<shared_model::interface::permissions::Role>(i);
     all_perms.set(perm);
@@ -261,8 +262,9 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
   auto subscriber =
       SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
           template create<EventTypes::kOnSynchronization>(
-              static_cast<SubscriptionEngineHandlers>(decltype(
-                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
+              static_cast<SubscriptionEngineHandlers>(
+                  decltype(getSubscription())::element_type::Dispatcher::
+                      kExecuteInPool),
               [height = block_with_add_peer.height(),
                &completed,
                itf_peer = itf_->getThisPeer(),
@@ -290,7 +292,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
 
   // check that itf peer sees the two peers in the WSV
   auto opt_peers = itf_->getIrohaInstance()
-                       .getIrohaInstance()
+                       .getTestIrohad()
                        ->getStorage()
                        ->createPeerQuery()
                        .value()

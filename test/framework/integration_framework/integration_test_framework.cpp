@@ -238,7 +238,7 @@ IntegrationTestFramework::IntegrationTestFramework(
       db_store_path_(std::move(db_store_path)) {
   // 1 h proposal_timeout results in non-deterministic behavior due to thread
   // scheduling and network
-  config_.proposal_delay = 3600000;
+  config_.proposal_delay = 3600'000;
   // 100 ms is small delay to avoid unnecessary messages due to eternal voting
   // and to allow scheduler to switch threads
   config_.vote_delay = 100;
@@ -287,8 +287,8 @@ IntegrationTestFramework::~IntegrationTestFramework() {
     server->shutdown(std::chrono::system_clock::now());
   }
   // the code below should be executed anyway in order to prevent app hang
-  if (iroha_instance_ and iroha_instance_->getIrohaInstance()) {
-    iroha_instance_->getIrohaInstance()->terminate();
+  if (iroha_instance_ and iroha_instance_->getTestIrohad()) {
+    iroha_instance_->getTestIrohad()->terminate();
   }
 }
 
@@ -524,28 +524,26 @@ std::string IntegrationTestFramework::getAddress() const {
 
 rxcpp::observable<std::shared_ptr<iroha::MstState>>
 IntegrationTestFramework::getMstStateUpdateObservable() {
-  return iroha_instance_->getIrohaInstance()
-      ->getMstProcessor()
-      ->onStateUpdate();
+  return iroha_instance_->getTestIrohad()->getMstProcessor()->onStateUpdate();
 }
 
 rxcpp::observable<iroha::BatchPtr>
 IntegrationTestFramework::getMstPreparedBatchesObservable() {
-  return iroha_instance_->getIrohaInstance()
+  return iroha_instance_->getTestIrohad()
       ->getMstProcessor()
       ->onPreparedBatches();
 }
 
 rxcpp::observable<iroha::BatchPtr>
 IntegrationTestFramework::getMstExpiredBatchesObservable() {
-  return iroha_instance_->getIrohaInstance()
+  return iroha_instance_->getTestIrohad()
       ->getMstProcessor()
       ->onExpiredBatches();
 }
 
 std::shared_ptr<iroha::ametsuchi::BlockQuery>
 IntegrationTestFramework::getBlockQuery() {
-  return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
+  return getIrohaInstance().getTestIrohad()->getStorage()->getBlockQuery();
 }
 
 IntegrationTestFramework &IntegrationTestFramework::getTxStatus(
