@@ -626,19 +626,10 @@ jobs:
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          module_postgres_query_executor_test
-          system_irohad_test
           integration_add_peer_test
-          integration_batch_pipeline_test
-          integration_get_transactions_test
           integration_query_permissions_common_test
-          integration_query_test
           regression_regression_test
-          module_rocksdb_executor_test
-          module_gossip_propagation_strategy_test
-          integration_queries_acceptance_test
-          integration_fake_peer_example_test
-          integration_remove_peer_test
+          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -905,19 +896,10 @@ jobs:
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          module_postgres_query_executor_test
-          system_irohad_test
           integration_add_peer_test
-          integration_batch_pipeline_test
-          integration_get_transactions_test
           integration_query_permissions_common_test
-          integration_query_test
           regression_regression_test
-          module_rocksdb_executor_test
-          module_gossip_propagation_strategy_test
-          integration_queries_acceptance_test
-          integration_fake_peer_example_test
-          integration_remove_peer_test
+          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -1178,19 +1160,10 @@ jobs:
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          module_postgres_query_executor_test
-          system_irohad_test
           integration_add_peer_test
-          integration_batch_pipeline_test
-          integration_get_transactions_test
           integration_query_permissions_common_test
-          integration_query_test
           regression_regression_test
-          module_rocksdb_executor_test
-          module_gossip_propagation_strategy_test
-          integration_queries_acceptance_test
-          integration_fake_peer_example_test
-          integration_remove_peer_test
+          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
