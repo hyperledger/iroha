@@ -401,6 +401,10 @@ namespace iroha::ametsuchi {
       assert(db_port);
     }
 
+    [[nodiscard]] bool isFree() {
+      return this_context_cs.try_lock() && (this_context_cs.unlock(), true);
+    }
+
    private:
     friend class RocksDbCommon;
     friend struct RocksDBPort;
