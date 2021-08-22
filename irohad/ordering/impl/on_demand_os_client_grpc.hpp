@@ -46,6 +46,11 @@ namespace iroha {
             logger::LoggerPtr log,
             std::function<void(ProposalEvent)> callback);
 
+        ~OnDemandOsClientGrpc() override {
+          if (auto sh_ctx = context_.lock())
+            sh_ctx->TryCancel();
+        }
+
         void onBatches(CollectionType batches) override;
 
         void onRequestProposal(consensus::Round round) override;
