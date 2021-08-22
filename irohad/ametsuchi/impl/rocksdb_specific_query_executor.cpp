@@ -9,7 +9,6 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <rocksdb/utilities/transaction.h>
-
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -87,17 +86,14 @@ QueryExecutorResult RocksDbSpecificQueryExecutor::execute(
       [this, &qry](const auto &query) {
         auto &query_hash = qry.hash();
         try {
+          RocksDbCommon common(db_context_);
           auto const &[account_name, domain_id] =
               staticSplitId<2ull>(qry.creatorAccountId());
 
           // get account permissions
-          expected::Result<shared_model::interface::RolePermissionSet, DbError>
-              perm_result;
-          {
-            RocksDbCommon common(db_context_);
-            perm_result = accountPermissions(common, account_name, domain_id);
-          }
-          if (expected::hasError(perm_result))
+          if (auto perm_result =
+                  accountPermissions(common, account_name, domain_id);
+              expected::hasError(perm_result))
             return query_response_factory_->createErrorQueryResponse(
                 ErrorQueryType::kStatefulFailed,
                 fmt::format("Query: {}, message: {}",
@@ -105,7 +101,8 @@ QueryExecutorResult RocksDbSpecificQueryExecutor::execute(
                             perm_result.assumeError().description),
                 perm_result.assumeError().code,
                 query_hash);
-          else if (auto result = (*this)(query,
+          else if (auto result = (*this)(common,
+                                         query,
                                          qry.creatorAccountId(),
                                          query_hash,
                                          perm_result.assumeValue());
@@ -144,13 +141,13 @@ bool RocksDbSpecificQueryExecutor::hasAccountRolePermission(
   return false;
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetAccount &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  RocksDbCommon common(db_context_);
   auto const &[creator_account_name, creator_domain_id] =
       staticSplitId<2ull>(creator_id);
   auto const &[account_name, domain_id] =
@@ -184,15 +181,15 @@ RocksDbSpecificQueryExecutor::operator()(
       details, aggregateAccountDetails(common, account_name, domain_id, total));
 
   std::vector<std::string> roles;
-  auto status = ametsuchi::enumerateKeys(
-      common,
-      [&](auto role) {
-        roles.emplace_back(role.ToStringView());
-        return true;
-      },
-      fmtstrings::kPathAccountRoles,
-      domain_id,
-      account_name);
+  auto status =
+      ametsuchi::enumerateKeys(common,
+                               [&](auto role) {
+                                 roles.emplace_back(role.ToStringView());
+                                 return true;
+                               },
+                               fmtstrings::kPathAccountRoles,
+                               domain_id,
+                               account_name);
   RDB_ERROR_CHECK(canExist(status, [&]() {
     return fmt::format("Enumerate roles for account {}", query.accountId());
   }));
@@ -206,8 +203,9 @@ RocksDbSpecificQueryExecutor::operator()(
       query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetBlock &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -236,8 +234,9 @@ RocksDbSpecificQueryExecutor::operator()(
                                                       query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetSignatories &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -256,17 +255,16 @@ RocksDbSpecificQueryExecutor::operator()(
                                    Role::kGetDomainSignatories,
                                    Role::kGetMySignatories));
 
-  RocksDbCommon common(db_context_);
   std::vector<std::string> signatories;
-  auto const status = enumerateKeys(
-      common,
-      [&](auto const &signatory) {
-        signatories.emplace_back(signatory.ToStringView());
-        return true;
-      },
-      fmtstrings::kPathSignatories,
-      domain_id,
-      account_name);
+  auto const status =
+      enumerateKeys(common,
+                    [&](auto const &signatory) {
+                      signatories.emplace_back(signatory.ToStringView());
+                      return true;
+                    },
+                    fmtstrings::kPathSignatories,
+                    domain_id,
+                    account_name);
   RDB_ERROR_CHECK(canExist(status, [&]() {
     return fmt::format("Enumerate signatories for account {}",
                        query.accountId());
@@ -284,21 +282,19 @@ RocksDbSpecificQueryExecutor::operator()(
 }
 
 struct TxPosition {
-  uint64_t ts = -1;
-  uint64_t height = -1;
-  uint64_t index = -1;
-
-  inline static void decode(std::string_view ts,
-                            std::string_view height,
-                            std::string_view index,
-                            TxPosition &out) {
-    std::from_chars(ts.data(), ts.data() + ts.size(), out.ts);
-    std::from_chars(height.data(), height.data() + height.size(), out.height);
-    std::from_chars(index.data(), index.data() + index.size(), out.index);
-    // FIXME Shouldn't we report error, uninitialized ts,height,index could
-    // outcome
-  }
+  uint64_t ts;
+  uint64_t height;
+  uint64_t index;
 };
+
+inline void decodePosition(std::string_view ts,
+                           std::string_view height,
+                           std::string_view index,
+                           TxPosition &out) {
+  std::from_chars(ts.data(), ts.data() + ts.size(), out.ts);
+  std::from_chars(height.data(), height.data() + height.size(), out.height);
+  std::from_chars(index.data(), index.data() + index.size(), out.index);
+}
 
 template <typename Pred, typename OutputIterator>
 iroha::expected::Result<void, std::string>
@@ -306,9 +302,6 @@ RocksDbSpecificQueryExecutor::getTransactionsFromBlock(uint64_t block_id,
                                                        uint64_t tx_index,
                                                        Pred &&pred,
                                                        OutputIterator dest_it) {
-  // At this point RocksdbCommon must be free, because block_store.fetch() locks
-  // another one
-  assert(db_context_->isFree() && "in readTxs()");
   auto opt_block = block_store_.fetch(block_id);
   if (not opt_block) {
     return iroha::expected::makeError(
@@ -336,6 +329,7 @@ RocksDbSpecificQueryExecutor::getTransactionsFromBlock(uint64_t block_id,
 template <bool readTxsWithAssets, typename Qry>
 RocksDbSpecificQueryExecutor::ExecutionResult
 RocksDbSpecificQueryExecutor::readTxs(
+    RocksDbCommon &common,
     std::shared_ptr<shared_model::interface::QueryResponseFactory>
         &query_response_factory,
     const Qry &query,
@@ -347,15 +341,9 @@ RocksDbSpecificQueryExecutor::readTxs(
   ordering.get(ordering_ptr, count);
   assert(count > 0ull);
 
-  auto all_txs_size = 0ull;
-  {
-    assert(db_context_->isFree() && "in readTxs()");
-    RocksDbCommon common(db_context_);
-    RDB_TRY_GET_VALUE(opt_txs_total,
-                      forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
-                          common, query.accountId()));
-    all_txs_size = opt_txs_total ? *opt_txs_total : 0ull;
-  }
+  RDB_TRY_GET_VALUE(opt_txs_total,
+                    forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+                        common, query.accountId()));
 
   std::vector<std::unique_ptr<shared_model::interface::Transaction>>
       response_txs;
@@ -368,9 +356,9 @@ RocksDbSpecificQueryExecutor::readTxs(
           typename decltype(query.paginationMeta().lastTxTime())::value_type>,
       "Type of firstTxTime and lastTxTime must be the same!");
   static_assert(
-      std::is_same_v<
-          decltype(PaginationBounds::tsFrom),
-          typename decltype(query.paginationMeta().lastTxTime())::value_type>,
+      std::is_same_v<decltype(PaginationBounds::tsFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxTime())::value_type>,
       "Type of firstTxTime and lastTxTime must be the same!");
 
   static_assert(
@@ -379,26 +367,23 @@ RocksDbSpecificQueryExecutor::readTxs(
           typename decltype(query.paginationMeta().lastTxHeight())::value_type>,
       "Height types must be the same!");
   static_assert(
-      std::is_same_v<
-          decltype(PaginationBounds::heightFrom),
-          typename decltype(query.paginationMeta().lastTxHeight())::value_type>,
+      std::is_same_v<decltype(PaginationBounds::heightFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxHeight())::value_type>,
       "Height types must be the same!");
 
   PaginationBounds const bounds{
       query.paginationMeta().firstTxHeight().value_or(
           shared_model::interface::types::HeightType(1ull)),
       query.paginationMeta().lastTxHeight().value_or(
-          std::numeric_limits<
-              typename decltype(query.paginationMeta()
-                                    .lastTxHeight())::value_type>::max()),
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxHeight())::value_type>::max()),
       query.paginationMeta().firstTxTime().value_or(
-          std::numeric_limits<
-              typename decltype(query.paginationMeta()
-                                    .firstTxTime())::value_type>::min()),
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().firstTxTime())::value_type>::min()),
       query.paginationMeta().lastTxTime().value_or(
-          std::numeric_limits<
-              typename decltype(query.paginationMeta()
-                                    .lastTxTime())::value_type>::max())};
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxTime())::value_type>::max())};
 
   auto parser = [&](auto p, auto d) {
     auto const &[asset, tx_hash] = staticSplitId<2ull>(d.ToStringView(), "%");
@@ -412,36 +397,35 @@ RocksDbSpecificQueryExecutor::readTxs(
     TxPosition tx_position = {0ull, 0ull, 0ull};
     if (ordering_ptr->field
         == shared_model::interface::Ordering::Field::kCreatedTime)
-      TxPosition::decode(
+      decodePosition(
           position.at(0), position.at(2), position.at(4), tx_position);
     else
-      TxPosition::decode(
+      decodePosition(
           position.at(4), position.at(0), position.at(2), tx_position);
 
     static_assert(
-        std::is_unsigned_v<
-            decltype(tx_position
-                         .height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>,
+        std::is_unsigned_v<decltype(
+                tx_position
+                    .height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>,
         "Height must be unsigned");
     if ((tx_position.height - bounds.heightFrom)
         > (bounds.heightTo - bounds.heightFrom))
       return true;
 
     static_assert(
-        std::is_unsigned_v<
-            decltype(tx_position
-                         .ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>,
+        std::is_unsigned_v<decltype(
+                tx_position.ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>,
         "TS must be unsigned");
     if ((tx_position.ts - bounds.tsFrom) > (bounds.tsTo - bounds.tsFrom))
       return true;
 
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
-      auto txs_result = getTransactionsFromBlock(
-          tx_position.height,
-          tx_position.index,
-          [](auto &) { return true; },
-          std::back_inserter(response_txs));
+      auto txs_result =
+          getTransactionsFromBlock(tx_position.height,
+                                   tx_position.index,
+                                   [](auto &) { return true; },
+                                   std::back_inserter(response_txs));
       if (auto e = iroha::expected::resultToOptionalError(txs_result))
         return true;
 
@@ -451,9 +435,6 @@ RocksDbSpecificQueryExecutor::readTxs(
       return false;
     }
   };
-
-  assert(db_context_->isFree() && "in readTxs()");
-  RocksDbCommon common(db_context_);
 
   rocksdb::Status status = rocksdb::Status::OK();
   if (query.paginationMeta().firstTxHash()) {
@@ -526,11 +507,15 @@ RocksDbSpecificQueryExecutor::readTxs(
   }));
 
   return query_response_factory->createTransactionsPageResponse(
-      std::move(response_txs), next_page, all_txs_size, query_hash);
+      std::move(response_txs),
+      next_page,
+      opt_txs_total ? *opt_txs_total : 0ull,
+      query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetAccountTransactions &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -549,11 +534,12 @@ RocksDbSpecificQueryExecutor::operator()(
                                    Role::kGetDomainAccTxs,
                                    Role::kGetMyAccTxs));
 
-  return readTxs<false>(query_response_factory_, query, query_hash);
+  return readTxs<false>(common, query_response_factory_, query, query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetTransactions &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -575,47 +561,43 @@ RocksDbSpecificQueryExecutor::operator()(
     h_hex.clear();
     toLowerAppend(hash.hex(), h_hex);
 
-    TxPosition tx_position = {0ull, 0ull, 0ull};
     std::optional<std::string_view> opt;
-    {
-      RocksDbCommon common(db_context_);
-      if (auto r =
-              forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-                  common, h_hex);
-          expected::hasError(r))
-        return query_response_factory_->createErrorQueryResponse(
-            ErrorQueryType::kStatefulFailed,
-            fmt::format("Query: {}, message: {}",
-                        query.toString(),
-                        r.assumeError().description),
-            ErrorCodes::kNoTransaction,
-            query_hash);
-      else
-        opt = std::move(r.assumeValue());
+    if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
+            common, h_hex);
+        expected::hasError(r))
+      return query_response_factory_->createErrorQueryResponse(
+          ErrorQueryType::kStatefulFailed,
+          fmt::format("Query: {}, message: {}",
+                      query.toString(),
+                      r.assumeError().description),
+          ErrorCodes::kNoTransaction,
+          query_hash);
+    else
+      opt = std::move(r.assumeValue());
 
-      auto const &[tx_status, tx_height, tx_index, tx_ts] =
-          staticSplitId<4ull>(*opt, "#");
+    auto const &[tx_status, tx_height, tx_index, tx_ts] =
+        staticSplitId<4ull>(*opt, "#");
 
-      TxPosition::decode(tx_ts, tx_height, tx_index, tx_position);
+    TxPosition tx_position = {0ull, 0ull, 0ull};
+    decodePosition(tx_ts, tx_height, tx_index, tx_position);
 
-      if (auto r =
-              forTransactionByPosition<kDbOperation::kGet,
-                                       kDbEntry::kMustExist>(common,
-                                                             creator_id,
-                                                             tx_position.ts,
-                                                             tx_position.height,
-                                                             tx_position.index);
-          !canRequestAll
-          && (expected::hasError(r)
-              || staticSplitId<2ull>(*r.assumeValue(), "%").at(1) != h_hex))
-        continue;
-    }
+    if (auto r =
+            forTransactionByPosition<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common,
+                creator_id,
+                tx_position.ts,
+                tx_position.height,
+                tx_position.index);
+        !canRequestAll
+        && (expected::hasError(r)
+            || staticSplitId<2ull>(*r.assumeValue(), "%").at(1) != h_hex))
+      continue;
 
-    auto txs_result = getTransactionsFromBlock(
-        tx_position.height,
-        tx_position.index,
-        [](auto &) { return true; },
-        std::back_inserter(response_txs));
+    auto txs_result =
+        getTransactionsFromBlock(tx_position.height,
+                                 tx_position.index,
+                                 [](auto &) { return true; },
+                                 std::back_inserter(response_txs));
     if (auto e = iroha::expected::resultToOptionalError(txs_result))
       return makeError<QueryExecutorResult>(
           ErrorCodes::kRetrieveTransactionsFailed,
@@ -627,8 +609,9 @@ RocksDbSpecificQueryExecutor::operator()(
       std::move(response_txs), query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetAccountAssetTransactions &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -647,12 +630,12 @@ RocksDbSpecificQueryExecutor::operator()(
                                    Role::kGetDomainAccAstTxs,
                                    Role::kGetMyAccAstTxs));
 
-  RocksDbCommon common(db_context_);
-  return readTxs<true>(query_response_factory_, query, query_hash);
+  return readTxs<true>(common, query_response_factory_, query, query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetAccountAssets &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -671,7 +654,6 @@ RocksDbSpecificQueryExecutor::operator()(
                                    Role::kGetDomainAccAst,
                                    Role::kGetMyAccAst));
 
-  RocksDbCommon common(db_context_);
   RDB_TRY_GET_VALUE(
       opt_acc_asset_size,
       forAccountAssetSize<kDbOperation::kGet, kDbEntry::kCanExist>(
@@ -732,8 +714,9 @@ RocksDbSpecificQueryExecutor::operator()(
       assets, account_asset_size, next_asset_id, query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetAccountDetail &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -743,7 +726,6 @@ RocksDbSpecificQueryExecutor::operator()(
   auto const &[account_name, domain_id] =
       staticSplitId<2ull>(query.accountId());
 
-  RocksDbCommon common(db_context_);
   if (auto r = forAccount<kDbOperation::kCheck, kDbEntry::kMustExist>(
           common, account_name, domain_id);
       expected::hasError(r))
@@ -806,35 +788,35 @@ RocksDbSpecificQueryExecutor::operator()(
       json, total, next, query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetRoles &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
   RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetRoles));
 
-  RocksDbCommon common(db_context_);
   std::vector<std::string> roles;
-  auto status = enumerateKeys(
-      common,
-      [&](auto const &role) {
-        if (!role.empty())
-          roles.emplace_back(role.ToStringView());
-        else {
-          assert(!"Role can not be empty string!");
-        }
-        return true;
-      },
-      fmtstrings::kPathRoles);
+  auto status = enumerateKeys(common,
+                              [&](auto const &role) {
+                                if (!role.empty())
+                                  roles.emplace_back(role.ToStringView());
+                                else {
+                                  assert(!"Role can not be empty string!");
+                                }
+                                return true;
+                              },
+                              fmtstrings::kPathRoles);
   RDB_ERROR_CHECK(canExist(status, [&] { return "Enumerate roles"; }));
 
   return query_response_factory_->createRolesResponse(std::move(roles),
                                                       query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetRolePermissions &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -842,7 +824,6 @@ RocksDbSpecificQueryExecutor::operator()(
   RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetRoles));
   auto &role_id = query.roleId();
 
-  RocksDbCommon common(db_context_);
   RDB_TRY_GET_VALUE(
       opt_permissions,
       forRole<kDbOperation::kGet, kDbEntry::kMustExist>(common, role_id));
@@ -851,8 +832,9 @@ RocksDbSpecificQueryExecutor::operator()(
       *opt_permissions, query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetAssetInfo &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -860,7 +842,6 @@ RocksDbSpecificQueryExecutor::operator()(
   RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kReadAssets));
   auto const &[asset_name, domain_id] = staticSplitId<2ull>(query.assetId());
 
-  RocksDbCommon common(db_context_);
   if (auto result = forAsset<kDbOperation::kGet, kDbEntry::kMustExist>(
           common, asset_name, domain_id);
       expected::hasError(result))
@@ -880,8 +861,9 @@ RocksDbSpecificQueryExecutor::operator()(
         query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetPendingTransactions &q,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -948,8 +930,9 @@ RocksDbSpecificQueryExecutor::operator()(
   }
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetPeers &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
@@ -957,7 +940,6 @@ RocksDbSpecificQueryExecutor::operator()(
   RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetPeers));
   std::vector<std::shared_ptr<shared_model::plain::Peer>> peers;
 
-  RocksDbCommon common(db_context_);
   auto status = enumerateKeysAndValues(
       common,
       [&](auto pubkey, auto address) {
@@ -988,8 +970,9 @@ RocksDbSpecificQueryExecutor::operator()(
       query_hash);
 }
 
-RocksDbSpecificQueryExecutor::ExecutionResult
-RocksDbSpecificQueryExecutor::operator()(
+RocksDbSpecificQueryExecutor::ExecutionResult RocksDbSpecificQueryExecutor::
+operator()(
+    RocksDbCommon &common,
     const shared_model::interface::GetEngineReceipts &query,
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,

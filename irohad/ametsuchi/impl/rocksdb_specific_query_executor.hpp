@@ -73,86 +73,99 @@ namespace iroha::ametsuchi {
         shared_model::interface::permissions::Role permission,
         const std::string &account_id) const override;
 
-   private:
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetAccount &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetBlock &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetSignatories &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetAccountTransactions &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetTransactions &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetAccountAssetTransactions &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetAccountAssets &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetAccountDetail &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetRoles &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetRolePermissions &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetAssetInfo &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetPendingTransactions &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetPeers &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         shared_model::interface::RolePermissionSet const &creator_permissions);
 
     ExecutionResult operator()(
+        RocksDbCommon &common,
         const shared_model::interface::GetEngineReceipts &query,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
@@ -180,6 +193,7 @@ namespace iroha::ametsuchi {
 
     template <bool readTxsWithAssets, typename Qry>
     ExecutionResult readTxs(
+        RocksDbCommon &common,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             &query_response_factory,
         const Qry &query,
