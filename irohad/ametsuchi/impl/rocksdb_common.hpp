@@ -36,8 +36,8 @@
  *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
  *                |           |         |           +-<peer_2_pubkey, value:address>
  *                |           |         |
- *                |           |         +-|TLS|-+-<peer_1, value:tls>
- *                |           |         |       +-<peer_2, value:tls>
+ *                |           |         +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |         |       +-<peer_2_pubkey, value:tls>
  *                |           |         |
  *                |           |         +-<count, value>
  *                |           |
@@ -91,8 +91,8 @@
  *                |          |                                  +-|ROLES|-+-<role_1, value:flag>
  *                |          |                                  |         +-<role_2, value:flag>
  *                |          |                                  |
- *                |          |                                  +-|GRANTABLE_PER|-+-<account_id_1, value:permissions>
- *                |          |                                  |                 +-<account_id_2, value:permissions>
+ *                |          |                                  +-|GRANTABLE_PER|-+-<permitee_id_1, value:permissions>
+ *                |          |                                  |                 +-<permitee_id_2, value:permissions>
  *                |          |                                  |
  *                |          |                                  +-|SIGNATORIES|-+-<signatory_1>
  *                |          |                                                  +-<signatory_2>
@@ -376,36 +376,6 @@ namespace iroha::ametsuchi::fmtstrings {
 
 }  // namespace iroha::ametsuchi::fmtstrings
 
-#undef RDB_ADDRESS
-#undef RDB_TLS
-#undef RDB_OPTIONS
-#undef RDB_F_ASSET_SIZE
-#undef RDB_PATH_DOMAIN
-#undef RDB_PATH_ACCOUNT
-#undef RDB_F_QUORUM
-#undef RDB_DELIMITER
-#undef RDB_ROOT
-#undef RDB_STORE
-#undef RDB_WSV
-#undef RDB_NETWORK
-#undef RDB_SETTINGS
-#undef RDB_ASSETS
-#undef RDB_ROLES
-#undef RDB_TRANSACTIONS
-#undef RDB_ACCOUNTS
-#undef RDB_PEERS
-#undef RDB_STATUSES
-#undef RDB_DETAILS
-#undef RDB_GRANTABLE_PER
-#undef RDB_POSITION
-#undef RDB_TIMESTAMP
-#undef RDB_DOMAIN
-#undef RDB_SIGNATORIES
-#undef RDB_ITEM
-#undef RDB_F_TOP_BLOCK
-#undef RDB_F_PEERS_COUNT
-#undef RDB_F_TOTAL_COUNT
-#undef RDB_F_VERSION
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -591,6 +561,9 @@ namespace iroha::ametsuchi {
     auto enumerate(std::unique_ptr<rocksdb::Iterator> &it, F &&func) {
       if (!it->status().ok())
         return it->status();
+
+      static_assert(std::is_convertible_v<std::result_of_t<F&(decltype(it),size_t)>, bool>,
+                    "Required F(unique_ptr<rocksdb::Iterator>,size_t) -> bool");
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
       for (; it->Valid() && it->key().starts_with(key); it->Next())
@@ -784,6 +757,8 @@ namespace iroha::ametsuchi {
                             F &&func,
                             S const &strformat,
                             Args &&... args) {
+    static_assert(std::is_convertible_v<std::result_of_t<F&(rocksdb::Slice)>, bool>,
+                  "Must F(rocksdb::Slice) -> bool");
     return rdb.enumerate(
         [func{std::forward<F>(func)}](auto const &it,
                                       auto const prefix_size) mutable {
@@ -1044,7 +1019,7 @@ namespace iroha::ametsuchi {
             typename T,
             typename = std::enable_if_t<std::is_same<T, bool>::value>>
   inline std::optional<bool> loadValue(
-      RocksDbCommon &common,
+      RocksDbCommon&,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<bool> value;
     if constexpr (kOp == kDbOperation::kGet) {
@@ -1726,7 +1701,7 @@ namespace iroha::ametsuchi {
             if (prev_writer.empty())
               result += '\"';
             else
-              result += "},\"";
+              result += "}, \"";
             result += cur_writer;
             result += "\": {";
             prev_writer = cur_writer;
