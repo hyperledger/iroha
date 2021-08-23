@@ -142,16 +142,13 @@ handle_user_line(){
    done
 }
 
-if test -z "$cmdline" ;then
-   while read input_line ;do
+{ test -n "$cmdline" && echo "$cmdline" || cat; } |
+   tr ';' '\n' | while read input_line ;do
       handle_user_line $input_line || continue
    done
-else
-   handle_user_line $cmdline || true
-fi
 
 test -n "${MATRIX:-}" ||
-   { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
+   { echoerr "MATRIX is empty!"$'\n'; --help-buildspec >&2; exit 1; }
 
 
 ############# FIXME remove this after build fixed #############
@@ -162,7 +159,7 @@ ignored=$(mktemp)
 echo "$MATRIX" | awk -v IGNORECASE=1 '/clang-10/ && /release/' >$ignored
 MATRIX="$( grep -Fvx -f $ignored <<<"$MATRIX" )"
 if test -s $ignored
-then cat $ignored | quoted | echowarn "FIXME At the moment we are NOT able to build Release with Clang-10," \
+then cat $ignored | quoted | echowarn "FIXME At the moment NOT able to build Release with Clang-10," \
                                       "because civetweb-cpp from vcpkg. Buildspecs are dropped: $(cat)"
 fi
 rm -f $ignored

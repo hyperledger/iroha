@@ -39,7 +39,7 @@ SynchronizerImpl::processOutcome(consensus::GateObject object) {
 
   auto process_reject =
       [](auto outcome_type,
-             const auto &msg) -> std::optional<SynchronizationEvent> {
+         const auto &msg) -> std::optional<SynchronizationEvent> {
     assert(msg.ledger_state->top_block_info.height + 1
            == msg.round.block_round);
     return SynchronizationEvent{outcome_type, msg.round, msg.ledger_state};

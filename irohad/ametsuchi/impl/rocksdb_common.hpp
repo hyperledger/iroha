@@ -376,9 +376,6 @@ namespace iroha::ametsuchi::fmtstrings {
 
 }  // namespace iroha::ametsuchi::fmtstrings
 
-#undef RDB_PATH_DOMAIN
-#undef RDB_PATH_ACCOUNT
-#undef RDB_ITEM
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -564,6 +561,9 @@ namespace iroha::ametsuchi {
     auto enumerate(std::unique_ptr<rocksdb::Iterator> &it, F &&func) {
       if (!it->status().ok())
         return it->status();
+
+      static_assert(std::is_convertible_v<std::result_of_t<F&(decltype(it),size_t)>, bool>,
+                    "Required F(unique_ptr<rocksdb::Iterator>,size_t) -> bool");
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
       for (; it->Valid() && it->key().starts_with(key); it->Next())
@@ -762,6 +762,8 @@ namespace iroha::ametsuchi {
                             F &&func,
                             S const &strformat,
                             Args &&... args) {
+    static_assert(std::is_convertible_v<std::result_of_t<F&(rocksdb::Slice)>, bool>,
+                  "Must F(rocksdb::Slice) -> bool");
     return rdb.enumerate(
         [func{std::forward<F>(func)}](auto const &it,
                                       auto const prefix_size) mutable {
@@ -1022,7 +1024,7 @@ namespace iroha::ametsuchi {
             typename T,
             typename = std::enable_if_t<std::is_same<T, bool>::value>>
   inline std::optional<bool> loadValue(
-      RocksDbCommon &common,
+      RocksDbCommon&,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<bool> value;
     if constexpr (kOp == kDbOperation::kGet) {
