@@ -665,11 +665,13 @@ jobs:
           for t in module integration ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              #${t^^}  ## FixMe install bash 5.0 on macos
+              echo "::error::The following $t tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              echo "::warning::The following ${t^^} tests FAILED and ALLOWED TO FAIL: $o"
+              #${t^^}  ## FixMe install bash 5.0 on macos
+              echo "::warning::The following $t tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
           $tests_passed
@@ -941,11 +943,13 @@ jobs:
           for t in module integration ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              #${t^^}  ## FixMe install bash 5.0 on macos
+              echo "::error::The following $t tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              echo "::warning::The following ${t^^} tests FAILED and ALLOWED TO FAIL: $o"
+              #${t^^}  ## FixMe install bash 5.0 on macos
+              echo "::warning::The following $t tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
           $tests_passed
@@ -1211,11 +1215,13 @@ jobs:
           for t in module integration ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              #${t^^}  ## FixMe install bash 5.0 on macos
+              echo "::error::The following $t tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              echo "::warning::The following ${t^^} tests FAILED and ALLOWED TO FAIL: $o"
+              #${t^^}  ## FixMe install bash 5.0 on macos
+              echo "::warning::The following $t tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
           $tests_passed
