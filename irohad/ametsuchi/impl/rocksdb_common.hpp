@@ -376,9 +376,6 @@ namespace iroha::ametsuchi::fmtstrings {
 
 }  // namespace iroha::ametsuchi::fmtstrings
 
-#undef RDB_PATH_DOMAIN
-#undef RDB_PATH_ACCOUNT
-#undef RDB_ITEM
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -1022,7 +1019,7 @@ namespace iroha::ametsuchi {
             typename T,
             typename = std::enable_if_t<std::is_same<T, bool>::value>>
   inline std::optional<bool> loadValue(
-      RocksDbCommon & /*common*/,
+      RocksDbCommon&,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<bool> value;
     if constexpr (kOp == kDbOperation::kGet) {
