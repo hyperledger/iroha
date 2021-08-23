@@ -68,10 +68,10 @@ void RocksDBIndexer::txPositions(
     TxPosition const &position) {
   RocksDbCommon common(db_context_);
 
-  if (auto res =
-          forTransactionByPosition<kDbOperation::kCheck, kDbEntry::kMustExist>(
-              common, account, ts, position.height, position.index);
-      expected::hasValue(res))
+  if (auto res = forTransactionByPosition<kDbOperation::kCheck,
+                                          kDbEntry::kMustNotExist>(
+          common, account, ts, position.height, position.index);
+      expected::hasError(res))
     return;
 
   std::string h_hex;
