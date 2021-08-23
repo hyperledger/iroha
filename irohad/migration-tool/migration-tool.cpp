@@ -6,7 +6,6 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 
-#include <charconv>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -30,7 +29,6 @@
 #include "common/result_try.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
-#include "cryptography/crypto_provider/crypto_model_signer.hpp"
 #include "generator/generator.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -39,33 +37,16 @@
 #include "main/impl/rocksdb_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/startup_params.hpp"  //for StartupWsvDataPolicy
-#include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "validation/impl/chain_validator_impl.hpp"
 #include "validation/impl/stateful_validator_impl.hpp"
 #include "validators/always_valid_validator.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
-#include "validators/protobuf/proto_transaction_validator.hpp"
+#include "nlohmann/json.hpp"
 
 #define STR(y) STRH(y)
 #define STRH(x) #x
-#define JSON_TRY_USER if (true)
-#define JSON_CATCH_USER(exception) if (false)
-//#define JSON_THROW_USER(exception)                           \
-//    {std::clog << "ERROR in " << __FILE__ << ":" << __LINE__ \
-//               << " (function " << __FUNCTION__ << ") - "    \
-//               << (exception).what() << std::endl;           \
-//     std::abort();}
-#define JSON_THROW_USER(exception)                               \
-  {                                                              \
-    std::clog << "ERROR in "                                     \
-              << __FILE__                                        \
-        ":" STR(__LINE__) " (function " STR(__FUNCTION__) ") - " \
-              << (exception).what() << std::endl;                \
-    std::abort();                                                \
-  }
-#include "nlohmann/json.hpp"
 
 using std::cout, std::cerr, std::endl;
 using std::ifstream, std::ofstream;
