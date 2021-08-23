@@ -25,3 +25,4 @@ iroha-ed25519
 rocksdb
 rxcpp
 prometheus-cpp
+nlohmann-json

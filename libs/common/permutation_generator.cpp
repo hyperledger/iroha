@@ -60,7 +60,7 @@ Seeder &Seeder::feed(const char *seed_start, size_t seed_length) {
   return *this;
 }
 
-inline Seeder &Seeder::feed(ValueType value) {
+Seeder &Seeder::feed(ValueType value) {
   // like CBC
   current_seed_ = RandomEngine{current_seed_ ^ value}();
   return *this;

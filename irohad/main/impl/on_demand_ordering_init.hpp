@@ -36,7 +36,7 @@ namespace shared_model {
 namespace iroha {
   namespace network {
     class GenericClientFactory;
-    class OrderingEvent;
+    struct OrderingEvent;
     class OrderingGate;
   }  // namespace network
   namespace protocol {
