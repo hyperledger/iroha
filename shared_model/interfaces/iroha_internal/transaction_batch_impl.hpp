@@ -35,7 +35,6 @@ namespace shared_model {
 
      private:
       types::SharedTxsCollectionType transactions_;
-
       types::HashType reduced_hash_;
     };
 

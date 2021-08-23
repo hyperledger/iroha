@@ -36,7 +36,7 @@ namespace iroha {
     kOnApplyState,
     kOnNeedProposal,
     kOnNewProposal,
-    kOnNewBatchInCache,
+    kOnTxsEnoughForProposal,
     kOnPackProposal,
     kOnProposalResponse,
     kOnTransactionResponse,
