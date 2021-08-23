@@ -638,6 +638,7 @@ jobs:
           module_gossip_propagation_strategy_test
           integration_queries_acceptance_test
           integration_fake_peer_example_test
+          integration_engine_call_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -916,6 +917,7 @@ jobs:
           module_gossip_propagation_strategy_test
           integration_queries_acceptance_test
           integration_fake_peer_example_test
+          integration_engine_call_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -1188,6 +1190,7 @@ jobs:
           module_gossip_propagation_strategy_test
           integration_queries_acceptance_test
           integration_fake_peer_example_test
+          integration_engine_call_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
