@@ -76,7 +76,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     auto batches_subscription = SubscriberCreator<
         bool,
         std::shared_ptr<shared_model::interface::TransactionBatch>>::
-        template create<EventTypes::kOnNewBatchInCache>(
+        template create<EventTypes::kOnTxsEnoughForProposal>(
             static_cast<iroha::SubscriptionEngineHandlers>(*tid),
             [scheduler(utils::make_weak(scheduler))](auto, auto) {
               if (auto maybe_scheduler = scheduler.lock())
