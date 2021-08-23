@@ -18,7 +18,7 @@ protobuf==3.5.1
 Pygments==2.7.4
 pytz==2017.3
 PyYAML==5.4
-requests==2.20.1
+requests
 restructuredtext-lint==1.1.2
 singledispatch==3.4.0.3
 six==1.11.0
@@ -30,7 +30,7 @@ sphinx-rtd-theme
 sphinxcontrib-websupport
 tornado==4.5.3
 typing==3.6.2
-urllib3==1.26.5
+urllib3
 watchdog==0.8.3
 yarg==0.1.9
 m2r2
