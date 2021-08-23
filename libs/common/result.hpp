@@ -445,9 +445,7 @@ namespace iroha {
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 ReturnType>::type {
       return r.match(
-          [&f]([[maybe_unused]] const Value<T> &v) {
-            return TypeHelper::makeValue(f());
-          },
+          [&f](const Value<T> &) { return TypeHelper::makeValue(f()); },
           [](const Error<E> &e) { return ReturnType(makeError(e.error)); });
     }
 
