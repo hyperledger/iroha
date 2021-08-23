@@ -637,6 +637,7 @@ jobs:
           module_rocksdb_executor_test
           module_gossip_propagation_strategy_test
           integration_queries_acceptance_test
+          integration_fake_peer_example_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -661,13 +662,14 @@ jobs:
             | tee ctest_integration.out \
             || true
           tests_passed=true
-          for f in $(ls -rt ctest_*.out) ;do
+          for t in module integration ;do
+            f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              echo "::warning::The following tests FAILED and ALLOWED TO FAIL: $o"
+              echo "::warning::The following ${t^^} tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
           $tests_passed
@@ -911,6 +913,7 @@ jobs:
           module_rocksdb_executor_test
           module_gossip_propagation_strategy_test
           integration_queries_acceptance_test
+          integration_fake_peer_example_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -935,13 +938,14 @@ jobs:
             | tee ctest_integration.out \
             || true
           tests_passed=true
-          for f in $(ls -rt ctest_*.out) ;do
+          for t in module integration ;do
+            f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              echo "::warning::The following tests FAILED and ALLOWED TO FAIL: $o"
+              echo "::warning::The following ${t^^} tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
           $tests_passed
@@ -1179,6 +1183,7 @@ jobs:
           module_rocksdb_executor_test
           module_gossip_propagation_strategy_test
           integration_queries_acceptance_test
+          integration_fake_peer_example_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -1203,13 +1208,14 @@ jobs:
             | tee ctest_integration.out \
             || true
           tests_passed=true
-          for f in $(ls -rt ctest_*.out) ;do
+          for t in module integration ;do
+            f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              echo "::warning::The following tests FAILED and ALLOWED TO FAIL: $o"
+              echo "::warning::The following ${t^^} tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
           $tests_passed
