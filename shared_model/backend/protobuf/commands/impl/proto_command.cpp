@@ -25,6 +25,7 @@
 #include "backend/protobuf/commands/proto_set_setting_value.hpp"
 #include "backend/protobuf/commands/proto_subtract_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_transfer_asset.hpp"
+#include "common/report_abort.h"
 
 namespace {
   /// type of proto variant
@@ -93,9 +94,8 @@ namespace shared_model::proto {
 
         default:
         case iroha::protocol::Command::CommandCase::COMMAND_NOT_SET:
-          assert(!"Unexpected command case.");
+          report_abort("Unexpected command case.");
       };
-      std::abort();  // never return, suppress -Wreturn-type
     }()};
 
     CommandVariantType ivariant_{variant_};

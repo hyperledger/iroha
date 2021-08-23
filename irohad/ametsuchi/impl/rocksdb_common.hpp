@@ -917,8 +917,7 @@ namespace iroha::ametsuchi {
     if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
       if (status.assumeValue().ok()) {
-#define uninitialized_var(x) x = x
-        uint64_t uninitialized_var(_);
+        [[maybe_unused]] uint64_t _;
         common.decode(_);
         value = _;
       }

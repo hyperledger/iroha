@@ -21,13 +21,16 @@
 #define DISABLE_WARNING(warningName) \
   DO_PRAGMA(GCC diagnostic ignored #warningName)
 
+// clang-format off
 #define DISABLE_WARNING_UNREFERENCED_FORMAL_PARAMETER \
-  DISABLE_WARNING(-Wunused - parameter)
+  DISABLE_WARNING(-Wunused-parameter)
 #define DISABLE_WARNING_UNREFERENCED_FUNCTION \
-  DISABLE_WARNING(-Wunused - function)
+  DISABLE_WARNING(-Wunused-function)
 #define DISABLE_WARNING_UNINITIALIZED DISABLE_WARNING(-Wuninitialized)
 #define DISABLE_WARNING_MISSING_FIELD_INITIALIZERS \
-  DISABLE_WARNING(-Wmissing - field - initializers)
+  DISABLE_WARNING(-Wmissing-field-initializers)
+// clang-format on
+
 // other warnings you want to deactivate...
 
 #else

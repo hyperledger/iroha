@@ -8,6 +8,7 @@
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
 #include "common/hexutils.hpp"
+#include "common/report_abort.h"
 
 namespace {
   /// type of proto variant
@@ -31,7 +32,7 @@ namespace shared_model::proto {
     TransportType proto_;
 
     const ProtoQueryResponseVariantType variant_{
-        [this]() -> decltype(variant_) {
+        [this]() {
           auto &ar = proto_;
 
           switch (ar.response_case()) {
@@ -41,9 +42,8 @@ namespace shared_model::proto {
             default:
             case iroha::protocol::BlockQueryResponse::ResponseCase::
                 RESPONSE_NOT_SET:
-              assert(!"Unexpected response case.");
+              report_abort("Unexpected response case.");
           };
-          std::abort();  // suppress -Wreturn-type
         }()};
 
     const QueryResponseVariantType ivariant_{variant_};
