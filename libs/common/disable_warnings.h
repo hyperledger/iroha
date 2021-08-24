@@ -30,6 +30,7 @@
 # define DISABLE_WARNING_UNREFERENCED_FUNCTION \
   DISABLE_WARNING(-Wunused-function)
 # define DISABLE_WARNING_UNINITIALIZED DISABLE_WARNING(-Wuninitialized)
+# define DISABLE_WARNING_maybe_uninitialized DISABLE_WARNING(-Wmaybe-uninitialized)
 # define DISABLE_WARNING_MISSING_FIELD_INITIALIZERS \
   DISABLE_WARNING(-Wmissing-field-initializers)
 // clang-format on

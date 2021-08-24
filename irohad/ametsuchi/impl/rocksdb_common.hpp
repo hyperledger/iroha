@@ -922,6 +922,7 @@ namespace iroha::ametsuchi {
       if (status.assumeValue().ok()) {
         DISABLE_WARNING_PUSH
         DISABLE_WARNING_UNINITIALIZED
+        DISABLE_WARNING_maybe_uninitialized
         uint64_t _;
         DISABLE_WARNING_POP
         common.decode(_);
