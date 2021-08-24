@@ -20,6 +20,7 @@
 #include "backend/protobuf/query_responses/proto_transaction_response.hpp"
 #include "backend/protobuf/query_responses/proto_transactions_page_response.hpp"
 #include "common/byteutils.hpp"
+#include "common/report_abort.hpp"
 
 namespace {
   /// type of proto variant
@@ -78,9 +79,8 @@ namespace shared_model::proto {
 
         default:
         case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
-          assert(!"Unexpected query response case.");
+          report_abort("Unexpected query response case.");
       }
-      std::abort();  // noreturn, suppress -Wreturn-type
     }()};
 
     const QueryResponseVariantType ivariant_{variant_};
