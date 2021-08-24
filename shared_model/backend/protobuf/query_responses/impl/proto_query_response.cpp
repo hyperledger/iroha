@@ -78,7 +78,7 @@ namespace shared_model::proto {
 
         default:
         case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
-          assert(!"Unexpected query response case.");
+          report_abort("Unexpected query response case.");
       }
     }()};
 

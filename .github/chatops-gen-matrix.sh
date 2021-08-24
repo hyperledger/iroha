@@ -64,25 +64,28 @@ while [[ $# > 0 ]] ;do
 done
 
 generate(){
-   declare -rn DEFAULT_compilers=DEFAULT_${os}_compilers
-   declare -rn AVAILABLE_compilers=AVAILABLE_${os}_compilers
-   local compilers=${compilers:-$DEFAULT_compilers}
-   local cc bt op used_compilers=
-   for cc in $compilers ;do
-      if ! [[ " $AVAILABLE_compilers " = *" $cc "* ]] ;then
-         continue
-      fi
-      used_compilers+=$cc' '
-      for bt in $build_types ;do
-         for co in $cmake_opts ;do
-            if test $os = macos -a $co = burrow; then continue; fi
-            MATRIX+="$os $cc $bt $co"$'\n'
+   for os in $oses ;do
+      declare -n DEFAULT_compilers=DEFAULT_${os}_compilers
+      declare -n AVAILABLE_compilers=AVAILABLE_${os}_compilers
+      local compilers=${compilers:-$DEFAULT_compilers}
+      local cc bt op used_compilers=
+      for cc in $compilers ;do
+         if ! [[ " $AVAILABLE_compilers " = *" $cc "* ]] ;then
+            continue
+         fi
+         used_compilers+=$cc' '
+         for bt in $build_types ;do
+            for co in $cmake_opts ;do
+               if test $os = macos -a $co = burrow; then continue; fi  ##Reduce macos load on CI
+               if test $os = macos -a $co = ursa;   then continue; fi  ##Reduce macos load on CI
+               MATRIX+="$os $cc $bt $co"$'\n'
+            done
          done
       done
+      if test "$used_compilers" = ''; then
+         echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
+      fi
    done
-   if test "$used_compilers" = ''; then
-      echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
-   fi
 }
 
 handle_user_line(){
@@ -136,10 +139,7 @@ handle_user_line(){
    oses=${oses:-$DEFAULT_oses}
    build_types=${build_types:-$DEFAULT_build_types}
    cmake_opts=${cmake_opts:-$DEFAULT_cmake_opts}
-
-   for os in $oses ;do
-      generate
-   done
+   generate
 }
 
 { test -n "$cmdline" && echo "$cmdline" || cat; } |
