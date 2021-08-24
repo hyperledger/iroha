@@ -165,12 +165,26 @@ MockQueryFactory::constructGetPeers() const {
 MockQueryFactory::FactoryResult<MockTxPaginationMeta>
 MockQueryFactory::constructTxPaginationMeta(
     types::TransactionsNumberType page_size,
-    std::optional<types::HashType> first_tx_hash) const {
-  return createFactoryResult<MockTxPaginationMeta>(
-      [&page_size, &first_tx_hash](MockTxPaginationMeta &mock) {
-        EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));
-        EXPECT_CALL(mock, firstTxHash()).WillRepeatedly(Return(first_tx_hash));
-      });
+    std::optional<types::HashType> first_tx_hash,
+    std::optional<types::TimestampType> first_tx_time,
+    std::optional<types::TimestampType> last_tx_time,
+    std::optional<types::HeightType> first_tx_height,
+    std::optional<types::HeightType> last_tx_height) const {
+  return createFactoryResult<MockTxPaginationMeta>([&page_size,
+                                                    &first_tx_hash,
+                                                    &first_tx_time,
+                                                    &last_tx_time,
+                                                    &first_tx_height,
+                                                    &last_tx_height](
+                                                       MockTxPaginationMeta
+                                                           &mock) {
+    EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));
+    EXPECT_CALL(mock, firstTxHash()).WillRepeatedly(Return(first_tx_hash));
+    EXPECT_CALL(mock, firstTxTime()).WillRepeatedly(Return(first_tx_time));
+    EXPECT_CALL(mock, lastTxTime()).WillRepeatedly(Return(last_tx_time));
+    EXPECT_CALL(mock, firstTxHeight()).WillRepeatedly(Return(first_tx_height));
+    EXPECT_CALL(mock, lastTxHeight()).WillRepeatedly(Return(last_tx_height));
+  });
 }
 
 MockQueryFactory::FactoryResult<MockGetEngineReceipts>

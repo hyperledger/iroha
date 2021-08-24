@@ -49,7 +49,7 @@ namespace iroha::subscription {
     utils::WaitForSingleObject event_;
 
     /// Flag that shows if current handler is in task execution state
-    std::atomic<bool> is_busy_;
+    bool is_busy_;
 
     std::thread::id id_;
 
@@ -83,6 +83,7 @@ namespace iroha::subscription {
         if (first_task.timepoint <= before) {
           first_task.task.swap(task);
           tasks_.pop_front();
+          is_busy_ = true;
           return true;
         }
       }
@@ -105,25 +106,27 @@ namespace iroha::subscription {
     }
 
    public:
-    SchedulerBase() {
+    SchedulerBase() : is_busy_(false) {
       proceed_.test_and_set();
-      is_busy_.store(false);
     }
 
     uint32_t process() {
       id_ = std::this_thread::get_id();
       Task task;
       do {
-        while (extractExpired(task, now())) {
-          is_busy_.store(true, std::memory_order_relaxed);
+        if (extractExpired(task, now())) {
           try {
             if (task)
               task();
           } catch (...) {
           }
+        } else {
+          {
+            std::lock_guard lock(tasks_cs_);
+            is_busy_ = false;
+          }
+          event_.wait(untilFirst());
         }
-        is_busy_.store(false, std::memory_order_relaxed);
-        event_.wait(untilFirst());
       } while (proceed_.test_and_set());
       return 0;
     }
@@ -134,7 +137,8 @@ namespace iroha::subscription {
     }
 
     bool isBusy() const override {
-      return is_busy_.load();
+      std::lock_guard lock(tasks_cs_);
+      return is_busy_;
     }
 
     void add(Task &&t) override {
@@ -144,12 +148,14 @@ namespace iroha::subscription {
     void addDelayed(std::chrono::microseconds timeout, Task &&t) override {
 #ifdef SE_SYNC_CALL_IF_SAME_THREAD
       if (timeout == std::chrono::microseconds(0ull)
-          && id_ == std::this_thread::get_id())
+          && id_ == std::this_thread::get_id()) {
         std::forward<F>(f)();
-      else {
+      } else {
 #endif  // SE_SYNC_CALL_IF_SAME_THREAD
         auto const tp = now() + timeout;
         std::lock_guard lock(tasks_cs_);
+        if (timeout == std::chrono::microseconds(0ull))
+          is_busy_ = true;
         insert(after(tp), TimedTask{tp, std::move(t)});
         event_.set();
 #ifdef SE_SYNC_CALL_IF_SAME_THREAD

@@ -47,11 +47,6 @@ namespace iroha {
           const int pool_size,
           logger::LoggerManagerTreePtr log_manager);
 
-      /**
-       * Verify whether postgres supports prepared transactions
-       */
-      static bool preparedTransactionsAvailable(soci::session &sql);
-
       static iroha::expected::Result<void, std::string> rollbackPrepared(
           soci::session &sql, const std::string &prepared_block_name);
 
@@ -67,42 +62,6 @@ namespace iroha {
        * @return error message if reset has failed
        */
       static expected::Result<void, std::string> resetPeers(soci::session &sql);
-
-      /// Create tables in the given session. Left public for tests.
-      static void prepareTables(soci::session &session);
-
-      /**
-       * Creates schema. Working database must not exist when calling this.
-       * @return void value in case of success or an error message otherwise.
-       */
-      static expected::Result<void, std::string> createSchema(
-          const PostgresOptions &postgres_options);
-
-     private:
-      /**
-       * Function initializes existing connection pool
-       * @param connection_pool - pool with connections
-       * @param pool_size - number of connections in pool
-       * @param try_rollback - function which performs blocks rollback before
-       * initialization
-       * @param callback_factory - factory for reconnect callbacks
-       * @param reconnection_strategy_factory - factory which creates strategies
-       * for each connection
-       * @param pg_reconnection_options - parameter of connection startup on
-       * reconnect
-       * @param log_manager - log manager of storage
-       * @tparam RollbackFunction - type of rollback function
-       * @return void value on success or string error
-       */
-      template <typename RollbackFunction>
-      static expected::Result<void, std::string> initializeConnectionPool(
-          soci::connection_pool &connection_pool,
-          size_t pool_size,
-          RollbackFunction try_rollback,
-          FailoverCallbackHolder &callback_factory,
-          const ReconnectionStrategyFactory &reconnection_strategy_factory,
-          const std::string &pg_reconnection_options,
-          logger::LoggerManagerTreePtr log_manager);
     };
   }  // namespace ametsuchi
 }  // namespace iroha

@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
+#include "ametsuchi/impl/rocksdb_storage_impl.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -36,6 +37,7 @@
 #include "main/impl/consensus_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/impl/rocksdb_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/server_runner.hpp"
 #include "main/subscription.hpp"
@@ -105,6 +107,7 @@ static constexpr uint32_t kMaxRoundsDelayDefault = 3000;
 Irohad::Irohad(
     const IrohadConfig &config,
     std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
+    std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt,
     const std::string &listen_ip,
     const boost::optional<shared_model::crypto::Keypair> &keypair,
     logger::LoggerManagerTreePtr logger_manager,
@@ -115,8 +118,7 @@ Irohad::Irohad(
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
-    : se_(getSubscription()),
-      config_(config),
+    : config_(config),
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
@@ -124,10 +126,11 @@ Irohad::Irohad(
       opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
       pg_opt_(std::move(pg_opt)),
+      rdb_opt_(std::move(rdb_opt)),
       subscription_engine_(getSubscription()),
       ordering_init(std::make_shared<ordering::OnDemandOrderingInit>(
           logger_manager->getLogger())),
-      yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
+      yac_init(std::make_shared<iroha::consensus::yac::YacInit>()),
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
@@ -140,7 +143,12 @@ Irohad::Irohad(
 #if defined(USE_BURROW)
         vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
 #endif
-        return initStorage(startup_wsv_data_policy);
+        return initStorage(
+            startup_wsv_data_policy,
+            config_.database_config
+                    && config_.database_config->type == kDbTypeRocksdb
+                ? StorageType::kRocksDb
+                : StorageType::kPostgres);
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
@@ -199,9 +207,14 @@ Irohad::RunResult Irohad::dropStorage() {
 
 Irohad::RunResult Irohad::resetWsv() {
   storage.reset();
+  db_context_.reset();
 
   log_->info("Recreating schema.");
-  return initStorage(StartupWsvDataPolicy::kDrop);
+  return initStorage(
+      StartupWsvDataPolicy::kDrop,
+      config_.database_config && config_.database_config->type == kDbTypeRocksdb
+          ? StorageType::kRocksDb
+          : StorageType::kPostgres);
 }
 
 /**
@@ -240,12 +253,7 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
-    StartupWsvDataPolicy startup_wsv_data_policy) {
-  IROHA_EXPECTED_TRY_GET_VALUE(
-      pool_wrapper,
-      PgConnectionInit::init(startup_wsv_data_policy, *pg_opt_, log_manager_));
-
-  pool_wrapper_ = std::move(pool_wrapper);
+    StartupWsvDataPolicy startup_wsv_data_policy, iroha::StorageType type) {
   query_response_factory_ =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
@@ -255,40 +263,83 @@ Irohad::RunResult Irohad::initStorage(
     vm_caller_ref = *vm_caller_.value();
   }
 
-  auto process_block =
-      [this](std::shared_ptr<shared_model::interface::Block const> block) {
-        iroha::getSubscription()->notify(EventTypes::kOnBlock, block);
-        if (ordering_init and tx_processor and pending_txs_storage_
-            and mst_storage) {
-          ordering_init->processCommittedBlock(block);
-          tx_processor->processCommit(block);
-          for (auto const &completed_tx : block->transactions()) {
-            pending_txs_storage_->removeTransaction(completed_tx.hash());
-            mst_storage->processFinalizedTransaction(completed_tx.hash());
+  auto storage_creator = [&]() -> RunResult {
+    auto process_block =
+        [this](std::shared_ptr<shared_model::interface::Block const> block) {
+          iroha::getSubscription()->notify(EventTypes::kOnBlock, block);
+          if (ordering_init and tx_processor and pending_txs_storage_
+              and mst_storage) {
+            ordering_init->processCommittedBlock(block);
+            tx_processor->processCommit(block);
+            for (auto const &completed_tx : block->transactions()) {
+              pending_txs_storage_->removeTransaction(completed_tx.hash());
+              mst_storage->processFinalizedTransaction(completed_tx.hash());
+            }
+            for (auto const &rejected_tx_hash :
+                 block->rejected_transactions_hashes()) {
+              pending_txs_storage_->removeTransaction(rejected_tx_hash);
+              mst_storage->processFinalizedTransaction(rejected_tx_hash);
+            }
           }
-          for (auto const &rejected_tx_hash :
-               block->rejected_transactions_hashes()) {
-            pending_txs_storage_->removeTransaction(rejected_tx_hash);
-            mst_storage->processFinalizedTransaction(rejected_tx_hash);
-          }
-        }
-      };
+        };
 
-  IROHA_EXPECTED_TRY_GET_VALUE(
-      storage_,
-      ::iroha::initStorage(*pg_opt_,
-                           pool_wrapper_,
-                           pending_txs_storage_,
-                           query_response_factory_,
-                           config_.block_store_path,
-                           vm_caller_ref,
-                           process_block,
-                           log_manager_->getChild("Storage")));
+    auto st = type == StorageType::kPostgres
+        ? ::iroha::initStorage(*pg_opt_,
+                               pool_wrapper_,
+                               pending_txs_storage_,
+                               query_response_factory_,
+                               config_.block_store_path,
+                               vm_caller_ref,
+                               process_block,
+                               log_manager_->getChild("Storage"))
+        : type == StorageType::kRocksDb
+            ? ::iroha::initStorage(db_context_,
+                                   pending_txs_storage_,
+                                   query_response_factory_,
+                                   config_.block_store_path,
+                                   vm_caller_ref,
+                                   process_block,
+                                   log_manager_->getChild("Storage"))
+            : iroha::expected::makeError("Unexpected storage type.");
 
-  storage = std::move(storage_);
+    return st | [&](auto &&v) -> RunResult {
+      storage = std::move(v);
 
-  log_->info("[Init] => storage");
-  return {};
+      log_->info("[Init] => storage");
+      return {};
+    };
+  };
+
+  switch (type) {
+    case StorageType::kPostgres: {
+      IROHA_EXPECTED_TRY_GET_VALUE(
+          pool_wrapper,
+          PgConnectionInit::init(
+              startup_wsv_data_policy, *pg_opt_, log_manager_));
+      pool_wrapper_ = std::move(pool_wrapper);
+    } break;
+
+    case StorageType::kRocksDb: {
+      IROHA_EXPECTED_TRY_GET_VALUE(
+          rdb_port,
+          RdbConnectionInit::init(
+              startup_wsv_data_policy, *rdb_opt_, log_manager_));
+
+      auto cache = std::make_shared<DatabaseCache<std::string>>();
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK);
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_SETTINGS);
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES);
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN);
+
+      db_context_ = std::make_shared<ametsuchi::RocksDBContext>(
+          std::move(rdb_port), std::move(cache));
+    } break;
+
+    default:
+      return iroha::expected::makeError<std::string>(
+          "Unexpected storage type!");
+  }
+  return storage_creator();
 }
 
 Irohad::RunResult Irohad::restoreWsv() {
@@ -574,7 +625,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
       transaction_factory,
       batch_parser,
       transaction_batch_factory_,
-      async_call_,
       std::move(factory),
       proposal_factory,
       persistent_cache,
@@ -646,36 +696,20 @@ Irohad::RunResult Irohad::initBlockLoader() {
  * Initializing consensus gate
  */
 Irohad::RunResult Irohad::initConsensusGate() {
-  auto block_query = storage->createBlockQuery();
-  if (not block_query) {
-    return iroha::expected::makeError<std::string>(
-        "Failed to create block query");
-  }
-  auto block_var =
-      (*block_query)->getBlock((*block_query)->getTopBlockHeight());
-  if (auto e = expected::resultToOptionalError(block_var)) {
-    return iroha::expected::makeError<std::string>(
-        "Failed to get the top block: " + e->message);
-  }
-
-  auto &block =
-      boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
-
   auto initial_ledger_state = storage->getLedgerState();
   if (not initial_ledger_state) {
     return expected::makeError("Failed to fetch ledger state!");
   }
 
   consensus_gate = yac_init->initConsensusGate(
-      {block->height(), ordering::kFirstRejectRound},
-      storage,
+      {initial_ledger_state.value()->top_block_info.height + 1,
+       ordering::kFirstRejectRound},
       config_.initial_peers,
       *initial_ledger_state,
       block_loader,
       *keypair_,
       consensus_result_cache_,
       std::chrono::milliseconds(config_.vote_delay),
-      async_call_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
       inter_peer_client_factory_);
@@ -910,6 +944,42 @@ Irohad::RunResult Irohad::initWsvRestorer() {
   return {};
 }
 
+namespace {
+  struct ProcessGateObjectContext {
+    std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
+    std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
+    std::shared_ptr<iroha::consensus::yac::YacInit> yac_init;
+    logger::LoggerPtr log;
+    std::shared_ptr<iroha::Subscription> subscription;
+  };
+
+  void processGateObject(ProcessGateObjectContext context,
+                         consensus::GateObject const &object) {
+    context.subscription->notify(
+        EventTypes::kOnConsensusGateEvent,
+        ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{});
+    context.log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
+    auto event = context.synchronizer->processOutcome(std::move(object));
+    if (not event) {
+      return;
+    }
+    context.subscription->notify(EventTypes::kOnSynchronization,
+                                 SynchronizationEvent(*event));
+    printSynchronizationEvent(context.log, *event);
+    auto round_switch =
+        context.ordering_init->processSynchronizationEvent(std::move(*event));
+    if (auto maybe_object = context.yac_init->processRoundSwitch(
+            round_switch.next_round, round_switch.ledger_state)) {
+      auto round = [](auto &object) { return object.round; };
+      context.log->info("Ignoring object with {} because {} is newer",
+                        std::visit(round, object),
+                        std::visit(round, *maybe_object));
+      return processGateObject(std::move(context), *maybe_object);
+    }
+    context.ordering_init->processRoundSwitch(round_switch);
+  }
+}  // namespace
+
 /**
  * Run iroha daemon
  */
@@ -939,27 +1009,23 @@ Irohad::RunResult Irohad::run() {
 
   yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
                        ordering_init(utils::make_weak(ordering_init)),
+                       yac_init(utils::make_weak(yac_init)),
                        log(utils::make_weak(log_)),
                        subscription(utils::make_weak(getSubscription()))](
-                          consensus::GateObject object) {
+                          consensus::GateObject const &object) {
     auto maybe_synchronizer = synchronizer.lock();
     auto maybe_ordering_init = ordering_init.lock();
+    auto maybe_yac_init = yac_init.lock();
     auto maybe_log = log.lock();
     auto maybe_subscription = subscription.lock();
-    if (maybe_synchronizer and maybe_ordering_init and maybe_log
-        and maybe_subscription) {
-      maybe_subscription->notify(
-          EventTypes::kOnConsensusGateEvent,
-          ::torii::CommandServiceTransportGrpc::ConsensusGateEvent{});
-      maybe_log->info("~~~~~~~~~| PROPOSAL ^_^ |~~~~~~~~~ ");
-      auto event = maybe_synchronizer->processOutcome(std::move(object));
-      if (not event) {
-        return;
-      }
-      maybe_subscription->notify(EventTypes::kOnSynchronization,
-                                 SynchronizationEvent(*event));
-      printSynchronizationEvent(maybe_log, *event);
-      maybe_ordering_init->processSynchronizationEvent(std::move(*event));
+    if (maybe_synchronizer and maybe_ordering_init and maybe_yac_init
+        and maybe_log and maybe_subscription) {
+      processGateObject({std::move(maybe_synchronizer),
+                         std::move(maybe_ordering_init),
+                         std::move(maybe_yac_init),
+                         std::move(maybe_log),
+                         std::move(maybe_subscription)},
+                        object);
     }
   });
 
@@ -1040,14 +1106,41 @@ Irohad::RunResult Irohad::run() {
 
   subscription_engine_->dispatcher()->add(
       iroha::SubscriptionEngineHandlers::kYac,
-      [ordering_init(utils::make_weak(ordering_init)),
+      [synchronizer(utils::make_weak(synchronizer)),
+       ordering_init(utils::make_weak(ordering_init)),
+       yac_init(utils::make_weak(yac_init)),
+       log(utils::make_weak(log_)),
+       subscription(utils::make_weak(getSubscription())),
        block_height,
        initial_ledger_state] {
-        if (auto maybe_ordering_init = ordering_init.lock()) {
-          maybe_ordering_init->processSynchronizationEvent(
-              {SynchronizationOutcomeType::kCommit,
-               {block_height, ordering::kFirstRejectRound},
-               *initial_ledger_state});
+        auto maybe_synchronizer = synchronizer.lock();
+        auto maybe_ordering_init = ordering_init.lock();
+        auto maybe_yac_init = yac_init.lock();
+        auto maybe_log = log.lock();
+        auto maybe_subscription = subscription.lock();
+        if (maybe_synchronizer and maybe_ordering_init and maybe_yac_init
+            and maybe_log and maybe_subscription) {
+          ProcessGateObjectContext context{std::move(maybe_synchronizer),
+                                           std::move(maybe_ordering_init),
+                                           std::move(maybe_yac_init),
+                                           std::move(maybe_log),
+                                           std::move(maybe_subscription)};
+          consensus::Round initial_round{block_height,
+                                         ordering::kFirstRejectRound};
+          auto round_switch =
+              context.ordering_init->processSynchronizationEvent(
+                  {SynchronizationOutcomeType::kCommit,
+                   initial_round,
+                   *initial_ledger_state});
+          if (auto maybe_object = context.yac_init->processRoundSwitch(
+                  round_switch.next_round, round_switch.ledger_state)) {
+            auto round = [](auto &object) { return object.round; };
+            context.log->info("Ignoring object with {} because {} is newer",
+                              initial_round,
+                              std::visit(round, *maybe_object));
+            return processGateObject(std::move(context), *maybe_object);
+          }
+          context.ordering_init->processRoundSwitch(round_switch);
         }
       });
 

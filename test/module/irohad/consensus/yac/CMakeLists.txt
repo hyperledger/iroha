@@ -67,6 +67,7 @@ target_link_libraries(yac_network_test
     yac
     yac_transport
     test_logger
+    sync_subscription
     )
 
 addtest(yac_peer_orderer_test peer_orderer_test.cpp)

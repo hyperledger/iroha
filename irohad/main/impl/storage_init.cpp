@@ -9,15 +9,19 @@
 
 #include <fmt/core.h>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
+#include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
+#include "ametsuchi/impl/rocksdb_block_storage.hpp"
+#include "ametsuchi/impl/rocksdb_block_storage_factory.hpp"
+#include "ametsuchi/impl/rocksdb_storage_impl.hpp"
+#include "ametsuchi/impl/storage_base.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/result.hpp"
 #include "generator/generator.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
-#include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/subscription.hpp"
@@ -41,13 +45,19 @@ namespace {
     if (auto err = iroha::expected::resultToOptionalError(flat_file)) {
       throw StorageInitException{err.value()};
     }
-    std::shared_ptr<shared_model::interface::BlockJsonConverter>
-        block_converter =
-            std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
     return std::make_unique<ametsuchi::FlatFileBlockStorage>(
         std::move(flat_file.assumeValue()),
-        block_converter,
+        std::make_shared<shared_model::proto::ProtoBlockJsonConverter>(),
         log_manager->getChild("FlatFileBlockStorage")->getLogger());
+  }
+
+  std::unique_ptr<ametsuchi::BlockStorage> makeRocksDbBlockStorage(
+      std::shared_ptr<ametsuchi::RocksDBContext> db_context,
+      logger::LoggerManagerTreePtr log_manager) {
+    return std::make_unique<ametsuchi::RocksDbBlockStorage>(
+        std::move(db_context),
+        std::make_shared<shared_model::proto::ProtoBlockJsonConverter>(),
+        log_manager->getChild("RocksDbBlockStorage")->getLogger());
   }
 
   std::unique_ptr<ametsuchi::BlockStorage> makePostgresBlockStorage(
@@ -76,6 +86,46 @@ namespace {
     return std::move(block_storage).assumeValue();
   }
 }  // namespace
+
+iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>
+iroha::initStorage(
+    std::shared_ptr<ametsuchi::RocksDBContext> db_context,
+    std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage,
+    std::shared_ptr<shared_model::interface::QueryResponseFactory>
+        query_response_factory,
+    boost::optional<std::string> block_storage_dir,
+    std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
+        vm_caller_ref,
+    std::function<void(std::shared_ptr<shared_model::interface::Block const>)>
+        callback,
+    logger::LoggerManagerTreePtr log_manager) {
+  auto perm_converter =
+      std::make_shared<shared_model::proto::ProtoPermissionToString>();
+
+  auto block_transport_factory =
+      std::make_shared<shared_model::proto::ProtoBlockFactory>(
+          std::make_unique<shared_model::validation::AlwaysValidValidator<
+              shared_model::interface::Block>>(),
+          std::make_unique<shared_model::validation::ProtoBlockValidator>());
+
+  std::unique_ptr<ametsuchi::BlockStorageFactory>
+      temporary_block_storage_factory =
+          std::make_unique<ametsuchi::InMemoryBlockStorageFactory>();
+
+  auto persistent_block_storage =
+      makeRocksDbBlockStorage(db_context, log_manager);
+
+  return ametsuchi::RocksDbStorageImpl::create(
+      std::move(db_context),
+      perm_converter,
+      std::move(pending_txs_storage),
+      std::move(query_response_factory),
+      std::move(temporary_block_storage_factory),
+      std::move(persistent_block_storage),
+      vm_caller_ref,
+      std::move(callback),
+      log_manager->getChild("Storage"));
+}
 
 iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>
 iroha::initStorage(

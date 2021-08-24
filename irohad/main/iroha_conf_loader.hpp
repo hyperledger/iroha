@@ -17,8 +17,13 @@
 #include "multihash/type.hpp"
 #include "torii/tls_params.hpp"
 
+static const std::string kDbTypeRocksdb = "rocksdb";
+static const std::string kDbTypePostgres = "postgres";
+
 struct IrohadConfig {
   struct DbConfig {
+    std::string type;
+    std::string path;
     std::string host;
     uint16_t port;
     std::string user;
@@ -64,7 +69,7 @@ struct IrohadConfig {
   boost::optional<uint32_t> proposal_creation_timeout;
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
-  boost::optional<shared_model::interface::types::PeerList> initial_peers;
+  std::optional<shared_model::interface::types::PeerList> initial_peers;
   boost::optional<UtilityService> utility_service;
 
   // This is a part of cryto providers feature:

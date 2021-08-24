@@ -9,6 +9,7 @@ target_link_libraries(ametsuchi_test
     ametsuchi_fixture
     common_test_constants
     flat_file_storage
+    rocksdb_block_storage
     shared_model_stateless_validation
     test_logger
     sync_subscription
@@ -25,6 +26,7 @@ target_link_libraries(wsv_query_command_test
 addtest(rdb_wsv_query_command_test rdb_wsv_query_command_test.cpp)
 target_link_libraries(rdb_wsv_query_command_test
     test_logger
+    ametsuchi
     ametsuchi_fixture
     ametsuchi_rocksdb
     sync_subscription
@@ -33,6 +35,7 @@ target_link_libraries(rdb_wsv_query_command_test
 addtest(rdb_wsv_query_test rdb_wsv_query_test.cpp)
 target_link_libraries(rdb_wsv_query_test
     test_logger
+    ametsuchi
     ametsuchi_fixture
     ametsuchi_rocksdb
     sync_subscription
@@ -81,6 +84,7 @@ target_link_libraries(storage_init_test
     integration_framework_config_helper
     shared_model_proto_backend
     pg_connection_init
+    rdb_connection_init
     test_logger
     sync_subscription
     )
@@ -159,6 +163,13 @@ target_link_libraries(flat_file_block_storage_test
     sync_subscription
     )
 
+addtest(rocksdb_block_storage_test rocksdb_block_storage_test.cpp)
+target_link_libraries(rocksdb_block_storage_test
+    ametsuchi
+    test_logger
+    sync_subscription
+    )
+
 addtest(postgres_block_storage_test postgres_block_storage_test.cpp)
 target_link_libraries(postgres_block_storage_test
     ametsuchi
@@ -177,6 +188,7 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     SOCI::postgresql
     SOCI::core
     pg_connection_init
+    rdb_connection_init
     test_logger
     )
 

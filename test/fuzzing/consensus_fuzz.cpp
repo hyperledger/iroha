@@ -78,7 +78,7 @@ namespace fuzzing {
           network_,
           crypto_provider_,
           timer_,
-          *initial_order,
+          initial_order->getPeers(),
           initial_round_,
           getTestLoggerManager(logger::LogLevel::kCritical)
               ->getChild("Yac")

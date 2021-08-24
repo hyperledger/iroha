@@ -4,7 +4,9 @@
  */
 
 #include <gtest/gtest.h>
+
 #include <boost/variant.hpp>
+
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/queries.hpp"
@@ -18,7 +20,10 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class GetTransactions : public AcceptanceFixture {
+using iroha::StorageType;
+
+class GetTransactions : public AcceptanceFixture,
+                        public testing::WithParamInterface<iroha::StorageType> {
  public:
   /**
    * Creates the transaction with the user creation commands
@@ -63,7 +68,7 @@ class GetTransactions : public AcceptanceFixture {
  * @when query GetTransactions of existing transaction of the user
  * @then stateful validation fail returned
  */
-TEST_F(GetTransactions, HaveNoGetPerms) {
+TEST_P(GetTransactions, HaveNoGetPerms) {
   auto check = [](auto &status) {
     ASSERT_TRUE(
         boost::apply_visitor(interface::QueryErrorResponseChecker<
@@ -72,7 +77,7 @@ TEST_F(GetTransactions, HaveNoGetPerms) {
   };
 
   auto dummy_tx = dummyTx();
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kReadAssets}))
       .skipProposal()
@@ -92,7 +97,7 @@ TEST_F(GetTransactions, HaveNoGetPerms) {
  * @when query GetTransactions of existing transaction of the user
  * @then receive TransactionsResponse with the transaction hash
  */
-TEST_F(GetTransactions, HaveGetAllTx) {
+TEST_P(GetTransactions, HaveGetAllTx) {
   auto dummy_tx = dummyTx();
   auto check = [&dummy_tx](auto &status) {
     ASSERT_NO_THROW({
@@ -104,7 +109,7 @@ TEST_F(GetTransactions, HaveGetAllTx) {
     });
   };
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kGetAllTxs}))
       .skipProposal()
@@ -124,7 +129,7 @@ TEST_F(GetTransactions, HaveGetAllTx) {
  * @when query GetTransactions of existing transaction of the user
  * @then receive TransactionsResponse with the transaction hash
  */
-TEST_F(GetTransactions, HaveGetMyTx) {
+TEST_P(GetTransactions, HaveGetMyTx) {
   auto dummy_tx = dummyTx();
   auto check = [&dummy_tx](auto &status) {
     ASSERT_NO_THROW({
@@ -136,7 +141,7 @@ TEST_F(GetTransactions, HaveGetMyTx) {
     });
   };
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -156,7 +161,7 @@ TEST_F(GetTransactions, HaveGetMyTx) {
  * invalid signatures
  * @then receive StatefullErrorResponse
  */
-TEST_F(GetTransactions, InvalidSignatures) {
+TEST_P(GetTransactions, InvalidSignatures) {
   auto dummy_tx = dummyTx();
   auto check = [](auto &status) {
     ASSERT_NO_THROW({
@@ -176,7 +181,7 @@ TEST_F(GetTransactions, InvalidSignatures) {
                        crypto::DefaultCryptoAlgorithmType::generateKeypair())
                    .finish();
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -193,7 +198,7 @@ TEST_F(GetTransactions, InvalidSignatures) {
  * @when query GetTransactions with nonexistent hash
  * @then Stateful invalid query response
  */
-TEST_F(GetTransactions, NonexistentHash) {
+TEST_P(GetTransactions, NonexistentHash) {
   auto check = [](auto &status) {
     ASSERT_NO_THROW({
       const auto &resp =
@@ -207,7 +212,7 @@ TEST_F(GetTransactions, NonexistentHash) {
     });
   };
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -226,7 +231,7 @@ TEST_F(GetTransactions, NonexistentHash) {
  * @when query GetTransactions of existing transaction of the other user
  * @then TransactionsResponse with no transactions
  */
-TEST_F(GetTransactions, OtherUserTx) {
+TEST_P(GetTransactions, OtherUserTx) {
   auto check = [](auto &status) {
     ASSERT_NO_THROW({
       const auto &resp =
@@ -236,10 +241,23 @@ TEST_F(GetTransactions, OtherUserTx) {
     });
   };
 
+  iroha::StorageType type = GetParam();
   auto tx = makeUserWithPerms();
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, type)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           tx, [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(makeQuery(tx.hash()), check);
 }
+
+INSTANTIATE_TEST_SUITE_P(DifferentStorageType,
+                         GetTransactions,
+                         testing::Values(StorageType::kPostgres,
+                                         StorageType::kRocksDb),
+                         [](const testing::TestParamInfo<StorageType> &info) {
+                           return info.param == StorageType::kPostgres
+                               ? "kPostgres"
+                               : info.param == StorageType::kRocksDb
+                               ? "kRocksDb"
+                               : "UNKNOWN";
+                         });

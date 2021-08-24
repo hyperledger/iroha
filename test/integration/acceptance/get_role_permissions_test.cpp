@@ -16,6 +16,9 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
+static constexpr iroha::StorageType storage_types[] = {
+    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
  * common acceptance test
@@ -26,21 +29,23 @@ using namespace common_constants;
  * @then there is a valid RolePermissionsResponse
  */
 TEST_F(AcceptanceFixture, CanGetRolePermissions) {
-  auto check_query = [](auto &query_response) {
-    ASSERT_NO_THROW(
-        boost::get<const shared_model::interface::RolePermissionsResponse &>(
-            query_response.get()));
-  };
+  for (auto const type : storage_types) {
+    auto check_query = [](auto &query_response) {
+      ASSERT_NO_THROW(
+          boost::get<const shared_model::interface::RolePermissionsResponse &>(
+              query_response.get()));
+    };
 
-  auto query = complete(baseQry().getRolePermissions(kRole));
+    auto query = complete(baseQry().getRolePermissions(kRole));
 
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms(
-              {shared_model::interface::permissions::Role::kGetRoles}),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(query, check_query);
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms(
+                {shared_model::interface::permissions::Role::kGetRoles}),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(query, check_query);
+  }
 }
 
 /**
@@ -53,14 +58,16 @@ TEST_F(AcceptanceFixture, CanGetRolePermissions) {
  * @then query should be recognized as stateful invalid
  */
 TEST_F(AcceptanceFixture, CanNotGetRolePermissions) {
-  auto query = complete(baseQry().getRolePermissions(kRole));
+  for (auto const type : storage_types) {
+    auto query = complete(baseQry().getRolePermissions(kRole));
 
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(
-          makeUserWithPerms({}),
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(query,
-                 checkQueryErrorResponse<
-                     shared_model::interface::StatefulFailedErrorResponse>());
+    IntegrationTestFramework(1, type)
+        .setInitialState(kAdminKeypair)
+        .sendTxAwait(
+            makeUserWithPerms({}),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendQuery(query,
+                   checkQueryErrorResponse<
+                       shared_model::interface::StatefulFailedErrorResponse>());
+  }
 }

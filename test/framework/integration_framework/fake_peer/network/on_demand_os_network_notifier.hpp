@@ -14,47 +14,46 @@
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 
-namespace integration_framework {
-  namespace fake_peer {
+namespace integration_framework::fake_peer {
 
-    class OnDemandOsNetworkNotifier final
-        : public iroha::ordering::OnDemandOrderingService {
-     public:
-      OnDemandOsNetworkNotifier(const std::shared_ptr<FakePeer> &fake_peer);
+  class OnDemandOsNetworkNotifier final
+      : public iroha::ordering::OnDemandOrderingService {
+   public:
+    OnDemandOsNetworkNotifier(const std::shared_ptr<FakePeer> &fake_peer);
 
-      void onBatches(CollectionType batches) override;
+    void onBatches(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-          iroha::consensus::Round round) override;
+    std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
+        iroha::consensus::Round round) override;
 
-      void onCollaborationOutcome(iroha::consensus::Round round) override;
+    void onCollaborationOutcome(iroha::consensus::Round round) override;
 
-      void onTxsCommitted(const HashesSetType &hashes) override;
+    void onTxsCommitted(const HashesSetType &hashes) override;
 
-      void forCachedBatches(
-          std::function<void(const iroha::ordering::OnDemandOrderingService::
-                                 BatchesSetType &)> const &f) override;
+    void forCachedBatches(
+        std::function<void(const iroha::ordering::OnDemandOrderingService::
+                               BatchesSetType &)> const &f) const override;
 
-      bool isEmptyBatchesCache() const override;
+    bool isEmptyBatchesCache() const override;
 
-      bool hasProposal(iroha::consensus::Round round) const override;
+    bool hasProposal(iroha::consensus::Round round) const override;
 
-      rxcpp::observable<iroha::consensus::Round>
-      getProposalRequestsObservable();
+    void processReceivedProposal(CollectionType batches) override;
 
-      rxcpp::observable<std::shared_ptr<BatchesCollection>>
-      getBatchesObservable();
+    rxcpp::observable<iroha::consensus::Round> getProposalRequestsObservable();
 
-     private:
-      std::weak_ptr<FakePeer> fake_peer_wptr_;
-      rxcpp::subjects::subject<iroha::consensus::Round> rounds_subject_;
-      std::mutex rounds_subject_mutex_;
-      rxcpp::subjects::subject<std::shared_ptr<BatchesCollection>>
-          batches_subject_;
-      std::mutex batches_subject_mutex_;
-    };
+    rxcpp::observable<std::shared_ptr<BatchesCollection>>
+    getBatchesObservable();
 
-  }  // namespace fake_peer
-}  // namespace integration_framework
+   private:
+    std::weak_ptr<FakePeer> fake_peer_wptr_;
+    rxcpp::subjects::subject<iroha::consensus::Round> rounds_subject_;
+    std::mutex rounds_subject_mutex_;
+    rxcpp::subjects::subject<std::shared_ptr<BatchesCollection>>
+        batches_subject_;
+    std::mutex batches_subject_mutex_;
+  };
+
+}  // namespace integration_framework::fake_peer
 
 #endif /* FAKE_PEER_ODOS_NETWORK_NOTIFIER_HPP_ */

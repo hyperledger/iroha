@@ -38,7 +38,9 @@ namespace iroha {
     class Storage;
     class ReconnectionStrategyFactory;
     class PostgresOptions;
+    class RocksDbOptions;
     struct PoolWrapper;
+    struct RocksDBContext;
     class VmCaller;
   }  // namespace ametsuchi
   namespace consensus {
@@ -128,6 +130,7 @@ class Irohad {
    */
   Irohad(const IrohadConfig &config,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+         std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt,
          const std::string &listen_ip,
          const boost::optional<shared_model::crypto::Keypair> &keypair,
          logger::LoggerManagerTreePtr logger_manager,
@@ -174,7 +177,8 @@ class Irohad {
  protected:
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(
-      iroha::StartupWsvDataPolicy startup_wsv_data_policy);
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
+      iroha::StorageType type);
 
   RunResult initTlsCredentials();
 
@@ -230,7 +234,6 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  std::shared_ptr<iroha::Subscription> se_;
   IrohadConfig config_;
   const std::string listen_ip_;
   boost::optional<shared_model::crypto::Keypair> keypair_;
@@ -258,9 +261,11 @@ class Irohad {
 
   // ------------------------| internal dependencies |-------------------------
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
+  std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;
 
  public:
   std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
+  std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:
@@ -268,7 +273,7 @@ class Irohad {
 
   // initialization objects
   std::shared_ptr<iroha::ordering::OnDemandOrderingInit> ordering_init;
-  std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
+  std::shared_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
   // IR-907 14.09.2020 @lebdron: remove it from here

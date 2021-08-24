@@ -9,8 +9,6 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <rocksdb/utilities/transaction.h>
-#include <boost/algorithm/string.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -18,6 +16,7 @@
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/common.hpp"
+#include "common/to_lower.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/get_account.hpp"
@@ -42,6 +41,19 @@
 using namespace iroha;
 using namespace iroha::ametsuchi;
 
+namespace {
+  struct PaginationBounds {
+    using HeightType = shared_model::interface::types::HeightType;
+    using TimestampType = shared_model::interface::types::TimestampType;
+
+    HeightType heightFrom;
+    HeightType heightTo;
+
+    TimestampType tsFrom;
+    TimestampType tsTo;
+  };
+}  // namespace
+
 using ErrorQueryType =
     shared_model::interface::QueryResponseFactory::ErrorQueryType;
 
@@ -50,18 +62,22 @@ using shared_model::interface::permissions::Role;
 using shared_model::interface::RolePermissionSet;
 
 RocksDbSpecificQueryExecutor::RocksDbSpecificQueryExecutor(
-    std::shared_ptr<RocksDBPort> db_port,
+    std::shared_ptr<RocksDBContext> db_context,
     BlockStorage &block_store,
     std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
     std::shared_ptr<shared_model::interface::QueryResponseFactory>
         response_factory,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter)
-    : db_context_(std::make_shared<RocksDBContext>(db_port)),
+    : db_context_(std::move(db_context)),
       block_store_(block_store),
       pending_txs_storage_(std::move(pending_txs_storage)),
       query_response_factory_{std::move(response_factory)},
       perm_converter_(std::move(perm_converter)) {
   assert(db_context_);
+}
+
+std::shared_ptr<RocksDBContext> RocksDbSpecificQueryExecutor::getTxContext() {
+  return db_context_;
 }
 
 QueryExecutorResult RocksDbSpecificQueryExecutor::execute(
@@ -325,15 +341,6 @@ RocksDbSpecificQueryExecutor::readTxs(
   ordering.get(ordering_ptr, count);
   assert(count > 0ull);
 
-  bool first_hash_found = !query.paginationMeta().firstTxHash();
-  std::string target_hash;
-
-  if (query.paginationMeta().firstTxHash())
-    std::transform(query.paginationMeta().firstTxHash()->toString().begin(),
-                   query.paginationMeta().firstTxHash()->toString().end(),
-                   target_hash.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-
   RDB_TRY_GET_VALUE(opt_txs_total,
                     forTxsTotalCount<kDbOperation::kGet, kDbEntry::kCanExist>(
                         common, query.accountId()));
@@ -343,16 +350,46 @@ RocksDbSpecificQueryExecutor::readTxs(
   uint64_t remains = query.paginationMeta().pageSize() + 1ull;
   std::optional<shared_model::crypto::Hash> next_page;
 
-  auto parser = [&](auto p, auto d) {
-    auto const data = staticSplitId<2ull>(d.ToStringView(), "#");
-    if (!(readTxsWithAssets ^ data.at(0).empty()))
-      return true;
+  static_assert(
+      std::is_same_v<
+          typename decltype(query.paginationMeta().firstTxTime())::value_type,
+          typename decltype(query.paginationMeta().lastTxTime())::value_type>,
+      "Type of firstTxTime and lastTxTime must be the same!");
+  static_assert(
+      std::is_same_v<decltype(PaginationBounds::tsFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxTime())::value_type>,
+      "Type of firstTxTime and lastTxTime must be the same!");
 
-    if (!first_hash_found) {
-      if (data.at(1) != target_hash)
+  static_assert(
+      std::is_same_v<
+          typename decltype(query.paginationMeta().firstTxHeight())::value_type,
+          typename decltype(query.paginationMeta().lastTxHeight())::value_type>,
+      "Height types must be the same!");
+  static_assert(
+      std::is_same_v<decltype(PaginationBounds::heightFrom),
+                     typename decltype(
+                         query.paginationMeta().lastTxHeight())::value_type>,
+      "Height types must be the same!");
+
+  PaginationBounds const bounds{
+      query.paginationMeta().firstTxHeight().value_or(
+          shared_model::interface::types::HeightType(1ull)),
+      query.paginationMeta().lastTxHeight().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxHeight())::value_type>::max()),
+      query.paginationMeta().firstTxTime().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().firstTxTime())::value_type>::min()),
+      query.paginationMeta().lastTxTime().value_or(
+          std::numeric_limits<typename decltype(
+              query.paginationMeta().lastTxTime())::value_type>::max())};
+
+  auto parser = [&](auto p, auto d) {
+    auto const &[asset, tx_hash] = staticSplitId<2ull>(d.ToStringView(), "%");
+    if (readTxsWithAssets)
+      if (asset.empty())
         return true;
-      first_hash_found = true;
-    }
 
     auto const position =
         staticSplitId<5ull>(p.ToStringView(), fmtstrings::kDelimiter);
@@ -366,6 +403,22 @@ RocksDbSpecificQueryExecutor::readTxs(
       decodePosition(
           position.at(4), position.at(0), position.at(2), tx_position);
 
+    static_assert(
+        std::is_unsigned_v<decltype(
+                tx_position
+                    .height)> && std::is_unsigned_v<decltype(bounds.heightFrom)>,
+        "Height must be unsigned");
+    if ((tx_position.height - bounds.heightFrom)
+        > (bounds.heightTo - bounds.heightFrom))
+      return true;
+
+    static_assert(
+        std::is_unsigned_v<decltype(
+                tx_position.ts)> && std::is_unsigned_v<decltype(bounds.tsFrom)>,
+        "TS must be unsigned");
+    if ((tx_position.ts - bounds.tsFrom) > (bounds.tsTo - bounds.tsFrom))
+      return true;
+
     // get transactions corresponding to indexes
     if (remains-- > 1ull) {
       auto txs_result =
@@ -378,21 +431,76 @@ RocksDbSpecificQueryExecutor::readTxs(
 
       return true;
     } else {
-      next_page = shared_model::crypto::Hash(data.at(1));
+      next_page = shared_model::crypto::Hash(tx_hash);
       return false;
     }
   };
 
-  // TODO(iceseer): find first entry by log(N)
-  rocksdb::Status status =
-      (ordering_ptr->field
-       == shared_model::interface::Ordering::Field::kCreatedTime)
-      ? enumerateKeysAndValues(
-            common, parser, fmtstrings::kPathTransactionByTs, query.accountId())
-      : enumerateKeysAndValues(common,
-                               parser,
-                               fmtstrings::kPathTransactionByPosition,
-                               query.accountId());
+  rocksdb::Status status = rocksdb::Status::OK();
+  if (query.paginationMeta().firstTxHash()) {
+    std::string target_hash;
+    if (auto result =
+            forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common,
+                toLowerAppend(query.paginationMeta().firstTxHash()->toString(),
+                              target_hash));
+        expected::hasValue(result)) {
+      assert(ordering_ptr->field
+                 == shared_model::interface::Ordering::Field::kCreatedTime
+             || ordering_ptr->field
+                 == shared_model::interface::Ordering::Field::kPosition);
+
+      auto const &[tx_status, tx_height, tx_index, tx_ts] =
+          staticSplitId<4ull>(*result.template assumeValue(), "#");
+
+      if (ordering_ptr->field
+          == shared_model::interface::Ordering::Field::kCreatedTime) {
+        auto it = common.template seek(fmtstrings::kTransactionByTs,
+                                       query.accountId(),
+                                       tx_ts,
+                                       tx_height,
+                                       tx_index);
+        status = enumerateKeysAndValues(common,
+                                        parser,
+                                        it,
+                                        fmtstrings::kPathTransactionByTs,
+                                        query.accountId());
+      } else {
+        auto it = common.template seek(fmtstrings::kTransactionByPosition,
+                                       query.accountId(),
+                                       tx_height,
+                                       tx_index,
+                                       tx_ts);
+        status = enumerateKeysAndValues(common,
+                                        parser,
+                                        it,
+                                        fmtstrings::kPathTransactionByPosition,
+                                        query.accountId());
+      }
+    }
+  } else {
+    if (ordering_ptr->field
+        == shared_model::interface::Ordering::Field::kCreatedTime) {
+      auto it = common.template seek(fmtstrings::kTransactionByTsLowerBound,
+                                     query.accountId(),
+                                     bounds.tsFrom);
+      status = enumerateKeysAndValues(common,
+                                      parser,
+                                      it,
+                                      fmtstrings::kPathTransactionByTs,
+                                      query.accountId());
+    } else {
+      auto it = common.template seek(fmtstrings::kTransactionByHeight,
+                                     query.accountId(),
+                                     bounds.heightFrom);
+      status = enumerateKeysAndValues(common,
+                                      parser,
+                                      it,
+                                      fmtstrings::kPathTransactionByPosition,
+                                      query.accountId());
+    }
+  }
+
   RDB_ERROR_CHECK(canExist(status, [&]() {
     return fmt::format("Enumerate transactions for account {}",
                        query.accountId());
@@ -448,22 +556,42 @@ operator()(
   std::vector<std::unique_ptr<shared_model::interface::Transaction>>
       response_txs;
 
+  bool const canRequestAll = creator_permissions.isSet(Role::kGetAllTxs);
   for (auto const &hash : query.transactionHashes()) {
     h_hex.clear();
-    std::transform(hash.hex().begin(),
-                   hash.hex().end(),
-                   h_hex.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    toLowerAppend(hash.hex(), h_hex);
 
-    RDB_TRY_GET_VALUE(
-        opt,
-        forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(common,
-                                                                       h_hex));
-    auto const tx_data = staticSplitId<3ull>(*opt, "#");
+    std::optional<std::string_view> opt;
+    if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
+            common, h_hex);
+        expected::hasError(r))
+      return query_response_factory_->createErrorQueryResponse(
+          ErrorQueryType::kStatefulFailed,
+          fmt::format("Query: {}, message: {}",
+                      query.toString(),
+                      r.assumeError().description),
+          ErrorCodes::kNoTransaction,
+          query_hash);
+    else
+      opt = std::move(r.assumeValue());
+
+    auto const &[tx_status, tx_height, tx_index, tx_ts] =
+        staticSplitId<4ull>(*opt, "#");
 
     TxPosition tx_position = {0ull, 0ull, 0ull};
-    decodePosition(
-        std::string_view{}, tx_data.at(1), tx_data.at(2), tx_position);
+    decodePosition(tx_ts, tx_height, tx_index, tx_position);
+
+    if (auto r =
+            forTransactionByPosition<kDbOperation::kGet, kDbEntry::kMustExist>(
+                common,
+                creator_id,
+                tx_position.ts,
+                tx_position.height,
+                tx_position.index);
+        !canRequestAll
+        && (expected::hasError(r)
+            || staticSplitId<2ull>(*r.assumeValue(), "%").at(1) != h_hex))
+      continue;
 
     auto txs_result =
         getTransactionsFromBlock(tx_position.height,
@@ -498,9 +626,9 @@ operator()(
                                    query.accountId(),
                                    creator_id,
                                    creator_permissions,
-                                   Role::kGetAllAccTxs,
-                                   Role::kGetDomainAccTxs,
-                                   Role::kGetMyAccTxs));
+                                   Role::kGetAllAccAstTxs,
+                                   Role::kGetDomainAccAstTxs,
+                                   Role::kGetMyAccAstTxs));
 
   return readTxs<true>(common, query_response_factory_, query, query_hash);
 }

@@ -23,6 +23,19 @@ target_link_libraries(pool_wrapper
     SOCI::core
     )
 
+add_library(rocksdb_block_storage
+    impl/rocksdb_block_storage.cpp
+    impl/rocksdb_block_storage_factory.cpp
+    )
+
+target_link_libraries(rocksdb_block_storage
+    libs_files
+    shared_model_proto_backend
+    logger
+    Boost::boost
+    RocksDB::rocksdb
+    )
+
 add_library(flat_file_storage
     impl/flat_file/flat_file.cpp
     impl/flat_file_block_storage.cpp
@@ -76,12 +89,26 @@ target_link_libraries(proto_command_executor
     shared_model_stateless_validation
     )
 
+add_library(query_executor_base
+    impl/query_executor_base.cpp
+    )
+target_link_libraries(query_executor_base
+    logger
+    )
+
+add_library(rocksdb_query_executor
+    impl/rocksdb_query_executor.cpp
+    )
+target_link_libraries(rocksdb_query_executor
+    query_executor_base
+    )
+
 add_library(postgres_query_executor
     impl/postgres_query_executor.cpp
     )
 target_link_libraries(postgres_query_executor
     SOCI::core
-    logger
+    query_executor_base
     )
 target_compile_definitions(postgres_query_executor
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
@@ -92,13 +119,19 @@ add_library(proto_specific_query_executor
     )
 target_link_libraries(proto_specific_query_executor
     postgres_query_executor
+    rocksdb_query_executor
     shared_model_proto_backend
     shared_model_stateless_validation
     )
 
 add_library(ametsuchi
+    impl/storage_base.cpp
     impl/storage_impl.cpp
+    impl/rocksdb_storage_impl.cpp
+    impl/rocksdb_temporary_wsv_impl.cpp
+    impl/block_query_base.cpp
     impl/temporary_wsv_impl.cpp
+    impl/postgres_temporary_wsv_impl.cpp
     impl/mutable_storage_impl.cpp
     impl/postgres_wsv_query.cpp
     impl/postgres_wsv_command.cpp
@@ -106,14 +139,23 @@ add_library(ametsuchi
     impl/postgres_block_query.cpp
     impl/setting_query.cpp
     impl/postgres_setting_query.cpp
+    impl/rocksdb_settings_query.cpp
+    impl/rocksdb_block_query.cpp
     impl/executor_common.cpp
     impl/command_executor.cpp
     impl/postgres_command_executor.cpp
     impl/wsv_restorer_impl.cpp
     impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
+    )
+
+add_library(im_memory_block_storage
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
+    )
+target_link_libraries(im_memory_block_storage
+    common
+    logger
     )
 
 add_library(block_indexer
@@ -169,7 +211,10 @@ endif()
 target_link_libraries(ametsuchi
     default_vm_call
     pg_connection_init
+    rdb_connection_init
+    ametsuchi_rocksdb
     flat_file_storage
+    rocksdb_block_storage
     postgres_indexer
     postgres_storage
     logger
@@ -186,7 +231,8 @@ target_link_libraries(ametsuchi
     SOCI::postgresql
     SOCI::core
     postgres_query_executor
-    async_subscription
+    rocksdb_query_executor
+    im_memory_block_storage
     )
 
 target_compile_definitions(ametsuchi
@@ -199,7 +245,17 @@ add_library(ametsuchi_rocksdb
     impl/rocksdb_specific_query_executor.cpp
     )
 target_link_libraries(ametsuchi_rocksdb
-    ametsuchi
     RocksDB::rocksdb
+    logger
+    logger_manager
+    libs_files
+    common
+    Boost::boost
+    Boost::filesystem
+    im_memory_block_storage
+    shared_model_proto_backend
+    shared_model_plain_backend
+    shared_model_interfaces_factories
+    rocksdb_indexer
     shared_model_interfaces
     )

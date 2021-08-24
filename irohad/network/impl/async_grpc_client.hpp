@@ -37,7 +37,9 @@ namespace iroha {
         while (cq_.Next(&got_tag, &ok)) {
           auto call = static_cast<AsyncClientCall *>(got_tag);
           if (not call->status.ok()) {
-            log_->warn("RPC failed: {}", call->status.error_message());
+            log_->warn("RPC failed: {} {}",
+                       call->context.peer(),
+                       call->status.error_message());
           }
           if (call->on_response) {
             call->on_response(call->status, call->reply);

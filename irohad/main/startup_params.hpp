@@ -15,6 +15,11 @@ namespace iroha {
     kDrop,   //!< drop any existing state data
   };
 
+  enum class StorageType {
+    kPostgres,
+    kRocksDb,
+  };
+
   /**
    * Startup synchronization policy
    */

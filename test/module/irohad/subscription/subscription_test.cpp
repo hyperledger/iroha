@@ -677,7 +677,7 @@ TEST_F(SubscriptionTest, Notify_2) {
  * @when 2 subscribers are present
  * @and they subscribe to different events in a single current scheduler
  * @and both events are notified followed by dispose and process
- * @then the handlers of each subscriber must be called once and process finish
+ * @then the fist handler must be called once and process finish
  * its loop
  */
 TEST_F(SubscriptionTest, InThreadDispatcherTest) {
@@ -713,8 +713,44 @@ TEST_F(SubscriptionTest, InThreadDispatcherTest) {
   scheduler->process();
 
   ASSERT_EQ(counter[0], 1ul);
-  ASSERT_EQ(counter[1], 1ul);
+  ASSERT_EQ(counter[1], 0ul);
 
   manager->dispatcher()->unbind(*tid);
+  manager->dispose();
+}
+
+/**
+ * @given subscription engine
+ * @when add tasks in dispatcher from the loop
+ * @and no delay
+ * @and execute in thread pool
+ * @then each task will be executed in a different thread
+ */
+TEST_F(SubscriptionTest, ThreadPoolBalancer) {
+  auto manager = createSubscriptionManager<1>();
+  static constexpr size_t tests_count = 10;
+
+  utils::ReadWriteObject<std::set<std::thread::id>> ids;
+  utils::WaitForSingleObject complete[tests_count];
+
+  for (size_t ix = 0; ix < tests_count; ++ix)
+    manager->dispatcher()->add(
+        subscription::IDispatcher::kExecuteInPool, [&, ix]() {
+          ids.exclusiveAccess(
+              [](auto &ids) { ids.insert(std::this_thread::get_id()); });
+          complete[ix].set();
+
+          for (auto &comp : complete) {
+            ASSERT_TRUE(comp.wait(std::chrono::minutes(1ull)));
+            comp.set();
+          }
+        });
+
+  for (auto &comp : complete) {
+    ASSERT_TRUE(comp.wait(std::chrono::minutes(1ull)));
+    comp.set();
+  }
+
+  ids.sharedAccess([](auto const &ids) { ASSERT_EQ(ids.size(), tests_count); });
   manager->dispose();
 }

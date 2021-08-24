@@ -45,15 +45,16 @@ namespace iroha {
       std::string toString() const;
     };
 
-    /**
-     * Class provides hash function for Round
-     */
-    class RoundTypeHasher {
-     public:
-      std::size_t operator()(const consensus::Round &val) const;
-    };
+    std::size_t hash_value(Round const &val);
 
   }  // namespace consensus
 }  // namespace iroha
+
+namespace std {
+  template <>
+  struct hash<iroha::consensus::Round> {
+    std::size_t operator()(iroha::consensus::Round const &val) const noexcept;
+  };
+}  // namespace std
 
 #endif  // IROHA_ROUND_HPP

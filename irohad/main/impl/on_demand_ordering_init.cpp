@@ -19,7 +19,7 @@
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
-using namespace iroha::ordering;
+using iroha::ordering::OnDemandOrderingInit;
 
 namespace {
   /// indexes to permutations for corresponding rounds
@@ -37,38 +37,33 @@ OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
  * gRPC backend. \see initOrderingGate for parameters
  */
 auto createNotificationFactory(
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
     std::shared_ptr<OnDemandOrderingInit::TransportFactoryType>
         proposal_transport_factory,
     std::chrono::milliseconds delay,
     const logger::LoggerManagerTreePtr &ordering_log_manager,
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
-  return std::make_shared<transport::OnDemandOsClientGrpcFactory>(
-      std::move(async_call),
+  return std::make_shared<
+      iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
       std::move(proposal_transport_factory),
       [] { return std::chrono::system_clock::now(); },
       delay,
       ordering_log_manager->getChild("NetworkClient")->getLogger(),
       std::make_unique<iroha::network::ClientFactoryImpl<
-          transport::OnDemandOsClientGrpcFactory::Service>>(
+          iroha::ordering::transport::OnDemandOsClientGrpcFactory::Service>>(
           std::move(client_factory)),
-      [](ProposalEvent event) {
+      [](iroha::ordering::ProposalEvent event) {
         iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalResponse,
                                          std::move(event));
       });
 }
 
 auto OnDemandOrderingInit::createConnectionManager(
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
     std::shared_ptr<TransportFactoryType> proposal_transport_factory,
     std::chrono::milliseconds delay,
     const logger::LoggerManagerTreePtr &ordering_log_manager,
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   connection_manager_ = std::make_unique<OnDemandConnectionManager>(
-      createNotificationFactory(std::move(async_call),
-                                std::move(proposal_transport_factory),
+      createNotificationFactory(std::move(proposal_transport_factory),
                                 delay,
                                 ordering_log_manager,
                                 std::move(client_factory)),
@@ -117,8 +112,6 @@ OnDemandOrderingInit::initOrderingGate(
         batch_parser,
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory,
-    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
-        async_call,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<TransportFactoryType> proposal_transport_factory,
@@ -139,8 +132,7 @@ OnDemandOrderingInit::initOrderingGate(
       proposal_creation_timeout);
   ordering_gate_ =
       createGate(ordering_service,
-                 createConnectionManager(std::move(async_call),
-                                         std::move(proposal_transport_factory),
+                 createConnectionManager(std::move(proposal_transport_factory),
                                          delay,
                                          ordering_log_manager,
                                          std::move(client_factory)),
@@ -151,7 +143,7 @@ OnDemandOrderingInit::initOrderingGate(
   return ordering_gate_;
 }
 
-void OnDemandOrderingInit::processSynchronizationEvent(
+iroha::ordering::RoundSwitch OnDemandOrderingInit::processSynchronizationEvent(
     synchronizer::SynchronizationEvent event) {
   iroha::consensus::Round current_round = event.round;
 
@@ -224,8 +216,12 @@ void OnDemandOrderingInit::processSynchronizationEvent(
 
   connection_manager_->initializeConnections(peers);
 
-  ordering_gate_->processRoundSwitch(
-      {std::move(current_round), event.ledger_state});
+  return {std::move(current_round), event.ledger_state};
+}
+
+void OnDemandOrderingInit::processRoundSwitch(
+    iroha::ordering::RoundSwitch const &event) {
+  ordering_gate_->processRoundSwitch(event);
 }
 
 void OnDemandOrderingInit::processCommittedBlock(

@@ -16,7 +16,9 @@
 #include <rocksdb/db.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
+#include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
+#include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -29,17 +31,18 @@
  * |ROOT|-+-|STORE|-+-<height_1, value:block>
  *        |         +-<height_2, value:block>
  *        |         +-<height_3, value:block>
+ *        |         +-<version>
+ *        |         +-<blocks_total_count, value>
  *        |
  *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
  *                |           |         |           +-<peer_2_pubkey, value:address>
  *                |           |         |
- *                |           |         +-|TLS|-+-<peer_1, value:tls>
- *                |           |         |       +-<peer_2, value:tls>
+ *                |           |         +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |         |       +-<peer_2_pubkey, value:tls>
  *                |           |         |
  *                |           |         +-<count, value>
  *                |           |
  *                |           +-|STORE|-+-<top_block, value: store height#top block hash>
- *                |                     +-<total transactions count>
  *                |
  *                +-|SETTINGS|-+-<key_1, value_1>
  *                |            +-<key_2, value_2>
@@ -75,29 +78,30 @@
  *                |                +-<tx_total_count>
  *                |
  *                +-|DOMAIN|-+-|DOMAIN_1|-+-|ASSETS|-+-<asset_1, value:precision>
- *                           |            |          +-<asset_2, value:precision>
- *                           |            |
- *                           |            +-|ACCOUNTS|-|NAME_1|-+-|ASSETS|-+-<asset_1, value:quantity>
- *                           |                                  |          +-<asset_2, value:quantity>
- *                           |                                  |
- *                           |                                  +-|OPTIONS|-+-<quorum>
- *                           |                                  |           +-<asset_size>
- *                           |                                  |           +-<total, value: count>
- *                           |                                  |
- *                           |                                  +-|DETAILS|-+-<writer>-<key, value>
- *                           |                                  |
- *                           |                                  +-|ROLES|-+-<role_1, value:flag>
- *                           |                                  |         +-<role_2, value:flag>
- *                           |                                  |
- *                           |                                  +-|GRANTABLE_PER|-+-<domain_account_1, value:permissions>
- *                           |                                  |                 +-<domain_account_2, value:permissions>
- *                           |                                  |
- *                           |                                  +-|SIGNATORIES|-+-<signatory_1>
- *                           |                                                  +-<signatory_2>
- *                           |
- *                           +-<domain_1, value: default_role>
- *                           +-<total_count, value>
- *
+ *                |          |            |          +-<asset_2, value:precision>
+ *                |          |            |
+ *                |          |            +-|ACCOUNTS|-|NAME_1|-+-|ASSETS|-+-<asset_1, value:quantity>
+ *                |          |                                  |          +-<asset_2, value:quantity>
+ *                |          |                                  |
+ *                |          |                                  +-|OPTIONS|-+-<quorum>
+ *                |          |                                  |           +-<asset_size>
+ *                |          |                                  |           +-<total, value: count>
+ *                |          |                                  |
+ *                |          |                                  +-|DETAILS|-+-<writer>-<key, value>
+ *                |          |                                  |
+ *                |          |                                  +-|ROLES|-+-<role_1, value:flag>
+ *                |          |                                  |         +-<role_2, value:flag>
+ *                |          |                                  |
+ *                |          |                                  +-|GRANTABLE_PER|-+-<permitee_id_1, value:permissions>
+ *                |          |                                  |                 +-<permitee_id_2, value:permissions>
+ *                |          |                                  |
+ *                |          |                                  +-|SIGNATORIES|-+-<signatory_1>
+ *                |          |                                                  +-<signatory_2>
+ *                |          |
+ *                |          +-<domain_1, value: default_role>
+ *                |          +-<total_count, value>
+ *                |
+ *                +-<version>
  *
  *
  * ######################################
@@ -138,6 +142,7 @@
  * ### F_TOP BLOCK   ##       Q       ###
  * ### F_PEERS COUNT ##       Z       ###
  * ### F_TOTAL COUNT ##       V       ###
+ * ### F_VERSION     ##       v       ###
  * ######################################
  *
  * ######################################
@@ -178,6 +183,7 @@
 #define RDB_F_TOP_BLOCK "Q"
 #define RDB_F_PEERS_COUNT "Z"
 #define RDB_F_TOTAL_COUNT "V"
+#define RDB_F_VERSION "v"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -198,6 +204,10 @@ namespace iroha::ametsuchi::fmtstrings {
   // domain_id/account_name
   static auto constexpr kPathAccountRoles{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ROLES)};
+
+  static auto constexpr kPathWsv{FMT_STRING(RDB_ROOT /**/ RDB_WSV)};
+
+  static auto constexpr kPathStore{FMT_STRING(RDB_ROOT /**/ RDB_STORE)};
 
   // domain_id/account_name
   static auto constexpr kPathAccount{FMT_STRING(RDB_PATH_ACCOUNT)};
@@ -237,6 +247,10 @@ namespace iroha::ametsuchi::fmtstrings {
    * ############# FOLDERS ################
    * ######################################
    */
+  // height ➡️ block data
+  static auto constexpr kBlockDataInStore{
+      FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_XXX)};
+
   // account/height/index/ts ➡️ tx_hash
   static auto constexpr kTransactionByPosition{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
@@ -246,6 +260,16 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kTransactionByTs{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
           RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX /**/ RDB_XXX /**/ RDB_XXX)};
+
+  // account/height ➡️ tx_hash
+  static auto constexpr kTransactionByHeight{FMT_STRING(
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+          RDB_XXX /**/ RDB_POSITION /**/ RDB_XXX)};
+
+  // account/ts/height/index ➡️ tx_hash
+  static auto constexpr kTransactionByTsLowerBound{FMT_STRING(
+      RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_ACCOUNTS /**/
+          RDB_XXX /**/ RDB_TIMESTAMP /**/ RDB_XXX)};
 
   // tx_hash ➡️ status
   static auto constexpr kTransactionStatus{
@@ -290,8 +314,8 @@ namespace iroha::ametsuchi::fmtstrings {
 
   // domain_id/account_name/grantee_domain_id/grantee_account_name
   // ➡️ permissions
-  static auto constexpr kGranted{FMT_STRING(
-      RDB_PATH_ACCOUNT /**/ RDB_GRANTABLE_PER /**/ RDB_XXX /**/ RDB_XXX)};
+  static auto constexpr kGranted{
+      FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_GRANTABLE_PER /**/ RDB_XXX)};
 
   // key ➡️ value
   static auto constexpr kSetting{
@@ -327,6 +351,10 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_F_TOTAL_COUNT)};
 
+  // ➡️ value
+  static auto constexpr kBlocksTotalCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_F_TOTAL_COUNT)};
+
   // ➡️ txs total count
   static auto constexpr kAllTxsTotalCount{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/ RDB_F_TOTAL_COUNT)};
@@ -339,37 +367,15 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kAccountDetailsCount{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_OPTIONS /**/ RDB_F_TOTAL_COUNT)};
 
-}  // namespace iroha::ametsuchi::fmtstrings
+  // ➡️ value
+  static auto constexpr kStoreVersion{
+      FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_F_VERSION)};
 
-#undef RDB_ADDRESS
-#undef RDB_TLS
-#undef RDB_OPTIONS
-#undef RDB_F_ASSET_SIZE
-#undef RDB_PATH_DOMAIN
-#undef RDB_PATH_ACCOUNT
-#undef RDB_F_QUORUM
-#undef RDB_DELIMITER
-#undef RDB_ROOT
-#undef RDB_STORE
-#undef RDB_WSV
-#undef RDB_NETWORK
-#undef RDB_SETTINGS
-#undef RDB_ASSETS
-#undef RDB_ROLES
-#undef RDB_TRANSACTIONS
-#undef RDB_ACCOUNTS
-#undef RDB_PEERS
-#undef RDB_STATUSES
-#undef RDB_DETAILS
-#undef RDB_GRANTABLE_PER
-#undef RDB_POSITION
-#undef RDB_TIMESTAMP
-#undef RDB_DOMAIN
-#undef RDB_SIGNATORIES
-#undef RDB_ITEM
-#undef RDB_F_TOP_BLOCK
-#undef RDB_F_PEERS_COUNT
-#undef RDB_F_TOTAL_COUNT
+  // ➡️ value
+  static auto constexpr kWsvVersion{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_F_VERSION)};
+
+}  // namespace iroha::ametsuchi::fmtstrings
 
 namespace {
   auto constexpr kValue{FMT_STRING("{}")};
@@ -380,15 +386,17 @@ namespace iroha::ametsuchi {
   struct RocksDBPort;
   class RocksDbCommon;
 
-  struct RocksDBPort;
-  class RocksDbCommon;
-
   /**
    * RocksDB transaction context.
    */
   struct RocksDBContext {
-    explicit RocksDBContext(std::shared_ptr<RocksDBPort> dbp)
-        : db_port(std::move(dbp)) {
+    RocksDBContext(RocksDBContext const &) = delete;
+    RocksDBContext &operator=(RocksDBContext const &) = delete;
+
+    explicit RocksDBContext(
+        std::shared_ptr<RocksDBPort> dbp,
+        std::shared_ptr<DatabaseCache<std::string>> cache = nullptr)
+        : cache_(std::move(cache)), db_port(std::move(dbp)) {
       assert(db_port);
     }
 
@@ -405,26 +413,25 @@ namespace iroha::ametsuchi {
     /// Buffer for value data
     std::string value_buffer;
 
+    /// Cache with extra loaded values
+    std::shared_ptr<DatabaseCache<std::string>> cache_;
+
     /// Database port
     std::shared_ptr<RocksDBPort> db_port;
 
     /// Mutex to guard multithreaded access to this context
     std::mutex this_context_cs;
-
-    RocksDBContext(RocksDBContext const &) = delete;
-    RocksDBContext &operator=(RocksDBContext const &) = delete;
   };
 
   enum DbErrorCode {
-    kOk = 0,
     kErrorNoPermissions = 2,
     kNotFound = 3,
     kNoAccount = 3,
     kMustNotExist = 4,
-    kNoRoles = 4,
     kInvalidPagination = 4,
     kInvalidStatus = 12,
     kInitializeFailed = 15,
+    kOperationFailed = 16,
   };
 
   /// Db errors structure
@@ -456,27 +463,32 @@ namespace iroha::ametsuchi {
     RocksDBPort() = default;
 
     expected::Result<void, DbError> initialize(std::string const &db_name) {
+      if (db_name_) {
+        assert(*db_name_ == db_name);
+        return {};
+      }
+
       rocksdb::Options options;
       options.create_if_missing = true;
-      options.error_if_exists = true;
 
       rocksdb::OptimisticTransactionDB *transaction_db;
       auto status = rocksdb::OptimisticTransactionDB::Open(
           options, db_name, &transaction_db);
 
-      std::unique_ptr<rocksdb::OptimisticTransactionDB> tdb(transaction_db);
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
                                "Db {} initialization failed with status: {}.",
                                db_name,
                                status.ToString());
 
-      transaction_db_.swap(tdb);
+      transaction_db_.reset(transaction_db);
+      db_name_ = db_name;
       return {};
     }
 
    private:
     std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
+    std::optional<std::string> db_name_;
     friend class RocksDbCommon;
 
     void prepareTransaction(RocksDBContext &tx_context) {
@@ -486,27 +498,36 @@ namespace iroha::ametsuchi {
     }
   };
 
-#define RDB_ERROR_CHECK(...)                                               \
-  if (auto _tmp_gen_var = (__VA_ARGS__); expected::hasError(_tmp_gen_var)) \
+#define RDB_ERROR_CHECK(...)                   \
+  if (auto _tmp_gen_var = (__VA_ARGS__);       \
+      iroha::expected::hasError(_tmp_gen_var)) \
   return _tmp_gen_var.assumeError()
 
-#define RDB_TRY_GET_VALUE(name, ...)                                       \
-  typename decltype(__VA_ARGS__)::ValueInnerType name;                     \
-  if (auto _tmp_gen_var = (__VA_ARGS__); expected::hasError(_tmp_gen_var)) \
-    return _tmp_gen_var.assumeError();                                     \
-  else                                                                     \
+#define RDB_ERROR_CHECK_TO_STR(...)            \
+  if (auto _tmp_gen_var = (__VA_ARGS__);       \
+      iroha::expected::hasError(_tmp_gen_var)) \
+  return _tmp_gen_var.assumeError().description
+
+#define RDB_TRY_GET_VALUE(name, ...)                   \
+  typename decltype(__VA_ARGS__)::ValueInnerType name; \
+  if (auto _tmp_gen_var = (__VA_ARGS__);               \
+      iroha::expected::hasError(_tmp_gen_var))         \
+    return _tmp_gen_var.assumeError();                 \
+  else                                                 \
+    name = std::move(_tmp_gen_var.assumeValue())
+
+#define RDB_TRY_GET_VALUE_OR_STR_ERR(name, ...)        \
+  typename decltype(__VA_ARGS__)::ValueInnerType name; \
+  if (auto _tmp_gen_var = (__VA_ARGS__);               \
+      iroha::expected::hasError(_tmp_gen_var))         \
+    return _tmp_gen_var.assumeError().description;     \
+  else                                                 \
     name = std::move(_tmp_gen_var.assumeValue())
 
   /**
    * Base functions to interact with RocksDB data.
    */
   class RocksDbCommon {
-    auto &transaction() {
-      if (!tx_context_->transaction)
-        tx_context_->db_port->prepareTransaction(*tx_context_);
-      return tx_context_->transaction;
-    }
-
    public:
     explicit RocksDbCommon(std::shared_ptr<RocksDBContext> tx_context)
         : tx_context_(std::move(tx_context)),
@@ -525,11 +546,111 @@ namespace iroha::ametsuchi {
       return tx_context_->key_buffer;
     }
 
+   private:
+    auto &transaction() {
+      if (!tx_context_->transaction)
+        tx_context_->db_port->prepareTransaction(*tx_context_);
+      return tx_context_->transaction;
+    }
+
+    auto &cache() {
+      return tx_context_->cache_;
+    }
+
+    [[nodiscard]] bool isTransaction() const {
+      return tx_context_->transaction != nullptr;
+    }
+
+    /// Iterate over all the keys begins from it, and matches a prefix from
+    /// keybuffer and call lambda with key-value. To stop enumeration callback F
+    /// must return false.
+    template <typename F>
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> &it, F &&func) {
+      if (!it->status().ok())
+        return it->status();
+
+      static_assert(
+          std::is_convertible_v<std::result_of_t<F &(decltype(it), size_t)>,
+                                bool>,
+          "Required F(unique_ptr<rocksdb::Iterator>,size_t) -> bool");
+
+      rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
+      for (; it->Valid() && it->key().starts_with(key); it->Next())
+        if (!std::forward<F>(func)(it, key.size()))
+          break;
+
+      return it->status();
+    }
+
+    void storeInCache(std::string_view key) {
+      if (auto c = cache(); c && c->isCacheable(key))
+        c->set(key, valueBuffer());
+    }
+
+    void dropCache() {
+      if (auto c = cache())
+        c->drop();
+    }
+
+   public:
     /// Makes commit to DB
     auto commit() {
-      auto res = transaction()->Commit();
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->Commit();
+
       transaction().reset();
-      return res;
+      return status;
+    }
+
+    /// Rollback all transaction changes
+    auto rollback() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->Rollback();
+
+      dropCache();
+      transaction().reset();
+      return status;
+    }
+
+    auto release() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->PopSavePoint();
+      return status;
+    }
+
+    /// Prepare tx for 2pc
+    auto prepare() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->Prepare();
+      return status;
+    }
+
+    /// Skips all changes made in this transaction
+    void skip() {
+      if (isTransaction())
+        transaction().reset();
+
+      dropCache();
+    }
+
+    /// Saves current state of a transaction
+    void savepoint() {
+      if (isTransaction())
+        transaction()->SetSavePoint();
+    }
+
+    /// Restores to the previously saved savepoint
+    auto rollbackToSavepoint() {
+      rocksdb::Status status;
+      if (isTransaction())
+        status = transaction()->RollbackToSavePoint();
+
+      dropCache();
+      return status;
     }
 
     /// Encode number into @see valueBuffer
@@ -552,10 +673,22 @@ namespace iroha::ametsuchi {
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       valueBuffer().clear();
-      return transaction()->Get(
-          rocksdb::ReadOptions(),
-          rocksdb::Slice(keyBuffer().data(), keyBuffer().size()),
-          &valueBuffer());
+      rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
+
+      if (auto c = cache(); c && c->isCacheable(slice.ToStringView())
+          && c->get(slice.ToStringView(), [&](auto const &str) {
+               valueBuffer() = str;
+               return true;
+             })) {
+        return rocksdb::Status();
+      }
+
+      auto status =
+          transaction()->Get(rocksdb::ReadOptions(), slice, &valueBuffer());
+      if (status.ok())
+        storeInCache(slice.ToStringView());
+
+      return status;
     }
 
     /// Put data from @see valueBuffer to database
@@ -564,9 +697,13 @@ namespace iroha::ametsuchi {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
-      return transaction()->Put(
-          rocksdb::Slice(keyBuffer().data(), keyBuffer().size()),
-          valueBuffer());
+      rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
+      auto status = transaction()->Put(slice, valueBuffer());
+
+      if (status.ok())
+        storeInCache(slice.ToStringView());
+
+      return status;
     }
 
     /// Delete database entry by the key
@@ -575,8 +712,11 @@ namespace iroha::ametsuchi {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
-      return transaction()->Delete(
-          rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
+      rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
+      if (auto c = cache(); c && c->isCacheable(slice.ToStringView()))
+        c->erase(slice.ToStringView());
+
+      return transaction()->Delete(slice);
     }
 
     /// Searches for the first key that matches a prefix
@@ -592,18 +732,40 @@ namespace iroha::ametsuchi {
       return it;
     }
 
+    /// Iterate over all the keys begins from it, and matches a prefix and call
+    /// lambda with key-value. To stop enumeration callback F must return false.
+    template <typename F, typename S, typename... Args>
+    auto enumerate(std::unique_ptr<rocksdb::Iterator> &it,
+                   F &&func,
+                   S const &fmtstring,
+                   Args &&... args) {
+      keyBuffer().clear();
+      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      return enumerate(it, std::forward<F>(func));
+    }
+
     /// Iterate over all the keys that matches a prefix and call lambda
     /// with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
     auto enumerate(F &&func, S const &fmtstring, Args &&... args) {
       auto it = seek(fmtstring, std::forward<Args>(args)...);
+      return enumerate(it, std::forward<F>(func));
+    }
+
+    /// Removes range of items by key-filter
+    template <typename S, typename... Args>
+    auto filterDelete(S const &fmtstring, Args &&... args) {
+      auto it = seek(fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
         return it->status();
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
+      if (auto c = cache(); c && c->isCacheable(key.ToStringView()))
+        c->filterDelete(key.ToStringView());
+
       for (; it->Valid() && it->key().starts_with(key); it->Next())
-        if (!std::forward<F>(func)(it, key.size()))
-          break;
+        if (auto status = transaction()->Delete(it->key()); !status.ok())
+          return status;
 
       return it->status();
     }
@@ -641,9 +803,13 @@ namespace iroha::ametsuchi {
                             F &&func,
                             S const &strformat,
                             Args &&... args) {
+    static_assert(
+        std::is_convertible_v<std::result_of_t<F &(rocksdb::Slice)>, bool>,
+        "Must F(rocksdb::Slice) -> bool");
     return rdb.enumerate(
         [func{std::forward<F>(func)}](auto const &it,
                                       auto const prefix_size) mutable {
+          assert(it->Valid());
           auto const key = it->key();
           return std::forward<F>(func)(rocksdb::Slice(
               key.data() + prefix_size + fmtstrings::kDelimiterSize,
@@ -655,25 +821,44 @@ namespace iroha::ametsuchi {
         std::forward<Args>(args)...);
   }
 
+  template <typename F>
+  inline auto makeKVLambda(F &&func) {
+    return [func{std::forward<F>(func)}](auto const &it,
+                                         auto const prefix_size) mutable {
+      assert(it->Valid());
+      auto const key = it->key();
+      return std::forward<F>(func)(
+          rocksdb::Slice(key.data() + prefix_size + fmtstrings::kDelimiterSize,
+                         key.size() - prefix_size
+                             - fmtstrings::kDelimiterCountForAField
+                                 * fmtstrings::kDelimiterSize),
+          it->value());
+    };
+  }
+
   /// Enumerating through all the keys matched to prefix and read the value
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeysAndValues(RocksDbCommon &rdb,
                                      F &&func,
                                      S const &strformat,
                                      Args &&... args) {
-    return rdb.enumerate(
-        [func{std::forward<F>(func)}](auto const &it,
-                                      auto const prefix_size) mutable {
-          auto const key = it->key();
-          return func(rocksdb::Slice(
-                          key.data() + prefix_size + fmtstrings::kDelimiterSize,
-                          key.size() - prefix_size
-                              - fmtstrings::kDelimiterCountForAField
-                                  * fmtstrings::kDelimiterSize),
-                      it->value());
-        },
-        strformat,
-        std::forward<Args>(args)...);
+    return rdb.enumerate(makeKVLambda(std::forward<F>(func)),
+                         strformat,
+                         std::forward<Args>(args)...);
+  }
+
+  /// Enumerating through the keys, begins from it and matched to prefix and
+  /// read the value
+  template <typename F, typename S, typename... Args>
+  inline auto enumerateKeysAndValues(RocksDbCommon &rdb,
+                                     F &&func,
+                                     std::unique_ptr<rocksdb::Iterator> &it,
+                                     S const &strformat,
+                                     Args &&... args) {
+    return rdb.enumerate(it,
+                         makeKVLambda(std::forward<F>(func)),
+                         strformat,
+                         std::forward<Args>(args)...);
   }
 
   template <typename F>
@@ -757,6 +942,10 @@ namespace iroha::ametsuchi {
                       || kOp == kDbOperation::kPut || kOp == kDbOperation::kDel,
                   "Unexpected operation value!");
 
+    static_assert(
+        kOp != kDbOperation::kDel || kSc != kDbEntry::kMustExist,
+        "Delete operation does not report if key existed before deletion!");
+
     RDB_ERROR_CHECK(checkStatus<kSc>(
         status, std::forward<OperationDescribtionF>(op_formatter)));
     return status;
@@ -769,12 +958,13 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<uint64_t> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok()) {
-      uint64_t _;
-      common.decode(_);
-      value = _;
+      if (status.assumeValue().ok()) {
+        uint64_t _;
+        common.decode(_);
+        value = _;
+      }
     }
     return value;
   }
@@ -787,10 +977,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<std::string_view> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value = common.valueBuffer();
+      if (status.assumeValue().ok())
+        value = common.valueBuffer();
+    }
     return value;
   }
 
@@ -803,10 +994,37 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<shared_model::interface::RolePermissionSet> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value = shared_model::interface::RolePermissionSet{common.valueBuffer()};
+      if (status.assumeValue().ok())
+        value =
+            shared_model::interface::RolePermissionSet{common.valueBuffer()};
+    }
+    return value;
+  }
+
+  template <kDbOperation kOp,
+            typename T,
+            typename = std::enable_if_t<std::is_same<T, IrohadVersion>::value>>
+  inline std::optional<IrohadVersion> loadValue(
+      RocksDbCommon &common,
+      expected::Result<rocksdb::Status, DbError> const &status) {
+    std::optional<IrohadVersion> value;
+    if constexpr (kOp == kDbOperation::kGet) {
+      assert(expected::hasValue(status));
+      if (status.assumeValue().ok()) {
+        auto const &[major, minor, patch] =
+            staticSplitId<3ull>(common.valueBuffer(), "#");
+        IrohadVersion version{0ul, 0ul, 0ul};
+        std::from_chars(
+            major.data(), major.data() + major.size(), version.major);
+        std::from_chars(
+            minor.data(), minor.data() + minor.size(), version.minor);
+        std::from_chars(
+            patch.data(), patch.data() + patch.size(), version.patch);
+        value = version;
+      }
+    }
     return value;
   }
 
@@ -818,10 +1036,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<shared_model::interface::Amount> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value.emplace(common.valueBuffer());
+      if (status.assumeValue().ok())
+        value.emplace(common.valueBuffer());
+    }
     return value;
   }
 
@@ -834,11 +1053,12 @@ namespace iroha::ametsuchi {
   loadValue(RocksDbCommon &common,
             expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<shared_model::interface::GrantablePermissionSet> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value =
-          shared_model::interface::GrantablePermissionSet{common.valueBuffer()};
+      if (status.assumeValue().ok())
+        value = shared_model::interface::GrantablePermissionSet{
+            common.valueBuffer()};
+    }
     return value;
   }
 
@@ -846,13 +1066,14 @@ namespace iroha::ametsuchi {
             typename T,
             typename = std::enable_if_t<std::is_same<T, bool>::value>>
   inline std::optional<bool> loadValue(
-      RocksDbCommon &common,
+      RocksDbCommon &,
       expected::Result<rocksdb::Status, DbError> const &status) {
     std::optional<bool> value;
-    if constexpr (kOp == kDbOperation::kGet)
+    if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
-    if (status.assumeValue().ok())
-      value = true;
+      if (status.assumeValue().ok())
+        value = true;
+    }
     return value;
   }
 
@@ -884,6 +1105,64 @@ namespace iroha::ametsuchi {
                          std::string_view domain) {
     return dbCall<uint64_t, kOp, kSc>(
         common, fmtstrings::kAccountDetailsCount, domain, account);
+  }
+
+  /**
+   * Access to store version.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<IrohadVersion>, DbError>
+  forStoreVersion(RocksDbCommon &common) {
+    return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kStoreVersion);
+  }
+
+  /**
+   * Access to WSV version.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<IrohadVersion>, DbError> forWSVVersion(
+      RocksDbCommon &common) {
+    return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kWsvVersion);
+  }
+
+  /**
+   * Access to Stored blocks data.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param height of the block
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError> forBlock(
+      RocksDbCommon &common, uint64_t height) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kBlockDataInStore, height);
+  }
+
+  /**
+   * Access to Block store size.
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forBlocksTotalCount(
+      RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kBlocksTotalCount);
   }
 
   /**
@@ -1279,15 +1558,9 @@ namespace iroha::ametsuchi {
   forGrantablePermissions(RocksDbCommon &common,
                           std::string_view account,
                           std::string_view domain,
-                          std::string_view grantee_account,
-                          std::string_view grantee_domain) {
+                          std::string_view grantee_account_id) {
     return dbCall<shared_model::interface::GrantablePermissionSet, kOp, kSc>(
-        common,
-        fmtstrings::kGranted,
-        domain,
-        account,
-        grantee_domain,
-        grantee_account);
+        common, fmtstrings::kGranted, domain, account, grantee_account_id);
   }
 
   /**
@@ -1327,13 +1600,6 @@ namespace iroha::ametsuchi {
           account,
           domain,
           status.ToString());
-
-    if (roles.empty())
-      return makeError<shared_model::interface::RolePermissionSet>(
-          DbErrorCode::kNoRoles,
-          "Account {}@{} have ho roles.",
-          account,
-          domain);
 
     shared_model::interface::RolePermissionSet permissions;
     for (auto &role : roles) {
@@ -1482,7 +1748,7 @@ namespace iroha::ametsuchi {
             if (prev_writer.empty())
               result += '\"';
             else
-              result += "},\"";
+              result += "}, \"";
             result += cur_writer;
             result += "\": {";
             prev_writer = cur_writer;
@@ -1510,6 +1776,13 @@ namespace iroha::ametsuchi {
 
     result += result.size() == 1ull ? "}" : "}}";
     return result;
+  }
+
+  inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
+    if (auto status = common.filterDelete(fmtstrings::kPathWsv); !status.ok())
+      return makeError<void>(DbErrorCode::kOperationFailed,
+                             "Clear WSV failed.");
+    return {};
   }
 
 }  // namespace iroha::ametsuchi

@@ -15,6 +15,7 @@
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
+#include "ordering/impl/batches_cache.hpp"
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -64,6 +65,8 @@ namespace iroha {
         removeFromBatchesCache(hashes);
       }
 
+      void processReceivedProposal(CollectionType batches) override;
+
      private:
       /**
        * Packs new proposals and creates new rounds
@@ -94,7 +97,7 @@ namespace iroha {
       bool batchAlreadyProcessed(
           const shared_model::interface::TransactionBatch &batch);
 
-      void insertBatchToCache(
+      bool insertBatchToCache(
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch);
 
@@ -104,10 +107,7 @@ namespace iroha {
       bool isEmptyBatchesCache() const override;
 
       void forCachedBatches(
-          std::function<void(const BatchesSetType &)> const &f) override;
-
-      std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-      getTransactionsFromBatchesCache(size_t requested_tx_amount);
+          std::function<void(const BatchesSetType &)> const &f) const override;
 
       bool hasProposal(consensus::Round round) const override;
 
@@ -131,8 +131,7 @@ namespace iroha {
        */
       mutable std::mutex proposals_mutex_;
 
-      mutable std::shared_timed_mutex batches_cache_cs_;
-      BatchesSetType batches_cache_;
+      BatchesCache batches_cache_;
 
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;

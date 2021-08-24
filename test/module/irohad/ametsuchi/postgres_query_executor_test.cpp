@@ -5,17 +5,19 @@
 
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 
+#include <rapidjson/document.h>
+#include <rapidjson/rapidjson.h>
+
+#include <boost/format.hpp>
+#include <boost/range/adaptor/transformed.hpp>
+#include <boost/range/size.hpp>
 #include <chrono>
 #include <cstring>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 #include <type_traits>
 
-#include <rapidjson/document.h>
-#include <rapidjson/rapidjson.h>
-#include <boost/format.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/size.hpp>
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
@@ -675,30 +677,100 @@ namespace iroha {
      protected:
       using Impl = QueryTxPaginationTest;
 
-      // create valid transactions and commit them
-      void createTransactionsAndCommit(size_t transactions_amount) {
+      void commitTransactionsBlock(
+          const std::vector<shared_model::proto::Transaction> txs,
+          size_t height) {
+        auto block = createBlock(txs, height);
+        apply(storage, block);
+      }
+
+      void commitEachTransactionBlock(
+          const std::vector<shared_model::proto::Transaction> txs,
+          size_t first,
+          size_t last,
+          size_t offset) {
+        for (size_t i = first; i < last; i++) {
+          commitTransactionsBlock(
+              std::vector<shared_model::proto::Transaction>{txs[i]},
+              i + offset);
+        }
+      }
+      void createTransactionsAndCommitGetTime(size_t transactions_amount,
+                                              size_t first_tx_no,
+                                              size_t last_tx_no,
+                                              uint64_t &first_tx_time,
+                                              uint64_t &last_tx_time) {
         addPerms(Impl::getUserPermissions());
-
         auto initial_txs = Impl::makeInitialTransactions(transactions_amount);
-        auto target_txs = Impl::makeTargetTransactions(transactions_amount);
-
+        std::vector<shared_model::proto::Transaction> target_txs;
+        for (size_t i = 0; i < transactions_amount; i++) {
+          auto tx = Impl::makeTargetTransactions(1).at(0);
+          target_txs.emplace_back(tx);
+          if (i == first_tx_no) {
+            first_tx_time = tx.createdTime();
+          }
+          if (i == last_tx_no) {
+            last_tx_time = tx.createdTime();
+          }
+        }
         tx_hashes_.reserve(target_txs.size());
         initial_txs.reserve(initial_txs.size() + target_txs.size());
         for (auto &tx : target_txs) {
           tx_hashes_.emplace_back(tx.hash());
           initial_txs.emplace_back(std::move(tx));
         }
+        commitTransactionsBlock(initial_txs, 1);
+      }
+      // create valid transactions and commit them
+      void createTransactionsAndCommit(size_t transactions_amount,
+                                       bool build_blocks = false) {
+        addPerms(Impl::getUserPermissions());
 
-        auto block = createBlock(initial_txs, 1);
-
-        apply(storage, block);
+        auto initial_txs = Impl::makeInitialTransactions(transactions_amount);
+        auto target_txs = Impl::makeTargetTransactions(transactions_amount);
+        auto size_diff = initial_txs.size();
+        tx_hashes_.reserve(target_txs.size());
+        initial_txs.reserve(initial_txs.size() + target_txs.size());
+        for (auto &tx : target_txs) {
+          tx_hashes_.emplace_back(tx.hash());
+          initial_txs.emplace_back(std::move(tx));
+        }
+        if (build_blocks) {
+          if (size_diff != 0) {
+            commitTransactionsBlock(
+                std::vector<shared_model::proto::Transaction>(
+                    initial_txs.begin(), initial_txs.begin() + size_diff + 1),
+                1);
+            commitEachTransactionBlock(
+                initial_txs, size_diff + 1, initial_txs.size(), 0);
+          } else {
+            commitEachTransactionBlock(
+                initial_txs, size_diff, initial_txs.size(), 1);
+          }
+        } else {
+          commitTransactionsBlock(initial_txs, 1);
+        }
       }
 
       auto queryPage(
           types::TransactionsNumberType page_size,
           const std::optional<types::HashType> &first_hash = std::nullopt,
-          const shared_model::interface::Ordering *ordering = nullptr) {
-        auto query = Impl::makeQuery(page_size, first_hash, ordering);
+          const shared_model::interface::Ordering *ordering = nullptr,
+          const std::optional<types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<types::TimestampType> &last_tx_time =
+              std::nullopt,
+          const std::optional<types::HeightType> &first_tx_height =
+              std::nullopt,
+          const std::optional<types::HeightType> &last_tx_height =
+              std::nullopt) {
+        auto query = Impl::makeQuery(page_size,
+                                     first_hash,
+                                     ordering,
+                                     first_tx_time,
+                                     last_tx_time,
+                                     first_tx_height,
+                                     last_tx_height);
         return executeQuery(query);
       }
 
@@ -780,7 +852,7 @@ namespace iroha {
           transactions.emplace_back(
               TestTransactionBuilder()
                   .creatorAccountId(account_id)
-                  .createdTime(iroha::time::now(std::chrono::milliseconds(i)))
+                  .createdTime(1000ull + i)
                   .setAccountDetail(account_id,
                                     "key_" + std::to_string(i),
                                     "val_" + std::to_string(i))
@@ -788,15 +860,29 @@ namespace iroha {
         }
         return transactions;
       }
-
       static shared_model::proto::Query makeQuery(
           types::TransactionsNumberType page_size,
           const std::optional<types::HashType> &first_hash = std::nullopt,
-          const shared_model::interface::Ordering *ordering = nullptr) {
+          const shared_model::interface::Ordering *ordering = nullptr,
+          const std::optional<types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<types::TimestampType> &last_tx_time =
+              std::nullopt,
+          const std::optional<types::HeightType> &first_tx_height =
+              std::nullopt,
+          const std::optional<types::HeightType> &last_tx_height =
+              std::nullopt) {
         return TestQueryBuilder()
             .creatorAccountId(account_id)
             .createdTime(iroha::time::now())
-            .getAccountTransactions(account_id, page_size, first_hash, ordering)
+            .getAccountTransactions(account_id,
+                                    page_size,
+                                    first_hash,
+                                    ordering,
+                                    first_tx_time,
+                                    last_tx_time,
+                                    first_tx_height,
+                                    last_tx_height)
             .build();
       }
     };
@@ -832,7 +918,7 @@ namespace iroha {
           transactions.emplace_back(
               TestTransactionBuilder()
                   .creatorAccountId(account_id)
-                  .createdTime(iroha::time::now(std::chrono::milliseconds(i)))
+                  .createdTime(1000ull + i)
                   .transferAsset(account_id,
                                  another_account_id,
                                  asset_id,
@@ -846,12 +932,27 @@ namespace iroha {
       static shared_model::proto::Query makeQuery(
           types::TransactionsNumberType page_size,
           const std::optional<types::HashType> &first_hash = std::nullopt,
-          const shared_model::interface::Ordering *ordering = nullptr) {
+          const shared_model::interface::Ordering *ordering = nullptr,
+          const std::optional<types::TimestampType> &first_tx_time =
+              std::nullopt,
+          const std::optional<types::TimestampType> &last_tx_time =
+              std::nullopt,
+          const std::optional<types::HeightType> &first_tx_height =
+              std::nullopt,
+          const std::optional<types::HeightType> &last_tx_height =
+              std::nullopt) {
         return TestQueryBuilder()
             .creatorAccountId(account_id)
             .createdTime(iroha::time::now())
-            .getAccountAssetTransactions(
-                account_id, asset_id, page_size, first_hash, ordering)
+            .getAccountAssetTransactions(account_id,
+                                         asset_id,
+                                         page_size,
+                                         first_hash,
+                                         ordering,
+                                         first_tx_time,
+                                         last_tx_time,
+                                         first_tx_height,
+                                         last_tx_height)
             .build();
       }
     };
@@ -1076,7 +1177,6 @@ namespace iroha {
     }
 
     // ------------------------/ tx pagination tests \----------------------- //
-
     using QueryTxPaginationTestingTypes =
         ::testing::Types<GetAccountTxPaginationImpl,
                          GetAccountAssetTxPaginationImpl>;
@@ -1395,6 +1495,161 @@ namespace iroha {
           std::move(query_response),
           [this, size](const auto &tx_page_response) {
             this->generalTransactionsPageResponseCheck(tx_page_response, size);
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 10 page size
+     * @and first transaction time is before creating transactions
+     * @and last transaction time is after creating transactions
+     * @then response contains all 10 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, ValidTimeRange) {
+      auto size = 10;
+      this->createTransactionsAndCommit(size);
+      auto first_tx_time = 900ull;
+      auto last_tx_time = 10'000ull;
+      auto query_response = this->queryPage(
+          size, std::nullopt, nullptr, first_tx_time, last_tx_time);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 2 page size
+     * @and first tx time is after 2nd transaction
+     * @and last tx time is after 5th transaction
+     * @then response contains 3 committed transactions
+     */
+
+    TYPED_TEST(GetPagedTransactionsExecutorTest,
+               FirstAndLastTimeSpecifiedInside) {
+      size_t size = 2ull;
+      uint64_t first_tx_time = 1005ull;
+      uint64_t last_tx_time = first_tx_time + size;
+      this->createTransactionsAndCommit(10ull);
+      auto query_response = this->queryPage(
+          size, std::nullopt, nullptr, first_tx_time, last_tx_time);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 10 page size
+     * @and first transaction time is before commiting transactions
+     * @then response contains 10 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, TimeRangeNoEnd) {
+      auto size = 10;
+      this->createTransactionsAndCommit(size);
+      auto first_tx_time = 1000ull;
+      auto query_response =
+          this->queryPage(size, std::nullopt, nullptr, first_tx_time);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 10 page size
+     * @and last transaction time is after creating last transaction
+     * @then response contains 10 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, LastTimeSpecified) {
+      auto size = 10;
+      this->createTransactionsAndCommit(size);
+      auto first_tx_time = 1000ull;
+      auto last_tx_time = first_tx_time + size;
+      auto query_response = this->queryPage(
+          size, std::nullopt, nullptr, std::nullopt, last_tx_time);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
+     * @when query contains 2 page size
+     * @and first block height is 1
+     * @and last block height is not specified
+     * @then response contains 2 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, FirstHeightSpecified) {
+      this->createTransactionsAndCommit(3, true);
+      auto size = 2;
+      auto query_response = this->queryPage(
+          size, std::nullopt, nullptr, std::nullopt, std::nullopt, 1);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 4 page size
+     * @and last block height is 5
+     * @then response contains 4 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, LastHeightSpecified) {
+      this->createTransactionsAndCommit(10, true);
+      auto size = 4;
+      auto query_response = this->queryPage(size,
+                                            std::nullopt,
+                                            nullptr,
+                                            std::nullopt,
+                                            std::nullopt,
+                                            std::nullopt,
+                                            5);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 2 page size
+     * @and first block time is before transactions
+     * @and last block time is after transactions
+     * @and first block height is 2
+     * @and last block height is 5
+     * @then response contains 2 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest,
+               FirstTimeLastTimeFirstHeightLastHeightSpecified) {
+      auto first_tx_time = 900ull;
+      this->createTransactionsAndCommit(10, true);
+      auto last_tx_time = 10'000ull;
+      auto size = 2;
+      auto query_response = this->queryPage(
+          size, std::nullopt, nullptr, first_tx_time, last_tx_time, 2, 5);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+          });
+    }
+    /**
+     * @given initialized storage, user has 10 transactions committed
+     * @when query contains 2 page size
+     * @and first block height is 2
+     * @and last block height is 5
+     * @then response contains 2 committed transactions
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, FirstAndLastHeightSpecified) {
+      this->createTransactionsAndCommit(10, true);
+      auto size = 2;
+      auto query_response = this->queryPage(
+          size, std::nullopt, nullptr, std::nullopt, std::nullopt, 2, 5);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
           });
     }
 

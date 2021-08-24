@@ -58,21 +58,27 @@ namespace {
 struct HexKeys : public AcceptanceFixture,
                  public ::testing::WithParamInterface<
                      std::tuple<Transformer, Transformer>> {
-  IntegrationTestFramework itf;
-  HexKeys() : itf(1), kNow(iroha::time::now()) {}
+  HexKeys() : kNow(iroha::time::now()) {}
 
-  void SetUp() override {
-    using Role = interface::permissions::Role;
-    const interface::RolePermissionSet permissions = {Role::kAddSignatory,
-                                                      Role::kRemoveSignatory,
-                                                      Role::kAddPeer,
-                                                      Role::kCreateAccount,
-                                                      Role::kAppendRole,
-                                                      Role::kGetMyAccount};
+  void SetUp() override {}
 
-    itf.setInitialState(common_constants::kAdminKeypair)
-        .sendTxAwait(AcceptanceFixture::makeUserWithPerms(permissions),
-                     CHECK_TXS_QUANTITY(1));
+  template <typename F>
+  void executeForItf(F &&f) {
+    for (auto const type : {iroha::StorageType::kPostgres}) {
+      IntegrationTestFramework itf(1, type);
+      using Role = interface::permissions::Role;
+      const interface::RolePermissionSet permissions = {Role::kAddSignatory,
+                                                        Role::kRemoveSignatory,
+                                                        Role::kAddPeer,
+                                                        Role::kCreateAccount,
+                                                        Role::kAppendRole,
+                                                        Role::kGetMyAccount};
+
+      itf.setInitialState(common_constants::kAdminKeypair)
+          .sendTxAwait(AcceptanceFixture::makeUserWithPerms(permissions),
+                       CHECK_TXS_QUANTITY(1));
+      std::forward<F>(f)(itf);
+    }
   }
 
   auto addSignatory(
@@ -123,21 +129,15 @@ struct HexKeys : public AcceptanceFixture,
  * @then only first attempt to add the key succeeds
  */
 TEST_P(HexKeys, AddSignatory) {
-  auto tx1 = complete(addSignatory(public_key_v1, kNow));
-  auto tx2 = complete(addSignatory(public_key_v2, kNow + 1));
-  auto hash1 = tx1.hash();
-  auto hash2 = tx2.hash();
+  executeForItf([&](auto &itf) {
+    auto tx1 = complete(addSignatory(public_key_v1, kNow));
+    auto tx2 = complete(addSignatory(public_key_v2, kNow + 1));
+    auto hash1 = tx1.hash();
+    auto hash2 = tx2.hash();
 
-  itf.sendTx(tx1)
-      .checkStatus(hash1, CHECK_STATELESS_VALID)
-      .checkStatus(hash1, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash1, CHECK_STATEFUL_VALID)
-      .checkStatus(hash1, CHECK_COMMITTED)
-      .sendTx(tx2)
-      .checkStatus(hash2, CHECK_STATELESS_VALID)
-      .checkStatus(hash2, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash2, CHECK_STATEFUL_INVALID)
-      .checkStatus(hash2, CHECK_REJECTED);
+    itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(tx2, CHECK_TXS_QUANTITY(0));
+  });
 }
 
 /**
@@ -146,16 +146,14 @@ TEST_P(HexKeys, AddSignatory) {
  * @then the signatory can be removed using lowercased key string
  */
 TEST_P(HexKeys, RemoveSignatory) {
-  auto tx1 = complete(addSignatory(public_key_v1, kNow));
-  auto tx2 = complete(removeSignatory(public_key_v2, kNow + 1));
-  auto hash2 = tx2.hash();
+  executeForItf([&](auto &itf) {
+    auto tx1 = complete(addSignatory(public_key_v1, kNow));
+    auto tx2 = complete(removeSignatory(public_key_v2, kNow + 1));
+    auto hash2 = tx2.hash();
 
-  itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
-      .sendTx(tx2)
-      .checkStatus(hash2, CHECK_STATELESS_VALID)
-      .checkStatus(hash2, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash2, CHECK_STATEFUL_VALID)
-      .checkStatus(hash2, CHECK_COMMITTED);
+    itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1));
+  });
 }
 
 /**
@@ -165,28 +163,30 @@ TEST_P(HexKeys, RemoveSignatory) {
  * command
  */
 TEST_P(HexKeys, CreateAccount) {
-  auto user = common_constants::kSameDomainUserId;
+  executeForItf([&](auto &itf) {
+    auto user = common_constants::kSameDomainUserId;
 
-  // kUserId creates kSameDomainUserId and appends the role with test
-  // permissions
-  auto tx1 = complete(createAccount(public_key_v1, kNow)
-                          .appendRole(user, common_constants::kRole));
+    // kUserId creates kSameDomainUserId and appends the role with test
+    // permissions
+    auto tx1 = complete(createAccount(public_key_v1, kNow)
+                            .appendRole(user, common_constants::kRole));
 
-  // kSameDomainUserId adds one more key to own account
-  auto tx2 = complete(
-      addSignatory(
-          PublicKeyHexStringView{another_keypair.publicKey()}, kNow + 1, user)
-          .creatorAccountId(user),
-      keypair_v2);
+    // kSameDomainUserId adds one more key to own account
+    auto tx2 = complete(
+        addSignatory(
+            PublicKeyHexStringView{another_keypair.publicKey()}, kNow + 1, user)
+            .creatorAccountId(user),
+        keypair_v2);
 
-  // kSameDomainUserId removes the initial key specifing it in other font case
-  auto tx3 = complete(
-      removeSignatory(public_key_v2, kNow + 2, user).creatorAccountId(user),
-      keypair_v2);
+    // kSameDomainUserId removes the initial key specifing it in other font case
+    auto tx3 = complete(
+        removeSignatory(public_key_v2, kNow + 2, user).creatorAccountId(user),
+        keypair_v2);
 
-  itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(tx3, CHECK_TXS_QUANTITY(1));
+    itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(tx3, CHECK_TXS_QUANTITY(1));
+  });
 }
 
 /**
@@ -196,18 +196,16 @@ TEST_P(HexKeys, CreateAccount) {
  * @then the transaction is considered as stateful invalid
  */
 TEST_P(HexKeys, AddPeerSameKeyDifferentCase) {
-  std::string original_key{common_constants::kAdminKeypair.publicKey()};
-  std::string same_key_transformed = transformHexPublicKey(
-      PublicKeyHexStringView{original_key}, std::get<0>(GetParam()));
-  auto tx =
-      complete(addPeer(PublicKeyHexStringView{same_key_transformed}, kNow));
-  auto hash = tx.hash();
+  executeForItf([&](auto &itf) {
+    std::string original_key{common_constants::kAdminKeypair.publicKey()};
+    std::string same_key_transformed = transformHexPublicKey(
+        PublicKeyHexStringView{original_key}, std::get<0>(GetParam()));
+    auto tx =
+        complete(addPeer(PublicKeyHexStringView{same_key_transformed}, kNow));
+    auto hash = tx.hash();
 
-  itf.sendTx(tx)
-      .checkStatus(hash, CHECK_STATELESS_VALID)
-      .checkStatus(hash, CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(hash, CHECK_STATEFUL_INVALID)
-      .checkStatus(hash, CHECK_REJECTED);
+    itf.sendTxAwait(tx, CHECK_TXS_QUANTITY(0));
+  });
 }
 
 /**
@@ -216,18 +214,20 @@ TEST_P(HexKeys, AddPeerSameKeyDifferentCase) {
  * @then query succeeds
  */
 TEST_P(HexKeys, QuerySignature) {
-  using namespace shared_model::interface;
-  itf.sendQuery(
-      complete(baseQry().getAccount(common_constants::kUserId),
-               transformHexPublicKey(common_constants::kUserKeypair,
-                                     std::get<0>(GetParam()))),
-      [](auto const &general_response) {
-        AccountResponse const *account_response =
-            boost::get<AccountResponse const &>(&general_response.get());
-        ASSERT_NE(account_response, nullptr);
-        EXPECT_EQ(account_response->account().accountId(),
-                  common_constants::kUserId);
-      });
+  executeForItf([&](auto &itf) {
+    using namespace shared_model::interface;
+    itf.sendQuery(
+        complete(baseQry().getAccount(common_constants::kUserId),
+                 transformHexPublicKey(common_constants::kUserKeypair,
+                                       std::get<0>(GetParam()))),
+        [](auto const &general_response) {
+          AccountResponse const *account_response =
+              boost::get<AccountResponse const &>(&general_response.get());
+          ASSERT_NE(account_response, nullptr);
+          EXPECT_EQ(account_response->account().accountId(),
+                    common_constants::kUserId);
+        });
+  });
 }
 
 INSTANTIATE_TEST_SUITE_P(LowerAndUpper,

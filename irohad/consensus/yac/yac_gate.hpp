@@ -6,8 +6,15 @@
 #ifndef IROHA_YAC_GATE_HPP
 #define IROHA_YAC_GATE_HPP
 
+#include <optional>
+
 #include "consensus/yac/cluster_order.hpp"
+#include "consensus/yac/storage/storage_result.hpp"
 #include "network/consensus_gate.hpp"
+
+namespace iroha::consensus {
+  struct Round;
+}
 
 namespace iroha::consensus::yac {
   class YacHash;
@@ -29,7 +36,19 @@ namespace iroha::consensus::yac {
     virtual void vote(
         YacHash hash,
         ClusterOrdering order,
-        boost::optional<ClusterOrdering> alternative_order = boost::none) = 0;
+        std::optional<ClusterOrdering> alternative_order = std::nullopt) = 0;
+
+    /**
+     * Update current state with the new round and peer list, possibly pruning
+     * the old state. Process states from future if available, and return the
+     * result
+     * @param round - new round
+     * @param peers - new peer list
+     * @return answer if storage already contains required votes
+     */
+    virtual std::optional<Answer> processRoundSwitch(
+        consensus::Round const &round,
+        shared_model::interface::types::PeerList const &peers) = 0;
 
     /// Prevent any new outgoing network activity. Be passive.
     virtual void stop() = 0;
