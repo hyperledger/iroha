@@ -22,6 +22,7 @@
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
+#include "common/disable_warnings.h"
 
 // clang-format off
 /**
@@ -919,7 +920,10 @@ namespace iroha::ametsuchi {
     if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
       if (status.assumeValue().ok()) {
-        [[maybe_unused]] uint64_t _;
+        DISABLE_WARNING_PUSH
+        DISABLE_WARNING_UNINITIALIZED
+        uint64_t _;
+        DISABLE_WARNING_POP
         common.decode(_);
         value = _;
       }
