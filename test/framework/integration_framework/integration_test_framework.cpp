@@ -256,7 +256,7 @@ IntegrationTestFramework::IntegrationTestFramework(
     } break;
     case iroha::StorageType::kRocksDb: {
       DISABLE_WARNING_PUSH
-      DISABLE_WARNING_MISSING_FIELD_INITIALIZERS
+      DISABLE_WARNING_missing_field_initializers
       config_.database_config =
           IrohadConfig::DbConfig{kDbTypeRocksdb, db_wsv_path_};
       DISABLE_WARNING_POP

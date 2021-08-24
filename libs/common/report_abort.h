@@ -8,14 +8,6 @@
 
 #include <stdio.h>
 
-//__BEGIN_DECLS
-//#ifndef __cplusplus
-// void abort(void) __dead2 __cold;
-//#endif /* !__cplusplus */
-// int printf(const char *__restrict, ...);
-// int printf(const char *__restrict, ...);
-//__END_DECLS
-
 #define assert_in_release(e) \
   ((void)((e) ? ((void)0) : __print_failed_assertion(#e, __FILE__, __LINE__)))
 #define __print_failed_assertion(e, file, line) \

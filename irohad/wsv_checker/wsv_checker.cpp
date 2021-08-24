@@ -25,8 +25,6 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/rocksdb_connection_init.hpp"
 
-#define maybe_unused(v)  (void)(v)
-
 using std::cout, std::cerr, std::endl;
 using std::ostream;
 using std::string_view;
@@ -648,10 +646,10 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
             if (key_starts_with_and_drop(RDB_ADDRESS)) {
               auto pubkey = get_unquoted_key(key);
               assert(key.empty());
-              auto [it_peer, inserted_peer] =
-                  peers.insert(Peer{std::string(pubkey), std::string(val), ""});
-              maybe_unused(it_peer);
-              assert(inserted_peer);
+              auto const peer_was_inserted [[maybe_unused]] =
+                  peers.insert(Peer{std::string(pubkey), std::string(val), ""})
+                      .second;
+              assert(peer_was_inserted);
             } else if (key_starts_with_and_drop(RDB_TLS)) {
               auto pubkey = get_unquoted_key(key);
               assert(key.empty());
@@ -683,14 +681,14 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
           }
         }  // RDB_NETWORK
         else if (key_starts_with_and_drop(RDB_ROLES)) {
-          auto [it_r, inserted_r] =
-              roles.emplace(Role::from_key_value(key, val));
-          maybe_unused(it_r);
+          auto const role_was_inserted [[maybe_unused]] =
+              roles.emplace(Role::from_key_value(key, val)).second;
           assert(key.empty());
-          assert(inserted_r && "Role was not inserted");
+          assert(role_was_inserted && "Role was not inserted");
         } else if (key_starts_with_and_drop(RDB_DOMAIN)) {
           if (key_starts_with_and_drop(RDB_F_TOTAL_COUNT)) {
-            unsigned long long domains_count [[maybe_unused]] = std::stoull(std::string(val));
+            unsigned long long domains_count [[maybe_unused]] =
+                std::stoull(std::string(val));
             assert(domains.size() == domains_count);
           } else {  // if (key_starts_with_and_drop(fmtstrings::kDelimiter)) {
             auto domname = get_unquoted_key(key);
@@ -707,27 +705,27 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
                 auto [it_acc, inserted] = dom.accounts.insert(acc_to_insert);
                 auto &acc = *it_acc;
                 if (key_starts_with_and_drop(RDB_ASSETS)) {
-                  auto [it_aq, inserted_ass] = acc.assetsquantity.emplace(
-                      AssetQuantity::from_key_value(key, val));
-                  maybe_unused(it_aq);
+                  auto const asset_was_inserted [[maybe_unused]] =
+                      acc.assetsquantity
+                          .emplace(AssetQuantity::from_key_value(key, val))
+                          .second;
                   assert(key.empty());
-                  assert(inserted_ass && "AssetQuantity was not inserted");
+                  assert(asset_was_inserted
+                         && "AssetQuantity was not inserted");
                 } else if (key_starts_with_and_drop(RDB_SIGNATORIES)) {
                   auto signame = get_unquoted_key(key);
                   assert(key.empty());
-                  auto [it_s, inserted] =
-                      acc.signatories.emplace(tolower(signame));
-                  maybe_unused(it_s);
+                  auto const inserted [[maybe_unused]] =
+                      acc.signatories.emplace(tolower(signame)).second;
                   assert(inserted && "Signatory failed to insert");
                 } else if (key_starts_with_and_drop(RDB_ROLES)) {
                   auto rolename = get_unquoted_key(key);
                   assert(key.empty());  // there must be no subkeys
                   auto flags = val;
                   (void)(flags);  // unused at the moment
-                  auto [it_r, inserted_r] =
-                      acc.roles.insert(std::string(rolename));
-                  maybe_unused(it_r);
-                  assert(inserted_r && "Role was not inserted");
+                  auto const role_was_inserted [[maybe_unused]] =
+                      acc.roles.insert(std::string(rolename)).second;
+                  assert(role_was_inserted && "Role was not inserted");
                 } else if (key_starts_with_and_drop(RDB_OPTIONS)) {
                   if (key_starts_with_and_drop(RDB_F_QUORUM)) {
                     acc.quorum = stoll(std::string(val));
@@ -765,9 +763,10 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
                 assert(key.empty());
                 auto asset_id = ((std::string(assname) += "#") += domname);
                 AssetPrecision ap{asset_id, std::stold(std::string(val))};
-                auto [it_ap, inserted_ap] = dom.assets_precision.insert(ap);
-                maybe_unused(it_ap);
-                assert(inserted_ap && "AssetPrecision");
+                auto const asset_precision_was_inserted [[maybe_unused]] =
+                    dom.assets_precision.insert(ap).second;
+                assert(asset_precision_was_inserted
+                       && "AssetPrecision was not inserted");
               } else {
                 assert(0 && "unexpected key under wD, acceptable wDa,wDx");
               }
@@ -818,10 +817,8 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
     auto &acc = find_account_by_id(permaccid);
     acc.grantable_permissions = std::move(gp_set);
   }
-  for (auto &[acc, asscnt] : assets_counts) {
-    assert(acc->assetsquantity.size() == asscnt);
-    maybe_unused(acc);
-    maybe_unused(asscnt);
+  for ([[maybe_unused]] auto &acc_assnt : assets_counts) {
+    assert(acc_assnt.first->assetsquantity.size() == acc_assnt.second);
   }
   for (auto &[acc, detcnt] : details_count) {
     size_t wrcnt = 0;
@@ -865,23 +862,23 @@ bool Wsv::from_postgres(soci::session &sql) {
 
   rowset<row> rs = (sql.prepare << "SELECT * FROM peer");
   for (auto &r : rs) {
-    auto [itp, inserted] = peers.insert(Peer::from_soci_row(r));
-    maybe_unused(itp);
-    assert(inserted);
+    auto const inserted [[maybe_unused]] =
+        peers.insert(Peer::from_soci_row(r)).second;
+    assert(inserted && "Peer was not inserted");
   }
 
   rs = (sql.prepare << "SELECT * FROM domain");
   for (auto &r : rs) {
-    auto [itp, inserted] = domains.emplace(Domain::from_soci_row(r));
-    maybe_unused(itp);
-    assert(inserted);
+    auto const inserted [[maybe_unused]] =
+        domains.emplace(Domain::from_soci_row(r)).second;
+    assert(inserted && "Domain was not inserted");
   }
 
   rs = (sql.prepare << "SELECT * FROM role_has_permissions");
   for (auto &r : rs) {
-    auto [itp, inserted] = roles.insert(Role::from_soci_row(r));
-    maybe_unused(itp);
-    assert(inserted);
+    auto const inserted [[maybe_unused]] =
+        roles.insert(Role::from_soci_row(r)).second;
+    assert(inserted && "Role was not inserted");
   }
 
   rs = (sql.prepare << "SELECT * FROM asset");
@@ -894,10 +891,11 @@ bool Wsv::from_postgres(soci::session &sql) {
     auto it_dom = domains.find(dom_to_find);
     assert(it_dom != end(domains));
     auto &dom = *it_dom;
-    auto [it_ap, inserted] = dom.assets_precision.insert(
-        AssetPrecision{asset_id, (long double)precision});
-    maybe_unused(it_ap);
-    assert(inserted);
+    auto const inserted [[maybe_unused]] =
+        dom.assets_precision
+            .insert(AssetPrecision{asset_id, (long double)precision})
+            .second;
+    assert(inserted && "AssetPrecision was not inserted");
   }
 
   rs = (sql.prepare << "SELECT * FROM account");
@@ -910,9 +908,9 @@ bool Wsv::from_postgres(soci::session &sql) {
     acc_to_insert.name = std::move(account_id);
     acc_to_insert.quorum = std::move(quorum);
     acc_to_insert.details_json = json::parse(data);
-    auto [it_ap, inserted] = dom.accounts.insert(acc_to_insert);
-    maybe_unused(it_ap);
-    assert(inserted);
+    auto const inserted [[maybe_unused]] =
+        dom.accounts.insert(acc_to_insert).second;
+    assert(inserted && "Account was not inserted");
   }
 
   rs = (sql.prepare << "SELECT * FROM account_has_asset");
@@ -922,9 +920,9 @@ bool Wsv::from_postgres(soci::session &sql) {
     r >> account_id >> asset_id >> amount;
     auto &acc = find_account_by_id(std::move(account_id));
     AssetQuantity aq_to_insert{std::move(asset_id), std::move(amount)};
-    auto [it_aq, inserted] = acc.assetsquantity.insert(aq_to_insert);
-    maybe_unused(it_aq);
-    assert(inserted && "AssetQuantity");
+    auto const inserted [[maybe_unused]] =
+        acc.assetsquantity.insert(aq_to_insert).second;
+    assert(inserted && "AssetQuantity was not inserted");
   }
 
   rs = (sql.prepare << "SELECT * FROM account_has_signatory");
@@ -932,10 +930,10 @@ bool Wsv::from_postgres(soci::session &sql) {
     std::string account_id, public_key;
     r >> account_id >> public_key;
     auto &acc = find_account_by_id(std::move(account_id));
-    auto [it_as, inserted] =
-        acc.signatories.insert(tolower(std::move(public_key)));
-    maybe_unused(it_as);
-    assert(inserted && "domains.accounts.signatories -< public_key");
+    auto const inserted [[maybe_unused]] =
+        acc.signatories.insert(tolower(std::move(public_key))).second;
+    assert(inserted
+           && "public_key was not inserted to domains.accounts.signatories");
   }
 
   rs = (sql.prepare << "SELECT * FROM account_has_roles");
@@ -943,12 +941,10 @@ bool Wsv::from_postgres(soci::session &sql) {
     std::string account_id, role_id;
     r >> account_id >> role_id;
     auto &acc = find_account_by_id(std::move(account_id));
-    auto [it_as, inserted] = acc.roles.insert(std::move(role_id));
-    maybe_unused(it_as);
-    assert(
-        inserted
-        && "account_has_roles <acc@dom,role> => "
-           "domains[id].accounts[id].roles");
+    auto const inserted [[maybe_unused]] =
+        acc.roles.insert(std::move(role_id)).second;
+    assert(inserted
+           && "Role was not inserted to domains[id].accounts[id].roles");
   }
 
   rs = (sql.prepare << "SELECT * FROM account_has_grantable_permissions");
