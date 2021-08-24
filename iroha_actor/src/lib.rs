@@ -276,7 +276,12 @@ pub trait Actor: Send + Sized + 'static {
         Self::default().preinit()
     }
 
-    /// Starts an actor and returns its address
+    /// Start actor. `on_start` will be run in background.
+    async fn start_background(self) -> Addr<Self> {
+        self.preinit().start_background().await
+    }
+
+    /// Start actor. Guarantees that `on_start` will be completed, when this function returns and is awaited.
     async fn start(self) -> Addr<Self> {
         self.preinit().start().await
     }
@@ -311,21 +316,36 @@ impl<A: Actor> InitializedActor<A> {
         }
     }
 
-    /// Start actor
+    /// Start actor. `on_start` will be run in background.
+    pub async fn start_background(self) -> Addr<A> {
+        self.start_internal(true).await
+    }
+
+    /// Start actor. Guarantees that `on_start` will be completed, when this function returns and is awaited.
     pub async fn start(self) -> Addr<A> {
+        self.start_internal(false).await
+    }
+
+    async fn start_internal(self, background: bool) -> Addr<A> {
         let address = self.address;
         let mut receiver = self.receiver;
         let mut actor = self.actor;
-        let move_addr = address.clone();
-        let actor_future = async move {
-            let mut ctx = Context::new(move_addr.clone());
+        let mut ctx = Context::new(address.clone());
+        if !background {
             actor.on_start(&mut ctx).await;
-            while let Some(Envelope(mut message)) = receiver.recv().await {
-                EnvelopeProxy::handle(&mut *message, &mut actor, &mut ctx).await;
-                if let Some(termination) = &ctx.should_stop {
-                    match termination {
-                        Stop::Now => break,
-                        Stop::AfterBufferedMessagesProcessed => receiver.close(),
+        }
+        let actor_future = async move {
+            if background {
+                actor.on_start(&mut ctx).await;
+            }
+            if !&ctx.should_stop.is_some() {
+                while let Some(Envelope(mut message)) = receiver.recv().await {
+                    EnvelopeProxy::handle(&mut *message, &mut actor, &mut ctx).await;
+                    if let Some(termination) = &ctx.should_stop {
+                        match termination {
+                            Stop::Now => break,
+                            Stop::AfterBufferedMessagesProcessed => receiver.close(),
+                        }
                     }
                 }
             }
@@ -577,6 +597,42 @@ mod tests {
         actor1.send(StopMessage).await?;
         // Cannot send messages as the actor is stopped.
         assert!(matches!(actor1.send(Message1).await, Err(Error::SendError)));
+        Ok(())
+    }
+
+    #[allow(unsafe_code, clippy::unwrap_used)]
+    #[tokio::test]
+    async fn actors_start_sequentially() -> Result<(), Error> {
+        static mut INIT_ORDER: Vec<u8> = Vec::new();
+
+        pub struct Actor1;
+        pub struct Actor2;
+
+        #[async_trait::async_trait]
+        impl Actor for Actor1 {
+            async fn on_start(&mut self, _ctx: &mut Context<Self>) {
+                unsafe {
+                    INIT_ORDER.push(1);
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl Actor for Actor2 {
+            async fn on_start(&mut self, _ctx: &mut Context<Self>) {
+                unsafe {
+                    INIT_ORDER.push(2);
+                }
+            }
+        }
+
+        Actor1.start().await;
+        Actor2.start().await;
+
+        unsafe {
+            assert_eq!(INIT_ORDER, vec![1, 2]);
+        }
+
         Ok(())
     }
 }
