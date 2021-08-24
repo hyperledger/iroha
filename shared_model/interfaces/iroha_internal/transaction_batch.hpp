@@ -66,9 +66,8 @@ namespace shared_model {
        * The function used to compare batches for equality:
        * check only hashes of batches, without signatures
        */
-      bool operator()(
-          const std::shared_ptr<TransactionBatch> &left_tx,
-          const std::shared_ptr<TransactionBatch> &right_tx) const;
+      bool operator()(const std::shared_ptr<TransactionBatch> &left_tx,
+                      const std::shared_ptr<TransactionBatch> &right_tx) const;
     };
   }  // namespace interface
 }  // namespace shared_model

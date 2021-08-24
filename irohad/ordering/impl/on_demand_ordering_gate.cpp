@@ -112,7 +112,7 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
         std::make_shared<shared_model::interface::TransactionBatchImpl>(
             std::move(txs)));
   }
-  ordering_service_->processReceivedProposal(batches);
+  ordering_service_->processReceivedProposal(std::move(batches));
   return network::OrderingEvent{
       std::move(result), event.round, current_ledger_state_};
 }
