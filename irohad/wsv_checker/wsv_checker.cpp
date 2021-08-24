@@ -717,7 +717,7 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
                   assert(key.empty());
                   auto [it_s, inserted] =
                       acc.signatories.emplace(tolower(signame));
-                  (void)it_s;
+                  maybe_unused(it_s);
                   assert(inserted && "Signatory failed to insert");
                 } else if (key_starts_with_and_drop(RDB_ROLES)) {
                   auto rolename = get_unquoted_key(key);
@@ -726,7 +726,7 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
                   (void)(flags);  // unused at the moment
                   auto [it_r, inserted_r] =
                       acc.roles.insert(std::string(rolename));
-                  (void)it_r;
+                  maybe_unused(it_r);
                   assert(inserted_r && "Role was not inserted");
                 } else if (key_starts_with_and_drop(RDB_OPTIONS)) {
                   if (key_starts_with_and_drop(RDB_F_QUORUM)) {
@@ -779,8 +779,6 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
             total_transactions_count =
                 std::stoull(std::string(val));  // fixme do not create string
           } else if (key_starts_with_and_drop(RDB_ACCOUNTS)) {
-            auto accid = get_unquoted_key(key);
-            (void)accid;
             // auto& acc = find_account_by_id(std::string(accid));
             if (key_starts_with_and_drop(RDB_F_TOTAL_COUNT)) {
               // TODO select count(*) from tx_positions where
@@ -821,9 +819,9 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
     acc.grantable_permissions = std::move(gp_set);
   }
   for (auto &[acc, asscnt] : assets_counts) {
+    assert(acc->assetsquantity.size() == asscnt);
     maybe_unused(acc);
     maybe_unused(asscnt);
-    assert(acc->assetsquantity.size() == asscnt);
   }
   for (auto &[acc, detcnt] : details_count) {
     size_t wrcnt = 0;
