@@ -87,6 +87,7 @@ namespace iroha::subscription {
           return true;
         }
       }
+      is_busy_ = false;
       return false;
     }
 
@@ -120,13 +121,9 @@ namespace iroha::subscription {
               task();
           } catch (...) {
           }
-        } else {
-          {
-            std::lock_guard lock(tasks_cs_);
-            is_busy_ = false;
-          }
+        } else
           event_.wait(untilFirst());
-        }
+
       } while (proceed_.test_and_set());
       return 0;
     }
