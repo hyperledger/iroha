@@ -11,6 +11,8 @@ namespace iroha {
   namespace ametsuchi {
 
     class Storage;
+    class BlockQuery;
+    class BlockStorageFactory;
 
     /**
      * Interface for World State View restoring from the storage
@@ -24,11 +26,14 @@ namespace iroha {
        * @param storage storage of blocks in ledger
        * @param wait_for_new_blocks - flag for wait for new blocks mode.
        * Method waits for new blocks in block storage.
-       * @return ledger state after restoration on success, otherwise error
+       * @return ledger state after restoration on success, otherwise errors
        * string
        */
-      virtual CommitResult restoreWsv(Storage &storage,
-                                      bool wait_for_new_blocks) = 0;
+      virtual CommitResult restoreWsv(
+          Storage &storage,
+          bool wait_for_new_blocks,
+          std::shared_ptr<BlockQuery> = nullptr,
+          std::shared_ptr<BlockStorageFactory> = nullptr) = 0;
     };
 
   }  // namespace ametsuchi

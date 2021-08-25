@@ -23,6 +23,7 @@
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
+#include "common/disable_warnings.h"
 
 // clang-format off
 /**
@@ -576,8 +577,13 @@ namespace iroha::ametsuchi {
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
       for (; it->Valid() && it->key().starts_with(key); it->Next())
-        if (!std::forward<F>(func)(it, key.size()))
-          break;
+        if constexpr (std::is_void_v<decltype(
+                          std::declval<F>()(it, key.size()))>) {
+          std::forward<F>(func)(it, key.size());
+        } else {
+          if (!std::forward<F>(func)(it, key.size()))
+            break;
+        }
 
       return it->status();
     }
@@ -869,12 +875,12 @@ namespace iroha::ametsuchi {
 
     if (!status.ok())
       return makeError<void>(DbErrorCode::kInvalidStatus,
-                             "{}. Failed with status: {}.",
+                             "'{}' failed with status: {}.",
                              std::forward<F>(op_formatter)(),
                              status.ToString());
 
     return makeError<void>(DbErrorCode::kMustNotExist,
-                           "{}. Must not exist.",
+                           "Key '{}' must not exist.",
                            std::forward<F>(op_formatter)());
   }
 
@@ -961,7 +967,11 @@ namespace iroha::ametsuchi {
     if constexpr (kOp == kDbOperation::kGet) {
       assert(expected::hasValue(status));
       if (status.assumeValue().ok()) {
+        DISABLE_WARNING_PUSH
+        DISABLE_WARNING_uninitialized
+        DISABLE_WARNING_maybe_uninitialized
         uint64_t _;
+        DISABLE_WARNING_POP
         common.decode(_);
         value = _;
       }

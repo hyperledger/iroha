@@ -68,9 +68,7 @@ namespace integration_framework {
 
     void run();
 
-    // TODO mboldyrev 09.11.2018 IrohaInstance::getIrohaInstance() looks weird,
-    //      IR-1885              refactoring requested.
-    std::shared_ptr<TestIrohad> &getIrohaInstance();
+    std::shared_ptr<TestIrohad> &getTestIrohad();
 
     /// Terminate Iroha instance and clean the resources up.
     void terminateAndCleanup();
@@ -84,7 +82,7 @@ namespace integration_framework {
         opt_mst_gossip_params_;
 
    private:
-    std::shared_ptr<TestIrohad> instance_;
+    std::shared_ptr<TestIrohad> test_irohad_;
     logger::LoggerManagerTreePtr irohad_log_manager_;
 
     logger::LoggerPtr log_;
