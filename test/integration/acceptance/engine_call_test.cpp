@@ -190,15 +190,16 @@ class EngineCall : public AcceptanceFixture {
   /*
   Contract code for transferring Iroha assets
 
-  pragma solidity >=0.4.22 <0.7.0;
+// SPDX-License-Identifier: Apache-2.0
+pragma solidity >=0.4.22 <0.7.0;
 
   contract TestIrohaCommand {
 
       function transfer(string memory _src, string memory _dst, string memory
-  _asset, string memory _amount) public returns (bytes memory result) { bytes
+  _asset, string memory _description, string memory _amount) public returns (bytes memory result) { bytes
   memory payload =
-  abi.encodeWithSignature("transferAsset(string,string,string,string)", _src,
-  _dst, _asset, _amount); (bool success, bytes memory ret) =
+  abi.encodeWithSignature("transferAsset(string,string,string,string,string)", _src,
+  _dst, _asset, _description, _amount); (bool success, bytes memory ret) =
   address(0xA6Abc17819738299B3B2c1CE46d55c74f04E290C).delegatecall(payload);
           require(success, "Error calling service contract function");
           result = ret;
