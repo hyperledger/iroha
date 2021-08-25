@@ -835,14 +835,16 @@ namespace iroha {
 
             std::vector<std::unique_ptr<shared_model::interface::Transaction>>
                 response_txs;
-            for (auto &block : index) {
+            for (auto &blk : index) {
+              auto &block_idx = blk.first;
+              auto &txs_hashes = blk.second;
               auto txs_result = this->getTransactionsFromBlock(
-                  block.first,
+                  block_idx,
                   [](auto size) {
                     return boost::irange(static_cast<decltype(size)>(0), size);
                   },
                   [&](auto &tx) {
-                    return block.second.count(tx.hash().hex()) > 0
+                    return txs_hashes.count(tx.hash().hex()) > 0
                         and (all_perm
                              or (my_perm
                                  and tx.creatorAccountId() == creator_id));

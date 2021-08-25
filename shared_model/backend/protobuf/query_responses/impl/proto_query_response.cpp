@@ -20,6 +20,7 @@
 #include "backend/protobuf/query_responses/proto_transaction_response.hpp"
 #include "backend/protobuf/query_responses/proto_transactions_page_response.hpp"
 #include "common/byteutils.hpp"
+#include "common/report_abort.h"
 
 namespace {
   /// type of proto variant
@@ -40,13 +41,6 @@ namespace {
                      shared_model::proto::EngineReceiptsResponse>;
 }  // namespace
 
-#ifdef IROHA_BIND_TYPE
-#error IROHA_BIND_TYPE defined.
-#endif  // IROHA_BIND_TYPE
-#define IROHA_BIND_TYPE(val, type, ...)                   \
-  case iroha::protocol::QueryResponse::ResponseCase::val: \
-    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
-
 namespace shared_model::proto {
 
   struct QueryResponse::Impl {
@@ -54,33 +48,31 @@ namespace shared_model::proto {
 
     TransportType proto_;
 
-    const ProtoQueryResponseVariantType variant_{[this]() -> decltype(
-                                                              variant_) {
-      auto &ar = proto_;
-      switch (ar.response_case()) {
-        IROHA_BIND_TYPE(kAccountAssetsResponse, AccountAssetResponse, ar);
-        IROHA_BIND_TYPE(kAccountDetailResponse, AccountDetailResponse, ar);
-        IROHA_BIND_TYPE(kAccountResponse, AccountResponse, ar);
-        IROHA_BIND_TYPE(kErrorResponse, ErrorQueryResponse, ar);
-        IROHA_BIND_TYPE(kSignatoriesResponse, SignatoriesResponse, ar);
-        IROHA_BIND_TYPE(kTransactionsResponse, TransactionsResponse, ar);
-        IROHA_BIND_TYPE(kAssetResponse, AssetResponse, ar);
-        IROHA_BIND_TYPE(kRolesResponse, RolesResponse, ar);
-        IROHA_BIND_TYPE(kRolePermissionsResponse, RolePermissionsResponse, ar);
-        IROHA_BIND_TYPE(
-            kTransactionsPageResponse, TransactionsPageResponse, ar);
-        IROHA_BIND_TYPE(kPendingTransactionsPageResponse,
-                        PendingTransactionsPageResponse,
-                        ar);
-        IROHA_BIND_TYPE(kBlockResponse, GetBlockResponse, ar);
-        IROHA_BIND_TYPE(kPeersResponse, PeersResponse, ar);
-        IROHA_BIND_TYPE(kEngineReceiptsResponse, EngineReceiptsResponse, ar);
-
-        default:
-        case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
-          assert(!"Unexpected query response case.");
-      }
-    }()};
+    const ProtoQueryResponseVariantType variant_{
+        [this]() -> ProtoQueryResponseVariantType {
+          using iroha::protocol::QueryResponse;
+          switch (proto_.response_case()) {
+            // clang-format off
+            case QueryResponse::ResponseCase::kAccountAssetsResponse: return AccountAssetResponse(proto_);
+            case QueryResponse::ResponseCase::kAccountDetailResponse: return AccountDetailResponse(proto_);
+            case QueryResponse::ResponseCase::kAccountResponse: return AccountResponse(proto_);
+            case QueryResponse::ResponseCase::kErrorResponse: return ErrorQueryResponse(proto_);
+            case QueryResponse::ResponseCase::kSignatoriesResponse: return SignatoriesResponse(proto_);
+            case QueryResponse::ResponseCase::kTransactionsResponse: return TransactionsResponse(proto_);
+            case QueryResponse::ResponseCase::kAssetResponse: return AssetResponse(proto_);
+            case QueryResponse::ResponseCase::kRolesResponse: return RolesResponse(proto_);
+            case QueryResponse::ResponseCase::kRolePermissionsResponse: return RolePermissionsResponse(proto_);
+            case QueryResponse::ResponseCase::kTransactionsPageResponse: return TransactionsPageResponse(proto_);
+            case QueryResponse::ResponseCase::kPendingTransactionsPageResponse: return PendingTransactionsPageResponse(proto_);
+            case QueryResponse::ResponseCase::kBlockResponse: return GetBlockResponse(proto_);
+            case QueryResponse::ResponseCase::kPeersResponse: return PeersResponse(proto_);
+            case QueryResponse::ResponseCase::kEngineReceiptsResponse: return EngineReceiptsResponse(proto_);
+            // clang-format on
+            default:
+            case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
+              report_abort("Unexpected query response case.");
+          }
+        }()};
 
     const QueryResponseVariantType ivariant_{variant_};
 

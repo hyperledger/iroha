@@ -76,7 +76,7 @@ TEST_F(FakePeerFixture, FakePeerIsRemoved) {
 
   // query WSV peers
   auto opt_peers = itf.getIrohaInstance()
-                       .getIrohaInstance()
+                       .getTestIrohad()
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
@@ -137,7 +137,7 @@ TEST_F(FakePeerFixture, RealPeerIsRemoved) {
 
   // query WSV peers
   auto opt_peers = itf.getIrohaInstance()
-                       .getIrohaInstance()
+                       .getTestIrohad()
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
