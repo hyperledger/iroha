@@ -19,12 +19,6 @@
 
 #include "common/common.hpp"
 
-/**
- * If you need to execute task, that was made in this thread and want to be
- * executed in the same thread without delay - you need to uncomment this define
- */
-//#define SE_SYNC_CALL_IF_SAME_THREAD
-
 namespace iroha::subscription {
 
   class SchedulerBase : public IScheduler, utils::NoCopy, utils::NoMove {
@@ -76,8 +70,9 @@ namespace iroha::subscription {
       tasks_.insert(after, std::move(t));
     }
 
-    bool extractExpired(Task &task, Timepoint const &before) {
+    bool extractExpired(Task &task) {
       std::lock_guard lock(tasks_cs_);
+      Timepoint const before = now();
       if (!tasks_.empty()) {
         auto &first_task = tasks_.front();
         if (first_task.timepoint <= before) {
@@ -106,6 +101,16 @@ namespace iroha::subscription {
       return std::chrono::minutes(10ull);
     }
 
+    void add(std::chrono::microseconds timeout, Task &&task) {
+      assert(!tasks_cs_.try_lock());
+      if (timeout == std::chrono::microseconds(0ull))
+        is_busy_ = true;
+
+      auto const tp = now() + timeout;
+      insert(after(tp), TimedTask{tp, std::move(task)});
+      event_.set();
+    }
+
    public:
     SchedulerBase() : is_busy_(false) {
       proceed_.test_and_set();
@@ -115,7 +120,7 @@ namespace iroha::subscription {
       id_ = std::this_thread::get_id();
       Task task;
       do {
-        if (extractExpired(task, now())) {
+        if (extractExpired(task)) {
           try {
             if (task)
               task();
@@ -138,26 +143,19 @@ namespace iroha::subscription {
       return is_busy_;
     }
 
-    void add(Task &&t) override {
-      addDelayed(std::chrono::microseconds(0ull), std::move(t));
+    std::optional<Task> uploadIfFree(std::chrono::microseconds timeout,
+                                     Task &&task) override {
+      std::lock_guard lock(tasks_cs_);
+      if (is_busy_)
+        return std::move(task);
+
+      add(timeout, std::move(task));
+      return std::nullopt;
     }
 
     void addDelayed(std::chrono::microseconds timeout, Task &&t) override {
-#ifdef SE_SYNC_CALL_IF_SAME_THREAD
-      if (timeout == std::chrono::microseconds(0ull)
-          && id_ == std::this_thread::get_id()) {
-        std::forward<F>(f)();
-      } else {
-#endif  // SE_SYNC_CALL_IF_SAME_THREAD
-        auto const tp = now() + timeout;
-        std::lock_guard lock(tasks_cs_);
-        if (timeout == std::chrono::microseconds(0ull))
-          is_busy_ = true;
-        insert(after(tp), TimedTask{tp, std::move(t)});
-        event_.set();
-#ifdef SE_SYNC_CALL_IF_SAME_THREAD
-      }
-#endif  // SE_SYNC_CALL_IF_SAME_THREAD
+      std::lock_guard lock(tasks_cs_);
+      add(timeout, std::move(t));
     }
   };
 
