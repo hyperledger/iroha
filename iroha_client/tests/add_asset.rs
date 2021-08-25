@@ -1,6 +1,6 @@
 #![allow(clippy::module_inception, unused_results, clippy::restriction)]
 
-use std::thread;
+use std::{convert::TryFrom, thread};
 
 use iroha::config::Configuration;
 use iroha_client::client;
@@ -40,6 +40,62 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
                 && asset.value == AssetValue::Quantity(quantity)
         })
     });
+    Ok(())
+}
+
+#[test]
+fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let pipeline_time = Configuration::pipeline_time();
+
+    // Given
+    thread::sleep(pipeline_time);
+
+    let account_id = AccountId::new("alice", "wonderland");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
+    let identifiable_box =
+        IdentifiableBox::from(AssetDefinition::with_precision(asset_definition_id.clone()));
+    let create_asset = RegisterBox::new(identifiable_box);
+
+    test_client.submit(create_asset)?;
+    thread::sleep(pipeline_time * 2);
+
+    //When
+    let quantity: Fixed = Fixed::try_from(123.45_f64).unwrap();
+    let mint = MintBox::new(
+        Value::Fixed(quantity),
+        IdBox::AssetId(AssetId::new(
+            asset_definition_id.clone(),
+            account_id.clone(),
+        )),
+    );
+    test_client.submit_till(
+        mint,
+        client::asset::by_account_id(account_id.clone()),
+        |result| {
+            result.iter().any(|asset| {
+                asset.id.definition_id == asset_definition_id
+                    && asset.value == AssetValue::Fixed(quantity)
+            })
+        },
+    );
+
+    // Add some fractional part and check that it is added without errors
+    let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
+    let mint = MintBox::new(
+        Value::Fixed(quantity2),
+        IdBox::AssetId(AssetId::new(
+            asset_definition_id.clone(),
+            account_id.clone(),
+        )),
+    );
+    let sum = Fixed::try_from(124.00_f64).unwrap();
+    test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
+        result.iter().any(|asset| {
+            asset.id.definition_id == asset_definition_id && asset.value == AssetValue::Fixed(sum)
+        })
+    });
+
     Ok(())
 }
 

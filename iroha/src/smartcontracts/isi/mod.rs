@@ -104,8 +104,11 @@ impl StdError for AssetTypeError {
 #[derive(Debug, Clone, FromVariant, Error, Copy)]
 pub enum MathError {
     /// Overflow error inside instruction
-    #[error("Overflow occured.")]
+    #[error("Overflow occurred.")]
     OverflowError,
+    /// Not enough quantity
+    #[error("Not enough quantity to burn.")]
+    NotEnoughQuantity,
 }
 
 /// Block with parent hash not found struct
@@ -167,7 +170,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
             IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported register instruction.").into()),
         }
     }
 }
@@ -192,7 +195,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
             IdBox::DomainName(domain_name) => {
                 Unregister::<Domain>::new(domain_name).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported unregister instruction.").into()),
         }
     }
 }
@@ -214,6 +217,9 @@ impl<W: WorldTrait> Execute<W> for MintBox {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
                 Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
+            (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
+                Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
+            }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Mint::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
@@ -221,7 +227,7 @@ impl<W: WorldTrait> Execute<W> for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported mint instruction.").into()),
         }
     }
 }
@@ -243,10 +249,13 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
                 Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
+            (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
+                Burn::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
+            }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Burn::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported burn instruction.").into()),
         }
     }
 }
@@ -263,12 +272,12 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
         let context = Context::new();
         let source_asset_id = match self.source_id.evaluate(wsv, &context)? {
             IdBox::AssetId(source_asset_id) => source_asset_id,
-            _ => return Err(error!("Unsupported instruction.").into()),
+            _ => return Err(error!("Unsupported transfer instruction.").into()),
         };
 
         let quantity = match self.object.evaluate(wsv, &context)? {
             Value::U32(quantity) => quantity,
-            _ => return Err(error!("Unsupported instruction.").into()),
+            _ => return Err(error!("Unsupported transfer instruction.").into()),
         };
 
         match self.destination_id.evaluate(wsv, &context)? {
@@ -276,7 +285,7 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
                 Transfer::<Asset, u32, Asset>::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported transfer instruction.").into()),
         }
     }
 }
@@ -302,7 +311,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
                     .execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported set key-value instruction.").into()),
         }
     }
 }
@@ -325,7 +334,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
             IdBox::AccountId(account_id) => {
                 RemoveKeyValue::<Account, String>::new(account_id, key).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported remove key-value instruction.").into()),
         }
     }
 }
@@ -415,7 +424,7 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported instruction.").into()),
+            _ => Err(error!("Unsupported grant instruction.").into()),
         }
     }
 }
@@ -437,7 +446,7 @@ mod tests {
 
     fn world_with_test_domains() -> Result<World> {
         let domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderlasnd");
+        let mut domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;

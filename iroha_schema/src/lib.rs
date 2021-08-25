@@ -51,6 +51,8 @@ pub enum Metadata {
     String,
     /// Bool
     Bool,
+    /// Number with fixed decimal precision
+    Fixed,
     /// Array
     Array(ArrayMeta),
     /// Vector with type
