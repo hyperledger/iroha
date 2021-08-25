@@ -19,7 +19,7 @@ namespace shared_model {
      * @tparam SV Stateless validator type
      */
     template <typename T, typename SV>
-    class [[deprecated]] TransportBuilder {
+    class /*[[deprecated]]*/ TransportBuilder {
       TransportBuilder(const SV &validator) : stateless_validator_(validator) {}
 
      public:

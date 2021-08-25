@@ -7,6 +7,7 @@
 
 #include <boost/variant/variant.hpp>
 #include "backend/protobuf/query_responses/proto_concrete_error_query_response.hpp"
+#include "common/report_abort.h"
 
 namespace {
   /// type of proto variant
@@ -54,7 +55,7 @@ namespace shared_model::proto {
               IROHA_BIND_TYPE(NO_ROLES, NoRolesErrorResponse, ar);
 
               default:
-                assert(!"Unexpected query error response case.");
+                report_abort("Unexpected query error response case.");
             }
           }()},
           ivariant_{variant_} {}

@@ -18,7 +18,7 @@ namespace {
   Iroha_ProtoQueryResponse serialize(iroha::protocol::QueryResponse response) {
     Iroha_ProtoQueryResponse result{};
 
-    result.size = response.ByteSize();
+    result.size = response.ByteSizeLong();
     result.data = malloc(result.size);
     response.SerializeToArray(result.data, result.size);
 
