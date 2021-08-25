@@ -94,7 +94,6 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
         if (not(maybe_stub and maybe_log and maybe_proposal_factory)) {
           return;
         }
-        context->set_wait_for_ready(true);
         context->set_deadline(time_provider() + proposal_request_timeout);
         proto::ProposalResponse response;
         maybe_log->info("Requesting proposal");

@@ -421,7 +421,7 @@ namespace iroha::ametsuchi {
     std::shared_ptr<RocksDBPort> db_port;
 
     /// Mutex to guard multithreaded access to this context
-    std::mutex this_context_cs;
+    std::recursive_mutex this_context_cs;
   };
 
   enum DbErrorCode {
@@ -778,7 +778,7 @@ namespace iroha::ametsuchi {
 
    private:
     std::shared_ptr<RocksDBContext> tx_context_;
-    std::lock_guard<std::mutex> context_guard_;
+    std::lock_guard<std::recursive_mutex> context_guard_;
   };
 
   /**
