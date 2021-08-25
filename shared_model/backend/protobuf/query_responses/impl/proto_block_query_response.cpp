@@ -17,13 +17,6 @@ namespace {
                      shared_model::proto::BlockErrorResponse>;
 }  // namespace
 
-#ifdef IROHA_BIND_TYPE
-#error IROHA_BIND_TYPE defined.
-#endif  // IROHA_BIND_TYPE
-#define IROHA_BIND_TYPE(val, type, ...)                        \
-  case iroha::protocol::BlockQueryResponse::ResponseCase::val: \
-    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
-
 namespace shared_model::proto {
 
   struct BlockQueryResponse::Impl {
@@ -32,13 +25,14 @@ namespace shared_model::proto {
     TransportType proto_;
 
     const ProtoQueryResponseVariantType variant_{
-        [this]() {
-          auto &ar = proto_;
-
-          switch (ar.response_case()) {
-            IROHA_BIND_TYPE(kBlockErrorResponse, BlockErrorResponse, ar);
-            IROHA_BIND_TYPE(kBlockResponse, BlockResponse, ar);
-
+        [this]() -> ProtoQueryResponseVariantType {
+          using iroha::protocol::BlockQueryResponse;
+          using namespace shared_model::proto;
+          switch (proto_.response_case()) {
+            case BlockQueryResponse::ResponseCase::kBlockErrorResponse:
+              return BlockErrorResponse(proto_);
+            case BlockQueryResponse::ResponseCase::kBlockResponse:
+              return BlockResponse(proto_);
             default:
             case iroha::protocol::BlockQueryResponse::ResponseCase::
                 RESPONSE_NOT_SET:
