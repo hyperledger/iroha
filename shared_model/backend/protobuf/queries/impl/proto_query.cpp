@@ -21,6 +21,7 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
+#include "common/report_abort.h"
 
 namespace {
   /// type of proto variant
@@ -77,7 +78,7 @@ namespace shared_model::proto {
 
         default:
         case iroha::protocol::Query_Payload::QueryCase::QUERY_NOT_SET:
-          assert(!"Unexpected query case.");
+          report_abort("Unexpected query case.");
       };
     }()};
 

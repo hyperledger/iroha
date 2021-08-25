@@ -27,10 +27,6 @@ namespace iroha::subscription {
     struct SchedulerContext {
       /// Scheduler to execute tasks
       std::shared_ptr<IScheduler> handler;
-
-      /// Shows if this handler is static or if it was created to
-      /// execute a single task and should be deleted after performing it
-      bool is_temporary;
     };
 
     SchedulerContext handlers_[kHandlersCount];
@@ -45,9 +41,16 @@ namespace iroha::subscription {
     };
     utils::ReadWriteObject<BoundContexts> bound_;
 
-    inline SchedulerContext findHandler(typename Parent::Tid const tid) {
-      if (tid < kHandlersCount)
-        return handlers_[tid];
+    void uploadToHandler(typename Parent::Tid const tid,
+                         std::chrono::microseconds timeout,
+                         typename Parent::Task &&task) {
+      if (is_disposed_.load())
+        return;
+
+      if (tid < kHandlersCount) {
+        handlers_[tid].handler->addDelayed(timeout, std::move(task));
+        return;
+      }
 
       if (auto context =
               bound_.sharedAccess([tid](BoundContexts const &bound)
@@ -56,17 +59,26 @@ namespace iroha::subscription {
                     it != bound.contexts.end())
                   return it->second;
                 return std::nullopt;
-              }))
-        return *context;
+              })) {
+        context->handler->addDelayed(timeout, std::move(task));
+        return;
+      }
 
+      std::optional<typename Parent::Task> opt_task = std::move(task);
       for (auto &handler : pool_)
-        if (!handler.handler->isBusy())
-          return handler;
+        if (opt_task =
+                handler.handler->uploadIfFree(timeout, std::move(*opt_task));
+            !opt_task)
+          return;
 
-      return SchedulerContext{
-          std::make_shared<ThreadHandler>(),
-          true  // temporary
-      };
+      auto h = std::make_shared<ThreadHandler>();
+      ++temporary_handlers_tasks_counter_;
+      h->addDelayed(timeout, [this, h, task{std::move(*opt_task)}]() mutable {
+        if (!is_disposed_.load())
+          task();
+        --temporary_handlers_tasks_counter_;
+        h->dispose(false);
+      });
     }
 
    public:
@@ -75,11 +87,9 @@ namespace iroha::subscription {
       is_disposed_ = false;
       for (auto &h : handlers_) {
         h.handler = std::make_shared<ThreadHandler>();
-        h.is_temporary = false;
       }
       for (auto &h : pool_) {
         h.handler = std::make_shared<ThreadHandler>();
-        h.is_temporary = false;
       }
     }
 
@@ -93,42 +103,13 @@ namespace iroha::subscription {
     }
 
     void add(typename Parent::Tid tid, typename Parent::Task &&task) override {
-      if (is_disposed_.load())
-        return;
-
-      auto h = findHandler(tid);
-      if (!h.is_temporary)
-        h.handler->add(std::move(task));
-      else {
-        ++temporary_handlers_tasks_counter_;
-        h.handler->add([this, h, task{std::move(task)}]() mutable {
-          if (!is_disposed_.load())
-            task();
-          --temporary_handlers_tasks_counter_;
-          h.handler->dispose(false);
-        });
-      }
+      uploadToHandler(tid, std::chrono::microseconds(0ull), std::move(task));
     }
 
     void addDelayed(typename Parent::Tid tid,
                     std::chrono::microseconds timeout,
                     typename Parent::Task &&task) override {
-      if (is_disposed_.load())
-        return;
-
-      auto h = findHandler(tid);
-      if (!h.is_temporary)
-        h.handler->addDelayed(timeout, std::move(task));
-      else {
-        ++temporary_handlers_tasks_counter_;
-        h.handler->addDelayed(timeout,
-                              [this, h, task{std::move(task)}]() mutable {
-                                if (!is_disposed_.load())
-                                  task();
-                                --temporary_handlers_tasks_counter_;
-                                h.handler->dispose(false);
-                              });
-      }
+      uploadToHandler(tid, timeout, std::move(task));
     }
 
     std::optional<Tid> bind(std::shared_ptr<IScheduler> scheduler) override {
@@ -139,7 +120,7 @@ namespace iroha::subscription {
           [scheduler(std::move(scheduler))](BoundContexts &bound) {
             auto const execution_tid = kHandlersCount + bound.next_tid_offset;
             assert(bound.contexts.find(execution_tid) == bound.contexts.end());
-            bound.contexts[execution_tid] = SchedulerContext{scheduler, false};
+            bound.contexts[execution_tid] = SchedulerContext{scheduler};
             ++bound.next_tid_offset;
             return execution_tid;
           });

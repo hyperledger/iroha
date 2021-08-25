@@ -158,21 +158,30 @@ namespace iroha::ametsuchi {
         validator_{std::move(validator)},
         log_{std::move(log)} {}
 
-  CommitResult WsvRestorerImpl::restoreWsv(Storage &storage,
-                                           bool wait_for_new_blocks) {
+  CommitResult WsvRestorerImpl::restoreWsv(
+      Storage &storage,
+      bool wait_for_new_blocks,
+      std::shared_ptr<BlockQuery> bq,
+      std::shared_ptr<BlockStorageFactory> bsf) {
     return storage.createCommandExecutor() |
-               [this, &storage, wait_for_new_blocks](
+               [this,
+                &storage,
+                wait_for_new_blocks,
+                bq{std::move(bq)},
+                bsf{std::move(bsf)}](
                    std::shared_ptr<CommandExecutor> command_executor)
                -> CommitResult {
-      BlockStorageStubFactory storage_factory;
+      std::shared_ptr<BlockStorageFactory> block_storage_factory{
+          bsf ? std::move(bsf) : std::make_shared<BlockStorageStubFactory>()};
 
       CommitResult res;
-      auto block_query = storage.getBlockQuery();
+      auto block_query = bq ? bq : storage.getBlockQuery();
       auto last_block_in_storage = block_query->getTopBlockHeight();
 
       do {
-        res = storage.createMutableStorage(command_executor, storage_factory) |
-            [this, &storage, &block_query, &last_block_in_storage](
+        res = storage.createMutableStorage(command_executor,
+                                           *block_storage_factory)
+            | [this, &storage, &block_query, &last_block_in_storage](
                   auto &&mutable_storage) -> CommitResult {
           if (not block_query) {
             return expected::makeError("Cannot create BlockQuery");

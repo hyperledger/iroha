@@ -299,7 +299,7 @@ namespace grantables {
     }
 
     IntegrationTestFramework &prepare(GrantablePermissionsFixture &f,
-                                      IntegrationTestFramework &itf) {
+                                      IntegrationTestFramework &itf) override {
       auto create_and_transfer_coins =
           GrantablePermissionsFixture::TxBuilder()
               .createdTime(f.getUniqueTime())
@@ -335,7 +335,7 @@ namespace grantables {
                                                      SetMyQuorum,
                                                      TransferMyAssets>;
 
-  TYPED_TEST_CASE(GrantRevokeFixture, GrantablePermissionsTypes, );
+  TYPED_TEST_SUITE(GrantRevokeFixture, GrantablePermissionsTypes, );
 
   /**
    * TODO mboldyrev 18.01.2019 IR-222 convert to a SFV integration test

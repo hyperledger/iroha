@@ -324,8 +324,15 @@ Irohad::RunResult Irohad::initStorage(
           rdb_port,
           RdbConnectionInit::init(
               startup_wsv_data_policy, *rdb_opt_, log_manager_));
-      db_context_ =
-          std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
+
+      auto cache = std::make_shared<DatabaseCache<std::string>>();
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK);
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_SETTINGS);
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES);
+      cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN);
+
+      db_context_ = std::make_shared<ametsuchi::RocksDBContext>(
+          std::move(rdb_port), std::move(cache));
     } break;
 
     default:
