@@ -28,6 +28,7 @@ iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
 iroha_schema = { path = "../iroha_schema"}
 iroha_version = { version = "=0.1.0", path = "../iroha_version", features = ["warp"] }
 
+fixnum = { version = "0.6", features = ["i64"]}
 chrono = "0.4"
 dashmap = { version = "4.0" }
 parity-scale-codec = { version = "2", features = ["derive"] }

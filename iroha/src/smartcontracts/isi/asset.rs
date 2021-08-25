@@ -57,8 +57,8 @@ pub mod isi {
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 
@@ -82,8 +82,33 @@ pub mod isi {
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for Mint<Asset, Fixed> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Error> {
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                wsv,
+                AssetValueType::Fixed,
+            )?;
+            wsv.asset_or_insert(&self.destination_id, Fixed::ZERO)?;
+            wsv.modify_asset(&self.destination_id, |asset| {
+                let quantity: &mut Fixed = asset.try_as_mut()?;
+                *quantity = quantity
+                    .checked_add(self.object)
+                    .ok_or(MathError::OverflowError)?;
+                Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 
@@ -106,8 +131,8 @@ pub mod isi {
                     asset_metadata_limits,
                 )?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 
@@ -128,10 +153,10 @@ pub mod isi {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity
                     .checked_sub(self.object)
-                    .ok_or_else(|| error!("Not enough quantity to burn."))?;
+                    .ok_or(MathError::NotEnoughQuantity)?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 
@@ -152,10 +177,34 @@ pub mod isi {
                 let quantity: &mut u128 = asset.try_as_mut()?;
                 *quantity = quantity
                     .checked_sub(self.object)
-                    .ok_or_else(|| error!("Not enough quantity to burn."))?;
+                    .ok_or(MathError::NotEnoughQuantity)?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for Burn<Asset, Fixed> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Error> {
+            assert_asset_type(
+                &self.destination_id.definition_id,
+                wsv,
+                AssetValueType::Fixed,
+            )?;
+            wsv.modify_asset(&self.destination_id, |asset| {
+                let quantity: &mut Fixed = asset.try_as_mut()?;
+                *quantity = quantity
+                    .checked_sub(self.object)
+                    .ok_or(MathError::NotEnoughQuantity)?;
+                Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 
@@ -174,8 +223,8 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 
@@ -211,8 +260,8 @@ pub mod isi {
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
                 Ok(())
-            })?;
-            Ok(())
+            })
+            .map_err(Into::into)
         }
     }
 }

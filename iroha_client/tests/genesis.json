@@ -55,6 +55,23 @@
           }
         },
         {
+          "Register": {
+            "object": {
+              "Raw": {
+                "Identifiable": {
+                  "AssetDefinition": {
+                    "id": {
+                      "name": "tulip",
+                      "domain_name": "wonderland"
+                    },
+                    "value_type": "Fixed"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
           "Mint": {
             "object": {
               "Raw": {

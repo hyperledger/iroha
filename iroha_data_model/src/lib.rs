@@ -170,6 +170,8 @@ pub enum Value {
     Bool(bool),
     /// `String` value.
     String(String),
+    /// `Fixed` value
+    Fixed(fixed::Fixed),
     /// `Vec` of `Value`.
     Vec(
         #[skip_from]
@@ -200,7 +202,7 @@ impl Value {
 
         match self {
             U32(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | TransactionValue(_) | PermissionToken(_) => 1,
+            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) => 1,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1,
             SignatureCheckCondition(s) => s.0.len(),
         }
@@ -1049,6 +1051,132 @@ pub mod account {
     }
 }
 
+/// An encapsulation of [`fixnum::FixedPoint`] in encodable form.
+pub mod fixed {
+    use core::cmp::Ordering;
+    use std::convert::TryFrom;
+
+    use fixnum::{
+        ops::{CheckedAdd, CheckedSub, Zero},
+        typenum::U9,
+        ConvertError, FixedPoint,
+    };
+    use iroha_schema::prelude::*;
+    use parity_scale_codec::{Decode, Encode, Error, Input, Output};
+    use serde::{Deserialize, Serialize};
+
+    /// Base type for fixed implementation. May be changed in forks.
+    /// To change implementation to i128 or other type you will need to change it in Cargo.toml.
+    type Base = i64;
+
+    /// Signed fixed point amount over 64 bits, 9 decimal places.
+    ///
+    /// MAX = (2 ^ (`BITS_COUNT` - 1) - 1) / 10 ^ PRECISION =
+    ///     = (2 ^ (64 - 1) - 1) / 1e9 =
+    ///     = 9223372036.854775807 ~ 9.2e9
+    /// `ERROR_MAX` = 0.5 / (10 ^ PRECISION) =
+    ///           = 0.5 / 1e9 =
+    ///           = 5e-10
+    pub type FixNum = FixedPoint<Base, U9>;
+
+    /// An encapsulation of [`Fixed`] in encodable form.
+    #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+    pub struct Fixed(FixNum);
+
+    impl Fixed {
+        /// Constant, representing zero value
+        pub const ZERO: Fixed = Fixed(FixNum::ZERO);
+
+        /// Checks if this instance is zero
+        pub const fn is_zero(self) -> bool {
+            *self.0.as_bits() == Base::ZERO
+        }
+
+        /// Checked addition
+        pub fn checked_add(self, rhs: Self) -> Option<Self> {
+            match self.0.cadd(rhs.0) {
+                Ok(n) => Some(Fixed(n)),
+                Err(_) => None,
+            }
+        }
+
+        /// Checked subtraction
+        pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+            match self.0.csub(rhs.0) {
+                Ok(n) => Some(Fixed(n)),
+                Err(_) => None,
+            }
+        }
+    }
+
+    impl TryFrom<f64> for Fixed {
+        type Error = ConvertError;
+
+        fn try_from(value: f64) -> Result<Self, Self::Error> {
+            match FixNum::try_from(value) {
+                Ok(n) => Ok(Fixed(n)),
+                Err(e) => Err(e),
+            }
+        }
+    }
+
+    impl PartialEq for Fixed {
+        fn eq(&self, other: &Self) -> bool {
+            self.0 == other.0
+        }
+    }
+
+    impl Eq for Fixed {}
+
+    impl PartialOrd for Fixed {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            self.0.partial_cmp(&other.0)
+        }
+    }
+
+    impl Ord for Fixed {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.0.cmp(&other.0)
+        }
+    }
+
+    impl Encode for Fixed {
+        fn size_hint(&self) -> usize {
+            std::mem::size_of::<Base>()
+        }
+
+        fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
+            let bits = self.0.into_bits();
+            let buf = bits.to_le_bytes();
+            dest.write(&buf);
+        }
+    }
+
+    impl Decode for Fixed {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+            let mut buf = [0_u8; std::mem::size_of::<Base>()];
+            input.read(&mut buf)?;
+            let value = Base::from_le_bytes(buf);
+            Ok(Fixed(FixedPoint::from_bits(value)))
+        }
+
+        fn encoded_fixed_size() -> Option<usize> {
+            Some(std::mem::size_of::<Base>())
+        }
+    }
+
+    impl IntoSchema for Fixed {
+        fn schema(map: &mut MetaMap) {
+            let _ = map.entry(Self::type_name()).or_insert(Metadata::Fixed);
+        }
+    }
+
+    /// Export of inner items.
+    pub mod prelude {
+        pub use super::Fixed;
+    }
+}
+
 pub mod asset {
     //! This module contains [`Asset`] structure, it's implementation and related traits and
     //! instructions implementations.
@@ -1070,6 +1198,8 @@ pub mod asset {
 
     use crate::{
         account::prelude::*,
+        fixed,
+        fixed::Fixed,
         metadata::{Limits as MetadataLimits, Metadata},
         Identifiable, Name, TryAsMut, TryAsRef, Value,
     };
@@ -1172,6 +1302,8 @@ pub mod asset {
         Quantity,
         /// Asset's Big Quantity.
         BigQuantity,
+        /// Decimal quantity with fixed precision
+        Fixed,
         /// Asset's key-value structured data.
         Store,
     }
@@ -1203,6 +1335,8 @@ pub mod asset {
         Quantity(u32),
         /// Asset's Big Quantity.
         BigQuantity(u128),
+        /// Asset's Decimal Quantity.
+        Fixed(fixed::Fixed),
         /// Asset's key-value structured data.
         Store(Metadata),
     }
@@ -1213,6 +1347,7 @@ pub mod asset {
             match *self {
                 AssetValue::Quantity(_) => AssetValueType::Quantity,
                 AssetValue::BigQuantity(_) => AssetValueType::BigQuantity,
+                AssetValue::Fixed(_) => AssetValueType::Fixed,
                 AssetValue::Store(_) => AssetValueType::Store,
             }
         }
@@ -1221,6 +1356,7 @@ pub mod asset {
             match *self {
                 AssetValue::Quantity(q) => q == 0_u32,
                 AssetValue::BigQuantity(q) => q == 0_u128,
+                AssetValue::Fixed(ref q) => q.is_zero(),
                 AssetValue::Store(_) => false,
             }
         }
@@ -1271,6 +1407,7 @@ pub mod asset {
     impl_try_as_for_asset_value! {
         Quantity(u32),
         BigQuantity(u128),
+        Fixed(Fixed),
         Store(Metadata),
     }
 
@@ -1351,9 +1488,14 @@ pub mod asset {
             AssetDefinition::new(id, AssetValueType::Quantity)
         }
 
-        /// Asset definition with store asset value type.
+        /// Asset definition with big quantity asset value type.
         pub const fn new_big_quantity(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::BigQuantity)
+        }
+
+        /// Asset definition with decimal quantity asset value type.
+        pub const fn with_precision(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Fixed)
         }
 
         /// Asset definition with store asset value type.
@@ -2609,9 +2751,9 @@ pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, pagination::prelude::*,
-        peer::prelude::*, transaction::prelude::*, world::prelude::*, Bytes, IdBox, Identifiable,
-        IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
+        pagination::prelude::*, peer::prelude::*, transaction::prelude::*, world::prelude::*,
+        Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
