@@ -18,12 +18,12 @@
 #include <rocksdb/utilities/transaction.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
+#include "common/disable_warnings.h"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
-#include "common/disable_warnings.h"
 
 // clang-format off
 /**
@@ -575,7 +575,11 @@ namespace iroha::ametsuchi {
                                 bool>,
           "Required F(unique_ptr<rocksdb::Iterator>,size_t) -> bool");
 
-      rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
+      /// TODO(iceseer): remove this and recursive_mutex in RocksdbCommon when
+      /// BlockStore and WsvCommand begin to work with the single context
+      /// correctly
+      std::string const tmp_key(keyBuffer().data(), keyBuffer().size());
+      rocksdb::Slice const key(tmp_key.data(), tmp_key.size());
       for (; it->Valid() && it->key().starts_with(key); it->Next())
         if constexpr (std::is_void_v<decltype(
                           std::declval<F>()(it, key.size()))>) {
@@ -968,9 +972,8 @@ namespace iroha::ametsuchi {
       assert(expected::hasValue(status));
       if (status.assumeValue().ok()) {
         DISABLE_WARNING_PUSH
-        DISABLE_WARNING_uninitialized
-        DISABLE_WARNING_maybe_uninitialized
-        uint64_t _;
+        DISABLE_WARNING_uninitialized DISABLE_WARNING_maybe_uninitialized
+            uint64_t _;
         DISABLE_WARNING_POP
         common.decode(_);
         value = _;
