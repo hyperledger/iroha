@@ -196,7 +196,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     shared_model::interface::RolePermissionSet const &creator_permissions) {
   auto const &peer = command.peer();
   if (do_validation)
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kAddPeer));
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kAddPeer}));
 
   std::string pk;
   toLowerAppend(peer.pubkey(), pk);
@@ -250,7 +250,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
     if (creator_account_id == command.accountId()) {
       RDB_ERROR_CHECK(
-          checkPermissions(creator_permissions, Role::kAddSignatory));
+          checkPermissions(creator_permissions, {Role::kAddSignatory}));
     } else {
       RDB_ERROR_CHECK(checkGrantablePermissions(creator_permissions,
                                                 granted_account_permissions,
@@ -289,7 +289,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   auto const &role_name = command.roleName();
 
   if (do_validation) {
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kAppendRole));
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kAppendRole}));
 
     RDB_TRY_GET_VALUE(
         opt_permissions,
@@ -418,7 +418,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   if (do_validation)
     RDB_ERROR_CHECK(
-        checkPermissions(creator_permissions, Role::kCreateAccount));
+        checkPermissions(creator_permissions, {Role::kCreateAccount}));
 
   // check if domain exists
   RDB_TRY_GET_VALUE(
@@ -469,7 +469,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   auto const &asset_name = command.assetName();
 
   if (do_validation) {
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kCreateAsset));
+    RDB_ERROR_CHECK(
+        checkPermissions(creator_permissions, {Role::kCreateAsset}));
 
     // check if asset already exists
     RDB_ERROR_CHECK(forAsset<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
@@ -499,7 +500,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
   if (do_validation) {
     // no privilege escalation check here
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kCreateDomain));
+    RDB_ERROR_CHECK(
+        checkPermissions(creator_permissions, {Role::kCreateDomain}));
 
     // check if domain already exists
     RDB_ERROR_CHECK(forDomain<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
@@ -539,7 +541,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     role_permissions.setAll();
 
   if (do_validation) {
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kCreateRole));
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kCreateRole}));
 
     if (!role_permissions.isSubsetOf(creator_permissions))
       return makeError<void>(ErrorCodes::kNoPermissions,
@@ -570,7 +572,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   auto const &role_name = command.roleName();
 
   if (do_validation)
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kDetachRole));
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kDetachRole}));
 
   RDB_ERROR_CHECK(
       forRole<kDbOperation::kCheck, kDbEntry::kMustExist>(common, role_name));
@@ -600,7 +602,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       shared_model::interface::permissions::permissionFor(granted_perm);
 
   if (do_validation) {
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, required_perm));
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions, {required_perm}));
 
     // check if account exists
     RDB_ERROR_CHECK(forAccount<kDbOperation::kCheck, kDbEntry::kMustExist>(
@@ -641,7 +643,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     return makeError<void>(ErrorCodes::kPublicKeyIsEmpty, "Pubkey empty.");
 
   if (do_validation)
-    RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kRemovePeer));
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions,
+                                     {Role::kAddPeer, Role::kRemovePeer}));
 
   std::string pk;
   toLowerAppend(command.pubkey(), pk);
@@ -702,7 +705,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
 
     if (creator_account_id == command.accountId()) {
       RDB_ERROR_CHECK(
-          checkPermissions(creator_permissions, Role::kRemoveSignatory));
+          checkPermissions(creator_permissions, {Role::kRemoveSignatory}));
     } else {
       RDB_ERROR_CHECK(checkGrantablePermissions(creator_permissions,
                                                 granted_account_permissions,
@@ -1021,7 +1024,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
                                        Role::kTransfer,
                                        Grantable::kTransferMyAssets));
     } else
-      RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kTransfer));
+      RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kTransfer}));
 
     // check if asset exists
     RDB_ERROR_CHECK(forAsset<kDbOperation::kCheck, kDbEntry::kMustExist>(
