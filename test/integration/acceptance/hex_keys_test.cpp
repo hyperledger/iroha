@@ -5,18 +5,19 @@
 
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest.h>
-#include "cryptography/keypair.hpp"
-#include "integration/acceptance/acceptance_fixture.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <cctype>
 #include <functional>
 #include <iterator>
 #include <utility>
+
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "cryptography/keypair.hpp"
 #include "datetime/time.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"

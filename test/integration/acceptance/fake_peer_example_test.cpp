@@ -5,13 +5,7 @@
 
 #include "integration/acceptance/fake_peer_fixture.hpp"
 
-#include <rxcpp/operators/rx-filter.hpp>
-#include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-observe_on.hpp>
-#include <rxcpp/operators/rx-replay.hpp>
-#include <rxcpp/operators/rx-take.hpp>
-#include <rxcpp/operators/rx-tap.hpp>
-#include <rxcpp/operators/rx-timeout.hpp>
 #include "ametsuchi/block_query.hpp"
 #include "ametsuchi/storage.hpp"
 #include "consensus/yac/vote_message.hpp"

@@ -6,11 +6,12 @@
 #ifndef IROHA_ACCEPTANCE_FIXTURE_HPP
 #define IROHA_ACCEPTANCE_FIXTURE_HPP
 
+#include <gtest/gtest.h>
+
 #include <functional>
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/common_constants.hpp"
@@ -18,6 +19,7 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
+#include "main/startup_params.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 
@@ -116,10 +118,10 @@ class AcceptanceFixture : public ::testing::Test {
   template <typename Builder>
   auto base(Builder builder,
             const shared_model::interface::types::AccountIdType &account_id)
-      -> decltype(
-          builder
-              .creatorAccountId(shared_model::interface::types::AccountIdType())
-              .createdTime(uint64_t()));
+      -> decltype(builder
+                      .creatorAccountId(
+                          shared_model::interface::types::AccountIdType())
+                      .createdTime(uint64_t()));
 
   /**
    * Create valid base pre-built transaction with specified creator

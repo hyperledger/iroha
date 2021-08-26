@@ -141,13 +141,14 @@ namespace framework {
      */
     auto createBatchOneSignTransactions(
         const shared_model::interface::types::BatchType batch_type,
-        std::vector<shared_model::interface::types::AccountIdType>
-            transactions_creators,
+        const std::vector<shared_model::interface::types::AccountIdType>
+            &transactions_creators,
         size_t now = iroha::time::now(),
         const shared_model::interface::types::QuorumType &quorum = 1) {
       std::vector<std::pair<shared_model::interface::types::BatchType,
                             shared_model::interface::types::AccountIdType>>
           batch_types_and_creators;
+      batch_types_and_creators.reserve(transactions_creators.size());
       for (const auto &creator : transactions_creators) {
         batch_types_and_creators.emplace_back(batch_type, creator);
       }
@@ -213,8 +214,9 @@ namespace framework {
       auto batch_type = shared_model::interface::types::BatchType::ATOMIC;
       std::vector<std::pair<decltype(batch_type), std::string>>
           transaction_fields;
+      transaction_fields.reserve(size);
       for (size_t i = 0; i < size; ++i) {
-        transaction_fields.push_back(std::make_pair(
+        transaction_fields.emplace_back(std::make_pair(
             batch_type, "account" + std::to_string(i) + "@domain"));
       }
 

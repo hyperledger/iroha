@@ -6,12 +6,14 @@
 #ifndef IROHA_FAKE_PEER_FIXTURE_HPP
 #define IROHA_FAKE_PEER_FIXTURE_HPP
 
+// NOTE: order of includes is important. this one goes before framework/*
 #include "integration/acceptance/acceptance_fixture.hpp"
 
 #include "backend/protobuf/block.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/make_peer_pointee_matcher.hpp"
+#include "instantiate_test_suite.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 
 template <size_t N>
@@ -20,8 +22,8 @@ void checkBlockHasNTxs(
   ASSERT_EQ(block->transactions().size(), N);
 }
 
-class FakePeerFixture : public AcceptanceFixture {
- public:
+struct FakePeerFixture : AcceptanceFixture,
+                         ::testing::WithParamInterface<StorageType> {
   using FakePeer = integration_framework::fake_peer::FakePeer;
 
   std::unique_ptr<integration_framework::IntegrationTestFramework> itf_;
@@ -60,9 +62,10 @@ class FakePeerFixture : public AcceptanceFixture {
 
  protected:
   void SetUp() override {
+    //ToDo use GetParam() for iroha::StorageType, but requires to change all TEST_F to TEST_P
     itf_ = std::make_unique<integration_framework::IntegrationTestFramework>(
         1,
-        iroha::StorageType::kRocksDb,
+        iroha::StorageType::kPostgres,  //kRocksDb,
         boost::none,
         iroha::StartupWsvDataPolicy::kDrop,
         true,

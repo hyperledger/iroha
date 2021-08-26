@@ -8,6 +8,7 @@
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
@@ -16,8 +17,9 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-static constexpr iroha::StorageType storage_types[] = {
-    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+struct RolePermissionFixture : AcceptanceFixture,
+                               ::testing::WithParamInterface<StorageType> {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RolePermissionFixture);
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -28,24 +30,22 @@ static constexpr iroha::StorageType storage_types[] = {
  * @when the user send query with getRolePermissions request
  * @then there is a valid RolePermissionsResponse
  */
-TEST_F(AcceptanceFixture, CanGetRolePermissions) {
-  for (auto const type : storage_types) {
-    auto check_query = [](auto &query_response) {
-      ASSERT_NO_THROW(
-          boost::get<const shared_model::interface::RolePermissionsResponse &>(
-              query_response.get()));
-    };
+TEST_P(RolePermissionFixture, CanGetRolePermissions) {
+  auto check_query = [](auto &query_response) {
+    ASSERT_NO_THROW(
+        boost::get<const shared_model::interface::RolePermissionsResponse &>(
+            query_response.get()));
+  };
 
-    auto query = complete(baseQry().getRolePermissions(kRole));
+  auto query = complete(baseQry().getRolePermissions(kRole));
 
-    IntegrationTestFramework(1, type)
-        .setInitialState(kAdminKeypair)
-        .sendTxAwait(
-            makeUserWithPerms(
-                {shared_model::interface::permissions::Role::kGetRoles}),
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-        .sendQuery(query, check_query);
-  }
+  IntegrationTestFramework(1, GetParam())
+      .setInitialState(kAdminKeypair)
+      .sendTxAwait(
+          makeUserWithPerms(
+              {shared_model::interface::permissions::Role::kGetRoles}),
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+      .sendQuery(query, check_query);
 }
 
 /**
@@ -57,17 +57,15 @@ TEST_F(AcceptanceFixture, CanGetRolePermissions) {
  * @when the user send query with getRolePermissions request
  * @then query should be recognized as stateful invalid
  */
-TEST_F(AcceptanceFixture, CanNotGetRolePermissions) {
-  for (auto const type : storage_types) {
-    auto query = complete(baseQry().getRolePermissions(kRole));
+TEST_P(RolePermissionFixture, CanNotGetRolePermissions) {
+  auto query = complete(baseQry().getRolePermissions(kRole));
 
-    IntegrationTestFramework(1, type)
-        .setInitialState(kAdminKeypair)
-        .sendTxAwait(
-            makeUserWithPerms({}),
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-        .sendQuery(query,
-                   checkQueryErrorResponse<
-                       shared_model::interface::StatefulFailedErrorResponse>());
-  }
+  IntegrationTestFramework(1, GetParam())
+      .setInitialState(kAdminKeypair)
+      .sendTxAwait(
+          makeUserWithPerms({}),
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+      .sendQuery(query,
+                 checkQueryErrorResponse<
+                     shared_model::interface::StatefulFailedErrorResponse>());
 }
