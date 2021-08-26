@@ -12,13 +12,16 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
+#include "instantiate_test_suite.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-static constexpr iroha::StorageType storage_types[] = {
-    iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+struct GetRoleFixture : AcceptanceFixture,
+                        ::testing::WithParamInterface<StorageType> {};
+
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(GetRoleFixture);
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -28,33 +31,29 @@ static constexpr iroha::StorageType storage_types[] = {
  * @when execute query with getRoles command
  * @then the query returns list of roles
  */
-TEST_F(AcceptanceFixture, CanGetRoles) {
-  for (auto const type : storage_types) {
-    auto checkQuery = [](auto &query_response) {
-      ASSERT_NO_THROW(
-          boost::get<const shared_model::interface::RolesResponse &>(
-              query_response.get()));
-    };
+TEST_P(GetRoleFixture, CanGetRoles) {
+  auto checkQuery = [](auto &query_response) {
+    ASSERT_NO_THROW(boost::get<const shared_model::interface::RolesResponse &>(
+        query_response.get()));
+  };
 
-    auto query = TestUnsignedQueryBuilder()
-                     .createdTime(iroha::time::now())
-                     .creatorAccountId(kUserId)
-                     .queryCounter(1)
-                     .getRoles()
-                     .build()
-                     .signAndAddSignature(kUserKeypair)
-                     .finish();
+  auto query = TestUnsignedQueryBuilder()
+                   .createdTime(iroha::time::now())
+                   .creatorAccountId(kUserId)
+                   .queryCounter(1)
+                   .getRoles()
+                   .build()
+                   .signAndAddSignature(kUserKeypair)
+                   .finish();
 
-    IntegrationTestFramework(1, type)
-        .setInitialState(kAdminKeypair)
-        .sendTx(makeUserWithPerms(
-            {shared_model::interface::permissions::Role::kGetRoles}))
-        .skipProposal()
-        .checkBlock([](auto &block) {
-          ASSERT_EQ(boost::size(block->transactions()), 1);
-        })
-        .sendQuery(query, checkQuery);
-  }
+  IntegrationTestFramework(1, GetParam())
+      .setInitialState(kAdminKeypair)
+      .sendTx(makeUserWithPerms(
+          {shared_model::interface::permissions::Role::kGetRoles}))
+      .skipProposal()
+      .checkBlock(
+          [](auto &block) { ASSERT_EQ(boost::size(block->transactions()), 1); })
+      .sendQuery(query, checkQuery);
 }
 
 /**
@@ -65,37 +64,33 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
  * @when execute query with getRoles command
  * @then there is no way to to get roles due to user hasn't permissions enough
  */
-TEST_F(AcceptanceFixture, CanNotGetRoles) {
-  for (auto const type : storage_types) {
-    auto checkQuery = [](auto &query_response) {
-      ASSERT_NO_THROW({
-        const auto &error_rsp =
-            boost::get<const shared_model::interface::ErrorQueryResponse &>(
-                query_response.get());
-        boost::get<
-            const shared_model::interface::StatefulFailedErrorResponse &>(
-            error_rsp.get());
-      });
-    };
+TEST_P(GetRoleFixture, CanNotGetRoles) {
+  auto checkQuery = [](auto &query_response) {
+    ASSERT_NO_THROW({
+      const auto &error_rsp =
+          boost::get<const shared_model::interface::ErrorQueryResponse &>(
+              query_response.get());
+      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
+          error_rsp.get());
+    });
+  };
 
-    auto query = TestUnsignedQueryBuilder()
-                     .createdTime(iroha::time::now())
-                     .creatorAccountId(kUserId)
-                     .queryCounter(1)
-                     .getRoles()
-                     .build()
-                     .signAndAddSignature(kUserKeypair)
-                     .finish();
+  auto query = TestUnsignedQueryBuilder()
+                   .createdTime(iroha::time::now())
+                   .creatorAccountId(kUserId)
+                   .queryCounter(1)
+                   .getRoles()
+                   .build()
+                   .signAndAddSignature(kUserKeypair)
+                   .finish();
 
-    IntegrationTestFramework(1, type)
-        .setInitialState(kAdminKeypair)
-        .sendTx(makeUserWithPerms({}))
-        .skipProposal()
-        .checkVerifiedProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 1);
-        })
-        .checkBlock(
-            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-        .sendQuery(query, checkQuery);
-  }
+  IntegrationTestFramework(1, GetParam())
+      .setInitialState(kAdminKeypair)
+      .sendTx(makeUserWithPerms({}))
+      .skipProposal()
+      .checkVerifiedProposal(
+          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
+      .checkBlock(
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+      .sendQuery(query, checkQuery);
 }

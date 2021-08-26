@@ -49,7 +49,7 @@ namespace iroha {
             typename AlphabetT = Alphabet,
             typename CharT = char,
             uint32_t KeySz = 16ul,
-            typename AllocT = std::allocator<void>>
+            typename AllocT = std::allocator<char>>
   class RadixTree {
     struct NodeContext {
       NodeContext *parent;

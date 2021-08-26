@@ -123,50 +123,52 @@ namespace query_validation {
  * transactions' and queries' binaries generation.
  */
 template <typename Launcher>
-class BinaryTestFixture : public ::testing::Test {
- public:
-  static constexpr iroha::StorageType storage_types[] = {
-      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+class BinaryTestFixture
+    : public ::testing::Test,
+      public ::testing::WithParamInterface<iroha::StorageType> {
+  {
+   public:
+    static constexpr iroha::StorageType storage_types[] = {
+        iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
 
-  Launcher launcher;
+    Launcher launcher;
 
-  /**
-   * Generates genesis block for ITF initialization using the first transaction
-   * and keypair received from launcher.
-   *
-   * @return - genesis block
-   */
-  shared_model::proto::Block genesis() {
-    return makeGenesis(launcher.transactions[0], *launcher.admin_key);
-  }
+    /**
+     * Generates genesis block for ITF initialization using the first
+     * transaction and keypair received from launcher.
+     *
+     * @return - genesis block
+     */
+    shared_model::proto::Block genesis() {
+      return makeGenesis(launcher.transactions[0], *launcher.admin_key);
+    }
 
-  /**
-   * Callback that asserts that passed block contains one transaction.
-   *
-   * @param result - Block object
-   */
-  static void blockWithTransactionValidation(
-      const std::shared_ptr<const shared_model::interface::Block> &result) {
-    ASSERT_EQ(result->transactions().size(), 1);
-  }
+    /**
+     * Callback that asserts that passed block contains one transaction.
+     *
+     * @param result - Block object
+     */
+    static void blockWithTransactionValidation(
+        const std::shared_ptr<const shared_model::interface::Block> &result) {
+      ASSERT_EQ(result->transactions().size(), 1);
+    }
 
-  /**
-   * Initalizes ITF. Sequentially applies transacttions and then queries
-   * provided by launcher. Checks that every transaction was committed.
-   * Asserts that query response types match to expected types.
-   *
-   * @tparam ExpectedQueryResponsesTypes - list of expected query response
-   * types. The order should match order of queries that were provided by
-   *    launcher.
-   * @param transactions_expected - expected amount of transactions
-   * @param queries_expected - expected amount of queries
-   */
-  template <typename... ExpectedQueryResponsesTypes>
-  void doTest(const unsigned &transactions_expected = 0,
-              const unsigned &queries_expected = 0) {
-    if (launcher.initialized(transactions_expected, queries_expected)) {
-      for (auto const type : storage_types) {
-        integration_framework::IntegrationTestFramework itf(1, type);
+    /**
+     * Initalizes ITF. Sequentially applies transacttions and then queries
+     * provided by launcher. Checks that every transaction was committed.
+     * Asserts that query response types match to expected types.
+     *
+     * @tparam ExpectedQueryResponsesTypes - list of expected query response
+     * types. The order should match order of queries that were provided by
+     *    launcher.
+     * @param transactions_expected - expected amount of transactions
+     * @param queries_expected - expected amount of queries
+     */
+    template <typename... ExpectedQueryResponsesTypes>
+    void doTest(const unsigned &transactions_expected = 0,
+                const unsigned &queries_expected = 0) {
+      if (launcher.initialized(transactions_expected, queries_expected)) {
+        integration_framework::IntegrationTestFramework itf(1, GetParam());
 
         itf.setInitialState(launcher.admin_key.value(), genesis());
 
@@ -184,7 +186,6 @@ class BinaryTestFixture : public ::testing::Test {
             launcher.queries.begin(), launcher.queries.end(), itf);
 
         itf.done();
-      }
     }
   }
 
@@ -206,6 +207,6 @@ class BinaryTestFixture : public ::testing::Test {
         .signAndAddSignature(keypair)
         .finish();
   }
-};
+  };
 
 #endif  // IROHA_BINARIES_TEST_FIXTURE_HPP

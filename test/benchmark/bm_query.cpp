@@ -15,6 +15,7 @@
 
 using namespace benchmark::utils;
 using namespace common_constants;
+using namespace integration_framework;
 using shared_model::interface::types::PublicKeyHexStringView;
 
 /**
@@ -24,7 +25,7 @@ using shared_model::interface::types::PublicKeyHexStringView;
 static void BM_QueryAccount(benchmark::State &state) {
   for (auto const type :
        {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
-    integration_framework::IntegrationTestFramework itf(1, type);
+    IntegrationTestFramework itf(1, GetParam());
     itf.setInitialState(kAdminKeypair);
     itf.sendTx(
         createUserWithPerms(

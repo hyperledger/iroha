@@ -6,16 +6,15 @@
 #include <gtest/gtest.h>
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
+#include "instantiate_test_suite.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class CreateDomain : public AcceptanceFixture {
- public:
-  static constexpr iroha::StorageType storage_types[] = {
-      iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb};
+using iroha::StorageType;
 
+struct CreateDomain : AcceptanceFixture, ::testing::WithParamInterface<StorageType> {
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateDomain}) {
     return AcceptanceFixture::makeUserWithPerms(perms);
@@ -23,6 +22,8 @@ class CreateDomain : public AcceptanceFixture {
 
   const std::string kNewDomain = "newdomain";
 };
+
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(CreateDomain);
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -32,9 +33,8 @@ class CreateDomain : public AcceptanceFixture {
  * @when execute tx with CreateDomain command
  * @then there is the tx in proposal
  */
-TEST_F(CreateDomain, Basic) {
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+TEST_P(CreateDomain, Basic) {
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
@@ -52,9 +52,8 @@ TEST_F(CreateDomain, Basic) {
  * @when execute tx with CreateDomain command
  * @then verified proposal is empty
  */
-TEST_F(CreateDomain, NoPermissions) {
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+TEST_P(CreateDomain, NoPermissions) {
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms({interface::permissions::Role::kGetMyTxs}))
         .skipProposal()
@@ -77,10 +76,9 @@ TEST_F(CreateDomain, NoPermissions) {
  * @when execute tx with CreateDomain command with nonexistent role
  * @then verified proposal is empty
  */
-TEST_F(CreateDomain, NoRole) {
+TEST_P(CreateDomain, NoRole) {
   const std::string nonexistent_role = "asdf";
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
@@ -103,9 +101,8 @@ TEST_F(CreateDomain, NoRole) {
  * @when execute tx with CreateDomain command with already existing domain
  * @then verified proposal is empty
  */
-TEST_F(CreateDomain, ExistingName) {
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+TEST_P(CreateDomain, ExistingName) {
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
@@ -127,15 +124,14 @@ TEST_F(CreateDomain, ExistingName) {
  * @when execute tx with CreateDomain command with maximum available length
  * @then there is the tx in proposal
  */
-TEST_F(CreateDomain, MaxLenName) {
+TEST_P(CreateDomain, MaxLenName) {
   std::string maxLongDomain =
       // 255 characters string
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad";
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
@@ -153,9 +149,8 @@ TEST_F(CreateDomain, MaxLenName) {
  * @then the tx hasn't passed stateless validation
  *       (aka skipProposal throws)
  */
-TEST_F(CreateDomain, TooLongName) {
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+TEST_P(CreateDomain, TooLongName) {
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
@@ -172,10 +167,9 @@ TEST_F(CreateDomain, TooLongName) {
  * @then the tx hasn't passed stateless validation
  *       (aka skipProposal throws)
  */
-TEST_F(CreateDomain, EmptyName) {
+TEST_P(CreateDomain, EmptyName) {
   std::string empty_name = "";
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
@@ -192,10 +186,9 @@ TEST_F(CreateDomain, EmptyName) {
  * @then the tx hasn't passed stateless validation
  *       (aka skipProposal throws)
  */
-TEST_F(CreateDomain, DISABLED_EmptyRoleName) {
+TEST_P(CreateDomain, DISABLED_EmptyRoleName) {
   std::string empty_name = "";
-  for (auto const type : storage_types)
-    IntegrationTestFramework(1, type)
+    IntegrationTestFramework(1, GetParam())
         .setInitialState(kAdminKeypair)
         .sendTx(makeUserWithPerms())
         .skipProposal()
