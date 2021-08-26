@@ -1622,11 +1622,13 @@ namespace iroha::ametsuchi {
     return permissions;
   }
 
+  template <size_t N>
   inline expected::Result<void, DbError> checkPermissions(
       shared_model::interface::RolePermissionSet const &permissions,
-      shared_model::interface::permissions::Role const to_check) {
-    if (permissions.isSet(to_check))
-      return {};
+      shared_model::interface::permissions::Role const (&to_check)[N]) {
+    for (auto const &role : to_check)
+      if (permissions.isSet(role))
+        return {};
 
     return makeError<void>(DbErrorCode::kErrorNoPermissions, "No permissions.");
   }
