@@ -59,7 +59,7 @@ class SupermajorityCheckerTest
     return checker->hasSupermajority(current, all);
   }
 
-  bool isTolerated(PeersNumberType number, PeersNumberType all) const {
+  bool isTolerated(PeersNumberType number, PeersNumberType all) const override {
     return checker->isTolerated(number, all);
   }
 

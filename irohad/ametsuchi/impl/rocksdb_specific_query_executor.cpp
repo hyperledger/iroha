@@ -210,7 +210,7 @@ operator()(
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetBlocks));
+  RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kGetBlocks}));
 
   auto const ledger_height = block_store_.size();
   if (query.height() > ledger_height)
@@ -795,7 +795,7 @@ operator()(
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetRoles));
+  RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kGetRoles}));
 
   std::vector<std::string> roles;
   auto status = enumerateKeys(common,
@@ -821,7 +821,7 @@ operator()(
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetRoles));
+  RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kGetRoles}));
   auto &role_id = query.roleId();
 
   RDB_TRY_GET_VALUE(
@@ -839,7 +839,7 @@ operator()(
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kReadAssets));
+  RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kReadAssets}));
   auto const &[asset_name, domain_id] = staticSplitId<2ull>(query.assetId());
 
   if (auto result = forAsset<kDbOperation::kGet, kDbEntry::kMustExist>(
@@ -939,7 +939,7 @@ operator()(
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  RDB_ERROR_CHECK(checkPermissions(creator_permissions, Role::kGetPeers));
+  RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kGetPeers}));
   std::vector<std::shared_ptr<shared_model::plain::Peer>> peers;
 
   auto status = enumerateKeysAndValues(

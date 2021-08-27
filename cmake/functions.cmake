@@ -6,14 +6,15 @@ function(strictmode target)
       CXX_STANDARD_REQUIRED ON
       CXX_EXTENSIONS OFF
       )
+  #todo target_compile_definitions(${target} PUBLIC GTEST_REMOVE_LEGACY_TEST_CASEAPI_)
   # Enable more warnings and turn them into compile errors.
   if ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
       (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") OR
       (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
     #target_compile_options(${target} PRIVATE -Wall -Wpedantic -Werror -Wno-potentially-/evaluated-expression)
     #target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override -Wno-gnu-zero-variadic-macro-arguments)
-    elseif ((CMAKE_CXX_COMPILER_ID STREQUAL "MSVC") OR
-          (CMAKE_CXX_COMPILER_ID STREQUAL "Intel"))
+  elseif ((CMAKE_CXX_COMPILER_ID STREQUAL "MSVC") OR
+  (CMAKE_CXX_COMPILER_ID STREQUAL "Intel"))
     target_compile_options(${target} PRIVATE /W3 /WX)
   else ()
     message(AUTHOR_WARNING "Unknown compiler: building target ${target} with default options")

@@ -54,7 +54,7 @@ namespace iroha {
      * @param account_id - query creator
      * @return collection of interface::Transaction objects
      */
-    [[deprecated]] virtual shared_model::interface::types::
+    /*[[deprecated]]*/ virtual shared_model::interface::types::
         SharedTxsCollectionType
         getPendingTransactions(
             const shared_model::interface::types::AccountIdType &account_id)

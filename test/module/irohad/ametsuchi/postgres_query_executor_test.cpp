@@ -1180,7 +1180,7 @@ namespace iroha {
     using QueryTxPaginationTestingTypes =
         ::testing::Types<GetAccountTxPaginationImpl,
                          GetAccountAssetTxPaginationImpl>;
-    TYPED_TEST_CASE(GetPagedTransactionsExecutorTest,
+    TYPED_TEST_SUITE(GetPagedTransactionsExecutorTest,
                     QueryTxPaginationTestingTypes, );
 
     /**

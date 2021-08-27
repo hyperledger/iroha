@@ -23,8 +23,10 @@ namespace iroha::subscription {
     /// Checks if current scheduler executes task
     virtual bool isBusy() const = 0;
 
-    /// Adds task to execution queue
-    virtual void add(Task &&t) = 0;
+    /// If scheduller is not busy it takes task for execution. Otherwise it
+    /// returns it back.
+    virtual std::optional<Task> uploadIfFree(std::chrono::microseconds timeout,
+                                             Task &&task) = 0;
 
     /// Adds delayed task to execution queue
     virtual void addDelayed(std::chrono::microseconds timeout, Task &&t) = 0;
