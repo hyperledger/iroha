@@ -107,7 +107,7 @@ using CryptoUsageTestTypes = ::testing::Types<CryptoProviderEd25519Sha3
                                               CryptoProviderEd25519Ursa
 #endif
                                               >;
-TYPED_TEST_CASE(CryptoUsageTest, CryptoUsageTestTypes, );
+TYPED_TEST_SUITE(CryptoUsageTest, CryptoUsageTestTypes, );
 
 /**
  * @given Initialized keypiar with _concrete_ algorithm

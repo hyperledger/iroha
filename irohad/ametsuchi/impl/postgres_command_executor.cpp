@@ -203,6 +203,37 @@ namespace {
   }
 
   std::string checkAccountRolePermission(
+      const std::string &permission_bitstring,
+      const std::string &additional_permission_bitstring,
+      const shared_model::interface::types::AccountIdType &account_id) {
+    std::string query = (boost::format(R"(
+          SELECT
+              COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+              & (%2%::bit(%1%) | %5%::bit(%1%) | '%3%'::bit(%1%))
+              != '0'::bit(%1%) has_rp
+          FROM role_has_permissions AS rp
+              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+              WHERE ar.account_id = %4%)")
+                         % kRolePermissionSetSize % permission_bitstring
+                         % iroha::ametsuchi::kRootRolePermStr % account_id
+                         % additional_permission_bitstring)
+                            .str();
+    return query;
+  }
+
+  std::string checkAccountRolePermission(
+      Role additional_permission,
+      Role permission,
+      const shared_model::interface::types::AccountIdType &account_id) {
+    return checkAccountRolePermission(
+        permissionSetToBitString(shared_model::interface::RolePermissionSet(
+            {additional_permission})),
+        permissionSetToBitString(
+            shared_model::interface::RolePermissionSet({permission})),
+        account_id);
+  }
+
+  std::string checkAccountRolePermission(
       Role permission,
       const shared_model::interface::types::AccountIdType &account_id) {
     return checkAccountRolePermission(
@@ -967,8 +998,9 @@ namespace iroha {
            R"( WHERE (SELECT * FROM has_perm))",
            R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
 
-      remove_peer_statements_ = makeCommandStatements(sql_,
-                                                      R"(
+      remove_peer_statements_ = makeCommandStatements(
+          sql_,
+          R"(
           WITH %s
           removed AS (
               DELETE FROM peer WHERE public_key = lower(:pubkey)
@@ -980,20 +1012,22 @@ namespace iroha {
             %s
             ELSE 1
           END AS result)",
-                                                      {(boost::format(R"(
+          {(boost::format(R"(
             has_perm AS (%s),
             get_peer AS (
               SELECT * from peer WHERE public_key = lower(:pubkey) LIMIT 1
             ),
             check_peers AS (
               SELECT 1 WHERE (SELECT COUNT(*) FROM peer) > 1
-            ),)") % checkAccountRolePermission(Role::kRemovePeer, ":creator"))
-                                                           .str(),
-                                                       R"(
+            ),)")
+            % checkAccountRolePermission(
+                  Role::kAddPeer, Role::kRemovePeer, ":creator"))
+               .str(),
+           R"(
              AND (SELECT * FROM has_perm)
              AND EXISTS (SELECT * FROM get_peer)
              AND EXISTS (SELECT * FROM check_peers))",
-                                                       R"(
+           R"(
              WHEN NOT EXISTS (SELECT * from get_peer) THEN 3
              WHEN NOT EXISTS (SELECT * from check_peers) THEN 4
              WHEN NOT (SELECT * from has_perm) THEN 2)"});

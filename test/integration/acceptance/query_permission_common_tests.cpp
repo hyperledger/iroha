@@ -10,7 +10,7 @@
 using namespace common_constants;
 using QueryPermissionTestingTypes =
     ::testing::Types<QueryPermissionAssetTxs, QueryPermissionTxs>;
-TYPED_TEST_CASE(QueryPermissionFixture, QueryPermissionTestingTypes, );
+TYPED_TEST_SUITE(QueryPermissionFixture, QueryPermissionTestingTypes, );
 
 /**
  * TODO mboldyrev 18.01.2019 IR-219 remove, covered by field validator test

@@ -49,7 +49,7 @@ namespace integration_framework {
         startup_wsv_data_policy_(startup_wsv_data_policy) {}
 
   void IrohaInstance::init() {
-    auto init_result = instance_->init();
+    auto init_result = test_irohad_->init();
     if (auto error =
             boost::get<iroha::expected::Error<std::string>>(&init_result)) {
       std::string error_msg("Irohad startup failed: ");
@@ -61,8 +61,8 @@ namespace integration_framework {
 
   void IrohaInstance::makeGenesis(
       std::shared_ptr<const shared_model::interface::Block> block) {
-    if (auto e =
-            iroha::expected::resultToOptionalError(instance_->dropStorage())) {
+    if (auto e = iroha::expected::resultToOptionalError(
+            test_irohad_->dropStorage())) {
       throw std::runtime_error(e.value());
     }
     rawInsertBlock(block);
@@ -71,7 +71,7 @@ namespace integration_framework {
   void IrohaInstance::rawInsertBlock(
       std::shared_ptr<const shared_model::interface::Block> block) {
     if (auto e = iroha::expected::resultToOptionalError(
-            instance_->storage->insertBlock(block))) {
+            test_irohad_->storage->insertBlock(block))) {
       log_->warn("Could not insert block {}: {}", block->height(), e.value());
     }
   }
@@ -80,7 +80,7 @@ namespace integration_framework {
       std::chrono::milliseconds mst_gossip_emitting_period,
       uint32_t mst_gossip_amount_per_once) {
     BOOST_ASSERT_MSG(
-        not instance_,
+        not test_irohad_,
         "Gossip propagation params must be set before Irohad is started!");
     iroha::GossipPropagationStrategyParams gossip_params;
     gossip_params.emission_period = mst_gossip_emitting_period;
@@ -91,7 +91,7 @@ namespace integration_framework {
   void IrohaInstance::initPipeline(
       const shared_model::crypto::Keypair &key_pair, size_t max_proposal_size) {
     config_.max_proposal_size = max_proposal_size;
-    instance_ = std::make_shared<TestIrohad>(
+    test_irohad_ = std::make_shared<TestIrohad>(
         config_,
         std::make_unique<iroha::ametsuchi::PostgresOptions>(
             getPostgresCredsOrDefault(), working_dbname_, log_),
@@ -105,25 +105,25 @@ namespace integration_framework {
   }
 
   void IrohaInstance::run() {
-    instance_->run().match(
+    test_irohad_->run().match(
         [](const auto &) {},
         [](const auto &error) {
           BOOST_THROW_EXCEPTION(std::runtime_error(error.error));
         });
   }
 
-  std::shared_ptr<TestIrohad> &IrohaInstance::getIrohaInstance() {
-    return instance_;
+  std::shared_ptr<TestIrohad> &IrohaInstance::getTestIrohad() {
+    return test_irohad_;
   }
 
   void IrohaInstance::terminateAndCleanup() {
-    if (not instance_ or not instance_->storage) {
+    if (not test_irohad_ or not test_irohad_->storage) {
       log_->warn("Iroha instance or its storage are not initialized");
       return;
     }
-    const auto pg_opt = *instance_->pg_opt_;
+    const auto pg_opt = *test_irohad_->pg_opt_;
     log_->info("stopping irohad");
-    instance_.reset();
+    test_irohad_.reset();
     log_->info("removing storage");
     iroha::ametsuchi::PgConnectionInit::dropWorkingDatabase(pg_opt);
     if (config_.block_store_path) {

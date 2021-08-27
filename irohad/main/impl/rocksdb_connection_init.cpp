@@ -53,7 +53,7 @@ namespace {
 iroha::expected::Result<std::shared_ptr<RocksDBPort>, std::string>
 RdbConnectionInit::init(StartupWsvDataPolicy startup_wsv_data_policy,
                         iroha::ametsuchi::RocksDbOptions const &opt,
-                        logger::LoggerManagerTreePtr log_manager) {
+                        logger::LoggerManagerTreePtr) {
   return prepareWorkingDatabase(startup_wsv_data_policy, opt);
 }
 

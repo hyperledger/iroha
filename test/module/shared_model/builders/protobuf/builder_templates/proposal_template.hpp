@@ -23,7 +23,7 @@ namespace shared_model {
      * @tparam SV -- stateless validator called when build method is invoked
      */
     template <int S = 0, typename SV = validation::DefaultProposalValidator>
-    class [[deprecated]] TemplateProposalBuilder {
+    class /*[[deprecated]]*/ TemplateProposalBuilder {
      private:
       template <int, typename>
       friend class TemplateProposalBuilder;

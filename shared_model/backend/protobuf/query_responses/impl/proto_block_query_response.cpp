@@ -8,6 +8,7 @@
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
 #include "common/hexutils.hpp"
+#include "common/report_abort.h"
 
 namespace {
   /// type of proto variant
@@ -15,13 +16,6 @@ namespace {
       boost::variant<shared_model::proto::BlockResponse,
                      shared_model::proto::BlockErrorResponse>;
 }  // namespace
-
-#ifdef IROHA_BIND_TYPE
-#error IROHA_BIND_TYPE defined.
-#endif  // IROHA_BIND_TYPE
-#define IROHA_BIND_TYPE(val, type, ...)                        \
-  case iroha::protocol::BlockQueryResponse::ResponseCase::val: \
-    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
 
 namespace shared_model::proto {
 
@@ -31,17 +25,18 @@ namespace shared_model::proto {
     TransportType proto_;
 
     const ProtoQueryResponseVariantType variant_{
-        [this]() -> decltype(variant_) {
-          auto &ar = proto_;
-
-          switch (ar.response_case()) {
-            IROHA_BIND_TYPE(kBlockErrorResponse, BlockErrorResponse, ar);
-            IROHA_BIND_TYPE(kBlockResponse, BlockResponse, ar);
-
+        [this]() -> ProtoQueryResponseVariantType {
+          using iroha::protocol::BlockQueryResponse;
+          using namespace shared_model::proto;
+          switch (proto_.response_case()) {
+            case BlockQueryResponse::ResponseCase::kBlockErrorResponse:
+              return BlockErrorResponse(proto_);
+            case BlockQueryResponse::ResponseCase::kBlockResponse:
+              return BlockResponse(proto_);
             default:
             case iroha::protocol::BlockQueryResponse::ResponseCase::
                 RESPONSE_NOT_SET:
-              assert(!"Unexpected response case.");
+              report_abort("Unexpected response case.");
           };
         }()};
 
