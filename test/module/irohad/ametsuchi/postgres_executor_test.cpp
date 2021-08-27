@@ -420,6 +420,25 @@ namespace iroha {
                   == peers->end());
     }
 
+    TEST_F(RemovePeer, ValidWithAddPerm) {
+      addOnePerm(shared_model::interface::permissions::Role::kAddPeer);
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructAddPeer(*another_peer), true));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
+
+      auto peers = wsv_query->getPeers();
+      ASSERT_TRUE(peers);
+      ASSERT_TRUE(std::find_if(peers->begin(),
+                               peers->end(),
+                               [this](const auto &peer) {
+                                 return this->peer->address() == peer->address()
+                                     and this->peer->pubkey() == peer->pubkey();
+                               })
+                  == peers->end());
+    }
+
     class AppendRole : public CommandExecutorTest {
      public:
       void SetUp() override {
