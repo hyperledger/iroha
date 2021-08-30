@@ -104,7 +104,7 @@ handle_user_line(){
             break  ## stop parsing buildspec
             ;;
          *)
-            echoerr "Unknown /build argument '$1'"
+            echoerr "Unknown /build argument $(printf %q "$1")"
             return 1
             ;;
       esac
