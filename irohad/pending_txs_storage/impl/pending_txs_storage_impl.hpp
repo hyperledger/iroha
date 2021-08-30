@@ -39,7 +39,11 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::TransactionsNumberType page_size,
         const std::optional<shared_model::interface::types::HashType>
-            &first_tx_hash) const override;
+            &first_tx_hash,
+        const std::optional<shared_model::interface::types::TimestampType>
+            &first_tx_time=std::nullopt,
+        const std::optional<shared_model::interface::types::TimestampType>
+            &last_tx_time=std::nullopt) const override;
 
     void insertPresenceCache(
         std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;

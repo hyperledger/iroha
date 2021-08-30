@@ -33,7 +33,11 @@ PendingTransactionStorageImpl::getPendingTransactions(
     const shared_model::interface::types::AccountIdType &account_id,
     const shared_model::interface::types::TransactionsNumberType page_size,
     const std::optional<shared_model::interface::types::HashType>
-        &first_tx_hash) const {
+        &first_tx_hash,
+    const std::optional<shared_model::interface::types::TimestampType>
+        &first_tx_time,
+    const std::optional<shared_model::interface::types::TimestampType>
+        &last_tx_time) const {
   BOOST_ASSERT_MSG(page_size > 0, "Page size has to be positive");
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   auto account_batches_iterator = storage_.find(account_id);
@@ -60,13 +64,19 @@ PendingTransactionStorageImpl::getPendingTransactions(
 
   PendingTransactionStorage::Response response;
   response.all_transactions_size = account_batches.all_transactions_quantity;
-  auto remaining_space = page_size;
   while (account_batches.batches.end() != batch_iterator
-         and remaining_space >= batch_iterator->get()->transactions().size()) {
+         and (response.transactions.size()
+              + (*batch_iterator)->transactions().size())
+             <= page_size) {
     auto &txs = batch_iterator->get()->transactions();
-    response.transactions.insert(
-        response.transactions.end(), txs.begin(), txs.end());
-    remaining_space -= txs.size();
+    std::copy_if(txs.begin(),
+                 txs.end(),
+                 std::back_inserter(response.transactions),
+                 [&first_tx_time, &last_tx_time](auto const &tx) {
+                   auto const ts = tx->createdTime();
+                   return (!first_tx_time || ts >= *first_tx_time)
+                       && (!last_tx_time || ts <= *last_tx_time);
+                 });
     ++batch_iterator;
   }
   if (account_batches.batches.end() != batch_iterator) {

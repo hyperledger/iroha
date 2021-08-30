@@ -17,14 +17,17 @@ namespace iroha {
         getPendingTransactions,
         shared_model::interface::types::SharedTxsCollectionType(
             const shared_model::interface::types::AccountIdType &account_id));
-    MOCK_CONST_METHOD3(
+    MOCK_METHOD(
+        (expected::Result<Response, ErrorCode>),
         getPendingTransactions,
-        expected::Result<Response, ErrorCode>(
-            const shared_model::interface::types::AccountIdType &account_id,
-            const shared_model::interface::types::TransactionsNumberType
-                page_size,
-            const std::optional<shared_model::interface::types::HashType>
-                &first_tx_hash));
+        (const shared_model::interface::types::AccountIdType &account_id,
+         const shared_model::interface::types::TransactionsNumberType page_size,
+         const std::optional<shared_model::interface::types::HashType>
+             &first_tx_hash,
+         const std::optional<shared_model::interface::types::TimestampType>
+             &first_tx_time,
+         const std::optional<shared_model::interface::types::TimestampType>
+             &last_tx_time), (const));
     MOCK_METHOD1(insertPresenceCache,
                  void(std::shared_ptr<ametsuchi::TxPresenceCache> &cache));
     MOCK_METHOD(void,
