@@ -6,7 +6,6 @@
 #include "validators/protobuf/proto_query_validator.hpp"
 
 #include <google/protobuf/util/time_util.h>
-
 #include <ciso646>
 
 #include "validators/validation_error_helpers.hpp"
@@ -111,6 +110,12 @@ namespace shared_model {
         }
         case iroha::protocol::Query_Payload::kGetAccountAssetTransactions: {
           const auto &gaat = qry.payload().get_account_asset_transactions();
+          error_creator |= validateTxPaginationMeta(gaat.pagination_meta());
+          break;
+        }
+        //this lines validate TxPaginationMeta in GetPendingTransactions
+        case iroha::protocol::Query_Payload::kGetPendingTransactions: {
+          const auto &gaat = qry.payload().get_pending_transactions();
           error_creator |= validateTxPaginationMeta(gaat.pagination_meta());
           break;
         }
