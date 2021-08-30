@@ -8,7 +8,7 @@ pub trait ToEnvelope<A: Actor + ContextHandler<M>, M: Message> {
     fn pack(msg: M, channel: Option<oneshot::Sender<M::Result>>) -> Envelope<A>;
 }
 
-pub struct Envelope<A: Actor>(pub Box<dyn EnvelopeProxy<A> + Send>);
+pub struct Envelope<A>(pub Box<dyn EnvelopeProxy<A> + Send>);
 
 impl<A, M> ToEnvelope<A, M> for SyncEnvelopeProxy<M>
 where
@@ -25,7 +25,7 @@ where
 }
 
 #[async_trait::async_trait]
-pub trait EnvelopeProxy<A: Actor> {
+pub trait EnvelopeProxy<A> {
     async fn handle(&mut self, actor: &mut A, ctx: &mut Context<A>);
 }
 

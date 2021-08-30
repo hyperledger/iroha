@@ -51,7 +51,7 @@ pub mod prelude {
 
 /// Address of actor. Can be used to send messages to it.
 #[derive(Debug)]
-pub struct Addr<A: Actor> {
+pub struct Addr<A> {
     sender: mpsc::Sender<Envelope<A>>,
     #[cfg(feature = "deadlock_detection")]
     actor_id: ActorId,
@@ -89,7 +89,7 @@ impl<A: Actor> Addr<A> {
 
     /// Send a message and wait for an answer.
     /// # Errors
-    /// Fails if noone will send message
+    /// Fails if no one will send message
     /// # Panics
     /// If queue is full
     #[allow(unused_variables, clippy::expect_used)]
@@ -99,7 +99,7 @@ impl<A: Actor> Addr<A> {
         M::Result: Send,
         A: ContextHandler<M>,
     {
-        let (sender, reciever) = oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
         let envelope = SyncEnvelopeProxy::pack(message, Some(sender));
         #[cfg(feature = "deadlock_detection")]
         let from_actor_id_option = deadlock::task_local_actor_id();
@@ -111,7 +111,7 @@ impl<A: Actor> Addr<A> {
             .send(envelope)
             .await
             .map_err(|_err| Error::SendError)?;
-        let result = reciever.await.map_err(Error::RecvError);
+        let result = receiver.await.map_err(Error::RecvError);
         #[cfg(feature = "deadlock_detection")]
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::out(self.actor_id, from_actor_id).await;
@@ -260,7 +260,7 @@ pub trait Actor: Send + Sized + 'static {
     async fn on_start(&mut self, _ctx: &mut Context<Self>) {}
 
     /// At stop hook of actor
-    async fn on_stop(&mut self, _ctx: &mut Context<Self>) {}
+    async fn on_stop(self, _ctx: Context<Self>) {}
 
     /// Initialize actor with its address.
     fn preinit(self) -> InitializedActor<Self> {
@@ -350,7 +350,7 @@ impl<A: Actor> InitializedActor<A> {
                 }
             }
             iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
-            actor.on_stop(&mut ctx).await;
+            actor.on_stop(ctx).await;
         }
         .in_current_span();
         #[cfg(not(feature = "deadlock_detection"))]
@@ -422,7 +422,7 @@ enum Stop {
 
 /// Context for execution of actor
 #[derive(Debug)]
-pub struct Context<A: Actor> {
+pub struct Context<A> {
     addr: Addr<A>,
     should_stop: Option<Stop>,
     actor_id: ActorId,
@@ -480,7 +480,7 @@ impl<A: Actor> Context<A> {
     pub fn notify_later<M>(&self, message: M, later: Duration)
     where
         M: Message<Result = ()> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         task::spawn(
@@ -496,7 +496,7 @@ impl<A: Actor> Context<A> {
     pub fn notify_every<M>(&self, every: Duration)
     where
         M: Message<Result = ()> + Default + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         task::spawn(
@@ -515,7 +515,7 @@ impl<A: Actor> Context<A> {
     where
         M: Message<Result = ()> + Send + 'static,
         S: Stream<Item = M> + Send + 'static,
-        A: Handler<M>,
+        A: ContextHandler<M>,
     {
         let addr = self.addr();
         task::spawn(

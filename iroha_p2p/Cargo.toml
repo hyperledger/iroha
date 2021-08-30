@@ -23,7 +23,7 @@ iroha_data_model = { path = "../iroha_data_model" }
 rand = "0.7.3"
 tokio = { version = "1.6.0", features = ["net",  "sync", "time", "io-util"]}
 async-stream = "0.3"
-futures = { version = "0.3.4" }
+futures = { version = "0.3" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
