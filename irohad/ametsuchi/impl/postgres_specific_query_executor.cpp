@@ -1402,7 +1402,9 @@ namespace iroha {
         return pending_txs_storage_
             ->getPendingTransactions(creator_id,
                                      q.paginationMeta()->get().pageSize(),
-                                     q.paginationMeta()->get().firstTxHash())
+                                     q.paginationMeta()->get().firstTxHash(),
+                                     q.paginationMeta()->get().firstTxTime(),
+                                     q.paginationMeta()->get().lastTxTime())
             .match(
                 [this, &response_txs, &query_hash](auto &&response) {
                   auto &interface_txs = response.value.transactions;

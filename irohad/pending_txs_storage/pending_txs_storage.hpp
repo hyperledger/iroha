@@ -73,6 +73,10 @@ namespace iroha {
      * @param page_size - requested page size
      * @param first_tx_hash - an optional hash of the first transaction in the
      * batch that will be the starting point of returned transactions sequence
+     * @param first_tx_time - an optional timestamp of first transaction that 
+     * will be included
+     * @param last_tx_time - an optional timestamp of last transaction that
+     * will be included
      * @return - Response message when query succeeded (next_batch_info might
      * not be set when the end is reached). One of ErrorCode in case of error.
      */
@@ -80,7 +84,11 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::TransactionsNumberType page_size,
         const std::optional<shared_model::interface::types::HashType>
-            &first_tx_hash) const = 0;
+            &first_tx_hash,
+        const std::optional<shared_model::interface::types::TimestampType>
+            &first_tx_time,
+        const std::optional<shared_model::interface::types::TimestampType>
+            &last_tx_time) const = 0;
 
     virtual void removeTransaction(
         shared_model::interface::types::HashType const &hash) = 0;
