@@ -26,7 +26,7 @@
 
 **Endpoint**: `/query`
 
-**Method**: `GET`
+**Method**: `POST`
 
 **Expects**:
 - Body: `SignedQueryRequest`
