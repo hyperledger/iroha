@@ -146,9 +146,15 @@ jobs:
               echo "/build before-merge"
           }
           case ${{github.event_name}} in
-            pull_request)       commit_message_body_build_spec FETCH_HEAD >/tmp/comment_body ||
-                                commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ||
-                                  echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal" ;;
+            pull_request)       if   commit_message_body_build_spec FETCH_HEAD >/tmp/comment_body ;then
+                                  if git_is_merge_commit FETCH_HEAD ;then
+                                    echo ::warning::'/build directive in merge commit overrides default "/build before-merge"'
+                                  fi
+                                elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
+                                  true
+                                else
+                                  echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build ubuntu debug release"
                                   echo "/build macos debug"
@@ -446,8 +452,8 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key:          ${{runner.os}}-ccache-${{matrix.CC}}.${{ github.event.after }}
-          restore-keys: ${{runner.os}}-ccache-${{matrix.CC}}.
+          key:          ${{runner.os}}-ccache-${{ github.event.after }}
+          restore-keys: ${{runner.os}}-ccache-
       - &step_store_ccache_stats
         run: ccache --show-stats | tee /tmp/ccache-stats
       - &step_vcpkg_cache
