@@ -11,13 +11,18 @@ pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
 type Bytes = Vec<u8>;
 
-pub fn post<U>(url: U, body: Bytes) -> Result<Response<Bytes>>
+pub fn post<U, P, K, V>(url: U, body: Bytes, query_params: P) -> Result<Response<Bytes>>
 where
     U: AsRef<str>,
+    P: IntoIterator,
+    P::Item: Borrow<(K, V)>,
+    K: AsRef<str>,
+    V: ToString,
 {
     let url = url.as_ref();
     let response = attohttpc::post(url)
         .bytes(body)
+        .params(query_params)
         .send()
         .wrap_err_with(|| format!("Failed to send http post request to {}", url))?;
     ClientResponse(response).try_into()

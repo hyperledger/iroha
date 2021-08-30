@@ -161,13 +161,6 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
 
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
-            .or(endpoint3(
-                handle_queries,
-                warp::path(uri::QUERY)
-                    .and(add_state(Arc::clone(&state)))
-                    .and(paginate())
-                    .and(body::query()),
-            ))
             .or(endpoint2(
                 handle_pending_transactions_on_leader,
                 warp::path(uri::PENDING_TRANSACTIONS_ON_LEADER)
@@ -189,7 +182,14 @@ impl<Q: QueueTrait, S: SumeragiTrait, W: WorldTrait> Torii<Q, S, W> {
                     state.config.torii_max_transaction_size as u64,
                 ))
                 .and(body::versioned()),
-        );
+        )
+        .or(endpoint3(
+            handle_queries,
+            warp::path(uri::QUERY)
+                .and(add_state(Arc::clone(&state)))
+                .and(paginate())
+                .and(body::query()),
+        ));
 
         let ws_router = warp::path(uri::SUBSCRIPTION)
             .and(add_state(self.events))
