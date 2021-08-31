@@ -27,7 +27,8 @@ END
 }
 
 files_list(){
-    git diff --cached --name-only --relative -- "$@"
+    git diff --cached --name-only --relative --diff-filter=d -- "$@"
+    ## NOTE: --diff-filter=d  to exclude deleted files
 }
 file_contents(){
     git show $(printf ":%s " $@)

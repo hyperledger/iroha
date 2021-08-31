@@ -127,7 +127,7 @@ to install all environment dependencies with Homebrew:
 .. code-block:: shell
 
   xcode-select --install
-  brew install cmake ninja git gcc@9
+  brew install cmake go pkg-config coreutils ninja git gcc@9
 
 .. hint:: To install the Homebrew itself please run
 
@@ -185,7 +185,7 @@ Run in terminal:
 
   git clone https://github.com/hyperledger/iroha.git
   iroha/vcpkg/build_iroha_deps.sh
-  vcpkg/vcpkg integrate install
+  iroha/vcpkg-build/vcpkg integrate install
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
