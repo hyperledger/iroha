@@ -4,10 +4,10 @@
 
 use std::{
     cmp::min,
+    collections::BTreeSet,
     time::{Duration, SystemTime},
 };
 
-use iroha_actor::Message;
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_error::{Result, WrapErr};
@@ -24,9 +24,6 @@ use crate::{
 };
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
-impl Message for VersionedAcceptedTransaction {
-    type Result = ();
-}
 
 impl VersionedAcceptedTransaction {
     /// Same as [`as_v1`](`VersionedAcceptedTransaction::as_v1()`) but also does conversion
@@ -136,7 +133,7 @@ pub struct AcceptedTransaction {
     /// Payload of this transaction.
     pub payload: Payload,
     /// Signatures for this transaction.
-    pub signatures: Vec<Signature>,
+    pub signatures: BTreeSet<Signature>,
 }
 
 impl AcceptedTransaction {
@@ -443,7 +440,7 @@ impl VersionedValidTransaction {
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidTransaction {
     payload: Payload,
-    signatures: Vec<Signature>,
+    signatures: BTreeSet<Signature>,
 }
 
 impl ValidTransaction {

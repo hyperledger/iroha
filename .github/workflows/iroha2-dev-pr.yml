@@ -70,7 +70,7 @@ jobs:
             clang \
             llvm-dev
       - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test --workspace --no-fail-fast -- --test-threads=1
 
   test-iroha_network-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest

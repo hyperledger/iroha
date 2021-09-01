@@ -54,6 +54,7 @@ mod tests {
             ])
             .expect("Failed to prepare state.");
         thread::sleep(pipeline_time * 2);
+
         //When
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
@@ -75,6 +76,7 @@ mod tests {
             )
             .expect("Failed to submit transaction.");
         thread::sleep(pipeline_time);
+
         //Then
         client_configuration.torii_api_url = network.peers.last().unwrap().api_address.clone();
         let mut iroha_client_1 = Client::new(&client_configuration);

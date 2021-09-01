@@ -16,7 +16,6 @@ use iroha::{
     genesis::{GenesisNetwork, GenesisNetworkTrait},
     kura::{Kura, KuraTrait},
     prelude::*,
-    queue::{Queue, QueueTrait},
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
@@ -46,37 +45,33 @@ struct ShutdownRuntime;
 pub struct Network<
     W = World,
     G = GenesisNetwork,
-    Q = Queue<W>,
-    S = Sumeragi<Q, G, W>,
+    S = Sumeragi<G, W>,
     K = Kura<W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// Genesis peer which sends genesis block to everyone
-    pub genesis: Peer<W, G, Q, S, K, B>,
+    pub genesis: Peer<W, G, S, K, B>,
     /// peers
-    pub peers: Vec<Peer<W, G, Q, S, K, B>>,
+    pub peers: Vec<Peer<W, G, S, K, B>>,
 }
 
 /// Peer structure
 pub struct Peer<
     W = World,
     G = GenesisNetwork,
-    Q = Queue<W>,
-    S = Sumeragi<Q, G, W>,
+    S = Sumeragi<G, W>,
     K = Kura<W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -95,7 +90,7 @@ pub struct Peer<
     shutdown: Option<JoinHandle<()>>,
 
     /// Iroha itself
-    pub iroha: Option<Iroha<W, G, Q, S, K, B>>,
+    pub iroha: Option<Iroha<W, G, S, K, B>>,
 }
 
 impl std::cmp::PartialEq for Peer {
@@ -109,6 +104,7 @@ impl std::cmp::Eq for Peer {}
 pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
 pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 pub const GENESIS_PATH: &str = "tests/genesis.json";
+pub const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
 
 pub trait TestGenesis: Sized {
     fn test(submit_genesis: bool) -> Option<Self>;
@@ -127,18 +123,17 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
     }
 }
 
-impl<W, G, Q, S, K, B> Network<W, G, Q, S, K, B>
+impl<W, G, S, K, B> Network<W, G, S, K, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     pub async fn send<M, A>(
         &self,
-        lense: impl Fn(&Iroha<W, G, Q, S, K, B>) -> &Addr<A>,
+        lense: impl Fn(&Iroha<W, G, S, K, B>) -> &Addr<A>,
         msg: M,
     ) -> Vec<M::Result>
     where
@@ -267,7 +262,7 @@ where
     }
 
     /// Returns peers
-    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, Q, S, K, B>> + '_ {
+    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, S, K, B>> + '_ {
         std::iter::once(&self.genesis).chain(self.peers.iter())
     }
 
@@ -291,12 +286,11 @@ where
     }
 }
 
-impl<W, G, Q, S, K, B> Drop for Peer<W, G, Q, S, K, B>
+impl<W, G, S, K, B> Drop for Peer<W, G, S, K, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -310,12 +304,11 @@ where
     }
 }
 
-impl<W, G, Q, S, K, B> Peer<W, G, Q, S, K, B>
+impl<W, G, S, K, B> Peer<W, G, S, K, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -383,7 +376,7 @@ where
         let (sender, reciever) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
-                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_genesis(
+                let mut iroha = <Iroha<W, G, S, K, B>>::with_genesis(
                     G::test(true),
                     configuration,
                     permissions.into(),
@@ -428,7 +421,7 @@ where
         let join_handle = tokio::spawn(
             async move {
                 let _temp_dir = temp_dir;
-                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_genesis(
+                let mut iroha = <Iroha<W, G, S, K, B>>::with_genesis(
                     genesis,
                     configuration,
                     instruction_validator.into(),
