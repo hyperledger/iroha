@@ -7,6 +7,7 @@ use iroha_actor::Addr;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_error::{error, Result, WrapErr};
+use iroha_schema::prelude::*;
 use serde::Deserialize;
 use tokio::{time, time::Duration};
 
@@ -204,13 +205,15 @@ impl GenesisNetworkTrait for GenesisNetwork {
     }
 }
 
-#[derive(Clone, Deserialize, Debug)]
-struct RawGenesisBlock {
+/// `RawGenesisBlock` is an initial block of the network
+#[derive(Clone, Deserialize, Debug, IntoSchema)]
+pub struct RawGenesisBlock {
+    /// Transactions
     pub transactions: Vec<GenesisTransaction>,
 }
 
-/// `GenesisTransaction` is a transaction for inisialize settings.
-#[derive(Clone, Deserialize, Debug)]
+/// `GenesisTransaction` is a transaction for initialize settings.
+#[derive(Clone, Deserialize, Debug, IntoSchema)]
 pub struct GenesisTransaction {
     /// Instructions
     pub isi: Vec<Instruction>,
