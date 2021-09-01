@@ -15,6 +15,7 @@ macro_rules! to_json {
 }
 
 fn main() {
+    use iroha::genesis::RawGenesisBlock;
     use iroha_data_model::{
         expression::*,
         isi::{If, *},
@@ -74,6 +75,8 @@ fn main() {
         VersionedSignedQueryRequest,
         VersionedQueryResult,
         VersionedEventSocketMessage,
+
+        RawGenesisBlock
     };
 
     println!("{}", json)

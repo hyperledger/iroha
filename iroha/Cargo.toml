@@ -39,6 +39,7 @@ iroha_actor = { path = "../iroha_actor" }
 iroha_config = { version = "=0.1.0", path = "../iroha_config" }
 iroha_futures = { path = "../iroha_futures" }
 iroha_telemetry = { path = "../iroha_telemetry", optional = true }
+iroha_schema = { path = "../iroha_schema"}
 
 async-trait = "0.1"
 chrono = "0.4"

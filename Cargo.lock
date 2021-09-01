@@ -1423,6 +1423,7 @@ dependencies = [
  "iroha_macro",
  "iroha_network",
  "iroha_p2p",
+ "iroha_schema",
  "iroha_telemetry",
  "iroha_version",
  "maplit",
@@ -1738,6 +1739,7 @@ dependencies = [
 name = "iroha_schema_bin"
 version = "0.1.0"
 dependencies = [
+ "iroha",
  "iroha_data_model",
  "iroha_error",
  "iroha_schema",
