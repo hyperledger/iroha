@@ -32,7 +32,7 @@ use crate::{
     Error, Message, MessageResult,
 };
 
-const MAX_MESSAGE_LENGTH: usize = 2 * 1024 * 1024;
+const MAX_MESSAGE_LENGTH: usize = 16 * 1024 * 1024;
 const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// Default associated data for AEAD
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
@@ -578,7 +578,7 @@ impl Display for State {
 /// If reading encounters IO-error
 pub async fn read_client_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, Error> {
     stream.as_ref().readable().await?;
-    let _garbage = Garbage::read(stream).await?;
+    Garbage::read(stream).await?;
     // And then we have clients public key
     stream.as_ref().readable().await?;
     let mut key = [0_u8; 32];
@@ -601,7 +601,7 @@ pub async fn send_client_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::R
 /// If reading encounters IO-error
 pub async fn read_server_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, Error> {
     stream.as_ref().readable().await?;
-    let _garbage = Garbage::read(stream).await?;
+    Garbage::read(stream).await?;
     // Then we have servers public key
     stream.as_ref().readable().await?;
     let mut key = [0_u8; 32];

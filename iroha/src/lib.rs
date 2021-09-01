@@ -38,7 +38,7 @@ use crate::{
     genesis::GenesisNetwork,
     kura::{Kura, KuraTrait},
     prelude::*,
-    queue::{Queue, QueueTrait},
+    queue::Queue,
     sumeragi::{message::VersionedMessage as SumeragiMessage, Sumeragi, SumeragiTrait},
     torii::Torii,
 };
@@ -65,22 +65,20 @@ pub enum NetworkMessage {
 pub struct Iroha<
     W = World,
     G = GenesisNetwork,
-    Q = Queue<W>,
-    S = Sumeragi<Q, G, W>,
+    S = Sumeragi<G, W>,
     K = Kura<W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// World state view
     pub wsv: Arc<WorldStateView<W>>,
     /// Queue of transactions
-    pub queue: AlwaysAddr<Q>,
+    pub queue: Arc<Queue>,
     /// Sumeragi consensus
     pub sumeragi: AlwaysAddr<S>,
     /// Kura - block storage
@@ -88,15 +86,14 @@ pub struct Iroha<
     /// Block synchronization actor
     pub block_sync: AlwaysAddr<B>,
     /// Torii web server
-    pub torii: Option<Torii<Q, W>>,
+    pub torii: Option<Torii<W>>,
 }
 
-impl<W, G, Q, S, K, B> Iroha<W, G, Q, S, K, B>
+impl<W, G, S, K, B> Iroha<W, G, S, K, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    Q: QueueTrait<World = W>,
-    S: SumeragiTrait<Queue = Q, GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -201,14 +198,7 @@ where
                 config.sumeragi_configuration.trusted_peers.peers.clone(),
             ),
         ));
-        let queue = Q::from_configuration(
-            &config.queue_configuration,
-            Arc::clone(&wsv),
-            broker.clone(),
-        )
-        .start()
-        .await
-        .expect_running();
+        let queue = Arc::new(Queue::from_configuration(&config.queue_configuration));
 
         #[cfg(feature = "telemetry")]
         if let Some(telemetry) = telemetry {
@@ -224,7 +214,7 @@ where
             instruction_validator,
             Arc::clone(&query_validator),
             genesis,
-            queue.clone(),
+            Arc::clone(&queue),
             broker.clone(),
             network_addr.clone(),
         )
@@ -258,10 +248,9 @@ where
         let torii = Torii::from_configuration(
             config.torii_configuration.clone(),
             Arc::clone(&wsv),
-            queue.clone(),
+            Arc::clone(&queue),
             query_validator,
             events_sender,
-            broker.clone(),
         );
         let torii = Some(torii);
         Ok(Self {

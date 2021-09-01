@@ -4,7 +4,6 @@
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
 use config::ToriiConfiguration;
-use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{derive::Error as ConfigError, Configurable};
 use iroha_data_model::prelude::*;
 use iroha_error::{derive::Error, error};
@@ -23,20 +22,19 @@ mod utils;
 use crate::{
     event::{Consumer, EventsSender},
     prelude::*,
-    queue::{GetPendingTransactions, QueueTrait},
+    queue::Queue,
     smartcontracts::{isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed},
     wsv::WorldTrait,
     Configuration,
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
-pub struct Torii<Q: QueueTrait, W: WorldTrait> {
+pub struct Torii<W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
-    transactions_queue: AlwaysAddr<Q>,
-    broker: Broker,
+    queue: Arc<Queue>,
 }
 
 /// Errors of torii
@@ -69,6 +67,9 @@ pub enum Error {
     /// Error while getting or setting configuration
     #[error("Configuration error")]
     Config(#[source] ConfigError),
+    /// Queue is full
+    #[error("Queue is full")]
+    FullQueue,
 }
 
 impl warp::reject::Reject for Error {}
@@ -82,6 +83,7 @@ impl Reply for Error {
                 ExecuteQuery(_)
                 | RequestPendingTransactions(_)
                 | DecodeRequestPendingTransactions(_)
+                | FullQueue
                 | EncodePendingTransactions(_) => StatusCode::INTERNAL_SERVER_ERROR,
                 TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | ValidateQuery(_) => {
                     StatusCode::BAD_REQUEST
@@ -97,40 +99,36 @@ impl Reply for Error {
 /// Result type
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-impl<Q: QueueTrait, W: WorldTrait> Torii<Q, W> {
+impl<W: WorldTrait> Torii<W> {
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
         config: ToriiConfiguration,
         wsv: Arc<WorldStateView<W>>,
-        transactions_queue: AlwaysAddr<Q>,
+        queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
-        broker: Broker,
     ) -> Self {
         Self {
             config,
             wsv,
             events,
             query_validator,
-            transactions_queue,
-            broker,
+            queue,
         }
     }
 
     #[allow(clippy::expect_used)]
-    fn create_state(&self) -> ToriiState<Q, W> {
+    fn create_state(&self) -> ToriiState<W> {
         let wsv = Arc::clone(&self.wsv);
-        let transactions_queue = self.transactions_queue.clone();
+        let queue = Arc::clone(&self.queue);
         let config = self.config.clone();
-        let broker = self.broker.clone();
         let query_validator = Arc::clone(&self.query_validator);
 
         Arc::new(InnerToriiState {
             config,
             wsv,
-            transactions_queue,
+            queue,
             query_validator,
-            broker,
         })
     }
 
@@ -162,7 +160,7 @@ impl<Q: QueueTrait, W: WorldTrait> Torii<Q, W> {
             warp::path(uri::TRANSACTION)
                 .and(add_state(Arc::clone(&state)))
                 .and(warp::body::content_length_limit(
-                    state.config.torii_max_transaction_size as u64,
+                    state.config.torii_max_sumeragi_message_size as u64,
                 ))
                 .and(body::versioned()),
         )
@@ -206,19 +204,18 @@ impl<Q: QueueTrait, W: WorldTrait> Torii<Q, W> {
     }
 }
 
-struct InnerToriiState<Q: QueueTrait, W: WorldTrait> {
+struct InnerToriiState<W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
-    transactions_queue: AlwaysAddr<Q>,
+    queue: Arc<Queue>,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
-    broker: Broker,
 }
 
-type ToriiState<Q, W> = Arc<InnerToriiState<Q, W>>;
+type ToriiState<W> = Arc<InnerToriiState<W>>;
 
 #[iroha_futures::telemetry_future]
-async fn handle_instructions<Q: QueueTrait, W: WorldTrait>(
-    state: ToriiState<Q, W>,
+async fn handle_instructions<W: WorldTrait>(
+    state: ToriiState<W>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
     let transaction: Transaction = transaction.into_inner_v1();
@@ -227,13 +224,17 @@ async fn handle_instructions<Q: QueueTrait, W: WorldTrait>(
         state.config.torii_max_instruction_number,
     )
     .map_err(Error::AcceptTransaction)?;
-    state.broker.issue_send(transaction).await;
-    Ok(Empty)
+    #[allow(clippy::map_err_ignore)]
+    state
+        .queue
+        .push(transaction, &*state.wsv)
+        .map_err(|_| Error::FullQueue)
+        .map(|()| Empty)
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_queries<Q: QueueTrait, W: WorldTrait>(
-    state: ToriiState<Q, W>,
+async fn handle_queries<W: WorldTrait>(
+    state: ToriiState<W>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<QueryResult>> {
@@ -263,23 +264,11 @@ async fn handle_health() -> Json {
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_pending_transactions<Q: QueueTrait, W: WorldTrait>(
-    state: ToriiState<Q, W>,
+async fn handle_pending_transactions<W: WorldTrait>(
+    state: ToriiState<W>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
-    #[allow(clippy::unwrap_used)]
-    let PendingTransactions(pending_transactions) =
-        state.transactions_queue.send(GetPendingTransactions).await;
-
-    Ok(Scale(
-        PendingTransactions(
-            pending_transactions
-                .into_iter()
-                .paginate(pagination)
-                .collect(),
-        )
-        .into(),
-    ))
+    Ok(Scale(state.queue.waiting().paginate(pagination).collect()))
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -403,15 +392,10 @@ mod tests {
     use std::{convert::TryInto, iter, time::Duration};
 
     use futures::future::FutureExt;
-    use iroha_actor::broker::Broker;
     use tokio::{sync::broadcast, time};
 
     use super::*;
-    use crate::{
-        config::Configuration,
-        queue::{Queue, QueueTrait},
-        wsv::World,
-    };
+    use crate::{config::Configuration, queue::Queue, wsv::World};
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
@@ -420,8 +404,7 @@ mod tests {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")
     }
 
-    async fn create_torii() -> (Torii<Queue<World>, World>, KeyPair) {
-        let broker = Broker::new();
+    fn create_torii() -> (Torii<World>, KeyPair) {
         let mut config = get_config();
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
@@ -444,23 +427,15 @@ mod tests {
                 )),
             ),
         );
-        let queue = Queue::from_configuration(
-            &config.queue_configuration,
-            Arc::clone(&wsv),
-            broker.clone(),
-        )
-        .start()
-        .await
-        .expect_running();
+        let queue = Arc::new(Queue::from_configuration(&config.queue_configuration));
 
         (
             Torii::from_configuration(
-                config.torii_configuration.clone(),
+                config.torii_configuration,
                 wsv,
                 queue,
                 Arc::new(AllowAll.into()),
                 events,
-                broker,
             ),
             keys,
         )
@@ -468,7 +443,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn create_and_start_torii() {
-        let (torii, _) = create_torii().await;
+        let (torii, _) = create_torii();
 
         let result = time::timeout(Duration::from_millis(50), torii.start()).await;
 
@@ -477,7 +452,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn torii_pagination() {
-        let (torii, keys) = create_torii().await;
+        let (torii, keys) = create_torii();
         let state = torii.create_state();
 
         let get_domains = |start, limit| {
@@ -511,7 +486,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn query_signed_by_keys_not_associated_with_account() {
-        let (torii, keys) = create_torii().await;
+        let (torii, keys) = create_torii();
         let state = torii.create_state();
 
         let query: VerifiedQueryRequest = QueryRequest::new(

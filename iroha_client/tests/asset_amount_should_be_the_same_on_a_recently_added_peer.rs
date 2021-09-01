@@ -16,7 +16,8 @@ mod tests {
         let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
-        thread::sleep(pipeline_time * 3);
+        thread::sleep(pipeline_time * 2);
+        iroha_logger::info!("Started");
 
         let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
         let account_id = AccountId::new("account", "domain");
@@ -32,7 +33,9 @@ mod tests {
             create_account.into(),
             create_asset.into(),
         ])?;
-        thread::sleep(pipeline_time * 5);
+        thread::sleep(pipeline_time * 2);
+        iroha_logger::info!("Init");
+
         //When
         let quantity: u32 = 200;
         let mint_asset = MintBox::new(
@@ -44,6 +47,7 @@ mod tests {
         );
         iroha_client.submit(mint_asset)?;
         thread::sleep(pipeline_time * 5);
+        iroha_logger::info!("Mint");
 
         let (_peer, mut iroha_client) = rt.block_on(network.add_peer());
 

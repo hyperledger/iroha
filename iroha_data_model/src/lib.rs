@@ -937,11 +937,14 @@ pub mod account {
 
         /// Returns a prebuilt expression that when executed
         /// returns if the needed signatures are gathered.
-        pub fn check_signature_condition(&self, signatures: &[Signature]) -> EvaluatesTo<bool> {
+        pub fn check_signature_condition<'a>(
+            &'a self,
+            signatures: impl IntoIterator<Item = &'a Signature>,
+        ) -> EvaluatesTo<bool> {
             let transaction_signatories: Signatories = signatures
-                .iter()
+                .into_iter()
+                .map(|signature| &signature.public_key)
                 .cloned()
-                .map(|signature| signature.public_key)
                 .collect();
             WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
                 .with_value(
@@ -1940,7 +1943,10 @@ pub mod transaction {
     //! This module contains [`Transaction`] structures and related implementations
     //! and traits implementations.
 
-    use std::{cmp::Ordering, iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
+    use std::{
+        cmp::Ordering, collections::BTreeSet, iter::FromIterator, time::SystemTime,
+        vec::IntoIter as VecIter,
+    };
 
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
@@ -1987,7 +1993,7 @@ pub mod transaction {
         /// [`Transaction`] payload.
         pub payload: Payload,
         /// [`Transaction`]'s [`Signature`]s.
-        pub signatures: Vec<Signature>,
+        pub signatures: BTreeSet<Signature>,
     }
 
     /// Iroha [`Transaction`] payload.
@@ -2102,7 +2108,7 @@ pub mod transaction {
                     time_to_live_ms: proposed_ttl_ms,
                     metadata,
                 },
-                signatures: Vec::new(),
+                signatures: BTreeSet::new(),
             }
         }
 
@@ -2126,7 +2132,7 @@ pub mod transaction {
         /// Fails if signature creation fails
         pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction> {
             let mut signatures = self.signatures.clone();
-            signatures.push(Signature::new(key_pair.clone(), self.hash().as_ref())?);
+            signatures.insert(Signature::new(key_pair.clone(), self.hash().as_ref())?);
             Ok(Transaction {
                 payload: self.payload,
                 signatures,
@@ -2160,6 +2166,12 @@ pub mod transaction {
     }
 
     declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_derive::FromVariant, Clone, Debug);
+
+    impl FromIterator<Transaction> for VersionedPendingTransactions {
+        fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+            PendingTransactions(iter.into_iter().collect()).into()
+        }
+    }
 
     #[cfg(feature = "warp")]
     impl Reply for VersionedPendingTransactions {
@@ -2340,7 +2352,7 @@ pub mod transaction {
         /// [`Transaction`] payload.
         pub payload: Payload,
         /// [`Transaction`]'s [`Signature`]s.
-        pub signatures: Vec<Signature>,
+        pub signatures: BTreeSet<Signature>,
         /// The reason for rejecting this transaction during the validation pipeline.
         pub rejection_reason: TransactionRejectionReason,
     }
