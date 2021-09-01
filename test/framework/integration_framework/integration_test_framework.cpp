@@ -34,14 +34,12 @@
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/result_fixture.hpp"
-#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
-#include "logger/logger_manager.hpp"
 #include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -51,13 +49,10 @@
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "network/consensus_gate.hpp"
-#include "network/impl/async_grpc_client.hpp"
 #include "network/impl/channel_factory.hpp"
-#include "network/impl/client_factory.hpp"
 #include "network/peer_communication_service.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "simulator/verified_proposal_creator_common.hpp"
-#include "synchronizer/synchronizer_common.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 #include "torii/status_bus.hpp"
@@ -113,7 +108,7 @@ using integration_framework::IntegrationTestFramework;
 template <typename T>
 class IntegrationTestFramework::CheckerQueue {
  public:
-  CheckerQueue(std::chrono::milliseconds timeout) : timeout_(timeout) {}
+  explicit CheckerQueue(std::chrono::milliseconds timeout) : timeout_(timeout) {}
 
   void push(T obj) {
     std::lock_guard<std::mutex> lock(queue_mutex_);
