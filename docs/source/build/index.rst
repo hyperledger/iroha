@@ -108,7 +108,8 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   apt-get update; \
   apt-get -y --no-install-recommends install \
   build-essential ninja-build \
-  git ca-certificates tar curl unzip cmake
+  git ca-certificates tar curl unzip cmake \
+  pkg-config zip
 
 .. note::  If you are willing to actively develop Iroha and to build shared
   libraries, please consider installing the
