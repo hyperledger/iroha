@@ -48,9 +48,8 @@ Configuration of iroha is done via options in the following document. Here is de
     "COMPACT_MODE": false
   },
   "GENESIS_CONFIGURATION": {
-    "GENESIS_ACCOUNT_PUBLIC_KEY": "ed0100",
+    "GENESIS_ACCOUNT_PUBLIC_KEY": null,
     "GENESIS_ACCOUNT_PRIVATE_KEY": null,
-    "GENESIS_BLOCK_PATH": null,
     "WAIT_FOR_PEERS_RETRY_COUNT": 0,
     "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 0
   },
@@ -116,8 +115,7 @@ Has type `GenesisConfiguration`. Can be configured via environment variable `IRO
 ```json
 {
   "GENESIS_ACCOUNT_PRIVATE_KEY": null,
-  "GENESIS_ACCOUNT_PUBLIC_KEY": "ed0100",
-  "GENESIS_BLOCK_PATH": null,
+  "GENESIS_ACCOUNT_PUBLIC_KEY": null,
   "WAIT_FOR_PEERS_RETRY_COUNT": 0,
   "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 0
 }
@@ -137,17 +135,7 @@ null
 
 Genesis account public key, should be supplied to all the peers.
 
-Has type `PublicKey`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
-
-```json
-"ed0100"
-```
-
-### `genesis_configuration.genesis_block_path`
-
-Genesis block path. Can be `None` if this peer does not submit the genesis block.
-
-Has type `Option<String>`. Can be configured via environment variable `IROHA_GENESIS_BLOCK_PATH`
+Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
 
 ```json
 null

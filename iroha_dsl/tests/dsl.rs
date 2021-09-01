@@ -2,7 +2,7 @@
 
 use std::{thread, time::Duration};
 
-use iroha::config::Configuration;
+use iroha::{config::Configuration, Arguments};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_dsl::prelude::*;
 use test_network::{Peer as TestPeer, TestRuntime};
@@ -104,7 +104,6 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     configuration
         .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
         .expect("Failed to load trusted peers.");
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
@@ -114,7 +113,14 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     // Given
     let rt = Runtime::test();
-    rt.block_on(peer.start_with_config(configuration));
+    rt.block_on(peer.start_with_config(
+        Arguments {
+            submit_genesis: true,
+            genesis_path: GENESIS_PATH.into(),
+            ..Arguments::default()
+        },
+        configuration,
+    ));
     thread::sleep(pipeline_time);
 
     let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)

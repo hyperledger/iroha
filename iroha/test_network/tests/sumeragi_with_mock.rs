@@ -5,7 +5,7 @@
     clippy::missing_panics_doc
 )]
 
-use std::{ops::Deref, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Debug, ops::Deref, path::Path, sync::Arc, time::Duration};
 
 use iroha::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait, ContinueSync},
@@ -50,7 +50,12 @@ pub mod utils {
 
         #[async_trait::async_trait]
         impl GenesisNetworkTrait for NoGenesis {
-            fn from_configuration(_: &GenesisConfiguration, _: u64) -> Result<Option<Self>> {
+            fn from_configuration<P: AsRef<Path> + Debug>(
+                _submit_genesis: bool,
+                _block_path: P,
+                _genesis_config: &GenesisConfiguration,
+                _max_instructions_number: u64,
+            ) -> Result<Option<Self>> {
                 Ok(None)
             }
 
