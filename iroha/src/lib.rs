@@ -18,7 +18,7 @@ pub mod torii;
 pub mod tx;
 pub mod wsv;
 
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
@@ -109,12 +109,12 @@ where
     /// - Reading telemetry configs and setuping telemetry
     /// - Initialization of sumeragi
     pub async fn new(
-        config: &Configuration,
+        args: &Arguments,
         instruction_validator: IsInstructionAllowedBoxed<K::World>,
         query_validator: IsQueryAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
-        Self::with_broker(config, instruction_validator, query_validator, broker).await
+        Self::with_broker(args, instruction_validator, query_validator, broker).await
     }
 
     /// Creates Iroha with specified broker
@@ -124,7 +124,28 @@ where
     /// - Reading telemetry configs and setuping telemetry
     /// - Initialization of sumeragi
     pub async fn with_broker(
-        config: &Configuration,
+        args: &Arguments,
+        instruction_validator: IsInstructionAllowedBoxed<K::World>,
+        query_validator: IsQueryAllowedBoxed<K::World>,
+        broker: Broker,
+    ) -> Result<Self> {
+        let mut config = Configuration::from_path(&args.config_path)?;
+        config.load_trusted_peers_from_path(&args.trusted_peers_path)?;
+        config.load_environment()?;
+        Self::with_broker_and_config(args, config, instruction_validator, query_validator, broker)
+            .await
+    }
+
+    /// Creates Iroha with specified broker and custom config that overrides `args`
+    /// # Errors
+    /// Can fail if fails:
+    /// - Reading genesis from disk
+    /// - Reading telemetry configs and setuping telemetry
+    /// - Initialization of sumeragi
+    #[allow(clippy::non_ascii_literal)]
+    pub async fn with_broker_and_config(
+        args: &Arguments,
+        config: Configuration,
         instruction_validator: IsInstructionAllowedBoxed<K::World>,
         query_validator: IsQueryAllowedBoxed<K::World>,
         broker: Broker,
@@ -132,8 +153,7 @@ where
         // TODO: use channel for prometheus/telemetry endpoint
         #[allow(unused)]
         let telemetry = iroha_logger::init(config.logger_configuration);
-
-        //iroha_logger::info!(?config, "Loaded configuration");
+        iroha_logger::info!("Hyperledgerいろは2にようこそ！");
 
         let listen_addr = config.torii_configuration.torii_p2p_addr.clone();
         iroha_logger::info!("Starting peer on {}", &listen_addr);
@@ -147,7 +167,7 @@ where
         let wsv = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             W::with(
-                init::domains(config),
+                init::domains(&config),
                 config.sumeragi_configuration.trusted_peers.peers.clone(),
             ),
         ));
@@ -161,6 +181,8 @@ where
         .expect_running();
 
         let genesis_network = G::from_configuration(
+            args.submit_genesis,
+            &args.genesis_path,
             &config.genesis_configuration,
             config.torii_configuration.torii_max_instruction_number,
         )
@@ -265,6 +287,40 @@ where
 pub trait IsInBlockchain {
     /// Checks if this item has already been committed or rejected.
     fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool;
+}
+
+const CONFIGURATION_PATH: &str = "config.json";
+const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
+const GENESIS_PATH: &str = "genesis.json";
+
+/// Arguments for Iroha2 - usually parsed from cli.
+#[derive(Debug)]
+#[cfg_attr(feature = "cli", derive(structopt::StructOpt))]
+#[cfg_attr(feature = "cli", structopt(name = "Hyperledger Iroha 2"))]
+pub struct Arguments {
+    /// Set this flag on the peer that should submit genesis on the network initial start.
+    #[cfg_attr(feature = "cli", structopt(long))]
+    pub submit_genesis: bool,
+    /// Set custom genesis file path.
+    #[cfg_attr(feature = "cli", structopt(parse(from_os_str), long, default_value = GENESIS_PATH))]
+    pub genesis_path: PathBuf,
+    /// Set custom config file path.
+    #[cfg_attr(feature = "cli", structopt(parse(from_os_str), long, default_value = CONFIGURATION_PATH))]
+    pub config_path: PathBuf,
+    /// Set custom trusted peers file path.
+    #[cfg_attr(feature = "cli", structopt(parse(from_os_str), long, default_value = TRUSTED_PEERS_PATH))]
+    pub trusted_peers_path: PathBuf,
+}
+
+impl Default for Arguments {
+    fn default() -> Self {
+        Self {
+            submit_genesis: false,
+            genesis_path: GENESIS_PATH.into(),
+            config_path: CONFIGURATION_PATH.into(),
+            trusted_peers_path: TRUSTED_PEERS_PATH.into(),
+        }
+    }
 }
 
 pub mod prelude {

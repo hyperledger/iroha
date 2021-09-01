@@ -109,11 +109,6 @@ impl Configuration {
         Ok(())
     }
 
-    /// Add genesis block path to config
-    pub fn add_genesis_block_path(&mut self, path: &str) {
-        self.genesis_configuration.genesis_block_path = Some(path.to_owned());
-    }
-
     /// Gets `public_key` and `private_key` configuration parameters.
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
         (self.public_key.clone(), self.private_key.clone())

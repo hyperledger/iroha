@@ -25,7 +25,7 @@ use iroha::{
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
-    Iroha,
+    Arguments, Iroha,
 };
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
@@ -114,6 +114,15 @@ pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
 pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 pub const GENESIS_PATH: &str = "tests/genesis.json";
 
+pub fn test_arguments(submit_genesis: bool) -> Arguments {
+    Arguments {
+        submit_genesis,
+        genesis_path: GENESIS_PATH.into(),
+        config_path: CONFIGURATION_PATH.into(),
+        ..Arguments::default()
+    }
+}
+
 impl<W, G, Q, S, K, B> Network<W, G, Q, S, K, B>
 where
     W: WorldTrait,
@@ -146,7 +155,7 @@ where
             .collect()
     }
 
-    /// Starts network with peers with default configuration and specified options.
+    /// Starts network with peers with default configuration and specified options in a new async runtime.
     /// Returns its info and client for connecting to it.
     pub fn start_test_with_runtime(n_peers: u32, max_txs_in_block: u32) -> (Runtime, Self, Client) {
         let rt = Runtime::test();
@@ -206,7 +215,7 @@ where
         config.sumeragi_configuration.trusted_peers.peers =
             self.peers().map(|peer| &peer.id).cloned().collect();
         config.sumeragi_configuration.max_faulty_peers = (self.peers.len() / 3) as u32;
-        peer.start_with_config(config).await;
+        peer.start_with_config(test_arguments(false), config).await;
         time::sleep(Configuration::pipeline_time() * 2).await;
         let add_peer = RegisterBox::new(IdentifiableBox::Peer(
             DataModelPeer::new(peer.id.clone()).into(),
@@ -219,6 +228,7 @@ where
     /// Creates new network with some offline peers
     /// # Panics
     /// Panics if fails to find or decode default configuration
+    #[allow(clippy::vec_init_then_push)]
     pub async fn new_with_offline_peers(
         default_configuration: Option<Configuration>,
         n_peers: u32,
@@ -231,7 +241,6 @@ where
             .collect::<Result<Vec<_>>>()?;
 
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
-        configuration.genesis_configuration.genesis_block_path = None;
         configuration.sumeragi_configuration.trusted_peers.peers = peers
             .iter()
             .chain(std::iter::once(&genesis))
@@ -242,14 +251,11 @@ where
         let online_peers = n_peers - offline_peers;
 
         let mut futures = Vec::new();
-        {
-            let mut configuration = configuration.clone();
-            configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
-            futures.push(genesis.start_with_config(configuration));
-        }
+
+        futures.push(genesis.start_with_config(test_arguments(true), configuration.clone()));
 
         for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
-            futures.push(peer.start_with_config(configuration.clone()));
+            futures.push(peer.start_with_config(test_arguments(false), configuration.clone()));
         }
         futures::future::join_all(futures).await;
 
@@ -375,8 +381,9 @@ where
         let (sender, reciever) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
-                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
-                    &configuration,
+                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker_and_config(
+                    &test_arguments(true),
+                    configuration,
                     permissions.into(),
                     AllowAll.into(),
                     broker,
@@ -397,6 +404,7 @@ where
     /// Starts peer with config and permissions
     pub async fn start_with_config_permissions(
         &mut self,
+        args: Arguments,
         configuration: Configuration,
         instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
         query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
@@ -418,8 +426,9 @@ where
         let join_handle = tokio::spawn(
             async move {
                 let _temp_dir = temp_dir;
-                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker(
-                    &configuration,
+                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker_and_config(
+                    &args,
+                    configuration,
                     instruction_validator.into(),
                     query_validator.into(),
                     broker,
@@ -439,14 +448,19 @@ where
     }
 
     /// Starts peer with config
-    pub async fn start_with_config(&mut self, configuration: Configuration) {
-        self.start_with_config_permissions(configuration, AllowAll, AllowAll)
+    pub async fn start_with_config(&mut self, args: Arguments, configuration: Configuration) {
+        self.start_with_config_permissions(args, configuration, AllowAll, AllowAll)
             .await;
+    }
+
+    /// Starts peer with config
+    pub async fn start_with_args(&mut self, args: Arguments) {
+        self.start_with_config(args, Configuration::test()).await;
     }
 
     /// Starts peer
     pub async fn start(&mut self) {
-        self.start_with_config(Configuration::test()).await;
+        self.start_with_args(Arguments::default()).await;
     }
 
     /// Creates peer
@@ -500,8 +514,8 @@ where
         let mut peer = Self::new().expect("Failed to create peer.");
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
-        configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_owned());
         peer.start_with_config_permissions(
+            test_arguments(true),
             configuration.clone(),
             instruction_validator,
             query_validator,

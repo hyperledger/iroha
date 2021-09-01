@@ -537,7 +537,7 @@ mod tests {
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         config.genesis_configuration.genesis_account_private_key =
             Some(key_pair.private_key.clone());
-        config.genesis_configuration.genesis_account_public_key = key_pair.public_key.clone();
+        config.genesis_configuration.genesis_account_public_key = Some(key_pair.public_key.clone());
 
         let tx = Transaction::new(
             vec![],

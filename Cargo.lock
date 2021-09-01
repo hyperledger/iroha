@@ -1406,7 +1406,6 @@ dependencies = [
  "async-trait",
  "byte-unit",
  "chrono",
- "clap",
  "criterion",
  "dashmap",
  "futures 0.3.15",
@@ -1431,6 +1430,7 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "serde_json",
+ "structopt",
  "tempfile",
  "tokio 1.6.1",
  "tokio-stream",
@@ -1460,11 +1460,11 @@ dependencies = [
 name = "iroha_cli"
 version = "0.1.0"
 dependencies = [
- "clap",
  "iroha",
  "iroha_error",
  "iroha_logger",
  "iroha_permissions_validators",
+ "structopt",
  "tokio 1.6.1",
  "tracing",
 ]

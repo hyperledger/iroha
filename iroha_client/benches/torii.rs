@@ -3,7 +3,7 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha::{config::Configuration, prelude::*};
+use iroha::{config::Configuration, prelude::*, Arguments};
 use iroha_client::{
     client::{asset, Client},
     config::Configuration as ClientConfiguration,
@@ -20,13 +20,19 @@ const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 fn query_requests(criterion: &mut Criterion) {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let rt = Runtime::test();
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    rt.block_on(peer.start_with_config(configuration));
+    rt.block_on(peer.start_with_config(
+        Arguments {
+            submit_genesis: true,
+            genesis_path: GENESIS_PATH.into(),
+            ..Arguments::default()
+        },
+        configuration,
+    ));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("query-reqeuests");
@@ -97,13 +103,19 @@ fn query_requests(criterion: &mut Criterion) {
 fn instruction_submits(criterion: &mut Criterion) {
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_string());
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    rt.block_on(peer.start_with_config(configuration));
+    rt.block_on(peer.start_with_config(
+        Arguments {
+            submit_genesis: true,
+            genesis_path: GENESIS_PATH.into(),
+            ..Arguments::default()
+        },
+        configuration,
+    ));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("instruction-requests");

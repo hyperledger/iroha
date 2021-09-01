@@ -6,7 +6,7 @@ use iroha::{config::Configuration, prelude::*};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
-use test_network::{Peer as TestPeer, GENESIS_PATH, *};
+use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
 #[test]
@@ -17,7 +17,6 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
-    configuration.genesis_configuration.genesis_block_path = Some(GENESIS_PATH.to_owned());
 
     let pipeline_time =
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());

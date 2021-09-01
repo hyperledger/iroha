@@ -38,7 +38,9 @@ pub trait GenesisNetworkTrait:
     ///
     /// # Errors
     /// Fail if genesis block loading fails
-    fn from_configuration(
+    fn from_configuration<P: AsRef<Path> + Debug>(
+        submit_genesis: bool,
+        block_path: P,
         genesis_config: &GenesisConfiguration,
         max_instructions_number: u64,
     ) -> Result<Option<Self>>;
@@ -148,38 +150,41 @@ async fn check_peers_status(
 
 #[async_trait::async_trait]
 impl GenesisNetworkTrait for GenesisNetwork {
-    fn from_configuration(
+    fn from_configuration<P: AsRef<Path> + Debug>(
+        submit_genesis: bool,
+        block_path: P,
         genesis_config: &GenesisConfiguration,
         max_instructions_number: u64,
     ) -> Result<Option<GenesisNetwork>> {
-        if let Some(genesis_block_path) = &genesis_config.genesis_block_path {
-            let file = File::open(Path::new(&genesis_block_path))
-                .wrap_err("Failed to open a genesis block file")?;
-            let reader = BufReader::new(file);
-            let raw_block: RawGenesisBlock = serde_json::from_reader(reader)
-                .wrap_err("Failed to deserialize json from reader")?;
-            let genesis_key_pair = KeyPair {
-                public_key: genesis_config.genesis_account_public_key.clone(),
-                private_key: genesis_config
-                    .genesis_account_private_key
-                    .clone()
-                    .ok_or_else(|| error!("genesis account private key is empty"))?,
-            };
-            Ok(Some(GenesisNetwork {
-                transactions: raw_block
-                    .transactions
-                    .iter()
-                    .map(|raw_transaction| {
-                        raw_transaction.sign_and_accept(&genesis_key_pair, max_instructions_number)
-                    })
-                    .filter_map(Result::ok)
-                    .collect(),
-                wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
-                wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
-            }))
-        } else {
-            Ok(None)
+        if !submit_genesis {
+            return Ok(None);
         }
+        let file = File::open(block_path).wrap_err("Failed to open a genesis block file")?;
+        let reader = BufReader::new(file);
+        let raw_block: RawGenesisBlock =
+            serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
+        let genesis_key_pair = KeyPair {
+            public_key: genesis_config
+                .genesis_account_public_key
+                .clone()
+                .ok_or_else(|| error!("Genesis account public key is empty."))?,
+            private_key: genesis_config
+                .genesis_account_private_key
+                .clone()
+                .ok_or_else(|| error!("Genesis account private key is empty."))?,
+        };
+        Ok(Some(GenesisNetwork {
+            transactions: raw_block
+                .transactions
+                .iter()
+                .map(|raw_transaction| {
+                    raw_transaction.sign_and_accept(&genesis_key_pair, max_instructions_number)
+                })
+                .filter_map(Result::ok)
+                .collect(),
+            wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
+            wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
+        }))
     }
 
     async fn wait_for_peers(
@@ -253,13 +258,13 @@ pub mod config {
     /// Configuration of the genesis block and its submission process.
     pub struct GenesisConfiguration {
         /// Genesis account public key, should be supplied to all the peers.
-        pub genesis_account_public_key: PublicKey,
+        /// The type is `Option` just because it might be loaded from environment variables and not from `config.json`.
+        #[serde(default)]
+        #[config(serde_as_str)]
+        pub genesis_account_public_key: Option<PublicKey>,
         /// Genesis account private key, only needed on the peer that submits the genesis block.
         #[serde(default)]
         pub genesis_account_private_key: Option<PrivateKey>,
-        /// Genesis block path. Can be `None` if this peer does not submit the genesis block.
-        #[serde(default)]
-        pub genesis_block_path: Option<String>,
         /// Number of attempts to connect to peers, while waiting for them to submit genesis.
         #[serde(default = "default_wait_for_peers_retry_count")]
         pub wait_for_peers_retry_count: u64,
@@ -287,10 +292,11 @@ mod tests {
     fn load_genesis_block() -> Result<()> {
         let genesis_key_pair = KeyPair::generate()?;
         let _genesis_block = GenesisNetwork::from_configuration(
+            true,
+            GENESIS_BLOCK_PATH,
             &GenesisConfiguration {
-                genesis_account_public_key: genesis_key_pair.public_key,
+                genesis_account_public_key: Some(genesis_key_pair.public_key),
                 genesis_account_private_key: Some(genesis_key_pair.private_key),
-                genesis_block_path: Some(GENESIS_BLOCK_PATH.to_owned()),
                 ..GenesisConfiguration::default()
             },
             4096,

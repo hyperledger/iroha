@@ -17,8 +17,9 @@ dex = []
 roles = ["iroha_data_model/roles"]
 network-mock = ["iroha_network/mock"]
 telemetry = []
+cli = ["structopt"]
 dev-telemetry = ["iroha_telemetry"]
-default = ["bridge"]
+default = ["bridge", "cli"]
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
@@ -43,7 +44,6 @@ iroha_schema = { path = "../iroha_schema"}
 
 async-trait = "0.1"
 chrono = "0.4"
-clap = "2.33.0"
 dashmap = { version = "4.0" }
 futures = { version = "0.3.4" }
 parity-scale-codec = { version = "2", features = ["derive"] }
@@ -55,6 +55,7 @@ tokio-stream = { version = "0.1.6", features = ["fs"]}
 tracing = "0.1"
 warp = "0.3"
 ursa = "=0.3.6"
+structopt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.2.1"

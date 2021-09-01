@@ -7,6 +7,11 @@ based on predefined configuration.
 
 ## Usage
 
+### CLI Help
+```
+./iroha_cli --help
+```
+
 ### Generating Keys
 
 Before deployment each Peer should generate own pair of crypthographic keys. In our example we will use `Ed25519` and 
@@ -68,7 +73,7 @@ Start Iroha peer. It can be done either with `--genesis` param to specify `genes
 
 ```bash
 cd iroha_deploy
-./iroha_cli --genesis="genesis.json"
+./iroha_cli --submit-genesis
 ```
 
 ### Docker Compose Deployment
