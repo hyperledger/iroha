@@ -627,7 +627,6 @@ jobs:
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
           integration_add_peer_test
-          integration_query_permissions_common_test
           regression_regression_test
           system_irohad_test
           END
@@ -897,7 +896,6 @@ jobs:
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
           integration_add_peer_test
-          integration_query_permissions_common_test
           regression_regression_test
           system_irohad_test
           END
@@ -1161,7 +1159,6 @@ jobs:
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
           integration_add_peer_test
-          integration_query_permissions_common_test
           regression_regression_test
           system_irohad_test
           END
