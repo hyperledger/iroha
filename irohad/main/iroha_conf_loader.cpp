@@ -162,8 +162,7 @@ class JsonDeserializerImpl {
   JsonDeserializerImpl getDictChild(std::string const &key) {
     return JsonDeserializerImpl{
         common_objects_factory_,
-        env_path_ ? std::make_optional(makeEnvDictChildKey(key))
-                  : std::nullopt,
+        env_path_ ? std::make_optional(makeEnvDictChildKey(key)) : std::nullopt,
         json_ | [&](auto const &json) -> std::optional<ConstJsonValRef> {
           assert_fatal(json_->get().IsObject(), "must be a JSON object.");
           auto const json_obj = json_->get().GetObject();
@@ -613,14 +612,21 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig::InterPeerTls &dest) {
 
 template <>
 inline bool JsonDeserializerImpl::loadInto(IrohadConfig::DbConfig &dest) {
-  return getDictChild(config_members::Host).loadInto(dest.host)
-      and getDictChild(config_members::Port).loadInto(dest.port)
-      and getDictChild(config_members::User).loadInto(dest.user)
-      and getDictChild(config_members::Password).loadInto(dest.password)
-      and getDictChild(config_members::WorkingDbName)
-              .loadInto(dest.working_dbname)
-      and getDictChild(config_members::MaintenanceDbName)
-              .loadInto(dest.maintenance_dbname);
+  if (getDictChild(config_members::DbType).loadInto(dest.type)) {
+    if (dest.type == kDbTypeRocksdb) {
+      return getDictChild(config_members::DbPath).loadInto(dest.path);
+    } else if (dest.type == kDbTypePostgres) {
+      return getDictChild(config_members::Host).loadInto(dest.host)
+          and getDictChild(config_members::Port).loadInto(dest.port)
+          and getDictChild(config_members::User).loadInto(dest.user)
+          and getDictChild(config_members::Password).loadInto(dest.password)
+          and getDictChild(config_members::WorkingDbName)
+                  .loadInto(dest.working_dbname)
+          and getDictChild(config_members::MaintenanceDbName)
+                  .loadInto(dest.maintenance_dbname);
+    }
+  }
+  return false;
 }
 
 template <>
@@ -684,6 +690,8 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
       and (dest.database_config or getDictChild(PgOpt).loadInto(dest.pg_opt))
       and getDictChild(MaxProposalSize).loadInto(dest.max_proposal_size)
       and getDictChild(ProposalDelay).loadInto(dest.proposal_delay)
+      and getDictChild(ProposalCreationTimeout)
+              .loadInto(dest.proposal_creation_timeout)
       and getDictChild(VoteDelay).loadInto(dest.vote_delay)
       and getDictChild(MstSupport).loadInto(dest.mst_support)
       and getDictChild(MstExpirationTime).loadInto(dest.mst_expiration_time)
@@ -693,7 +701,8 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
       and getDictChild(LogSection).loadInto(dest.logger_manager)
       and getDictChild(InitialPeers).loadInto(dest.initial_peers)
       and getDictChild(UtilityService).loadInto(dest.utility_service)
-      and getDictChild(kCrypto).loadInto(dest.crypto);
+      and getDictChild(kCrypto).loadInto(dest.crypto)
+      and (getDictChild("metrics").loadInto(dest.metrics_addr_port) or true);
 }
 
 // ------------ end of loadInto(path, dst, src) specializations ------------

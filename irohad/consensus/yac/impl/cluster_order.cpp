@@ -5,74 +5,65 @@
 
 #include "consensus/yac/cluster_order.hpp"
 
-namespace iroha {
-  namespace consensus {
-    namespace yac {
+#include <boost/assert.hpp>
 
-      boost::optional<ClusterOrdering> ClusterOrdering::create(
-          const std::vector<std::shared_ptr<shared_model::interface::Peer>>
-              &order,
-          std::vector<size_t> const &peer_positions) {
-        if (order.empty()) {
-          return boost::none;
-        }
-        return ClusterOrdering(order, peer_positions);
-      }
+using iroha::consensus::yac::ClusterOrdering;
 
-      boost::optional<ClusterOrdering> ClusterOrdering::create(
-          const std::vector<std::shared_ptr<shared_model::interface::Peer>>
-              &order) {
-        if (order.empty()) {
-          return boost::none;
-        }
-        return ClusterOrdering(order);
-      }
+std::optional<ClusterOrdering> ClusterOrdering::create(
+    const std::vector<std::shared_ptr<shared_model::interface::Peer>> &order,
+    std::vector<size_t> const &peer_positions) {
+  if (order.empty()) {
+    return std::nullopt;
+  }
+  return ClusterOrdering(order, peer_positions);
+}
 
-      ClusterOrdering::ClusterOrdering(
-          std::vector<std::shared_ptr<shared_model::interface::Peer>> const
-              &order,
-          std::vector<size_t> const &peer_positions) {
-        order_.reserve(order.size());
-        BOOST_ASSERT_MSG(
-            peer_positions.size() == order.size(),
-            "Peer positions must be the same size to define ordering.");
+std::optional<ClusterOrdering> ClusterOrdering::create(
+    const std::vector<std::shared_ptr<shared_model::interface::Peer>> &order) {
+  if (order.empty()) {
+    return std::nullopt;
+  }
+  return ClusterOrdering(order);
+}
 
-        for (auto const &i : peer_positions) {
-          order_.emplace_back(order[i]);
-        }
-      }
+ClusterOrdering::ClusterOrdering(
+    std::vector<std::shared_ptr<shared_model::interface::Peer>> const &order,
+    std::vector<size_t> const &peer_positions) {
+  order_.reserve(order.size());
+  BOOST_ASSERT_MSG(peer_positions.size() == order.size(),
+                   "Peer positions must be the same size to define ordering.");
 
-      ClusterOrdering::ClusterOrdering(
-          std::vector<std::shared_ptr<shared_model::interface::Peer>> const
-              &order)
-          : order_(order) {}
+  for (auto const &i : peer_positions) {
+    order_.emplace_back(order[i]);
+  }
+}
 
-      // TODO :  24/03/2018 x3medima17: make it const, IR-1164
-      const shared_model::interface::Peer &ClusterOrdering::currentLeader() {
-        if (index_ >= order_.size()) {
-          index_ = 0;
-        }
-        return *order_.at(index_);
-      }
+ClusterOrdering::ClusterOrdering(
+    std::vector<std::shared_ptr<shared_model::interface::Peer>> const &order)
+    : order_(order) {}
 
-      bool ClusterOrdering::hasNext() const {
-        return index_ != order_.size();
-      }
+// TODO :  24/03/2018 x3medima17: make it const, IR-1164
+const shared_model::interface::Peer &ClusterOrdering::currentLeader() {
+  if (index_ >= order_.size()) {
+    index_ = 0;
+  }
+  return *order_.at(index_);
+}
 
-      ClusterOrdering &ClusterOrdering::switchToNext() {
-        ++index_;
-        return *this;
-      }
+bool ClusterOrdering::hasNext() const {
+  return index_ != order_.size();
+}
 
-      const shared_model::interface::types::PeerList &
-      ClusterOrdering::getPeers() const {
-        return order_;
-      }
+ClusterOrdering &ClusterOrdering::switchToNext() {
+  ++index_;
+  return *this;
+}
 
-      size_t ClusterOrdering::getNumberOfPeers() const {
-        return order_.size();
-      }
+const shared_model::interface::types::PeerList &ClusterOrdering::getPeers()
+    const {
+  return order_;
+}
 
-    }  // namespace yac
-  }    // namespace consensus
-}  // namespace iroha
+size_t ClusterOrdering::getNumberOfPeers() const {
+  return order_.size();
+}

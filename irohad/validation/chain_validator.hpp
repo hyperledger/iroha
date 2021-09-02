@@ -8,8 +8,6 @@
 
 #include <memory>
 
-#include <rxcpp/rx-observable-fwd.hpp>
-
 namespace shared_model {
   namespace interface {
     class Block;
@@ -32,20 +30,18 @@ namespace iroha {
       virtual ~ChainValidator() = default;
 
       /**
-       * Try to apply the blocks from observable to the storage.
+       * Try to apply the block to the storage.
        *
-       * While applying the blocks it will validate all their signatures
+       * While applying the block it will validate all its signatures
        * and related meta information such as previous hash, height and
        * other meta information
-       * @param blocks - observable with all blocks, that should be applied
-       * atomically
+       * @param block - block to be applied atomically
        * @param storage - storage to which the blocks are applied
        * @return true if commit is valid and successfully applied, false
        * otherwise
        */
       virtual bool validateAndApply(
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-              blocks,
+          std::shared_ptr<const shared_model::interface::Block> block,
           ametsuchi::MutableStorage &storage) const = 0;
     };
   }  // namespace validation

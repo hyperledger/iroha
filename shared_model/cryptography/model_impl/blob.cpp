@@ -40,7 +40,7 @@ namespace shared_model {
       return blob() == rhs.blob();
     }
 
-    Blob Blob::fromHexString(const std::string &hex) {
+    Blob Blob::fromHexString(std::string_view hex) {
       using iroha::operator|;
       Blob b("");
       iroha::hexstringToBytestring(hex) | [&](auto &&s) { b = Blob(s); };

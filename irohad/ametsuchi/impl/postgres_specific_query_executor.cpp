@@ -5,15 +5,15 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
-#include <tuple>
-#include <unordered_map>
-
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
+#include <tuple>
+#include <unordered_map>
+
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -453,6 +453,10 @@ namespace iroha {
                  FROM tx_positions
                  WHERE
                  {2} -- related_txs
+                 {5} -- time interval begin
+                 {6} -- time interval end
+                 {7} -- height begin
+                 {8} -- height end
                  {1} -- ordering
                  ),
                total_size AS (SELECT COUNT(*) FROM my_txs) {3}
@@ -471,7 +475,6 @@ namespace iroha {
                                                1,
                                                query_hash);
       }
-
       auto query = fmt::format(
           base,
           hasQueryPermissionTarget(creator_id, q.accountId(), perms...),
@@ -480,7 +483,11 @@ namespace iroha {
           (first_hash
                ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = lower(:hash) LIMIT 1))"
                : ""),
-          (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : ""));
+          (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : ""),
+          "AND (:first_tx_time::text IS NULL OR :first_tx_time<=ts)",
+          "AND (:last_tx_time::text IS NULL OR :last_tx_time>=ts )",
+          "AND (:first_tx_height::text IS NULL OR :first_tx_height<=height)",
+          "AND (:last_tx_height::text IS NULL OR :last_tx_height>=height )");
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
@@ -704,12 +711,12 @@ namespace iroha {
             return query_response_factory_->createSignatoriesResponse(
                 pubkeys, query_hash);
           },
+
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMySignatories,
                                        Role::kGetAllSignatories,
                                        Role::kGetDomainSignatories));
     }
-
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
         const shared_model::interface::GetAccountTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
@@ -724,17 +731,30 @@ namespace iroha {
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
 
+      auto first_tx_time = pagination_info.firstTxTime();
+      auto last_tx_time = pagination_info.lastTxTime();
+      auto first_tx_height = pagination_info.firstTxHeight();
+      auto last_tx_height = pagination_info.lastTxHeight();
+      soci::indicator ind = soci::i_null;
       auto apply_query = [&](const auto &query) {
         return [&] {
           if (first_hash) {
             return (sql_.prepare << query,
-                    soci::use(q.accountId()),
-                    soci::use(first_hash->hex()),
-                    soci::use(query_size));
+                    soci::use(q.accountId(), "account_id"),
+                    soci::use(first_hash->hex(), "hash"),
+                    soci::use(query_size, "page_size"),
+                    soci::use(first_tx_time, ind, "first_tx_time"),
+                    soci::use(last_tx_time, ind, "last_tx_time"),
+                    soci::use(first_tx_height, ind, "first_tx_height"),
+                    soci::use(last_tx_height, ind, "last_tx_height"));
           } else {
             return (sql_.prepare << query,
-                    soci::use(q.accountId()),
-                    soci::use(query_size));
+                    soci::use(q.accountId(), "account_id"),
+                    soci::use(query_size, "page_size"),
+                    soci::use(first_tx_time, ind, "first_tx_time"),
+                    soci::use(last_tx_time, ind, "last_tx_time"),
+                    soci::use(first_tx_height, ind, "first_tx_height"),
+                    soci::use(last_tx_height, ind, "last_tx_height"));
           }
         };
       };
@@ -815,14 +835,16 @@ namespace iroha {
 
             std::vector<std::unique_ptr<shared_model::interface::Transaction>>
                 response_txs;
-            for (auto &block : index) {
+            for (auto &blk : index) {
+              auto &block_idx = blk.first;
+              auto &txs_hashes = blk.second;
               auto txs_result = this->getTransactionsFromBlock(
-                  block.first,
+                  block_idx,
                   [](auto size) {
                     return boost::irange(static_cast<decltype(size)>(0), size);
                   },
                   [&](auto &tx) {
-                    return block.second.count(tx.hash().hex()) > 0
+                    return txs_hashes.count(tx.hash().hex()) > 0
                         and (all_perm
                              or (my_perm
                                  and tx.creatorAccountId() == creator_id));
@@ -854,20 +876,32 @@ namespace iroha {
       auto first_hash = pagination_info.firstTxHash();
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
-
+      auto first_tx_time = pagination_info.firstTxTime();
+      auto last_tx_time = pagination_info.lastTxTime();
+      auto first_tx_height = pagination_info.firstTxHeight();
+      auto last_tx_height = pagination_info.lastTxHeight();
+      soci::indicator ind = soci::i_null;
       auto apply_query = [&](const auto &query) {
         return [&] {
           if (first_hash) {
             return (sql_.prepare << query,
-                    soci::use(q.accountId()),
-                    soci::use(q.assetId()),
-                    soci::use(first_hash->hex()),
-                    soci::use(query_size));
+                    soci::use(q.accountId(), "account_id"),
+                    soci::use(q.assetId(), "asset_id"),
+                    soci::use(first_hash->hex(), "hash"),
+                    soci::use(query_size, "page_size"),
+                    soci::use(first_tx_time, ind, "first_tx_time"),
+                    soci::use(last_tx_time, ind, "last_tx_time"),
+                    soci::use(first_tx_height, ind, "first_tx_height"),
+                    soci::use(last_tx_height, ind, "last_tx_height"));
           } else {
             return (sql_.prepare << query,
-                    soci::use(q.accountId()),
-                    soci::use(q.assetId()),
-                    soci::use(query_size));
+                    soci::use(q.accountId(), "account_id"),
+                    soci::use(q.assetId(), "asset_id"),
+                    soci::use(query_size, "page_size"),
+                    soci::use(first_tx_time, ind, "first_tx_time"),
+                    soci::use(last_tx_time, ind, "last_tx_time"),
+                    soci::use(first_tx_height, ind, "first_tx_height"),
+                    soci::use(last_tx_height, ind, "last_tx_height"));
           }
         };
       };
@@ -1368,7 +1402,9 @@ namespace iroha {
         return pending_txs_storage_
             ->getPendingTransactions(creator_id,
                                      q.paginationMeta()->get().pageSize(),
-                                     q.paginationMeta()->get().firstTxHash())
+                                     q.paginationMeta()->get().firstTxHash(),
+                                     q.paginationMeta()->get().firstTxTime(),
+                                     q.paginationMeta()->get().lastTxTime())
             .match(
                 [this, &response_txs, &query_hash](auto &&response) {
                   auto &interface_txs = response.value.transactions;

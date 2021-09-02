@@ -30,7 +30,8 @@ using TestUnsignedBlockBuilder = shared_model::proto::TemplateBlockBuilder<
 std::shared_ptr<const shared_model::interface::Block> createBlock(
     std::vector<shared_model::proto::Transaction> txs,
     size_t height = 1,
-    shared_model::crypto::Hash prev_hash = shared_model::crypto::Hash("")) {
+    shared_model::crypto::Hash prev_hash =
+        shared_model::crypto::Hash(std::string{""})) {
   return clone(
       TestBlockBuilder()
           .transactions(std::vector<shared_model::proto::Transaction>(txs))

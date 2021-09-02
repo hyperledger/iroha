@@ -6,7 +6,8 @@
 #ifndef CONSENSUS_GATE_OBJECT_HPP
 #define CONSENSUS_GATE_OBJECT_HPP
 
-#include <boost/variant.hpp>
+#include <variant>
+
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
 #include "cryptography/hash.hpp"
@@ -32,11 +33,11 @@ namespace iroha {
 
     /// Current pair is valid
     struct PairValid : public BaseGateObject {
-      std::shared_ptr<shared_model::interface::Block> block;
+      std::shared_ptr<const shared_model::interface::Block> block;
 
       PairValid(consensus::Round round,
                 std::shared_ptr<const LedgerState> ledger_state,
-                std::shared_ptr<shared_model::interface::Block> block)
+                std::shared_ptr<const shared_model::interface::Block> block)
           : BaseGateObject(std::move(round), std::move(ledger_state)),
             block(std::move(block)) {}
     };
@@ -87,21 +88,14 @@ namespace iroha {
       using Synchronizable::Synchronizable;
     };
 
-    using GateObject = boost::variant<PairValid,
-                                      VoteOther,
-                                      ProposalReject,
-                                      BlockReject,
-                                      AgreementOnNone,
-                                      Future>;
+    using GateObject = std::variant<PairValid,
+                                    VoteOther,
+                                    ProposalReject,
+                                    BlockReject,
+                                    AgreementOnNone,
+                                    Future>;
 
   }  // namespace consensus
 }  // namespace iroha
-
-extern template class boost::variant<iroha::consensus::PairValid,
-                                     iroha::consensus::VoteOther,
-                                     iroha::consensus::ProposalReject,
-                                     iroha::consensus::BlockReject,
-                                     iroha::consensus::AgreementOnNone,
-                                     iroha::consensus::Future>;
 
 #endif  // CONSENSUS_GATE_OBJECT_HPP

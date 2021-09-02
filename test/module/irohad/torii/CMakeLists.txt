@@ -10,7 +10,6 @@ addtest(torii_transport_command_test torii_transport_command_test.cpp)
 target_link_libraries(torii_transport_command_test
     torii_service
     command_client
-    gate_object
     test_logger
     )
 
@@ -23,6 +22,7 @@ target_link_libraries(torii_queries_test
     processors
     test_client_factory
     test_logger
+    async_subscription
     )
 
 addtest(query_service_test query_service_test.cpp)
@@ -30,6 +30,7 @@ target_link_libraries(query_service_test
     torii_service
     query_client
     test_logger
+    sync_subscription
     )
 
 addtest(torii_service_query_test torii_service_query_test.cpp)

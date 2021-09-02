@@ -34,46 +34,53 @@ const std::string kAmount = "1.0";
  * @param state
  */
 static void BM_AddAssetQuantity(benchmark::State &state) {
-  integration_framework::IntegrationTestFramework itf(
-      kProposalSize,
-      boost::none,
-      iroha::StartupWsvDataPolicy::kDrop,
-      false,
-      false,
-      (boost::filesystem::temp_directory_path()
-       / boost::filesystem::unique_path())
-          .string(),
-      std::chrono::hours(1),
-      std::chrono::hours(1));
-  itf.setInitialState(kAdminKeypair);
-  for (int i = 0; i < kProposalSize; i++) {
-    using shared_model::interface::types::PublicKeyHexStringView;
-    itf.sendTx(createUserWithPerms(
-                   kUser,
-                   PublicKeyHexStringView{kUserKeypair.publicKey()},
-                   kRole,
-                   {shared_model::interface::permissions::Role::kAddAssetQty})
-                   .build()
-                   .signAndAddSignature(kAdminKeypair)
-                   .finish());
-  }
-  itf.skipBlock().skipProposal();
-
-  while (state.KeepRunning()) {
-    auto make_base = [&]() {
-      auto base = baseTx();
-      for (int i = 0; i < kTransactionSize; i++) {
-        base = base.addAssetQuantity(kAssetId, kAmount);
-      }
-      return base.quorum(1).build().signAndAddSignature(kUserKeypair).finish();
-    };
-
+  for (auto const type :
+       {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    integration_framework::IntegrationTestFramework itf(
+        kProposalSize,
+        type,
+        boost::none,
+        iroha::StartupWsvDataPolicy::kDrop,
+        false,
+        false,
+        (boost::filesystem::temp_directory_path()
+         / boost::filesystem::unique_path())
+            .string(),
+        std::chrono::hours(1),
+        std::chrono::hours(1));
+    itf.setInitialState(kAdminKeypair);
     for (int i = 0; i < kProposalSize; i++) {
-      itf.sendTx(make_base());
+      using shared_model::interface::types::PublicKeyHexStringView;
+      itf.sendTx(createUserWithPerms(
+                     kUser,
+                     PublicKeyHexStringView{kUserKeypair.publicKey()},
+                     kRole,
+                     {shared_model::interface::permissions::Role::kAddAssetQty})
+                     .build()
+                     .signAndAddSignature(kAdminKeypair)
+                     .finish());
     }
-    itf.skipProposal().skipBlock();
+    itf.skipBlock().skipProposal();
+
+    while (state.KeepRunning()) {
+      auto make_base = [&]() {
+        auto base = baseTx();
+        for (int i = 0; i < kTransactionSize; i++) {
+          base = base.addAssetQuantity(kAssetId, kAmount);
+        }
+        return base.quorum(1)
+            .build()
+            .signAndAddSignature(kUserKeypair)
+            .finish();
+      };
+
+      for (int i = 0; i < kProposalSize; i++) {
+        itf.sendTx(make_base());
+      }
+      itf.skipProposal().skipBlock();
+    }
+    itf.done();
   }
-  itf.done();
 }
 
 BENCHMARK(BM_AddAssetQuantity)->Unit(benchmark::kMillisecond);

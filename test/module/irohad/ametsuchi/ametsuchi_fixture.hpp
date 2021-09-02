@@ -98,6 +98,9 @@ namespace iroha {
              truncateWsv();
            }
 
+           prepared_blocks_enabled =
+               pool_wrapper->enable_prepared_transactions_;
+
            return StorageImpl::create(
                *options_,
                std::move(pool_wrapper),
@@ -107,6 +110,7 @@ namespace iroha {
                std::make_unique<InMemoryBlockStorageFactory>(),
                block_storage_,
                std::nullopt,
+               [](auto block) { committed_blocks_.push_back(block); },
                getTestLoggerManager()->getChild("Storage"));
          }
          |
@@ -160,6 +164,7 @@ namespace iroha {
         assert(sql);
         storage->tryRollback(*sql);
         destroyWsvStorage();
+        committed_blocks_.clear();
         initializeStorage();
       }
 
@@ -234,6 +239,11 @@ namespace iroha {
       static std::unique_ptr<PostgresOptions> options_;
 
       static std::string block_store_path;
+
+      static bool prepared_blocks_enabled;
+
+      static std::vector<std::shared_ptr<shared_model::interface::Block const>>
+          committed_blocks_;
     };
 
     std::shared_ptr<shared_model::proto::ProtoCommonObjectsFactory<
@@ -243,6 +253,9 @@ namespace iroha {
         (boost::filesystem::temp_directory_path()
          / boost::filesystem::unique_path())
             .string();
+    bool AmetsuchiTest::prepared_blocks_enabled = false;
+    std::vector<std::shared_ptr<shared_model::interface::Block const>>
+        AmetsuchiTest::committed_blocks_;
     std::string AmetsuchiTest::dbname_ = "d"
         + boost::uuids::to_string(boost::uuids::random_generator()())
               .substr(0, 8);

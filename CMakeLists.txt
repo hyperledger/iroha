@@ -25,6 +25,7 @@ else()
 endif()
 SET(CMAKE_CXX_OUTPUT_EXTENSION_REPLACE 1)
 SET(CMAKE_INSTALL_RPATH "../lib")
+SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)  ## use for code static analyze and vscode cpp plugin
 
 if(CMAKE_BUILD_TYPE MATCHES "Release")
   include(CheckIPOSupported)
@@ -37,6 +38,11 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
     message(STATUS "IPO / LTO not supported: <${error}>")
   endif()
 endif()
+
+## FIXME revert this after change CI to GitHub actions.
+## Temporal fix for 'bytecode stream version incompatible' between gcc-9 and gcc-10 and clang
+## when dependancies were build via vcpkg with default GCC9 could not be linked with iroha built with GCC-10
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
 if(WIN32)
     # We have to set _WIN32_WINNT for gRPC
@@ -148,15 +154,6 @@ else()
   set(MAKE make)
 endif()
 
-if(PACKAGE_TGZ OR PACKAGE_ZIP OR PACKAGE_RPM OR PACKAGE_DEB)
-  message(STATUS "Packaging enabled: forcing non-packaging options to OFF")
-  set(BENCHMARKING OFF)
-  set(TESTING OFF)
-  set(USE_BTF OFF)
-  set(COVERAGE OFF)
-  set(FUZZING OFF)
-endif()
-
 message(STATUS "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 message(STATUS "-DTESTING=${TESTING}")
 message(STATUS "-DUSE_BTF=${USE_BTF}")
@@ -177,6 +174,7 @@ set(SM_SCHEMA_DIR "${PROJECT_SOURCE_DIR}/shared_model/schema")
 set(SCHEMA_OUT_DIR ${CMAKE_BINARY_DIR}/schema)
 set(GO_GENERATED_SCHEMA_PATH "${CMAKE_BINARY_DIR}/schema_go")
 include_directories(
+  ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/shared_model
   ${PROJECT_SOURCE_DIR}/irohad
   ${PROJECT_SOURCE_DIR}/libs

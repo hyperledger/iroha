@@ -13,3 +13,4 @@ Hardware requirements, deployment process in details, aspects related to securit
     sec-install.rst
     shepherd.rst
     troubleshooting.rst
+    metrics.rst

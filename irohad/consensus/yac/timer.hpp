@@ -8,29 +8,20 @@
 
 #include <functional>
 
-namespace iroha {
-  namespace consensus {
-    namespace yac {
+namespace iroha::consensus::yac {
+  /**
+   * Interface provide timer for yac implementation
+   */
+  class Timer {
+   public:
+    /**
+     * Invoke handler with class-specific strategy
+     * @param handler - function, that will be invoked
+     */
+    virtual void invokeAfterDelay(std::function<void()> handler) = 0;
 
-      /**
-       * Interface provide timer for yac implementation
-       */
-      class Timer {
-       public:
-        /**
-         * Invoke handler with class-specific strategy
-         * @param handler - function, that will be invoked
-         */
-        virtual void invokeAfterDelay(std::function<void()> handler) = 0;
+    virtual ~Timer() = default;
+  };
+}  // namespace iroha::consensus::yac
 
-        /**
-         * Stop timer
-         */
-        virtual void deny() = 0;
-
-        virtual ~Timer() = default;
-      };
-    }  // namespace yac
-  }    // namespace consensus
-}  // namespace iroha
 #endif  // IROHA_YAC_TIMER_HPP

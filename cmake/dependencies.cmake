@@ -96,11 +96,6 @@ find_package(gflags 2.2.2 REQUIRED CONFIG)
 find_package(rxcpp)
 
 ##########################
-#          TBB           #
-##########################
-find_package(TBB REQUIRED CONFIG)
-
-##########################
 #         boost          #
 ##########################
 find_package(Boost 1.65.0 REQUIRED
@@ -126,3 +121,14 @@ find_package(ed25519 REQUIRED CONFIG)
 #              fmt                #
 ###################################
 find_package(fmt 5.3.0 REQUIRED CONFIG)
+
+###################################
+#         prometheus-cpp          #
+###################################
+find_package(prometheus-cpp REQUIRED CONFIG)
+find_package(civetweb CONFIG REQUIRED)
+
+###################################
+#            rocksdb              #
+###################################
+find_package(RocksDB CONFIG REQUIRED)

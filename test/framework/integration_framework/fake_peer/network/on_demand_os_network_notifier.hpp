@@ -12,37 +12,48 @@
 
 #include "consensus/round.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
-#include "ordering/on_demand_os_transport.hpp"
+#include "ordering/on_demand_ordering_service.hpp"
 
-namespace integration_framework {
-  namespace fake_peer {
+namespace integration_framework::fake_peer {
 
-    class OnDemandOsNetworkNotifier final
-        : public iroha::ordering::transport::OdOsNotification {
-     public:
-      OnDemandOsNetworkNotifier(const std::shared_ptr<FakePeer> &fake_peer);
+  class OnDemandOsNetworkNotifier final
+      : public iroha::ordering::OnDemandOrderingService {
+   public:
+    OnDemandOsNetworkNotifier(const std::shared_ptr<FakePeer> &fake_peer);
 
-      virtual void onBatches(CollectionType batches);
+    void onBatches(CollectionType batches) override;
 
-      virtual boost::optional<std::shared_ptr<const ProposalType>>
-      onRequestProposal(iroha::consensus::Round round);
+    std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
+        iroha::consensus::Round round) override;
 
-      rxcpp::observable<iroha::consensus::Round>
-      getProposalRequestsObservable();
+    void onCollaborationOutcome(iroha::consensus::Round round) override;
 
-      rxcpp::observable<std::shared_ptr<BatchesCollection>>
-      getBatchesObservable();
+    void onTxsCommitted(const HashesSetType &hashes) override;
 
-     private:
-      std::weak_ptr<FakePeer> fake_peer_wptr_;
-      rxcpp::subjects::subject<iroha::consensus::Round> rounds_subject_;
-      std::mutex rounds_subject_mutex_;
-      rxcpp::subjects::subject<std::shared_ptr<BatchesCollection>>
-          batches_subject_;
-      std::mutex batches_subject_mutex_;
-    };
+    void forCachedBatches(
+        std::function<void(const iroha::ordering::OnDemandOrderingService::
+                               BatchesSetType &)> const &f) const override;
 
-  }  // namespace fake_peer
-}  // namespace integration_framework
+    bool isEmptyBatchesCache() const override;
+
+    bool hasProposal(iroha::consensus::Round round) const override;
+
+    void processReceivedProposal(CollectionType batches) override;
+
+    rxcpp::observable<iroha::consensus::Round> getProposalRequestsObservable();
+
+    rxcpp::observable<std::shared_ptr<BatchesCollection>>
+    getBatchesObservable();
+
+   private:
+    std::weak_ptr<FakePeer> fake_peer_wptr_;
+    rxcpp::subjects::subject<iroha::consensus::Round> rounds_subject_;
+    std::mutex rounds_subject_mutex_;
+    rxcpp::subjects::subject<std::shared_ptr<BatchesCollection>>
+        batches_subject_;
+    std::mutex batches_subject_mutex_;
+  };
+
+}  // namespace integration_framework::fake_peer
 
 #endif /* FAKE_PEER_ODOS_NETWORK_NOTIFIER_HPP_ */

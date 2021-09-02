@@ -33,12 +33,10 @@ namespace iroha {
           logger::LoggerPtr log,
           std::unique_ptr<ClientFactory> client_factory);
 
-      iroha::expected::Result<
-          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>,
-          std::string>
-      retrieveBlocks(const shared_model::interface::types::HeightType height,
-                     shared_model::interface::types::PublicKeyHexStringView
-                         peer_pubkey) override;
+      expected::Result<std::unique_ptr<BlockReader>> retrieveBlocks(
+          const shared_model::interface::types::HeightType height,
+          shared_model::interface::types::PublicKeyHexStringView peer_pubkey)
+          override;
 
       iroha::expected::Result<std::unique_ptr<shared_model::interface::Block>,
                               std::string>

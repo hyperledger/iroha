@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
 
 using namespace integration_framework;
@@ -11,6 +12,10 @@ using namespace shared_model;
 using namespace shared_model::interface;
 using namespace shared_model::interface::permissions;
 using namespace common_constants;
+
+struct GrantPermissionFx : GrantablePermissionsFixture,
+                         ::testing::WithParamInterface<StorageType> {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(GrantPermissionFx);
 
 /**
  * TODO mboldyrev 18.01.2019 IR-216 remove, covered by
@@ -21,8 +26,8 @@ using namespace common_constants;
  * @when the account grants rights to non-existing account
  * @then this transaction is stateful invalid
  */
-TEST_F(GrantablePermissionsFixture, GrantToInexistingAccount) {
-  IntegrationTestFramework(1)
+TEST_P(GrantPermissionFx, GrantToInexistingAccount) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeAccountWithPerms(
           kAccount1, kAccount1Keypair, kCanGrantAll, kRole1))
@@ -53,13 +58,13 @@ TEST_F(GrantablePermissionsFixture, GrantToInexistingAccount) {
  * @then a block with transaction to add signatory to the account is written
  * AND there is a signatory added by the permittee
  */
-TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
+TEST_P(GrantPermissionFx, GrantAddSignatoryPermission) {
   auto expected_number_of_signatories = 2;
   auto is_contained = true;
   auto check_if_signatory_is_contained = checkSignatorySet(
       kAccount2Keypair, expected_number_of_signatories, is_contained);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   auto &x = createTwoAccounts(
       itf, {Role::kAddMySignatory, Role::kGetMySignatories}, {Role::kReceive});
@@ -90,13 +95,13 @@ TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
  * @then a block with transaction to remove signatory from the account is
  * written AND there is no signatory added by the permittee
  */
-TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
+TEST_P(GrantPermissionFx, GrantRemoveSignatoryPermission) {
   auto expected_number_of_signatories = 1;
   auto is_contained = false;
   auto check_if_signatory_is_not_contained = checkSignatorySet(
       kAccount2Keypair, expected_number_of_signatories, is_contained);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf,
                     {Role::kAddMySignatory,
@@ -140,11 +145,11 @@ TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
  * @then a block with transaction to change quorum in the account is written
  * AND the quorum number of account equals to the number, set by permittee
  */
-TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
+TEST_P(GrantPermissionFx, GrantSetQuorumPermission) {
   auto quorum_quantity = 2;
   auto check_quorum_quantity = checkQuorum(quorum_quantity);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(
       itf,
@@ -188,11 +193,11 @@ TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
  * AND the permittee is able to read the data
  * AND the account is able to read the data
  */
-TEST_F(GrantablePermissionsFixture, GrantSetAccountDetailPermission) {
+TEST_P(GrantPermissionFx, GrantSetAccountDetailPermission) {
   auto check_account_detail =
       checkAccountDetail(kAccountDetailKey, kAccountDetailValue);
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(
       itf, {Role::kSetMyAccountDetail, Role::kGetMyAccDetail}, {Role::kReceive})
@@ -228,10 +233,10 @@ TEST_F(GrantablePermissionsFixture, GrantSetAccountDetailPermission) {
  * @then a block with transaction to grant right is written
  * AND the transfer is made
  */
-TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
+TEST_P(GrantPermissionFx, GrantTransferPermission) {
   auto amount_of_asset = "1000.0";
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf,
                     {Role::kTransferMyAssets, Role::kReceive},
@@ -267,9 +272,9 @@ TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
  * @when the account grants rights to an existing account
  * @then this transaction is statefully invalid
  */
-TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
+TEST_P(GrantPermissionFx, GrantWithoutGrantPermissions) {
   for (auto &perm : kAllGrantable) {
-    IntegrationTestFramework itf(1);
+    IntegrationTestFramework itf(1, GetParam());
     itf.setInitialState(kAdminKeypair);
     createTwoAccounts(itf, {Role::kReceive}, {Role::kReceive})
         .sendTx(grantPermission(kAccount1, kAccount1Keypair, kAccount2, perm))
@@ -292,9 +297,8 @@ TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
  * @when the account grants the same permission to the same permittee
  * @then this transaction is statefully invalid
  */
-
-TEST_F(GrantablePermissionsFixture, GrantMoreThanOnce) {
-  IntegrationTestFramework itf(1);
+TEST_P(GrantPermissionFx, GrantMoreThanOnce) {
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {kCanGrantAll}, {Role::kReceive})
       .sendTx(grantPermission(kAccount1,

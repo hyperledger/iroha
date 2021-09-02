@@ -4,17 +4,20 @@
  */
 
 #include <boost/variant.hpp>
+
 #include "framework/crypto_literals.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace common_constants;
+using namespace integration_framework;
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
-class AcceptanceTest : public AcceptanceFixture {
- public:
+struct AcceptanceTest : AcceptanceFixture,
+                        ::testing::WithParamInterface<StorageType> {
   const std::function<void(const shared_model::proto::TransactionResponse &)>
       checkStatelessValidStatus = [](auto &status) {
         ASSERT_NO_THROW(
@@ -41,6 +44,10 @@ class AcceptanceTest : public AcceptanceFixture {
   }
 };
 
+// ToDo burrow with rocksdb
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes_list(
+    AcceptanceTest, testing::Values(StorageType::kPostgres));
+
 /**
  * TODO mboldyrev 18.01.2019 IR-227 convert to a separate status test
  * and a SFV integration test of non existing tx creator account
@@ -51,9 +58,9 @@ class AcceptanceTest : public AcceptanceFixture {
  * @then receive ENOUGH_SIGNATURES_COLLECTED status
  *       @and verified proposal is empty for that transaction
  */
-TEST_F(AcceptanceTest, NonExistentCreatorAccountId) {
+TEST_P(AcceptanceTest, NonExistentCreatorAccountId) {
   const std::string kNonUser = "nonuser@test";
-  integration_framework::IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>().creatorAccountId(kNonUser), kAdminKeypair),
               checkStatelessValidStatus)
@@ -72,8 +79,8 @@ TEST_F(AcceptanceTest, NonExistentCreatorAccountId) {
  * @then receive ENOUGH_SIGNATURES_COLLECTED status
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
-TEST_F(AcceptanceTest, Transaction1HourOld) {
-  integration_framework::IntegrationTestFramework(1)
+TEST_P(AcceptanceTest, Transaction1HourOld) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>().createdTime(
                            iroha::time::now(std::chrono::hours(-1))),
@@ -92,8 +99,8 @@ TEST_F(AcceptanceTest, Transaction1HourOld) {
  * @then receive ENOUGH_SIGNATURES_COLLECTED status
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
-TEST_F(AcceptanceTest, DISABLED_TransactionLess24HourOld) {
-  integration_framework::IntegrationTestFramework(1)
+TEST_P(AcceptanceTest, DISABLED_TransactionLess24HourOld) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
                            std::chrono::hours(24) - std::chrono::minutes(1))),
@@ -111,8 +118,8 @@ TEST_F(AcceptanceTest, DISABLED_TransactionLess24HourOld) {
  * @when sending transactions with an more than 24 hour old UNIX time
  * @then receive STATELESS_VALIDATION_FAILED status
  */
-TEST_F(AcceptanceTest, TransactionMore24HourOld) {
-  integration_framework::IntegrationTestFramework(1)
+TEST_P(AcceptanceTest, TransactionMore24HourOld) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
                            std::chrono::hours(24) + std::chrono::minutes(1))),
@@ -128,8 +135,8 @@ TEST_F(AcceptanceTest, TransactionMore24HourOld) {
  * @then receive ENOUGH_SIGNATURES_COLLECTED status
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
-TEST_F(AcceptanceTest, Transaction5MinutesFromFuture) {
-  integration_framework::IntegrationTestFramework(1)
+TEST_P(AcceptanceTest, Transaction5MinutesFromFuture) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>().createdTime(iroha::time::now(
                            std::chrono::minutes(5) - std::chrono::seconds(10))),
@@ -147,8 +154,8 @@ TEST_F(AcceptanceTest, Transaction5MinutesFromFuture) {
  * @when sending transactions with an 10 minutes from future UNIX time
  * @then receive STATELESS_VALIDATION_FAILED status
  */
-TEST_F(AcceptanceTest, Transaction10MinutesFromFuture) {
-  integration_framework::IntegrationTestFramework(1)
+TEST_P(AcceptanceTest, Transaction10MinutesFromFuture) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>().createdTime(
                            iroha::time::now(std::chrono::minutes(10))),
@@ -163,7 +170,7 @@ TEST_F(AcceptanceTest, Transaction10MinutesFromFuture) {
  * @when sending transactions with an empty public Key
  * @then receive STATELESS_VALIDATION_FAILED status
  */
-TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
+TEST_P(AcceptanceTest, TransactionEmptyPubKey) {
   using namespace std::literals;
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
@@ -173,7 +180,7 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
   tx.addSignature(
       shared_model::interface::types::SignedHexStringView{signedBlob},
       ""_hex_pubkey);
-  integration_framework::IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
 }
@@ -187,13 +194,13 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
  * @when sending transactions with an empty signedBlob
  * @then receive STATELESS_VALIDATION_FAILED status
  */
-TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
+TEST_P(AcceptanceTest, TransactionEmptySignedblob) {
   using namespace std::literals;
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
   tx.addSignature(shared_model::interface::types::SignedHexStringView{""sv},
                   PublicKeyHexStringView{kAdminKeypair.publicKey()});
-  integration_framework::IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
 }
@@ -205,7 +212,7 @@ TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
  * @when sending transactions with correctly formed invalid PublicKey
  * @then receive STATELESS_VALIDATION_FAILED status
  */
-TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
+TEST_P(AcceptanceTest, TransactionInvalidPublicKey) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
   auto signedBlob = shared_model::crypto::CryptoSigner::sign(
@@ -215,7 +222,7 @@ TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
   tx.addSignature(
       shared_model::interface::types::SignedHexStringView{signedBlob},
       shared_model::interface::types::PublicKeyHexStringView{public_key});
-  integration_framework::IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
 }
@@ -227,7 +234,7 @@ TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
  * @when sending transactions with Invalid SignedBlock
  * @then receive STATELESS_VALIDATION_FAILED status
  */
-TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
+TEST_P(AcceptanceTest, TransactionInvalidSignedBlob) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
 
@@ -238,7 +245,7 @@ TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
       shared_model::interface::types::SignedHexStringView{wrong_signature},
       PublicKeyHexStringView{kAdminKeypair.publicKey()});
 
-  integration_framework::IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
 }
@@ -252,8 +259,8 @@ TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
  * @then receive ENOUGH_SIGNATURES_COLLECTED status
  *       AND STATEFUL_VALIDATION_SUCCESS on that tx
  */
-TEST_F(AcceptanceTest, TransactionValidSignedBlob) {
-  integration_framework::IntegrationTestFramework(1)
+TEST_P(AcceptanceTest, TransactionValidSignedBlob) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(complete(baseTx<>(), kAdminKeypair), checkStatelessValidStatus)
       .skipProposal()
@@ -268,12 +275,12 @@ TEST_F(AcceptanceTest, TransactionValidSignedBlob) {
  * @when sending transaction without any signature
  * @then the response is STATELESS_VALIDATION_FAILED
  */
-TEST_F(AcceptanceTest, EmptySignatures) {
+TEST_P(AcceptanceTest, EmptySignatures) {
   auto proto_tx = baseTx<TestTransactionBuilder>().build().getTransport();
   proto_tx.clear_signatures();
   auto tx = shared_model::proto::Transaction(proto_tx);
 
-  integration_framework::IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
 }

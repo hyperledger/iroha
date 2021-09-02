@@ -16,6 +16,7 @@
 
 namespace iroha {
   namespace ordering {
+    class OnDemandOrderingService;
     namespace transport {
 
       /**
@@ -29,13 +30,14 @@ namespace iroha {
                 iroha::protocol::Transaction>;
 
         OnDemandOsServerGrpc(
-            std::shared_ptr<OdOsNotification> ordering_service,
+            std::shared_ptr<OnDemandOrderingService> ordering_service,
             std::shared_ptr<TransportFactoryType> transaction_factory,
             std::shared_ptr<shared_model::interface::TransactionBatchParser>
                 batch_parser,
             std::shared_ptr<shared_model::interface::TransactionBatchFactory>
                 transaction_batch_factory,
-            logger::LoggerPtr log);
+            logger::LoggerPtr log,
+            std::chrono::milliseconds delay);
 
         grpc::Status SendBatches(::grpc::ServerContext *context,
                                  const proto::BatchesRequest *request,
@@ -47,7 +49,7 @@ namespace iroha {
             proto::ProposalResponse *response) override;
 
        private:
-        std::shared_ptr<OdOsNotification> ordering_service_;
+        std::shared_ptr<OnDemandOrderingService> ordering_service_;
 
         std::shared_ptr<TransportFactoryType> transaction_factory_;
         std::shared_ptr<shared_model::interface::TransactionBatchParser>
@@ -56,6 +58,7 @@ namespace iroha {
             batch_factory_;
 
         logger::LoggerPtr log_;
+        std::chrono::milliseconds delay_;
       };
 
     }  // namespace transport

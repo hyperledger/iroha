@@ -35,6 +35,12 @@ static const EvmCodeHexStringView kCode{"mint(many)"sv};
 
 class CallEngineTest : public ExecutorTestBase {
  public:
+  void SetUp() {
+    ExecutorTestBase::SetUp();
+    if (type_ == ExecutorTestParam::ExecutorType::kRocksDb)
+      GTEST_SKIP();
+  }
+
   iroha::ametsuchi::CommandResult callEngine(
       const AccountIdType &issuer,
       const AccountIdType &caller,

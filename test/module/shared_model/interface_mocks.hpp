@@ -79,7 +79,7 @@ struct MockTransaction : public shared_model::interface::Transaction {
  * @param hash -- const ref to hash to be returned by the transaction
  * @return shared_ptr for transaction
  */
-auto createMockTransactionWithHash(
+inline auto createMockTransactionWithHash(
     const shared_model::interface::types::HashType &hash) {
   using ::testing::NiceMock;
   using ::testing::ReturnRefOfCopy;
@@ -115,7 +115,8 @@ struct MockTransactionBatch : public shared_model::interface::TransactionBatch {
 
 namespace shared_model {
   namespace interface {
-    std::ostream &operator<<(std::ostream &os, const TransactionBatch &resp) {
+    inline std::ostream &operator<<(std::ostream &os,
+                                    const TransactionBatch &resp) {
       return os << resp.toString();
     }
   }  // namespace interface
@@ -126,7 +127,7 @@ namespace shared_model {
  * @param hash -- const ref to reduced hash to be returned by the batch
  * @return shared_ptr for batch
  */
-auto createMockBatchWithHash(
+inline auto createMockBatchWithHash(
     const shared_model::interface::types::HashType &hash) {
   using ::testing::NiceMock;
   using ::testing::ReturnRefOfCopy;
@@ -144,7 +145,7 @@ auto createMockBatchWithHash(
  * @param hash -- const ref to hash to be returned by the batch
  * @return shared_ptr for batch
  */
-auto createMockBatchWithTransactions(
+inline auto createMockBatchWithTransactions(
     const shared_model::interface::types::SharedTxsCollectionType &txs,
     std::string hash) {
   using ::testing::NiceMock;

@@ -5,12 +5,14 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/variant.hpp>
+
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
@@ -22,19 +24,35 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "test/integration/acceptance/instantiate_test_suite.hpp"
 
 using namespace common_constants;
+using namespace integration_framework;
 using shared_model::interface::permissions::Role;
 using shared_model::interface::types::PublicKeyHexStringView;
 
 static logger::LoggerPtr log_ = getTestLogger("RegressionTest");
+
+struct RegressionTest : ::testing::Test,
+                        ::testing::WithParamInterface<StorageType> {};
+
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RegressionTest);
 
 /**
  * @given ITF instance with Iroha
  * @when existing ITF instance was not gracefully shutdown
  * @then following ITF instantiation should not cause any errors
  */
-TEST(RegressionTest, SequentialInitialization) {
+TEST_P(RegressionTest, SequentialInitialization) {
+  using namespace std::chrono;
+
+  auto const wsv_path = (boost::filesystem::temp_directory_path()
+                         / boost::filesystem::unique_path())
+                            .string();
+  auto const store_path = (boost::filesystem::temp_directory_path()
+                           / boost::filesystem::unique_path())
+                              .string();
+
   auto tx = shared_model::proto::TransactionBuilder()
                 .createdTime(iroha::time::now())
                 .creatorAccountId(kAdminId)
@@ -58,30 +76,50 @@ TEST(RegressionTest, SequentialInitialization) {
   const std::string dbname = "d"
       + boost::uuids::to_string(boost::uuids::random_generator()())
             .substr(0, 8);
-  {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, iroha::StartupWsvDataPolicy::kDrop, false, false)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx, check_stateless_valid_status)
-        .skipProposal()
-        .checkVerifiedProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 0);
-        })
-        .checkBlock(
-            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
-  }
-  {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, iroha::StartupWsvDataPolicy::kReuse, true, false)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx, check_stateless_valid_status)
-        .checkProposal(checkProposal)
-        .checkVerifiedProposal([](auto &proposal) {
-          ASSERT_EQ(proposal->transactions().size(), 0);
-        })
-        .checkBlock(
-            [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
-  }
+
+  IntegrationTestFramework(1,
+                           GetParam(),
+                           dbname,
+                           iroha::StartupWsvDataPolicy::kDrop,
+                           false,
+                           false,
+                           boost::none,
+                           milliseconds(20000),
+                           milliseconds(20000),
+                           milliseconds(10000),
+                           getDefaultItfLogManager(),
+                           wsv_path,
+                           store_path)
+      .setInitialState(kAdminKeypair)
+      .sendTx(tx, check_stateless_valid_status)
+      .skipProposal()
+      .checkVerifiedProposal(
+          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
+      .checkBlock(
+          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+  IntegrationTestFramework(1,
+                           GetParam(),
+                           dbname,
+                           iroha::StartupWsvDataPolicy::kReuse,
+                           true,
+                           false,
+                           boost::none,
+                           milliseconds(20000),
+                           milliseconds(20000),
+                           milliseconds(10000),
+                           getDefaultItfLogManager(),
+                           wsv_path,
+                           store_path)
+      .setInitialState(kAdminKeypair)
+      .sendTx(tx, check_stateless_valid_status)
+      .checkProposal(checkProposal)
+      .checkVerifiedProposal(
+          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
+      .checkBlock(
+          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+
+  boost::filesystem::remove_all(wsv_path);
+  boost::filesystem::remove_all(store_path);
 }
 
 /**
@@ -89,7 +127,14 @@ TEST(RegressionTest, SequentialInitialization) {
  * @when instance is shutdown without blocks erase
  * @then another ITF instance can restore WSV from blockstore
  */
-TEST(RegressionTest, StateRecovery) {
+TEST_P(RegressionTest, StateRecovery) {
+  auto const wsv_path = (boost::filesystem::temp_directory_path()
+                         / boost::filesystem::unique_path())
+                            .string();
+  auto const store_path = (boost::filesystem::temp_directory_path()
+                           / boost::filesystem::unique_path())
+                              .string();
+
   auto userKeypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
   auto tx =
@@ -131,22 +176,44 @@ TEST(RegressionTest, StateRecovery) {
       + boost::uuids::to_string(boost::uuids::random_generator()())
             .substr(0, 8);
 
-  {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, iroha::StartupWsvDataPolicy::kDrop, false)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx)
-        .checkProposal(checkOne)
-        .checkVerifiedProposal(checkOne)
-        .checkBlock(checkOne)
-        .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
-  }
-  {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, iroha::StartupWsvDataPolicy::kReuse, false)
-        .recoverState(kAdminKeypair)
-        .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
-  }
+  using namespace std::chrono;
+  IntegrationTestFramework(1,
+                           GetParam(),
+                           dbname,
+                           iroha::StartupWsvDataPolicy::kDrop,
+                           false,
+                           false,
+                           boost::none,
+                           milliseconds(20000),
+                           milliseconds(20000),
+                           milliseconds(10000),
+                           getDefaultItfLogManager(),
+                           wsv_path,
+                           store_path)
+      .setInitialState(kAdminKeypair)
+      .sendTx(tx)
+      .checkProposal(checkOne)
+      .checkVerifiedProposal(checkOne)
+      .checkBlock(checkOne)
+      .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
+  IntegrationTestFramework(1,
+                           GetParam(),
+                           dbname,
+                           iroha::StartupWsvDataPolicy::kReuse,
+                           false,
+                           false,
+                           boost::none,
+                           milliseconds(20000),
+                           milliseconds(20000),
+                           milliseconds(10000),
+                           getDefaultItfLogManager(),
+                           wsv_path,
+                           store_path)
+      .recoverState(kAdminKeypair)
+      .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
+
+  boost::filesystem::remove_all(wsv_path);
+  boost::filesystem::remove_all(store_path);
 }
 
 /**
@@ -154,7 +221,15 @@ TEST(RegressionTest, StateRecovery) {
  * @when instance is shutdown without blocks erase, block is modified
  * @then another ITF instance fails to start up
  */
-TEST(RegressionTest, PoisonedBlock) {
+TEST_P(RegressionTest, PoisonedBlock) {
+  using namespace std::chrono;
+  auto const wsv_path = (boost::filesystem::temp_directory_path()
+                         / boost::filesystem::unique_path())
+                            .string();
+  auto const store_path = (boost::filesystem::temp_directory_path()
+                           / boost::filesystem::unique_path())
+                              .string();
+
   auto time_now = iroha::time::now();
   auto tx1 = shared_model::proto::TransactionBuilder()
                  .createdTime(time_now)
@@ -182,13 +257,19 @@ TEST(RegressionTest, PoisonedBlock) {
                                         / boost::filesystem::unique_path())
                                            .string();
   {
-    integration_framework::IntegrationTestFramework(
-        1,
-        dbname,
-        iroha::StartupWsvDataPolicy::kDrop,
-        false,
-        false,
-        block_store_path)
+    IntegrationTestFramework(1,
+                             GetParam(),
+                             dbname,
+                             iroha::StartupWsvDataPolicy::kDrop,
+                             false,
+                             false,
+                             block_store_path,
+                             milliseconds(20000),
+                             milliseconds(20000),
+                             milliseconds(10000),
+                             getDefaultItfLogManager(),
+                             wsv_path,
+                             store_path)
         .setInitialState(kAdminKeypair)
         .sendTx(tx1)
         .checkProposal(check_one)
@@ -211,21 +292,30 @@ TEST(RegressionTest, PoisonedBlock) {
   block_file.close();
   {
     try {
-      integration_framework::IntegrationTestFramework(
-          1,
-          dbname,
-          iroha::StartupWsvDataPolicy::kDrop,
-          false,
-          false,
-          block_store_path)
+      IntegrationTestFramework(1,
+                               GetParam(),
+                               dbname,
+                               iroha::StartupWsvDataPolicy::kDrop,
+                               false,
+                               false,
+                               block_store_path,
+                               milliseconds(20000),
+                               milliseconds(20000),
+                               milliseconds(10000),
+                               getDefaultItfLogManager(),
+                               wsv_path,
+                               store_path)
           .recoverState(kAdminKeypair);
       ADD_FAILURE() << "No exception thrown";
     } catch (std::runtime_error const &e) {
       using ::testing::HasSubstr;
-      EXPECT_THAT(e.what(), HasSubstr("Cannot validate and apply blocks"));
+      EXPECT_THAT(e.what(), HasSubstr("Bad signature"));
     } catch (...) {
       ADD_FAILURE() << "Unexpected exception thrown";
     }
+
+    boost::filesystem::remove_all(wsv_path);
+    boost::filesystem::remove_all(store_path);
   }
   boost::filesystem::remove_all(block_store_path);
 }
@@ -235,8 +325,8 @@ TEST(RegressionTest, PoisonedBlock) {
  * @when done method is called twice
  * @then no errors are caused as the result
  */
-TEST(RegressionTest, DoubleCallOfDone) {
-  integration_framework::IntegrationTestFramework itf(1);
+TEST_P(RegressionTest, DoubleCallOfDone) {
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair).done();
   itf.done();
 }
@@ -246,7 +336,7 @@ TEST(RegressionTest, DoubleCallOfDone) {
  * @when done method is called inside destructor
  * @then no exceptions are risen
  */
-TEST(RegressionTest, DestructionOfNonInitializedItf) {
-  integration_framework::IntegrationTestFramework itf(
-      1, {}, iroha::StartupWsvDataPolicy::kDrop, true);
+TEST_P(RegressionTest, DestructionOfNonInitializedItf) {
+  IntegrationTestFramework itf(
+      1, GetParam(), {}, iroha::StartupWsvDataPolicy::kDrop, true);
 }

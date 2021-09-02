@@ -81,8 +81,8 @@ namespace iroha {
     return iroha::expected::makeValue(std::move(result));
   }
 
-  [[deprecated]] inline boost::optional<std::string> hexstringToBytestring(
-      const std::string &str) {
+  /*[[deprecated]]*/ inline boost::optional<std::string> hexstringToBytestring(
+      std::string_view str) {
     return iroha::expected::resultToOptionalValue(
         hexstringToBytestringResult(str));
   }

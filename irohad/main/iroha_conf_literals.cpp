@@ -26,8 +26,11 @@ namespace config_members {
   const char *Password = "password";
   const char *WorkingDbName = "working database";
   const char *MaintenanceDbName = "maintenance database";
+  const char *DbPath = "path";
+  const char *DbType = "type";
   const char *MaxProposalSize = "max_proposal_size";
   const char *ProposalDelay = "proposal_delay";
+  const char *ProposalCreationTimeout = "proposal_creation_timeout";
   const char *VoteDelay = "vote_delay";
   const char *MstSupport = "mst_enable";
   const char *MstExpirationTime = "mst_expiration_time";
@@ -55,4 +58,5 @@ namespace config_members {
   const char *kSigner = "signer";
   const char *kCryptoProviderDefault = "default";
   const char *PrivateKey = "private_key";
+  const char *kMetrics = "metrics";
 }  // namespace config_members

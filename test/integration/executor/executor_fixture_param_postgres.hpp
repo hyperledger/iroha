@@ -36,6 +36,10 @@ namespace executor_testing {
 
     void clearBackendState() override;
 
+    ExecutorType getType() const override {
+      return ExecutorType::kPostgres;
+    }
+
     iroha::integration_framework::ExecutorItfTarget getExecutorItfParam()
         const override;
 

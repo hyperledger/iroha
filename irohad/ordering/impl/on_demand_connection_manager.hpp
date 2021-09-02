@@ -8,10 +8,10 @@
 
 #include "ordering/on_demand_os_transport.hpp"
 
+#include <array>
 #include <atomic>
 #include <shared_mutex>
 
-#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -25,18 +25,10 @@ namespace iroha {
       /**
        * Responsibilities of individual peers from the peers array
        * Transactions are sent to three ordering services:
-       * reject round for current block, reject round for next block, and
-       * commit for subsequent next round
+       * current round (issuer), reject round, and commit round
        * Proposal is requested from the current ordering service: issuer
        */
-      enum PeerType {
-        kRejectRejectConsumer = 0,
-        kRejectCommitConsumer,
-        kCommitRejectConsumer,
-        kCommitCommitConsumer,
-        kIssuer,
-        kCount
-      };
+      enum PeerType { kRejectConsumer = 0, kCommitConsumer, kIssuer, kCount };
 
       /// Collection with value types which represent peers
       template <typename T>
@@ -53,12 +45,10 @@ namespace iroha {
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          rxcpp::observable<CurrentPeers> peers,
           logger::LoggerPtr log);
 
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
-          rxcpp::observable<CurrentPeers> peers,
           CurrentPeers initial_peers,
           logger::LoggerPtr log);
 
@@ -66,8 +56,13 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      boost::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-          consensus::Round round) override;
+      void onRequestProposal(consensus::Round round) override;
+
+      /**
+       * Initialize corresponding peers in connections_ using factory_
+       * @param peers to initialize connections with
+       */
+      void initializeConnections(const CurrentPeers &peers);
 
      private:
       /**
@@ -76,19 +71,12 @@ namespace iroha {
        */
       struct CurrentConnections {
         PeerCollectionType<
-            boost::optional<std::unique_ptr<transport::OdOsNotification>>>
+            std::optional<std::unique_ptr<transport::OdOsNotification>>>
             peers;
       };
 
-      /**
-       * Initialize corresponding peers in connections_ using factory_
-       * @param peers to initialize connections with
-       */
-      void initializeConnections(const CurrentPeers &peers);
-
       logger::LoggerPtr log_;
       std::shared_ptr<transport::OdOsNotificationFactory> factory_;
-      rxcpp::composite_subscription subscription_;
 
       CurrentConnections connections_;
 

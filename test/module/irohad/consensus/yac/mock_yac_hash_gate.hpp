@@ -16,24 +16,18 @@ namespace iroha {
 
       class MockHashGate : public HashGate {
        public:
-        MOCK_METHOD3(vote,
-                     void(YacHash,
-                          ClusterOrdering,
-                          boost::optional<ClusterOrdering>));
+        MOCK_METHOD(void,
+                    vote,
+                    (YacHash, ClusterOrdering, std::optional<ClusterOrdering>),
+                    (override));
 
-        MOCK_METHOD0(onOutcome, rxcpp::observable<Answer>());
+        MOCK_METHOD((std::optional<Answer>),
+                    processRoundSwitch,
+                    (consensus::Round const &,
+                     shared_model::interface::types::PeerList const &),
+                    (override));
 
         MOCK_METHOD0(stop, void());
-
-        MockHashGate() = default;
-
-        MockHashGate(const MockHashGate &rhs) {}
-
-        MockHashGate(MockHashGate &&rhs) {}
-
-        MockHashGate &operator=(const MockHashGate &rhs) {
-          return *this;
-        }
       };
 
     }  // namespace yac

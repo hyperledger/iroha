@@ -3,24 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <thread>
+
 #include <gmock/gmock.h>
 #include <grpc++/grpc++.h>
 
+#include "common/common.hpp"
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/impl/timer_impl.hpp"
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "consensus/yac/storage/yac_vote_storage.hpp"
+#include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
+#include "main/subscription.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
-#include <rxcpp/operators/rx-take.hpp>
-#include <rxcpp/operators/rx-timeout.hpp>
 #include "framework/stateless_valid_field_helpers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "logger/logger_manager.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
@@ -32,7 +34,6 @@ using ::testing::InvokeWithoutArgs;
 using ::testing::Return;
 
 using namespace iroha::consensus::yac;
-using namespace framework::test_subscriber;
 
 // TODO mboldyrev 14.02.2019 IR-324 Use supermajority checker mock
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
@@ -47,9 +48,11 @@ auto mk_local_peer(uint64_t num) {
 
 class ConsensusSunnyDayTest : public ::testing::Test {
  public:
+  std::shared_ptr<iroha::Subscription> subscription;
   std::shared_ptr<CleanupStrategy> cleanup_strategy;
   std::unique_ptr<grpc::Server> server;
   std::shared_ptr<NetworkImpl> network;
+  std::shared_ptr<ServiceImpl> service;
   std::shared_ptr<MockYacCryptoProvider> crypto;
   std::shared_ptr<TimerImpl> timer;
   uint64_t delay = 3 * 1000;
@@ -71,22 +74,18 @@ class ConsensusSunnyDayTest : public ::testing::Test {
   }
 
   void SetUp() override {
+    subscription = iroha::getSubscription();
     cleanup_strategy =
         std::make_shared<iroha::consensus::yac::BufferedCleanupStrategy>();
-    auto async_call = std::make_shared<
-        iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
-        getTestLogger("AsyncCall"));
     network = std::make_shared<NetworkImpl>(
-        async_call,
         std::make_unique<
             iroha::network::ClientFactoryImpl<NetworkImpl::Service>>(
-            iroha::network::getTestInsecureClientFactory()),
+            iroha::network::getTestInsecureClientFactory(std::nullopt)),
         getTestLogger("YacNetwork"));
     crypto = std::make_shared<MockYacCryptoProvider>(
         shared_model::interface::types::PublicKeyHexStringView{
             my_peer->pubkey()});
-    timer = std::make_shared<TimerImpl>(std::chrono::milliseconds(delay),
-                                        rxcpp::observe_on_new_thread());
+    timer = std::make_shared<TimerImpl>(std::chrono::milliseconds(delay));
     auto order = ClusterOrdering::create(default_peers);
     ASSERT_TRUE(order);
 
@@ -97,17 +96,29 @@ class ConsensusSunnyDayTest : public ::testing::Test {
         network,
         crypto,
         timer,
-        order.value(),
+        order->getPeers(),
         initial_round,
-        rxcpp::observe_on_new_thread(),
         getTestLogger("Yac"));
-    network->subscribe(yac);
+
+    service = std::make_shared<ServiceImpl>(
+        getTestLogger("Service"),
+        [yac(iroha::utils::make_weak(yac)),
+         this](std::vector<VoteMessage> state) {
+          auto maybe_yac = yac.lock();
+          if (not maybe_yac) {
+            return;
+          }
+          auto maybe_answer = maybe_yac->onState(std::move(state));
+          if (maybe_answer) {
+            complete.set();
+          }
+        });
 
     grpc::ServerBuilder builder;
     int port = 0;
     builder.AddListeningPort(
         my_peer->address(), grpc::InsecureServerCredentials(), &port);
-    builder.RegisterService(network.get());
+    builder.RegisterService(service.get());
     server = builder.BuildAndStart();
     ASSERT_TRUE(server);
     ASSERT_NE(port, 0);
@@ -115,12 +126,14 @@ class ConsensusSunnyDayTest : public ::testing::Test {
 
   void TearDown() override {
     server->Shutdown();
+    subscription->dispose();
   }
 
   uint64_t delay_before, delay_after;
   std::shared_ptr<shared_model::interface::Peer> my_peer;
   std::vector<std::shared_ptr<shared_model::interface::Peer>> default_peers;
   iroha::consensus::Round initial_round{1, 1};
+  iroha::utils::WaitForSingleObject complete;
 };
 
 /**
@@ -129,14 +142,6 @@ class ConsensusSunnyDayTest : public ::testing::Test {
  * @then commit is achieved
  */
 TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
-  auto wrapper = make_test_subscriber<CallExact>(
-      yac->onOutcome()
-          .timeout(std::chrono::milliseconds(delay_after),
-                   rxcpp::observe_on_new_thread())
-          .take(1)
-          .as_blocking(),
-      1);
-
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
   // Wait for other peers to start
@@ -151,16 +156,7 @@ TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
 
   yac->vote(my_hash, *order);
 
-  wrapper.subscribe([](auto) { std::cout << "^_^ COMMITTED!!!" << std::endl; },
-                    [](std::exception_ptr ep) {
-                      try {
-                        std::rethrow_exception(ep);
-                      } catch (const std::exception &e) {
-                        FAIL() << "Error waiting for outcome: " << e.what();
-                      }
-                    });
-
-  ASSERT_TRUE(wrapper.validate());
+  ASSERT_TRUE(complete.wait(std::chrono::milliseconds(delay_after)));
 }
 
 int main(int argc, char **argv) {

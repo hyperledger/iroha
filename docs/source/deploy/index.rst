@@ -22,6 +22,7 @@ So, to be on the safe side, please try to deploy on newer versions of Linux (see
       :maxdepth: 1
 
       single.rst
+      flags.rst
       multiple.rst
       k8s-deployment.rst
       troubles.rst

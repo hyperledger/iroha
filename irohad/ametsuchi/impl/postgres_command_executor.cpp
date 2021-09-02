@@ -19,6 +19,7 @@
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
+#include "ametsuchi/impl/soci_string_view.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/vm_caller.hpp"
@@ -199,6 +200,37 @@ namespace {
                          % iroha::ametsuchi::kRootRolePermStr % account_id)
                             .str();
     return query;
+  }
+
+  std::string checkAccountRolePermission(
+      const std::string &permission_bitstring,
+      const std::string &additional_permission_bitstring,
+      const shared_model::interface::types::AccountIdType &account_id) {
+    std::string query = (boost::format(R"(
+          SELECT
+              COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+              & (%2%::bit(%1%) | %5%::bit(%1%) | '%3%'::bit(%1%))
+              != '0'::bit(%1%) has_rp
+          FROM role_has_permissions AS rp
+              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+              WHERE ar.account_id = %4%)")
+                         % kRolePermissionSetSize % permission_bitstring
+                         % iroha::ametsuchi::kRootRolePermStr % account_id
+                         % additional_permission_bitstring)
+                            .str();
+    return query;
+  }
+
+  std::string checkAccountRolePermission(
+      Role additional_permission,
+      Role permission,
+      const shared_model::interface::types::AccountIdType &account_id) {
+    return checkAccountRolePermission(
+        permissionSetToBitString(shared_model::interface::RolePermissionSet(
+            {additional_permission})),
+        permissionSetToBitString(
+            shared_model::interface::RolePermissionSet({permission})),
+        account_id);
   }
 
   std::string checkAccountRolePermission(
@@ -444,28 +476,16 @@ namespace iroha {
       }
 
       // TODO IR-597 mboldyrev 2019.08.10: build args string on demand
-      void addArgumentToString(const std::string &argument_name,
-                               const std::string &value) {
-        arguments_string_builder_.appendNamed(argument_name, value);
-      }
-
-      void addArgumentToString(const std::string &argument_name,
-                               const boost::optional<std::string> &value) {
+      void addArgumentToString(std::string_view argument_name,
+                               const std::optional<std::string_view> &value) {
         if (value) {
-          addArgumentToString(argument_name, *value);
-        }
-      }
-
-      void addArgumentToString(const std::string &argument_name,
-                               const std::optional<std::string> &value) {
-        if (value) {
-          addArgumentToString(argument_name, *value);
+          arguments_string_builder_.appendNamed(argument_name, *value);
         }
       }
 
       template <typename T>
       std::enable_if_t<std::is_arithmetic<T>::value> addArgumentToString(
-          const std::string &argument_name, const T &value) {
+          std::string_view argument_name, const T &value) {
         addArgumentToString(argument_name, std::to_string(value));
       }
 
@@ -978,8 +998,9 @@ namespace iroha {
            R"( WHERE (SELECT * FROM has_perm))",
            R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
 
-      remove_peer_statements_ = makeCommandStatements(sql_,
-                                                      R"(
+      remove_peer_statements_ = makeCommandStatements(
+          sql_,
+          R"(
           WITH %s
           removed AS (
               DELETE FROM peer WHERE public_key = lower(:pubkey)
@@ -991,20 +1012,22 @@ namespace iroha {
             %s
             ELSE 1
           END AS result)",
-                                                      {(boost::format(R"(
+          {(boost::format(R"(
             has_perm AS (%s),
             get_peer AS (
               SELECT * from peer WHERE public_key = lower(:pubkey) LIMIT 1
             ),
             check_peers AS (
               SELECT 1 WHERE (SELECT COUNT(*) FROM peer) > 1
-            ),)") % checkAccountRolePermission(Role::kRemovePeer, ":creator"))
-                                                           .str(),
-                                                       R"(
+            ),)")
+            % checkAccountRolePermission(
+                  Role::kAddPeer, Role::kRemovePeer, ":creator"))
+               .str(),
+           R"(
              AND (SELECT * FROM has_perm)
              AND EXISTS (SELECT * FROM get_peer)
              AND EXISTS (SELECT * FROM check_peers))",
-                                                       R"(
+           R"(
              WHEN NOT EXISTS (SELECT * from get_peer) THEN 3
              WHEN NOT EXISTS (SELECT * from check_peers) THEN 4
              WHEN NOT (SELECT * from has_perm) THEN 2)"});
@@ -1356,6 +1379,7 @@ namespace iroha {
             )
           SELECT CASE
               WHEN EXISTS (SELECT * FROM insert_dest LIMIT 1) THEN 0
+              WHEN EXISTS (SELECT * FROM checks WHERE not result and code = 4) THEN 4
               %s
               ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result)",
@@ -1404,12 +1428,6 @@ namespace iroha {
           {});
     }
 
-    std::string CommandError::toString() const {
-      return (boost::format("%s: %d with extra info '%s'") % command_name
-              % error_code % error_extra)
-          .str();
-    }
-
     PostgresCommandExecutor::PostgresCommandExecutor(
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
@@ -1417,6 +1435,7 @@ namespace iroha {
         std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
         : sql_(std::move(sql)),
+          db_transaction_(*sql_),
           perm_converter_{std::move(perm_converter)},
           specific_query_executor_{std::move(specific_query_executor)},
           vm_caller_{std::move(vm_caller)} {
@@ -1424,6 +1443,8 @@ namespace iroha {
     }
 
     PostgresCommandExecutor::~PostgresCommandExecutor() = default;
+
+    void PostgresCommandExecutor::skipChanges() {}
 
     CommandResult PostgresCommandExecutor::execute(
         const shared_model::interface::Command &cmd,
@@ -1442,6 +1463,10 @@ namespace iroha {
 
     soci::session &PostgresCommandExecutor::getSession() {
       return *sql_;
+    }
+
+    DatabaseTransaction &PostgresCommandExecutor::dbSession() {
+      return db_transaction_;
     }
 
     CommandResult PostgresCommandExecutor::operator()(

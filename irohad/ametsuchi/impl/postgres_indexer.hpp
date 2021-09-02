@@ -22,11 +22,17 @@ namespace iroha {
      public:
       PostgresIndexer(soci::session &sql);
 
-      void committedTxHash(const shared_model::interface::types::HashType
-                               &committed_tx_hash) override;
+      void committedTxHash(
+          const TxPosition &position,
+          shared_model::interface::types::TimestampType const ts,
+          const shared_model::interface::types::HashType &committed_tx_hash)
+          override;
 
-      void rejectedTxHash(const shared_model::interface::types::HashType
-                              &rejected_tx_hash) override;
+      void rejectedTxHash(
+          const TxPosition &position,
+          shared_model::interface::types::TimestampType const ts,
+          const shared_model::interface::types::HashType &rejected_tx_hash)
+          override;
 
       void txPositions(
           shared_model::interface::types::AccountIdType const &account,
