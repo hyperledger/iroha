@@ -15,7 +15,6 @@ categories = ["cryptography::cryptocurrencies"]
 bridge = []
 dex = []
 roles = ["iroha_data_model/roles"]
-network-mock = ["iroha_network/mock"]
 telemetry = []
 cli = ["structopt"]
 dev-telemetry = ["iroha_telemetry"]
@@ -31,7 +30,6 @@ iroha_data_model = { path = "../iroha_data_model", features = ["warp"] }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
 iroha_error = { version = "=0.1.0", path = "../iroha_error" }
-iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_p2p = { version = "=0.1.0", path = "../iroha_p2p" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }

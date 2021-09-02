@@ -8,14 +8,7 @@ use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{derive::Error as ConfigError, Configurable};
 use iroha_data_model::prelude::*;
 use iroha_error::{derive::Error, error};
-use iroha_logger::InstrumentFutures;
-#[cfg(feature = "mock")]
-use iroha_network::mock::prelude::*;
-#[cfg(not(feature = "mock"))]
-use iroha_network::prelude::*;
-use iroha_version::prelude::*;
 use serde::{Deserialize, Serialize};
-use tokio::task;
 use utils::*;
 use warp::{
     http::StatusCode,
@@ -28,12 +21,10 @@ use warp::{
 mod utils;
 
 use crate::{
-    block_sync::message::VersionedMessage as BlockSyncVersionedMessage,
     event::{Consumer, EventsSender},
     prelude::*,
     queue::{GetPendingTransactions, QueueTrait},
     smartcontracts::{isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed},
-    sumeragi::message::VersionedMessage as SumeragiVersionedMessage,
     wsv::WorldTrait,
     Configuration,
 };
@@ -343,79 +334,6 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> iroha_e
     }
 
     Ok(())
-}
-
-#[iroha_futures::telemetry_future]
-async fn handle_requests<Q: QueueTrait, W: WorldTrait>(
-    state: ToriiState<Q, W>,
-    stream: Box<dyn AsyncStream>,
-) -> iroha_error::Result<()> {
-    let state_arc = Arc::clone(&state);
-    task::spawn(async {
-        if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
-            let e = e.report();
-            iroha_logger::error!("Failed to handle message: {}", e);
-        }
-    })
-    .in_current_span()
-    .await?;
-    Ok(())
-}
-
-#[iroha_futures::telemetry_future]
-async fn handle_request<Q: QueueTrait, W: WorldTrait>(
-    state: ToriiState<Q, W>,
-    request: Request,
-) -> iroha_error::Result<iroha_network::Response> {
-    use iroha_network::Response;
-
-    #[allow(clippy::pattern_type_mismatch)]
-    match request.uri_path.as_ref() {
-        uri::CONSENSUS if request.payload.len() > state.config.torii_max_sumeragi_message_size => {
-            iroha_logger::error!("Message is too big. Dropping");
-            Ok(Response::InternalError)
-        }
-        uri::CONSENSUS => {
-            let message = match SumeragiVersionedMessage::decode_versioned(&request.payload) {
-                Ok(message) => message,
-                Err(e) => {
-                    iroha_logger::error!("Failed to decode peer message: {}", e);
-                    return Ok(Response::InternalError);
-                }
-            };
-            state.broker.issue_send(message.into_inner_v1()).await;
-            Ok(Response::empty_ok())
-        }
-        uri::BLOCK_SYNC => {
-            let message = match BlockSyncVersionedMessage::decode_versioned(&request.payload) {
-                Ok(message) => message.into_inner_v1(),
-                Err(e) => {
-                    iroha_logger::error!("Failed to decode peer message: {}", e);
-                    return Ok(Response::InternalError);
-                }
-            };
-
-            state.broker.issue_send(message).await;
-            Ok(Response::empty_ok())
-        }
-        uri::HEALTH => Ok(Response::empty_ok()),
-        uri::PENDING_TRANSACTIONS => {
-            let pending_transactions: VersionedPendingTransactions = state
-                .transactions_queue
-                .send(GetPendingTransactions)
-                .await
-                .into();
-            Ok(Response::Ok(
-                pending_transactions
-                    .encode_versioned()
-                    .map_err(Error::EncodePendingTransactions)?,
-            ))
-        }
-        non_supported_uri => {
-            iroha_logger::error!("URI not supported: {}.", &non_supported_uri);
-            Ok(Response::InternalError)
-        }
-    }
 }
 
 /// URI that `Torii` uses to route incoming requests.
