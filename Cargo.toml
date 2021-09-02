@@ -12,7 +12,6 @@ members = [
   "iroha_error/iroha_error_macro",
   "iroha_macro",
   "iroha_macro/iroha_derive",
-  "iroha_network",
   "iroha_p2p",
   "iroha_permissions_validators",
   "iroha_substrate",

@@ -93,9 +93,6 @@ jobs:
       - name: Run iroha tests with network mock
         run: cargo test --features mock -- --ignored --test-threads=1
         working-directory: iroha/test_network
-      - name: Run iroha_network mock tests
-        run: cargo test --features mock -- --test-threads=1
-        working-directory: iroha_network
 
   test-deadlock_detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest

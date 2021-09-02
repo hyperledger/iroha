@@ -1443,7 +1443,6 @@ dependencies = [
  "iroha_futures",
  "iroha_logger",
  "iroha_macro",
- "iroha_network",
  "iroha_p2p",
  "iroha_schema",
  "iroha_telemetry",
@@ -1697,22 +1696,6 @@ version = "0.1.0"
 dependencies = [
  "iroha_error",
  "parity-scale-codec",
-]
-
-[[package]]
-name = "iroha_network"
-version = "0.1.0"
-dependencies = [
- "dashmap",
- "iroha_derive",
- "iroha_error",
- "iroha_futures",
- "iroha_logger",
- "iroha_macro",
- "once_cell",
- "parity-scale-codec",
- "tokio 1.6.1",
- "tracing",
 ]
 
 [[package]]
@@ -3172,7 +3155,6 @@ dependencies = [
  "iroha_data_model",
  "iroha_error",
  "iroha_logger",
- "iroha_network",
  "iroha_p2p",
  "once_cell",
  "rand 0.7.3",
