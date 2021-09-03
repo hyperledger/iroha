@@ -165,8 +165,8 @@ mod events {
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let filter = match self {
-                Args::Data => EventFilter::Pipeline(PipelineEventFilter::identity()),
-                Args::Pipeline => EventFilter::Data(DataEventFilter),
+                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::identity()),
+                Args::Data => EventFilter::Data(DataEventFilter),
             };
             listen(filter, cfg)
         }
