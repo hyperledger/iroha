@@ -17,7 +17,6 @@ namespace shared_model {
           .appendNamed("hash", hash().hex())
           .appendNamed("height", height())
           .appendNamed("prevHash", prevHash().hex())
-          .appendNamed("txsNumber", txsNumber())
           .appendNamed("createdtime", createdTime())
           .appendNamed("transactions", transactions())
           .appendNamed("signatures", signatures())

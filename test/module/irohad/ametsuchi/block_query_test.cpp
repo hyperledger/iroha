@@ -6,9 +6,9 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 
 #include <boost/filesystem.hpp>
+#include "ametsuchi/impl/block_index_impl.hpp"
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
-#include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_indexer.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "common/byteutils.hpp"
@@ -37,7 +37,7 @@ class BlockQueryTest : public AmetsuchiTest {
     mock_block_storage = std::make_shared<MockBlockStorage>();
     sql = std::make_unique<soci::session>(*soci::factory_postgresql(), pgopt_);
 
-    index = std::make_shared<PostgresBlockIndex>(
+    index = std::make_shared<BlockIndexImpl>(
         std::make_unique<PostgresIndexer>(*sql), getTestLogger("BlockIndex"));
     auto converter =
         std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();

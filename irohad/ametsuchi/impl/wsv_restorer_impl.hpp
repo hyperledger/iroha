@@ -54,8 +54,11 @@ namespace iroha {
        * @return ledger state after restoration on success, otherwise error
        * string
        */
-      CommitResult restoreWsv(Storage &storagem,
-                              bool wait_for_new_blocks) override;
+      CommitResult restoreWsv(
+          Storage &storagem,
+          bool wait_for_new_blocks,
+          std::shared_ptr<BlockQuery> = nullptr,
+          std::shared_ptr<BlockStorageFactory> = nullptr) override;
 
      private:
       std::unique_ptr<shared_model::validation::AbstractValidator<

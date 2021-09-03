@@ -1,5 +1,0 @@
-name: Iroha1 on pull request
-
-on:
-  pull_request:
-    branches: [ main, support/1.*, test-ci ]  ## target branches

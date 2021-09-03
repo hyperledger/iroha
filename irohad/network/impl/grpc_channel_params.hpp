@@ -8,8 +8,7 @@
 
 #include <chrono>
 #include <limits>
-
-#include <boost/optional/optional.hpp>
+#include <optional>
 
 namespace iroha {
   namespace network {
@@ -24,7 +23,7 @@ namespace iroha {
       };
       unsigned int max_request_message_bytes;
       unsigned int max_response_message_bytes;
-      boost::optional<RetryPolicy> retry_policy;
+      std::optional<RetryPolicy> retry_policy;
     };
 
   }  // namespace network

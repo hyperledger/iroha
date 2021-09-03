@@ -1,6 +1,5 @@
 protobuf
 grpc
-tbb
 gtest
 benchmark
 gflags
@@ -23,4 +22,7 @@ boost-accumulators
 boost-property-tree
 boost-process
 iroha-ed25519
+rocksdb
 rxcpp
+prometheus-cpp
+nlohmann-json

@@ -9,20 +9,15 @@
 #include "ametsuchi/mutable_storage.hpp"
 
 #include <gmock/gmock.h>
-#include <rxcpp/rx-lite.hpp>
 
 namespace iroha {
   namespace ametsuchi {
 
     class MockMutableStorage : public MutableStorage {
      public:
-      MOCK_METHOD2(
-          apply,
-          bool(rxcpp::observable<
-                   std::shared_ptr<shared_model::interface::Block>>,
-               std::function<
+      MOCK_METHOD2(applyIf,
                    bool(std::shared_ptr<const shared_model::interface::Block>,
-                        const iroha::LedgerState &)>));
+                        MutableStorage::MutableStoragePredicate));
       MOCK_METHOD1(apply,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(applyPrepared,

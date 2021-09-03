@@ -12,10 +12,16 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
+#include "instantiate_test_suite.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
+
+struct GetRoleFixture : AcceptanceFixture,
+                        ::testing::WithParamInterface<StorageType> {};
+
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(GetRoleFixture);
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -25,7 +31,7 @@ using namespace common_constants;
  * @when execute query with getRoles command
  * @then the query returns list of roles
  */
-TEST_F(AcceptanceFixture, CanGetRoles) {
+TEST_P(GetRoleFixture, CanGetRoles) {
   auto checkQuery = [](auto &query_response) {
     ASSERT_NO_THROW(boost::get<const shared_model::interface::RolesResponse &>(
         query_response.get()));
@@ -40,7 +46,7 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
                    .signAndAddSignature(kUserKeypair)
                    .finish();
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms(
           {shared_model::interface::permissions::Role::kGetRoles}))
@@ -58,7 +64,7 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
  * @when execute query with getRoles command
  * @then there is no way to to get roles due to user hasn't permissions enough
  */
-TEST_F(AcceptanceFixture, CanNotGetRoles) {
+TEST_P(GetRoleFixture, CanNotGetRoles) {
   auto checkQuery = [](auto &query_response) {
     ASSERT_NO_THROW({
       const auto &error_rsp =
@@ -78,7 +84,7 @@ TEST_F(AcceptanceFixture, CanNotGetRoles) {
                    .signAndAddSignature(kUserKeypair)
                    .finish();
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({}))
       .skipProposal()

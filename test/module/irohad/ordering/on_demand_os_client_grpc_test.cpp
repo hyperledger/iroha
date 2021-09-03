@@ -20,7 +20,6 @@ using namespace iroha;
 using namespace iroha::ordering;
 using namespace iroha::ordering::transport;
 
-using grpc::testing::MockClientAsyncResponseReader;
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Return;
@@ -45,30 +44,27 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   void SetUp() override {
     auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();
     stub = ustub.get();
-    async_call =
-        std::make_shared<network::AsyncGrpcClient<google::protobuf::Empty>>(
-            getTestLogger("AsyncCall"));
     auto validator = std::make_unique<MockProposalValidator>();
     proposal_validator = validator.get();
     auto proto_validator = std::make_unique<MockProtoProposalValidator>();
     proto_proposal_validator = proto_validator.get();
     proposal_factory = std::make_shared<ProtoProposalTransportFactory>(
         std::move(validator), std::move(proto_validator));
-    client =
-        std::make_shared<OnDemandOsClientGrpc>(std::move(ustub),
-                                               async_call,
-                                               proposal_factory,
-                                               [&] { return timepoint; },
-                                               timeout,
-                                               getTestLogger("OdOsClientGrpc"));
+    client = std::make_shared<OnDemandOsClientGrpc>(
+        std::move(ustub),
+        proposal_factory,
+        [&] { return timepoint; },
+        timeout,
+        getTestLogger("OdOsClientGrpc"),
+        [this](ProposalEvent event) { received_event = event; });
   }
 
   proto::MockOnDemandOrderingStub *stub;
-  std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>> async_call;
   OnDemandOsClientGrpc::TimepointType timepoint;
   std::chrono::milliseconds timeout{1};
   std::shared_ptr<OnDemandOsClientGrpc> client;
   consensus::Round round{1, 2};
+  ProposalEvent received_event;
 
   MockProposalValidator *proposal_validator;
   MockProtoProposalValidator *proto_proposal_validator;
@@ -82,10 +78,8 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
  */
 TEST_F(OnDemandOsClientGrpcTest, onBatches) {
   proto::BatchesRequest request;
-  auto r = std::make_unique<
-      MockClientAsyncResponseReader<google::protobuf::Empty>>();
-  EXPECT_CALL(*stub, AsyncSendBatchesRaw(_, _, _))
-      .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  EXPECT_CALL(*stub, SendBatches(_, _, _))
+      .WillOnce(DoAll(SaveArg<1>(&request), Return(grpc::Status::OK)));
 
   OdOsNotification::CollectionType collection;
   auto creator = "test";
@@ -136,13 +130,15 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  auto proposal = client->onRequestProposal(round);
+  client->onRequestProposal(round);
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_TRUE(proposal);
-  ASSERT_EQ(proposal.value()->transactions()[0].creatorAccountId(), creator);
+  ASSERT_TRUE(received_event.proposal);
+  ASSERT_EQ(
+      received_event.proposal.value()->transactions()[0].creatorAccountId(),
+      creator);
 }
 
 /**
@@ -162,10 +158,10 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  auto proposal = client->onRequestProposal(round);
+  client->onRequestProposal(round);
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_FALSE(proposal);
+  ASSERT_FALSE(received_event.proposal);
 }

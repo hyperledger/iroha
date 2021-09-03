@@ -15,6 +15,7 @@
 
 using namespace benchmark::utils;
 using namespace common_constants;
+using namespace integration_framework;
 using shared_model::interface::types::PublicKeyHexStringView;
 
 /**
@@ -22,40 +23,45 @@ using shared_model::interface::types::PublicKeyHexStringView;
  * performance
  */
 static void BM_QueryAccount(benchmark::State &state) {
-  integration_framework::IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
-  itf.sendTx(createUserWithPerms(
-                 kUser,
-                 PublicKeyHexStringView{kUserKeypair.publicKey()},
-                 kRole,
-                 {shared_model::interface::permissions::Role::kGetAllAccounts})
-                 .build()
-                 .signAndAddSignature(kAdminKeypair)
-                 .finish());
+  for (auto const type :
+       {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
+    IntegrationTestFramework itf(1, GetParam());
+    itf.setInitialState(kAdminKeypair);
+    itf.sendTx(
+        createUserWithPerms(
+            kUser,
+            PublicKeyHexStringView{kUserKeypair.publicKey()},
+            kRole,
+            {shared_model::interface::permissions::Role::kGetAllAccounts})
+            .build()
+            .signAndAddSignature(kAdminKeypair)
+            .finish());
 
-  itf.skipBlock().skipProposal();
+    itf.skipBlock().skipProposal();
 
-  auto make_query = []() {
-    return TestUnsignedQueryBuilder()
-        .createdTime(iroha::time::now())
-        .creatorAccountId(kUserId)
-        .queryCounter(1)
-        .getAccount(kUserId)
-        .build()
-        .signAndAddSignature(kUserKeypair)
-        .finish();
-  };
+    auto make_query = []() {
+      return TestUnsignedQueryBuilder()
+          .createdTime(iroha::time::now())
+          .creatorAccountId(kUserId)
+          .queryCounter(1)
+          .getAccount(kUserId)
+          .build()
+          .signAndAddSignature(kUserKeypair)
+          .finish();
+    };
 
-  auto check = [](auto &status) {
-    boost::get<const shared_model::interface::AccountResponse &>(status.get());
-  };
+    auto check = [](auto &status) {
+      boost::get<const shared_model::interface::AccountResponse &>(
+          status.get());
+    };
 
-  itf.sendQuery(make_query(), check);
+    itf.sendQuery(make_query(), check);
 
-  while (state.KeepRunning()) {
-    itf.sendQuery(make_query());
+    while (state.KeepRunning()) {
+      itf.sendQuery(make_query());
+    }
+    itf.done();
   }
-  itf.done();
 }
 BENCHMARK(BM_QueryAccount)->Unit(benchmark::kMicrosecond);
 

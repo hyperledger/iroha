@@ -3,12 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "common/default_constructible_unary_fn.hpp"  // non-copyable value workaround
-
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 
-#include <boost/range/adaptor/filtered.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include <rxcpp/rx-lite.hpp>
 #include <type_traits>
 #include "ametsuchi/tx_presence_cache.hpp"

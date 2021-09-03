@@ -15,13 +15,10 @@
 #include <boost/range/numeric.hpp>
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "framework/crypto_literals.hpp"
-#include "module/irohad/ametsuchi/mock_peer_query.hpp"
-#include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace boost::adaptors;
-using namespace iroha::ametsuchi;
 using namespace iroha::consensus::yac;
 
 using namespace std;
@@ -33,17 +30,6 @@ const size_t kPeersQuantity = 4;
 
 class YacPeerOrdererTest : public ::testing::Test {
  public:
-  YacPeerOrdererTest() : orderer(make_shared<MockPeerQueryFactory>()) {}
-
-  void SetUp() override {
-    wsv = make_shared<MockPeerQuery>();
-    pbfactory = make_shared<MockPeerQueryFactory>();
-    EXPECT_CALL(*pbfactory, createPeerQuery())
-        .WillRepeatedly(testing::Return(boost::make_optional(
-            std::shared_ptr<iroha::ametsuchi::PeerQuery>(wsv))));
-    orderer = PeerOrdererImpl(pbfactory);
-  }
-
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers = [] {
     std::vector<std::shared_ptr<shared_model::interface::Peer>> result;
     for (size_t i = 1; i <= kPeersQuantity; ++i) {
@@ -65,8 +51,6 @@ class YacPeerOrdererTest : public ::testing::Test {
     return result;
   }();
 
-  shared_ptr<MockPeerQuery> wsv;
-  shared_ptr<MockPeerQueryFactory> pbfactory;
   PeerOrdererImpl orderer;
 };
 
@@ -77,7 +61,7 @@ TEST_F(YacPeerOrdererTest, PeerOrdererOrderingWhenInvokeNormalCase) {
 
 TEST_F(YacPeerOrdererTest, PeerOrdererOrderingWhenEmptyPeerList) {
   auto order = orderer.getOrdering(YacHash(), {});
-  ASSERT_EQ(order, boost::none);
+  ASSERT_EQ(order, std::nullopt);
 }
 
 /**

@@ -46,17 +46,13 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
     }
 
     manager = std::make_shared<OnDemandConnectionManager>(
-        factory,
-        peers.get_observable(),
-        cpeers,
-        getTestLogger("OsConnectionManager"));
+        factory, cpeers, getTestLogger("OsConnectionManager"));
   }
 
   OnDemandConnectionManager::CurrentPeers cpeers;
   OnDemandConnectionManager::PeerCollectionType<MockOdOsNotification *>
       connections;
 
-  rxcpp::subjects::subject<OnDemandConnectionManager::CurrentPeers> peers;
   std::shared_ptr<MockOdOsNotificationFactory> factory;
   std::shared_ptr<OnDemandConnectionManager> manager;
 };
@@ -84,10 +80,9 @@ TEST_F(OnDemandConnectionManagerTest, onBatches) {
     EXPECT_CALL(*connections[type], onBatches(collection)).Times(1);
   };
 
-  set_expect(OnDemandConnectionManager::kRejectRejectConsumer);
-  set_expect(OnDemandConnectionManager::kRejectCommitConsumer);
-  set_expect(OnDemandConnectionManager::kCommitRejectConsumer);
-  set_expect(OnDemandConnectionManager::kCommitCommitConsumer);
+  set_expect(OnDemandConnectionManager::kIssuer);
+  set_expect(OnDemandConnectionManager::kRejectConsumer);
+  set_expect(OnDemandConnectionManager::kCommitConsumer);
 
   manager->onBatches(collection);
 }
@@ -95,39 +90,13 @@ TEST_F(OnDemandConnectionManagerTest, onBatches) {
 /**
  * @given initialized OnDemandConnectionManager
  * @when onRequestProposal is called
- * AND proposal is returned
  * @then peer is triggered
- * AND return data is forwarded
  */
 TEST_F(OnDemandConnectionManagerTest, onRequestProposal) {
   consensus::Round round{};
-  auto oproposal = boost::make_optional<
-      std::shared_ptr<const OnDemandConnectionManager::ProposalType>>({});
-  auto proposal = oproposal.value().get();
   EXPECT_CALL(*connections[OnDemandConnectionManager::kIssuer],
               onRequestProposal(round))
-      .WillOnce(Return(ByMove(std::move(oproposal))));
+      .Times(1);
 
-  auto result = manager->onRequestProposal(round);
-
-  ASSERT_TRUE(result);
-  ASSERT_EQ(result.value().get(), proposal);
-}
-
-/**
- * @given initialized OnDemandConnectionManager
- * @when onRequestProposal is called
- * AND no proposal is returned
- * @then peer is triggered
- * AND return data is forwarded
- */
-TEST_F(OnDemandConnectionManagerTest, onRequestProposalNone) {
-  consensus::Round round{};
-  EXPECT_CALL(*connections[OnDemandConnectionManager::kIssuer],
-              onRequestProposal(round))
-      .WillOnce(Return(ByMove(std::move(boost::none))));
-
-  auto result = manager->onRequestProposal(round);
-
-  ASSERT_FALSE(result);
+  manager->onRequestProposal(round);
 }

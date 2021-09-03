@@ -35,7 +35,7 @@ namespace shared_model {
     template <int S = 0,
               typename SV = validation::DefaultUnsignedTransactionValidator,
               typename BT = UnsignedWrapper<Transaction>>
-    class [[deprecated]] TemplateTransactionBuilder {
+    class /*[[deprecated]]*/ TemplateTransactionBuilder {
      private:
       template <int, typename, typename>
       friend class TemplateTransactionBuilder;

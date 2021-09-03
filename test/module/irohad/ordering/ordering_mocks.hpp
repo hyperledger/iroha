@@ -8,51 +8,40 @@
 
 #include <gmock/gmock.h>
 
+#include "interfaces/common_objects/peer.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
-#include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
 
-namespace iroha {
-  namespace ordering {
-    namespace transport {
+namespace iroha::ordering::transport {
+  struct MockOdOsNotificationFactory : public OdOsNotificationFactory {
+    MOCK_METHOD((iroha::expected::Result<std::unique_ptr<OdOsNotification>,
+                                         std::string>),
+                create,
+                (const shared_model::interface::Peer &),
+                (override));
+  };
+}  // namespace iroha::ordering::transport
 
-      struct MockOdOsNotificationFactory : public OdOsNotificationFactory {
-        MOCK_METHOD1(create,
-                     iroha::expected::Result<std::unique_ptr<OdOsNotification>,
-                                             std::string>(
-                         const shared_model::interface::Peer &));
-      };
+namespace iroha::ordering {
+  struct MockOnDemandOrderingService : public OnDemandOrderingService {
+    MOCK_METHOD(void, onBatches, (CollectionType), (override));
 
-    }  // namespace transport
+    MOCK_METHOD((std::optional<std::shared_ptr<const ProposalType>>),
+                onRequestProposal,
+                (consensus::Round),
+                (override));
 
-    namespace cache {
-      struct MockOrderingGateCache : public OrderingGateCache {
-        MOCK_METHOD1(addToBack, void(const BatchesSetType &));
-        MOCK_METHOD0(pop, BatchesSetType());
-        MOCK_METHOD1(remove, void(const HashesSetType &));
-        MOCK_CONST_METHOD0(head, const BatchesSetType &());
-        MOCK_CONST_METHOD0(tail, const BatchesSetType &());
-      };
-    }  // namespace cache
-
-    struct MockOnDemandOrderingService : public OnDemandOrderingService {
-      MOCK_METHOD1(onBatches, void(CollectionType));
-
-      MOCK_METHOD1(onRequestProposal,
-                   boost::optional<std::shared_ptr<const ProposalType>>(
-                       consensus::Round));
-
-      MOCK_METHOD1(onCollaborationOutcome, void(consensus::Round));
-      MOCK_METHOD1(onTxsCommitted, void(const HashesSetType &));
-      MOCK_METHOD1(
-          forCachedBatches,
-          void(std::function<
-               void(const transport::OdOsNotification::BatchesSetType &)> const
-                   &));
-    };
-
-  }  // namespace ordering
-}  // namespace iroha
+    MOCK_METHOD(void, onCollaborationOutcome, (consensus::Round), (override));
+    MOCK_METHOD(void, onTxsCommitted, (const HashesSetType &), (override));
+    MOCK_CONST_METHOD1(
+        forCachedBatches,
+        void(std::function<
+             void(const OnDemandOrderingService::BatchesSetType &)> const &));
+    MOCK_METHOD(bool, isEmptyBatchesCache, (), (const, override));
+    MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
+    MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));
+  };
+}  // namespace iroha::ordering
 
 #endif  // IROHA_ORDERING_MOCKS_HPP

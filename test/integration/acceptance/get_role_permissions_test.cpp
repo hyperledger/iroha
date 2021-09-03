@@ -8,6 +8,7 @@
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
@@ -15,6 +16,10 @@
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
+
+struct RolePermissionFixture : AcceptanceFixture,
+                               ::testing::WithParamInterface<StorageType> {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RolePermissionFixture);
 
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
@@ -25,7 +30,7 @@ using namespace common_constants;
  * @when the user send query with getRolePermissions request
  * @then there is a valid RolePermissionsResponse
  */
-TEST_F(AcceptanceFixture, CanGetRolePermissions) {
+TEST_P(RolePermissionFixture, CanGetRolePermissions) {
   auto check_query = [](auto &query_response) {
     ASSERT_NO_THROW(
         boost::get<const shared_model::interface::RolePermissionsResponse &>(
@@ -34,7 +39,7 @@ TEST_F(AcceptanceFixture, CanGetRolePermissions) {
 
   auto query = complete(baseQry().getRolePermissions(kRole));
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(
@@ -52,10 +57,10 @@ TEST_F(AcceptanceFixture, CanGetRolePermissions) {
  * @when the user send query with getRolePermissions request
  * @then query should be recognized as stateful invalid
  */
-TEST_F(AcceptanceFixture, CanNotGetRolePermissions) {
+TEST_P(RolePermissionFixture, CanNotGetRolePermissions) {
   auto query = complete(baseQry().getRolePermissions(kRole));
 
-  IntegrationTestFramework(1)
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms({}),

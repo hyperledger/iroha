@@ -13,7 +13,6 @@
 #include "framework/batch_helper.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
-#include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -26,13 +25,10 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
-#include "torii/impl/status_bus_impl.hpp"
 
 using namespace iroha;
 using namespace iroha::network;
 using namespace iroha::torii;
-using namespace iroha::synchronizer;
-using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
@@ -46,30 +42,19 @@ class TransactionProcessorTest : public ::testing::Test {
     pcs = std::make_shared<MockPeerCommunicationService>();
     mst = std::make_shared<MockMstProcessor>(getTestLogger("MstProcessor"));
 
-    EXPECT_CALL(*pcs, onVerifiedProposal())
-        .WillRepeatedly(Return(verified_prop_notifier.get_observable()));
-
-    EXPECT_CALL(*mst, onStateUpdateImpl())
-        .WillRepeatedly(Return(mst_update_notifier.get_observable()));
-    EXPECT_CALL(*mst, onPreparedBatchesImpl())
-        .WillRepeatedly(Return(mst_prepared_notifier.get_observable()));
-    EXPECT_CALL(*mst, onExpiredBatchesImpl())
-        .WillRepeatedly(Return(mst_expired_notifier.get_observable()));
-
     status_bus = std::make_shared<MockStatusBus>();
     tp = std::make_shared<TransactionProcessorImpl>(
         pcs,
         mst,
         status_bus,
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>(),
-        commit_notifier.get_observable(),
         getTestLogger("TransactionProcessor"));
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
-        shared_model::crypto::Hash{"hash"});
+        shared_model::crypto::Hash{std::string("hash")});
   }
 
   auto base_tx() {
@@ -130,16 +115,6 @@ class TransactionProcessorTest : public ::testing::Test {
       ASSERT_NO_THROW(boost::get<const Status &>(tx_status->second->get()));
     }
   }
-
-  rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
-      mst_update_notifier;
-  rxcpp::subjects::subject<iroha::DataType> mst_prepared_notifier;
-  rxcpp::subjects::subject<iroha::DataType> mst_expired_notifier;
-  rxcpp::subjects::subject<
-      std::shared_ptr<const shared_model::interface::Block>>
-      commit_notifier;
-  rxcpp::subjects::subject<simulator::VerifiedProposalCreatorEvent>
-      verified_prop_notifier;
 
   std::shared_ptr<MockPeerCommunicationService> pcs;
   std::shared_ptr<MockStatusBus> status_bus;
@@ -282,7 +257,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorVerifiedProposalTest) {
           TestProposalBuilder().transactions(txs).build());
 
   // empty transactions errors - all txs are valid
-  verified_prop_notifier.get_subscriber().on_next(
+  tp->processVerifiedProposalCreatorEvent(
       simulator::VerifiedProposalCreatorEvent{
           validation_result, round, ledger_state});
 
@@ -326,14 +301,14 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnCommitTest) {
           TestProposalBuilder().transactions(txs).build());
 
   // empty transactions errors - all txs are valid
-  verified_prop_notifier.get_subscriber().on_next(
+  tp->processVerifiedProposalCreatorEvent(
       simulator::VerifiedProposalCreatorEvent{
           validation_result, round, ledger_state});
 
   auto block = TestBlockBuilder().transactions(txs).build();
 
   // 2. Create block and notify transaction processor about it
-  commit_notifier.get_subscriber().on_next(
+  tp->processCommit(
       std::shared_ptr<shared_model::interface::Block>(clone(block)));
 
   SCOPED_TRACE("Committed status verification");
@@ -396,7 +371,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
                                      iroha::validation::CommandError{
                                          "SomeCommandName", 1, "", true, i}});
   }
-  verified_prop_notifier.get_subscriber().on_next(
+  tp->processVerifiedProposalCreatorEvent(
       simulator::VerifiedProposalCreatorEvent{
           validation_result, round, ledger_state});
 
@@ -415,7 +390,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
                        }))
                    .build();
 
-  commit_notifier.get_subscriber().on_next(
+  tp->processCommit(
       std::shared_ptr<shared_model::interface::Block>(clone(block)));
 
   {
@@ -460,7 +435,7 @@ TEST_F(TransactionProcessorTest, MultisigTransactionFromMst) {
       std::shared_ptr<shared_model::interface::Transaction>(clone(tx)));
 
   EXPECT_CALL(*pcs, propagate_batch(_)).Times(1);
-  mst_prepared_notifier.get_subscriber().on_next(after_mst);
+  tp->processPreparedBatch(after_mst);
 }
 
 /**
@@ -487,6 +462,6 @@ TEST_F(TransactionProcessorTest, MultisigExpired) {
                 response->get()));
       }));
   tp->batchHandle(framework::batch::createBatchFromSingleTransaction(tx));
-  mst_expired_notifier.get_subscriber().on_next(
+  tp->processExpiredBatch(
       framework::batch::createBatchFromSingleTransaction(tx));
 }

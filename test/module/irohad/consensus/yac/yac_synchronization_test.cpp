@@ -57,7 +57,7 @@ class NetworkUtil {
   }
 
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers_;
-  boost::optional<ClusterOrdering> order_;
+  std::optional<ClusterOrdering> order_;
 };
 
 class YacSynchronizationTest : public YacTest {
@@ -75,16 +75,20 @@ class YacSynchronizationTest : public YacTest {
 
     initYac(order);
     EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
-    EXPECT_CALL(*timer, deny()).Times(number_of_committed_rounds_);
 
-    for (auto i = 0u; i < number_of_committed_rounds_; i++) {
+    for (auto i = initial_round.block_round;
+         i < initial_round.block_round + number_of_committed_rounds_;
+         i++) {
       top_hash_ = createHash(Round{i, 0});
       setNetworkOrderCheckerSingleVote(order, top_hash_.value(), 2);
+      yac->processRoundSwitch(top_hash_->vote_round, order.getPeers());
       yac->vote(top_hash_.value(), order);
       yac->onState(network_util.createVotes(voters_, top_hash_.value()));
     }
-    const YacHash next_hash = createHash({number_of_committed_rounds_, 0});
+    const YacHash next_hash = createHash(
+        {initial_round.block_round + number_of_committed_rounds_, 0});
     setNetworkOrderCheckerSingleVote(order, next_hash, 2);
+    yac->processRoundSwitch(next_hash.vote_round, order.getPeers());
     yac->vote(next_hash, order);
   }
 
@@ -110,7 +114,7 @@ class YacSynchronizationTest : public YacTest {
  * @when  Vote from known peer from old round which was presented in the cache
  * @then  Yac sends commit for the last round
  */
-TEST_F(YacSynchronizationTest, SynchronizationOncommitInTheCahe) {
+TEST_F(YacSynchronizationTest, SynchronizationOnCommitInTheCache) {
   expectSendTopCommitTo(0);
   yac->onState(network_util_.createVotes({0}, createHash(Round{1, 0})));
 }
@@ -120,7 +124,7 @@ TEST_F(YacSynchronizationTest, SynchronizationOncommitInTheCahe) {
  * @when  Vote from known peer from old round which presents in a cache
  * @then  Yac sends commit for the last round
  */
-TEST_F(YacSynchronizationTest, SynchronizationOnCommitOutOfTheCahe) {
+TEST_F(YacSynchronizationTest, SynchronizationOnCommitOutOfTheCache) {
   expectSendTopCommitTo(0);
   yac->onState(network_util_.createVotes({0}, createHash(Round{9, 0})));
 }
@@ -130,7 +134,7 @@ TEST_F(YacSynchronizationTest, SynchronizationOnCommitOutOfTheCahe) {
  * @when  Vote from known peer from old round which doesn't present in the cache
  * @then  Yac sends last commit
  */
-TEST_F(YacSynchronizationTest, SynchronizationRejectOutOfTheCahe) {
+TEST_F(YacSynchronizationTest, SynchronizationRejectOutOfTheCache) {
   expectSendTopCommitTo(0);
   yac->onState(network_util_.createVotes({0}, createHash(Round{5, 5})));
 }

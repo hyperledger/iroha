@@ -1,5 +1,0 @@
-name: Iroha1 on schedule
-
-on:
-  schedule:
-    - cron: '12 22 * * *'

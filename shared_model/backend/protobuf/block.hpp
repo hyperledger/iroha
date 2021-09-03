@@ -6,10 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_BLOCK_HPP
 #define IROHA_SHARED_MODEL_PROTO_BLOCK_HPP
 
-#include "interfaces/iroha_internal/block.hpp"
-
 #include "block.pb.h"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/iroha_internal/block.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -40,8 +39,6 @@ namespace shared_model {
       const interface::types::HashType &hash() const override;
 
       interface::types::TimestampType createdTime() const override;
-
-      interface::types::TransactionsNumberType txsNumber() const override;
 
       interface::types::HashCollectionType rejected_transactions_hashes()
           const override;

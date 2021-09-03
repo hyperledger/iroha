@@ -9,6 +9,7 @@
 #include "common/result_fwd.hpp"
 
 #include <ciso646>
+#include <string>
 #include <type_traits>
 
 #include <boost/optional.hpp>
@@ -85,7 +86,7 @@ namespace iroha {
      * @tparam V type of value
      * @tparam E error type
      */
-    template <typename V, typename E>
+    template <typename V, typename E = std::string>
     class Result : ResultBase, public boost::variant<Value<V>, Error<E>> {
       template <typename OV, typename OE>
       friend class Result;
@@ -444,7 +445,7 @@ namespace iroha {
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 ReturnType>::type {
       return r.match(
-          [&f](const Value<T> &v) { return TypeHelper::makeValue(f()); },
+          [&f](const Value<T> &) { return TypeHelper::makeValue(f()); },
           [](const Error<E> &e) { return ReturnType(makeError(e.error)); });
     }
 

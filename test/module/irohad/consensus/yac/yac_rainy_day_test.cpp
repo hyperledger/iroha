@@ -7,7 +7,6 @@
 
 #include "consensus/yac/impl/supermajority_checker_bft.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
-#include "framework/test_subscriber.hpp"
 
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
@@ -15,7 +14,6 @@ using ::testing::_;
 using ::testing::Return;
 
 using namespace iroha::consensus::yac;
-using namespace framework::test_subscriber;
 
 static constexpr size_t kFixedRandomNumber = 9;
 
@@ -34,8 +32,6 @@ TEST_F(YacTest, InvalidCaseWhenNotReceiveSupermajority) {
   ASSERT_TRUE(my_order);
 
   initYac(my_order.value());
-
-  EXPECT_CALL(*timer, deny()).Times(0);
 
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
@@ -83,8 +79,6 @@ TEST_F(YacTest, InvalidCaseWhenDoesNotVerify) {
 
   EXPECT_CALL(*network, sendState(_, _)).Times(0);
 
-  EXPECT_CALL(*timer, deny()).Times(0);
-
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(false));
 
   YacHash hash1(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
@@ -116,8 +110,6 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
   ASSERT_TRUE(my_order);
 
   initYac(my_order.value());
-
-  EXPECT_CALL(*timer, deny()).Times(1);
 
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
@@ -163,6 +155,7 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
   setNetworkOrderCheckerSingleVote(
       my_order.value(), testing::AnyOf(next_reject_hash), kFixedRandomNumber);
 
+  yac->processRoundSwitch(next_reject_hash.vote_round, my_order->getPeers());
   yac->vote(next_reject_hash, my_order.value());
 
   // -- now yac receives a vote from another peer when we already have a reject
@@ -172,7 +165,6 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
       iroha::hexstringToBytestringResult(peer->pubkey()).assumeValue();
   const auto slowpoke_hash = makeYacHash(peers_number);
 
-  vote_matchers.emplace_back(makeVoteMatcher(slowpoke_hash));
   EXPECT_CALL(*network,
               sendState(_, ::testing::UnorderedElementsAreArray(vote_matchers)))
       .Times(1);

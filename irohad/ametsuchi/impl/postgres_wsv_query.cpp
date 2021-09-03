@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 
 #include <soci/boost-tuple.h>
+
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -77,6 +78,35 @@ namespace iroha {
       });
 
       return getPeersFromSociRowSet(result);
+    }
+
+    iroha::expected::Result<size_t, std::string> PostgresWsvQuery::count(
+        std::string_view table, std::string_view column /* ="*" */) try {
+      int count;
+      sql_ << "SELECT count(" << column << ") FROM " << table,
+          soci::into(count);
+      return count;
+    } catch (const std::exception &e) {
+      auto msg = fmt::format("Failed to count {}, query: {}", table, e.what());
+      log_->error(msg);
+      return iroha::expected::makeError(msg);
+    }
+
+    iroha::expected::Result<size_t, std::string>
+    PostgresWsvQuery::countPeers() {
+      return count("peer");
+    }
+
+    iroha::expected::Result<size_t, std::string>
+    PostgresWsvQuery::countDomains() {
+      return count("domain");
+    }
+
+    iroha::expected::Result<size_t, std::string>
+    PostgresWsvQuery::countTransactions() {
+      return count("tx_positions", "DISTINCT hash");
+      // OR return count("tx_status_from_hash", "*", "WHERE status=true");
+      // //select count(*) from tx_status_by_hash where status=true
     }
 
     boost::optional<std::shared_ptr<shared_model::interface::Peer>>

@@ -43,4 +43,10 @@ namespace iroha {
   bool MstStorage::batchInStorage(const DataType &batch) const {
     return batchInStorageImpl(batch);
   }
+
+  void MstStorage::processFinalizedTransaction(
+      shared_model::interface::types::HashType const &hash) {
+    std::lock_guard lock{mutex_};
+    processFinalizedTransactionImpl(hash);
+  }
 }  // namespace iroha

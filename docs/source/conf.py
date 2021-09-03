@@ -6,10 +6,10 @@ from sphinx.highlighting import lexers
 from pygments_lexer_solidity import SolidityLexer
 lexers['solidity'] = SolidityLexer()
 from pathlib import Path
-import subprocess
+# import subprocess
 
 root_dir = Path(__file__).resolve().parents[2]
-subprocess.run('doxygen', shell=True, cwd=root_dir)
+# subprocess.run('doxygen', shell=True, cwd=root_dir)
 
 sys.path.insert(0, os.path.abspath('.'))
 
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath('.'))
 #
 # needs_sphinx = '1.0'
 
-# Add any Sphinx extension module names here, as strings. They can be
+# Add any Sphinx extension module names here, as strm2rngs. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [

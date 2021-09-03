@@ -23,9 +23,20 @@ target_link_libraries(executor_fixture_param_postgres
     test_logger
     )
 
+add_library(executor_fixture_param_rocksdb executor_fixture_param_rocksdb.cpp)
+target_link_libraries(executor_fixture_param_rocksdb
+    ametsuchi_rocksdb
+    executor_fixture_param
+    GTest::gmock
+    rocksdb_indexer
+    shared_model_proto_backend
+    test_logger
+    )
+
 add_library(executor_fixture_param_provider executor_fixture_param_provider.cpp)
 target_link_libraries(executor_fixture_param_provider
     executor_fixture_param_postgres
+    executor_fixture_param_rocksdb
     )
 
 add_library(account_detail_checker account_detail_checker.cpp)

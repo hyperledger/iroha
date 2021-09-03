@@ -15,6 +15,8 @@ namespace iroha {
     shared_model::interface::types::HeightType height;
     shared_model::crypto::Hash top_hash;
 
+    TopBlockInfo() {}
+
     TopBlockInfo(shared_model::interface::types::HeightType height,
                  shared_model::crypto::Hash top_hash)
         : height(height), top_hash(std::move(top_hash)) {}

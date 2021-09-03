@@ -7,14 +7,17 @@
 
 #include <gtest/gtest.h>
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class CreateAssetFixture : public AcceptanceFixture {
- public:
+using iroha::StorageType;
+
+struct CreateAssetFixture : AcceptanceFixture,
+                            testing::WithParamInterface<iroha::StorageType> {
   auto makeUserWithPerms(const interface::RolePermissionSet &perms = {
                              interface::permissions::Role::kCreateAsset}) {
     return AcceptanceFixture::makeUserWithPerms(perms);
@@ -25,6 +28,8 @@ class CreateAssetFixture : public AcceptanceFixture {
   const interface::types::PrecisionType kNonDefaultPrecision = kPrecision + 17;
   const interface::types::DomainIdType kNonExistingDomain = "nonexisting";
 };
+
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(CreateAssetFixture);
 
 /*
  * With the current implementation of crateAsset method of TransactionBuilder
@@ -42,10 +47,11 @@ class CreateAssetFixture : public AcceptanceFixture {
  * @when the user tries to create an asset
  * @then asset is successfully created
  */
-TEST_F(CreateAssetFixture, Basic) {
+TEST_P(CreateAssetFixture, Basic) {
   const auto asset_id = kAnotherAssetName + "#" + kDomain;
   const auto asset_amount = "100.0";
-  IntegrationTestFramework(1)
+
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kCreateAsset,
                                  interface::permissions::Role::kAddAssetQty}))
@@ -74,8 +80,8 @@ TEST_F(CreateAssetFixture, Basic) {
  * @when the user tries to create asset that already exists
  * @then stateful validation failed
  */
-TEST_F(CreateAssetFixture, ExistingName) {
-  IntegrationTestFramework(1)
+TEST_P(CreateAssetFixture, ExistingName) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -84,8 +90,8 @@ TEST_F(CreateAssetFixture, ExistingName) {
       .checkProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
       .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
+          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+          // failure reason
           [](auto &vproposal) {
             ASSERT_EQ(vproposal->transactions().size(), 0);
           })
@@ -102,8 +108,8 @@ TEST_F(CreateAssetFixture, ExistingName) {
  * precision
  * @then stateful validation failed
  */
-TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
-  IntegrationTestFramework(1)
+TEST_P(CreateAssetFixture, ExistingNameDifferentPrecision) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -113,8 +119,8 @@ TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
       .checkProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
       .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
+          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+          // failure reason
           [](auto &vproposal) {
             ASSERT_EQ(vproposal->transactions().size(), 0);
           })
@@ -131,8 +137,8 @@ TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
  * @when the user tries to create asset
  * @then stateful validation is failed
  */
-TEST_F(CreateAssetFixture, WithoutPermission) {
-  IntegrationTestFramework(1)
+TEST_P(CreateAssetFixture, WithoutPermission) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms({}),
@@ -141,8 +147,8 @@ TEST_F(CreateAssetFixture, WithoutPermission) {
       .checkProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
       .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
+          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+          // failure reason
           [](auto &vproposal) {
             ASSERT_EQ(vproposal->transactions().size(), 0);
           })
@@ -158,8 +164,8 @@ TEST_F(CreateAssetFixture, WithoutPermission) {
  * @when the user tries to create asset in valid but non existing domain
  * @then stateful validation will be failed
  */
-TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
-  IntegrationTestFramework(1)
+TEST_P(CreateAssetFixture, ValidNonExistingDomain) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(
           makeUserWithPerms(),
@@ -169,8 +175,8 @@ TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
       .checkProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
       .checkVerifiedProposal(
-          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of failure
-          // reason
+          // todo igor-egorov, 2018-08-15, IR-1625, add precise check of
+          // failure reason
           [](auto &vproposal) {
             ASSERT_EQ(vproposal->transactions().size(), 0);
           })

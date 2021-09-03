@@ -4,8 +4,8 @@
  */
 
 #include "builders/protobuf/builder_templates/query_template.hpp"
-
 #include "framework/crypto_literals.hpp"
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
@@ -18,6 +18,10 @@ using namespace common_constants;
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
+struct RevokePermissionFx : GrantablePermissionsFixture,
+                            ::testing::WithParamInterface<StorageType> {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RevokePermissionFx);
+
 /**
  * TODO mboldyrev 18.01.2019 IR-228 "Basic" tests should be replaced with a
  * common acceptance test
@@ -29,8 +33,8 @@ using shared_model::interface::types::PublicKeyHexStringView;
  * account
  * @then transaction would not be committed
  */
-TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
-  IntegrationTestFramework(1)
+TEST_P(RevokePermissionFx, RevokeFromNonExistingAccount) {
+  IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeAccountWithPerms(
           kAccount1, kAccount1Keypair, {Role::kSetMyQuorum}, kRole1))
@@ -61,8 +65,8 @@ TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
  * @when the first account revokes the permission twice
  * @then the second revoke does not pass stateful validation
  */
-TEST_F(GrantablePermissionsFixture, RevokeTwice) {
-  IntegrationTestFramework itf(1);
+TEST_P(RevokePermissionFx, RevokeTwice) {
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
       .sendTx(grantPermission(kAccount1,
@@ -104,8 +108,8 @@ TEST_F(GrantablePermissionsFixture, RevokeTwice) {
  * @when first account tries to revoke permissions from the second
  * @then revoke fails
  */
-TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
-  IntegrationTestFramework itf(1);
+TEST_P(RevokePermissionFx, RevokeWithoutPermission) {
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {}, {Role::kReceive})
       .sendTxAwait(
@@ -135,8 +139,7 @@ TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
  * @when the first account tries to revoke permission from the second
  * @then revoke is successful
  */
-TEST_F(GrantablePermissionsFixture,
-       RevokeTheGrantedPermissionWithoutPermission) {
+TEST_P(RevokePermissionFx, RevokeTheGrantedPermissionWithoutPermission) {
   auto detach_role_tx = GrantablePermissionsFixture::TxBuilder()
                             .createdTime(getUniqueTime())
                             .creatorAccountId(kAdminId)
@@ -146,7 +149,7 @@ TEST_F(GrantablePermissionsFixture,
                             .signAndAddSignature(kAdminKeypair)
                             .finish();
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
       .sendTxAwait(
@@ -176,8 +179,8 @@ namespace grantables {
   using gpf = GrantablePermissionsFixture;
 
   template <typename GrantableType>
-  class GrantRevokeFixture : public GrantablePermissionsFixture {
-   public:
+  struct GrantRevokeFixture : GrantablePermissionsFixture,
+                              ::testing::WithParamInterface<StorageType> {
     GrantableType grantable_type_;
   };
 
@@ -280,7 +283,7 @@ namespace grantables {
     }
 
     IntegrationTestFramework &prepare(GrantablePermissionsFixture &f,
-                                      IntegrationTestFramework &itf) {
+                                      IntegrationTestFramework &itf) override {
       auto create_and_transfer_coins =
           GrantablePermissionsFixture::TxBuilder()
               .createdTime(f.getUniqueTime())
@@ -310,13 +313,7 @@ namespace grantables {
     }
   };
 
-  using GrantablePermissionsTypes = ::testing::Types<AddMySignatory,
-                                                     RemoveMySignatory,
-                                                     SetMyAccountDetail,
-                                                     SetMyQuorum,
-                                                     TransferMyAssets>;
-
-  TYPED_TEST_CASE(GrantRevokeFixture, GrantablePermissionsTypes, );
+  TYPED_TEST_SUITE_P(GrantRevokeFixture);
 
   /**
    * TODO mboldyrev 18.01.2019 IR-222 convert to a SFV integration test
@@ -336,8 +333,8 @@ namespace grantables {
    * - does the test transaction again
    * - checks that the last transaction was failed due to a missing permission
    */
-  TYPED_TEST(GrantRevokeFixture, GrantAndRevokePermission) {
-    IntegrationTestFramework itf(1);
+  TYPED_TEST_P(GrantRevokeFixture, GrantAndRevokePermission) {
+    IntegrationTestFramework itf(1, StorageType::kRocksDb); //GetParam());
     itf.setInitialState(kAdminKeypair);
 
     gpf::createTwoAccounts(itf,
@@ -386,5 +383,16 @@ namespace grantables {
             [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); })
         .done();
   }
+
+  REGISTER_TYPED_TEST_SUITE_P(GrantRevokeFixture, GrantAndRevokePermission);
+
+  using GrantablePermissionsTypes = ::testing::Types<AddMySignatory,
+                                                     RemoveMySignatory,
+                                                     SetMyAccountDetail,
+                                                     SetMyQuorum,
+                                                     TransferMyAssets>;
+  INSTANTIATE_TYPED_TEST_SUITE_P(DifferentGrantablePermissionsTypes,
+                                 GrantRevokeFixture,
+                                 GrantablePermissionsTypes);
 
 }  // namespace grantables

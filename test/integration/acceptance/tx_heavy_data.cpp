@@ -4,11 +4,14 @@
  */
 
 #include <gtest/gtest.h>
+
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/variant.hpp>
+
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "instantiate_test_suite.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/account_response.hpp"
 
@@ -16,7 +19,8 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class HeavyTransactionTest : public AcceptanceFixture {
+struct HeavyTransactionTest : AcceptanceFixture,
+                             ::testing::WithParamInterface<StorageType> {
  public:
   /**
    * Creates the transaction with the user creation commands
@@ -56,6 +60,8 @@ class HeavyTransactionTest : public AcceptanceFixture {
   }
 };
 
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(HeavyTransactionTest);
+
 /**
  * TODO: refactor the test when all stability issues are fixed
  * IR-1264 20/04/2018 neewy
@@ -63,9 +69,9 @@ class HeavyTransactionTest : public AcceptanceFixture {
  * @when send many txes with addAccountDetail with large data inside
  * @then transaction have been passed
  */
-TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
+TEST_P(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
   auto number_of_txes = 4u;
-  IntegrationTestFramework itf(number_of_txes + 1);
+  IntegrationTestFramework itf(number_of_txes + 1, GetParam());
 
   itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
 
@@ -85,13 +91,13 @@ TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
  * @when send tx with many addAccountDetails with large data inside
  * @then transaction is passed
  */
-TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
+TEST_P(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
   auto big_data = generateData(3 * 1024 * 1024);
   auto large_tx_builder = setAcountDetailTx("foo_1", big_data)
                               .setAccountDetail(kUserId, "foo_2", big_data)
                               .setAccountDetail(kUserId, "foo_3", big_data);
 
-  IntegrationTestFramework(2)
+  IntegrationTestFramework(2, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
@@ -112,7 +118,7 @@ TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
  * AND transactions are passed stateful validation
  * @then query executed successfully
  */
-TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
+TEST_P(HeavyTransactionTest, DISABLED_QueryLargeData) {
   auto number_of_times = 15u;
   auto size_of_data = 3 * 1024 * 1024u;
   auto data = generateData(size_of_data);
@@ -137,7 +143,7 @@ TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
     });
   };
 
-  IntegrationTestFramework itf(1);
+  IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
 
   for (auto i = 0u; i < number_of_times; ++i) {

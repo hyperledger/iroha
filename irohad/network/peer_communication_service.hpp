@@ -6,10 +6,7 @@
 #ifndef IROHA_PEER_COMMUNICATION_SERVICE_HPP
 #define IROHA_PEER_COMMUNICATION_SERVICE_HPP
 
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "network/ordering_gate_common.hpp"
-#include "simulator/verified_proposal_creator_common.hpp"
-#include "synchronizer/synchronizer_common.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -33,31 +30,6 @@ namespace iroha {
       virtual void propagate_batch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           const = 0;
-
-      /**
-       * Event is triggered when proposal arrives from network.
-       * @return observable with Proposals.
-       * (List of Proposals)
-       */
-      virtual rxcpp::observable<OrderingEvent> onProposal() const = 0;
-
-      /**
-       * Event is triggered when verified proposal arrives
-       * @return verified proposal and list of stateful validation errors
-       */
-      virtual rxcpp::observable<simulator::VerifiedProposalCreatorEvent>
-      onVerifiedProposal() const = 0;
-
-      /**
-       * Event is triggered when commit block arrives.
-       * @return observable with sequence of committed blocks.
-       * In common case observable<Block> will contain one element.
-       * But there are scenarios when consensus provide many blocks, e.g.
-       * on peer startup - peer will get all actual blocks.
-       * Also, it can provide no blocks at all, if commit was empty
-       */
-      virtual rxcpp::observable<synchronizer::SynchronizationEvent>
-      onSynchronization() const = 0;
 
       virtual ~PeerCommunicationService() = default;
     };

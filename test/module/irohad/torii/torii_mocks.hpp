@@ -13,6 +13,7 @@
 #include "endpoint.pb.h"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"
+#include "simulator/verified_proposal_creator_common.hpp"
 #include "torii/command_service.hpp"
 #include "torii/processor/query_processor.hpp"
 #include "torii/processor/transaction_processor.hpp"
@@ -23,8 +24,7 @@ namespace iroha {
 
     class MockStatusBus : public StatusBus {
      public:
-      MOCK_METHOD1(publish, void(StatusBus::Objects));
-      MOCK_METHOD0(statuses, rxcpp::observable<StatusBus::Objects>());
+      MOCK_METHOD1(publish, void(StatusBus::Objects const &));
     };
 
     class MockCommandService : public iroha::torii::CommandService {
@@ -36,11 +36,11 @@ namespace iroha {
           getStatus,
           std::shared_ptr<shared_model::interface::TransactionResponse>(
               const shared_model::crypto::Hash &request));
-      MOCK_METHOD1(
-          getStatusStream,
-          rxcpp::observable<
-              std::shared_ptr<shared_model::interface::TransactionResponse>>(
-              const shared_model::crypto::Hash &));
+      MOCK_METHOD(
+          void,
+          processTransactionResponse,
+          (std::shared_ptr<shared_model::interface::TransactionResponse>),
+          (override));
     };
 
     class MockTransactionProcessor : public TransactionProcessor {
@@ -49,6 +49,29 @@ namespace iroha {
           batchHandle,
           void(std::shared_ptr<shared_model::interface::TransactionBatch>
                    transaction_batch));
+      MOCK_METHOD(void,
+                  processVerifiedProposalCreatorEvent,
+                  (simulator::VerifiedProposalCreatorEvent const &),
+                  (override));
+      MOCK_METHOD(
+          void,
+          processCommit,
+          (std::shared_ptr<shared_model::interface::Block const> const &),
+          (override));
+      MOCK_METHOD(void,
+                  processStateUpdate,
+                  (std::shared_ptr<MstState> const &),
+                  (override));
+      MOCK_METHOD(
+          void,
+          processPreparedBatch,
+          (std::shared_ptr<shared_model::interface::TransactionBatch> const &),
+          (override));
+      MOCK_METHOD(
+          void,
+          processExpiredBatch,
+          (std::shared_ptr<shared_model::interface::TransactionBatch> const &),
+          (override));
     };
 
   }  // namespace torii

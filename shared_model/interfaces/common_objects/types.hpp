@@ -48,6 +48,8 @@ namespace shared_model {
       using HeightType = uint64_t;
       /// Type of peer address
       using AddressType = std::string;
+      /// Type of peer address
+      using AddressTypeView = std::string_view;
       /// Type of public keys' collection
       using PublicKeyCollectionType = std::vector<std::string>;
       /// Type of role (i.e admin, user)
@@ -93,6 +95,7 @@ namespace shared_model {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>;
       /// Type of a TLS certificate
       using TLSCertificateType = std::string;
+      using TLSCertificateTypeView = std::string_view;
       /// Type of command index within a transaction
       using CommandIndexType = int32_t;
       /// Transaction index type
