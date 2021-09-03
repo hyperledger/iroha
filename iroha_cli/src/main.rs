@@ -6,7 +6,7 @@ use iroha_permissions_validators::public_blockchain::default_permissions;
 use structopt::StructOpt;
 
 #[tokio::main]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 async fn main() -> Result<(), Reporter> {
     iroha_error::install_panic_reporter();
 

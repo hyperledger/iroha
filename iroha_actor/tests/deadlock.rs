@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::exit, clippy::unwrap_used)]
 
 use iroha_actor::prelude::*;
 
@@ -36,7 +36,6 @@ impl Handler<Address<Self>> for DeadlockActor {
 /// Basic deadlock test.
 #[cfg(feature = "deadlock_detection")]
 #[tokio::test(flavor = "multi_thread")]
-#[allow(clippy::exit)]
 async fn async_test() {
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -177,7 +177,7 @@ pub trait BrokerMessage: Message<Result = ()> + Clone + 'static + Send {}
 impl<M: Message<Result = ()> + Clone + 'static + Send> BrokerMessage for M {}
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

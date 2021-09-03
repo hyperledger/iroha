@@ -555,6 +555,7 @@ impl<A: Actor> Context<A> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -595,7 +596,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[allow(clippy::unwrap_used)]
     async fn actor_stop() -> Result<(), Error> {
         let actor1 = Actor1.start().await;
         actor1.send(Message1).await?;
@@ -605,7 +605,7 @@ mod tests {
         Ok(())
     }
 
-    #[allow(unsafe_code, clippy::unwrap_used)]
+    #[allow(unsafe_code)]
     #[tokio::test]
     async fn actors_start_sequentially() -> Result<(), Error> {
         static mut INIT_ORDER: Vec<u8> = Vec::new();
