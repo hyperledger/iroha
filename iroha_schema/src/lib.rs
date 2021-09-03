@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use fixnum::{typenum::U9, FixedPoint};
 /// Derive schema. It will make your structure schemaable
 pub use iroha_schema_derive::IntoSchema;
 use serde::Serialize;
@@ -36,6 +37,12 @@ pub trait IntoSchema {
     fn schema(metamap: &mut MetaMap);
 }
 
+/// Applicable for types that represents decimal place of fixed point
+pub trait DecimalPlacesAware {
+    /// decimal places of fixed point
+    fn decimal_places() -> usize;
+}
+
 /// Metadata
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
 pub enum Metadata {
@@ -52,7 +59,7 @@ pub enum Metadata {
     /// Bool
     Bool,
     /// Number with fixed decimal precision
-    Fixed,
+    FixedPoint(FixedMeta),
     /// Array
     Array(ArrayMeta),
     /// Vector with type
@@ -147,6 +154,13 @@ pub enum IntMode {
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone, Copy)]
 pub struct Compact<T>(T);
 
+/// Fixed metadata
+#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+pub struct FixedMeta {
+    base: String,
+    decimal_places: usize,
+}
+
 macro_rules! impl_schema_int {
     ($($t:ty,)*) => {$(
         impl IntoSchema for $t {
@@ -172,6 +186,30 @@ macro_rules! impl_schema_int {
 }
 
 impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8,);
+
+impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for FixedPoint<I, P> {
+    fn type_name() -> String {
+        format!("FixedPoint<{}>", I::type_name())
+    }
+
+    fn schema(metamap: &mut MetaMap) {
+        let _ = metamap.entry(Self::type_name()).or_insert_with(|| {
+            Metadata::FixedPoint(FixedMeta {
+                base: I::type_name(),
+                decimal_places: P::decimal_places(),
+            })
+        });
+        if !metamap.contains_key(&I::type_name()) {
+            I::schema(metamap);
+        }
+    }
+}
+
+impl DecimalPlacesAware for U9 {
+    fn decimal_places() -> usize {
+        9
+    }
+}
 
 impl IntoSchema for String {
     fn type_name() -> String {
