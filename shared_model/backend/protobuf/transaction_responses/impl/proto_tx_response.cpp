@@ -5,10 +5,11 @@
 
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 
+#include <boost/variant/variant.hpp>
 #include <limits>
 
-#include <boost/variant/variant.hpp>
 #include "backend/protobuf/transaction_responses/proto_concrete_tx_response.hpp"
+#include "common/report_abort.h"
 #include "common/visitor.hpp"
 #include "cryptography/hash.hpp"
 
@@ -29,13 +30,6 @@ namespace {
   constexpr int kMaxPriority = std::numeric_limits<int>::max();
 }  // namespace
 
-#ifdef IROHA_BIND_TYPE
-#error IROHA_BIND_TYPE defined.
-#endif  // IROHA_BIND_TYPE
-#define IROHA_BIND_TYPE(val, type, ...) \
-  case iroha::protocol::TxStatus::val:  \
-    return ProtoResponseVariantType(shared_model::proto::type(__VA_ARGS__))
-
 namespace shared_model::proto {
 
   struct TransactionResponse::Impl {
@@ -45,26 +39,31 @@ namespace shared_model::proto {
     TransportType proto_;
 
     const ProtoResponseVariantType variant_{[this] {
-      auto &ar = proto_;
-      switch (ar.tx_status()) {
-        IROHA_BIND_TYPE(
-            STATELESS_VALIDATION_FAILED, StatelessFailedTxResponse, ar);
-        IROHA_BIND_TYPE(
-            STATELESS_VALIDATION_SUCCESS, StatelessValidTxResponse, ar);
-        IROHA_BIND_TYPE(
-            STATEFUL_VALIDATION_FAILED, StatefulFailedTxResponse, ar);
-        IROHA_BIND_TYPE(
-            STATEFUL_VALIDATION_SUCCESS, StatefulValidTxResponse, ar);
-        IROHA_BIND_TYPE(REJECTED, RejectedTxResponse, ar);
-        IROHA_BIND_TYPE(COMMITTED, CommittedTxResponse, ar);
-        IROHA_BIND_TYPE(MST_EXPIRED, MstExpiredResponse, ar);
-        IROHA_BIND_TYPE(NOT_RECEIVED, NotReceivedTxResponse, ar);
-        IROHA_BIND_TYPE(MST_PENDING, MstPendingResponse, ar);
-        IROHA_BIND_TYPE(
-            ENOUGH_SIGNATURES_COLLECTED, EnoughSignaturesCollectedResponse, ar);
-
+      using namespace shared_model::proto;
+      switch (proto_.tx_status()) {
+        case iroha::protocol::TxStatus::STATELESS_VALIDATION_FAILED:
+          return ProtoResponseVariantType(StatelessFailedTxResponse(proto_));
+        case iroha::protocol::TxStatus::STATELESS_VALIDATION_SUCCESS:
+          return ProtoResponseVariantType(StatelessValidTxResponse(proto_));
+        case iroha::protocol::TxStatus::STATEFUL_VALIDATION_FAILED:
+          return ProtoResponseVariantType(StatefulFailedTxResponse(proto_));
+        case iroha::protocol::TxStatus::STATEFUL_VALIDATION_SUCCESS:
+          return ProtoResponseVariantType(StatefulValidTxResponse(proto_));
+        case iroha::protocol::TxStatus::REJECTED:
+          return ProtoResponseVariantType(RejectedTxResponse(proto_));
+        case iroha::protocol::TxStatus::COMMITTED:
+          return ProtoResponseVariantType(CommittedTxResponse(proto_));
+        case iroha::protocol::TxStatus::MST_EXPIRED:
+          return ProtoResponseVariantType(MstExpiredResponse(proto_));
+        case iroha::protocol::TxStatus::NOT_RECEIVED:
+          return ProtoResponseVariantType(NotReceivedTxResponse(proto_));
+        case iroha::protocol::TxStatus::MST_PENDING:
+          return ProtoResponseVariantType(MstPendingResponse(proto_));
+        case iroha::protocol::TxStatus::ENOUGH_SIGNATURES_COLLECTED:
+          return ProtoResponseVariantType(
+              EnoughSignaturesCollectedResponse(proto_));
         default:
-          assert(!"Unexpected transaction response case.");
+          report_abort("Unexpected transaction response case.");
       }
     }()};
 
