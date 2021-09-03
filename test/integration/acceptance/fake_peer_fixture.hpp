@@ -72,6 +72,10 @@ struct FakePeerFixture : AcceptanceFixture,
     itf_->initPipeline(common_constants::kAdminKeypair);
   }
 
+  void TearDown() override {
+    itf_.reset();
+  }
+
   std::vector<std::shared_ptr<FakePeer>> fake_peers_;
 };
 
