@@ -1080,7 +1080,7 @@ pub mod fixed {
     pub type FixNum = FixedPoint<Base, U9>;
 
     /// An encapsulation of [`Fixed`] in encodable form.
-    #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Serialize, Deserialize, IntoSchema)]
     pub struct Fixed(FixNum);
 
     impl Fixed {
@@ -1162,12 +1162,6 @@ pub mod fixed {
 
         fn encoded_fixed_size() -> Option<usize> {
             Some(std::mem::size_of::<Base>())
-        }
-    }
-
-    impl IntoSchema for Fixed {
-        fn schema(map: &mut MetaMap) {
-            let _ = map.entry(Self::type_name()).or_insert(Metadata::Fixed);
         }
     }
 

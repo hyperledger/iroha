@@ -1643,6 +1643,7 @@ dependencies = [
 name = "iroha_schema"
 version = "0.1.0"
 dependencies = [
+ "fixnum",
  "iroha_schema_derive",
  "parity-scale-codec",
  "serde",

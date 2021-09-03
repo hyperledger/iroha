@@ -12,3 +12,4 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
 iroha_schema_derive = { path = "iroha_schema_derive" }
+fixnum = { version = "0.6", features = ["i64"]}
