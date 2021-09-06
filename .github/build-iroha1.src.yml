@@ -37,8 +37,8 @@ on:
         description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
         required: false
         default: '/build'
-  issue_comment:
-    types: [created, edited]
+  # issue_comment:
+  #   types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 
