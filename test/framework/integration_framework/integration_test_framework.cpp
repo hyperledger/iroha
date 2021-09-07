@@ -256,8 +256,7 @@ IntegrationTestFramework::IntegrationTestFramework(
     } break;
     case iroha::StorageType::kRocksDb: {
       DISABLE_WARNING_PUSH
-      DISABLE_WARNING_missing_field_initializers
-      config_.database_config =
+      DISABLE_WARNING_missing_field_initializers config_.database_config =
           IrohadConfig::DbConfig{kDbTypeRocksdb, db_wsv_path_};
       DISABLE_WARNING_POP
       config_.block_store_path =
@@ -284,8 +283,9 @@ IntegrationTestFramework::~IntegrationTestFramework() {
     iroha_instance_->terminateAndCleanup();
   }
   for (auto &server : fake_peers_servers_) {
-    server->shutdown(std::chrono::system_clock::now());
+    server->shutdown();
   }
+  fake_peers_servers_.clear();
   // the code below should be executed anyway in order to prevent app hang
   if (iroha_instance_ and iroha_instance_->getTestIrohad()) {
     iroha_instance_->getTestIrohad()->terminate();
