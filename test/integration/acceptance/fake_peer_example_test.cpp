@@ -36,7 +36,7 @@ static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
  * @when such transaction is sent to one of two iroha peers in the network
  * @then that peer propagates MST state to another peer
  */
-TEST_F(FakePeerFixture,
+TEST_P(FakePeerFixture,
        MstStateOfTransactionWithoutAllSignaturesPropagtesToOtherPeer) {
   createFakePeers(1);
   auto &itf = prepareState();
@@ -71,7 +71,7 @@ TEST_F(FakePeerFixture,
  * @when the irohad needs to synchronize
  * @then it refuses the malicious fork and applies the valid one
  */
-TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
+TEST_P(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
   constexpr size_t num_bad_peers = 3;  ///< bad fake peers - the ones
                                        ///< creating a malicious fork
   // the real peer is added to the bad peers as they once are failing together
@@ -256,7 +256,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
  * @when fake peer provides a proposal with valid tx
  * @then the real peer must commit the transaction from that proposal
  */
-TEST_F(FakePeerFixture, OnDemandOrderingProposalAfterValidCommandReceived) {
+TEST_P(FakePeerFixture, OnDemandOrderingProposalAfterValidCommandReceived) {
   // Create the tx:
   const auto tx = complete(
       baseTx(kAdminId).transferAsset(kAdminId, kUserId, kAssetId, "tx1", "1.0"),

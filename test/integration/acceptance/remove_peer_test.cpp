@@ -36,7 +36,7 @@ static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
  *    @and the ledger state after commit contains one peer,
  *    @and the WSV reports that there is one peer
  */
-TEST_F(FakePeerFixture, FakePeerIsRemoved) {
+TEST_P(FakePeerFixture, FakePeerIsRemoved) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with one fake peer in the genesis block
   createFakePeers(1);
@@ -96,7 +96,7 @@ TEST_F(FakePeerFixture, FakePeerIsRemoved) {
  *    @and the ledger state after commit contains one peer,
  *    @and the WSV reports that there is one peer
  */
-TEST_F(FakePeerFixture, RealPeerIsRemoved) {
+TEST_P(FakePeerFixture, RealPeerIsRemoved) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with one fake peer in the genesis block
   createFakePeers(1);
