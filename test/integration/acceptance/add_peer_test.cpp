@@ -47,7 +47,7 @@ static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
  *    @and the WSV reports that there are two peers: the initial and the added
  * one
  */
-TEST_F(FakePeerFixture, FakePeerIsAdded) {
+TEST_P(FakePeerFixture, FakePeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -61,9 +61,8 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   auto subscriber =
       SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
           template create<EventTypes::kOnSynchronization>(
-              static_cast<SubscriptionEngineHandlers>(
-                  decltype(getSubscription())::element_type::Dispatcher::
-                      kExecuteInPool),
+              static_cast<SubscriptionEngineHandlers>(decltype(
+                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
               [prepared_height,
                &completed,
                itf_peer = itf_->getThisPeer(),
@@ -114,7 +113,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
  * @when it receives a not fully signed transaction and then a new peer is added
  * @then the first peer propagates MST state to the newly added peer
  */
-TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
+TEST_P(FakePeerFixture, MstStatePropagtesToNewPeer) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -161,13 +160,13 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
  * @when itf peer is brought up
  * @then itf peer gets synchronized, sees itself in the WSV and can commit txs
  */
-TEST_F(FakePeerFixture, RealPeerIsAdded) {
+TEST_P(FakePeerFixture, RealPeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // create the initial fake peer
   auto initial_peer = itf_->addFakePeer(boost::none);
 
   // create a genesis block without only initial fake peer in it
-  shared_model::interface::RolePermissionSet all_perms {};
+  shared_model::interface::RolePermissionSet all_perms{};
   for (size_t i = 0; i < all_perms.size(); ++i) {
     auto perm = static_cast<shared_model::interface::permissions::Role>(i);
     all_perms.set(perm);
@@ -262,9 +261,8 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
   auto subscriber =
       SubscriberCreator<bool, synchronizer::SynchronizationEvent>::
           template create<EventTypes::kOnSynchronization>(
-              static_cast<SubscriptionEngineHandlers>(
-                  decltype(getSubscription())::element_type::Dispatcher::
-                      kExecuteInPool),
+              static_cast<SubscriptionEngineHandlers>(decltype(
+                  getSubscription())::element_type::Dispatcher::kExecuteInPool),
               [height = block_with_add_peer.height(),
                &completed,
                itf_peer = itf_->getThisPeer(),
