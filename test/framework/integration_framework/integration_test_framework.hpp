@@ -23,11 +23,9 @@
 #include "main/subscription_fwd.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
-namespace google {
-  namespace protobuf {
-    class Empty;
-  }
-}  // namespace google
+namespace google::protobuf {
+  class Empty;
+}  // namespace google::protobuf
 
 namespace shared_model {
   namespace crypto {
@@ -73,7 +71,6 @@ namespace iroha {
     class GenericClientFactory;
     class MstTransportGrpc;
     struct OrderingEvent;
-    class OrderingServiceTransport;
     class ServerRunner;
     template <typename Response>
     class AsyncGrpcClient;
@@ -510,23 +507,28 @@ namespace integration_framework {
         block_subscription_;
     std::shared_ptr<CheckerQueue<BlockType>> block_queue_;
 
-    struct ResponsesQueues {
-     public:
-      std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>> map;
-     private:
-      /// maximum time of waiting before appearing next transaction response
-      std::chrono::milliseconds tx_response_waiting_time_ms;
-      std::recursive_mutex mtx;
-     public:
-      ResponsesQueues(std::chrono::milliseconds ms);
-      auto findOrEmplace(std::string const &hash) -> decltype(map)::iterator;
-      auto find(std::string const &hash) -> std::optional<decltype(map)::iterator>;
-      auto lock() {
-        return std::unique_lock(mtx);
-      }
-      //push(std::string const &hash, TxResponseType txresp);
-      auto try_peek(std::string const &hash) ->std::optional<TxResponseType>;
-    };
+    struct ResponsesQueues;
+    //    {
+    //     public:
+    //      //using HashType = shared_model::crypto::Hash;
+    //      std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
+    //      map;
+    //     private:
+    //      /// maximum time of waiting before appearing next transaction
+    //      response std::chrono::milliseconds tx_response_waiting_time_ms;
+    //      std::recursive_mutex mtx;
+    //     public:
+    //      ResponsesQueues(std::chrono::milliseconds ms);
+    //      auto findOrEmplace(std::string const &hash) ->
+    //      decltype(map)::iterator; auto find(std::string const &hash) ->
+    //      std::optional<decltype(map)::iterator>; auto lock() {
+    //        return std::unique_lock(mtx);
+    //      }
+    //      //push(std::string const &hash, TxResponseType txresp);
+    //      auto try_peek(std::string const &hash)
+    //      ->std::optional<TxResponseType>; auto try_pop(std::string const
+    //      &hash) ->std::optional<TxResponseType>;
+    //    };
 
     std::shared_ptr<ResponsesQueues> responses_queues_;
     std::shared_ptr<iroha::BaseSubscriber<
@@ -570,7 +572,7 @@ namespace integration_framework {
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
-    boost::optional<shared_model::crypto::Keypair> my_key_;
+    std::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:
