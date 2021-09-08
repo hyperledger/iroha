@@ -549,8 +549,9 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
       template create<iroha::EventTypes::kOnBlock>(
           static_cast<iroha::SubscriptionEngineHandlers>(
               iroha::getSubscription()->dispatcher()->kExecuteInPool),
-          [wlog(std::weak_ptr(log_)),
-           w_block_queue(std::weak_ptr(block_queue_))](auto, auto block) {
+          [wlog(iroha::utils::make_weak(log_)),
+           w_block_queue(iroha::utils::make_weak(block_queue_))](auto,
+                                                                 auto block) {
             auto bq = w_block_queue.lock();
             auto log = wlog.lock();
             if (!log or !bq)
@@ -565,13 +566,9 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
       template create<iroha::EventTypes::kOnTransactionResponse>(
           static_cast<iroha::SubscriptionEngineHandlers>(
               iroha::getSubscription()->dispatcher()->kExecuteInPool),
-          [wlog(std::weak_ptr(log_)),
-           w_responses_queues(std::weak_ptr(responses_queues_))](
+          [log(iroha::utils::make_weak(log_)),
+           w_responses_queues(iroha::utils::make_weak(responses_queues_))](
               auto, auto response) {
-            //            auto log = wlog.lock();
-            //            auto responses_queues = w_responses_queues.lock();
-            //            if (!log or !responses_queues)
-            //              return;
             auto log = std::shared_ptr(wlog);
             auto responses_queues = std::shared_ptr(w_responses_queues);
             responses_queues->push(response);
