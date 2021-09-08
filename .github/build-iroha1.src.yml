@@ -49,6 +49,7 @@ jobs:
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
+    container: ubuntu:latest  ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - &step_detect_commented_pr
@@ -79,6 +80,7 @@ jobs:
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
     runs-on: ubuntu-latest
+    container: ubuntu:latest
     if: ${{ github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') }}
@@ -115,6 +117,7 @@ jobs:
   ## - TODO all on schedule
   generate_matrixes:
     runs-on: ubuntu-latest
+    container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') ) }}
