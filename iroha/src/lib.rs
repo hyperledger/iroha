@@ -142,9 +142,39 @@ where
     /// - Reading genesis from disk
     /// - Reading telemetry configs and setuping telemetry
     /// - Initialization of sumeragi
-    #[allow(clippy::non_ascii_literal)]
     pub async fn with_broker_and_config(
         args: &Arguments,
+        config: Configuration,
+        instruction_validator: IsInstructionAllowedBoxed<K::World>,
+        query_validator: IsQueryAllowedBoxed<K::World>,
+        broker: Broker,
+    ) -> Result<Self> {
+        let genesis = G::from_configuration(
+            args.submit_genesis,
+            &args.genesis_path,
+            &config.genesis_configuration,
+            config.torii_configuration.torii_max_instruction_number,
+        )
+        .wrap_err("Failed to initialize genesis.")?;
+
+        Self::with_genesis(
+            genesis,
+            config,
+            instruction_validator,
+            query_validator,
+            broker,
+        )
+        .await
+    }
+
+    /// Creates Iroha with specified broker, config, and genesis
+    /// # Errors
+    /// Can fail if fails:
+    /// - Reading telemetry configs and setuping telemetry
+    /// - Initialization of sumeragi
+    #[allow(clippy::non_ascii_literal)]
+    pub async fn with_genesis(
+        genesis: Option<G>,
         config: Configuration,
         instruction_validator: IsInstructionAllowedBoxed<K::World>,
         query_validator: IsQueryAllowedBoxed<K::World>,
@@ -167,7 +197,7 @@ where
         let wsv = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             W::with(
-                init::domains(&config),
+                init::domains(&config).wrap_err("Failed to get initial domains")?,
                 config.sumeragi_configuration.trusted_peers.peers.clone(),
             ),
         ));
@@ -179,14 +209,6 @@ where
         .start()
         .await
         .expect_running();
-
-        let genesis_network = G::from_configuration(
-            args.submit_genesis,
-            &args.genesis_path,
-            &config.genesis_configuration,
-            config.torii_configuration.torii_max_instruction_number,
-        )
-        .wrap_err("Failed to initialize genesis.")?;
 
         #[cfg(feature = "telemetry")]
         if let Some(telemetry) = telemetry {
@@ -201,7 +223,7 @@ where
             Arc::clone(&wsv),
             instruction_validator,
             Arc::clone(&query_validator),
-            genesis_network,
+            genesis,
             queue.clone(),
             broker.clone(),
             network_addr.clone(),

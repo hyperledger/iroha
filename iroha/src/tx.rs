@@ -553,7 +553,10 @@ mod tests {
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
-                &WorldStateView::new(World::with(init::domains(&config), BTreeSet::new())),
+                &WorldStateView::new(World::with(
+                    init::domains(&config).unwrap(),
+                    BTreeSet::new(),
+                )),
                 &AllowAll.into(),
                 &AllowAll.into(),
                 true,

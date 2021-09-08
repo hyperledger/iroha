@@ -44,7 +44,7 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    /// Listening to this address for incoming connections. Must parse into [`SocketAddr`].
+    /// Listening to this address for incoming connections. Must parse into [`std::net::SocketAddr`].
     listen_addr: String,
     /// Peers that are doing handshakes for the moment
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,

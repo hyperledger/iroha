@@ -3,7 +3,11 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha::{config::Configuration, prelude::*, Arguments};
+use iroha::{
+    config::Configuration,
+    genesis::{GenesisNetwork, GenesisNetworkTrait},
+    prelude::*,
+};
 use iroha_client::{
     client::{asset, Client},
     config::Configuration as ClientConfiguration,
@@ -24,15 +28,15 @@ fn query_requests(criterion: &mut Criterion) {
     let rt = Runtime::test();
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
+    let genesis = GenesisNetwork::from_configuration(
+        true,
+        GENESIS_PATH,
+        &configuration.genesis_configuration,
+        configuration.sumeragi_configuration.max_instruction_number,
+    )
+    .unwrap();
 
-    rt.block_on(peer.start_with_config(
-        Arguments {
-            submit_genesis: true,
-            genesis_path: GENESIS_PATH.into(),
-            ..Arguments::default()
-        },
-        configuration,
-    ));
+    rt.block_on(peer.start_with_config(genesis, configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("query-reqeuests");
@@ -108,14 +112,14 @@ fn instruction_submits(criterion: &mut Criterion) {
     configuration.sumeragi_configuration.trusted_peers.peers =
         std::iter::once(peer.id.clone()).collect();
 
-    rt.block_on(peer.start_with_config(
-        Arguments {
-            submit_genesis: true,
-            genesis_path: GENESIS_PATH.into(),
-            ..Arguments::default()
-        },
-        configuration,
-    ));
+    let genesis = GenesisNetwork::from_configuration(
+        true,
+        GENESIS_PATH,
+        &configuration.genesis_configuration,
+        configuration.sumeragi_configuration.max_instruction_number,
+    )
+    .unwrap();
+    rt.block_on(peer.start_with_config(genesis, configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
     let mut group = criterion.benchmark_group("instruction-requests");
