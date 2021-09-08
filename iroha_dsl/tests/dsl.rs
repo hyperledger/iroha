@@ -2,7 +2,10 @@
 
 use std::{thread, time::Duration};
 
-use iroha::{config::Configuration, Arguments};
+use iroha::{
+    config::Configuration,
+    genesis::{GenesisNetwork, GenesisNetworkTrait},
+};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_dsl::prelude::*;
 use test_network::{Peer as TestPeer, TestRuntime};
@@ -112,15 +115,15 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
 
     // Given
+    let genesis = GenesisNetwork::from_configuration(
+        true,
+        GENESIS_PATH,
+        &configuration.genesis_configuration,
+        configuration.sumeragi_configuration.max_instruction_number,
+    )
+    .unwrap();
     let rt = Runtime::test();
-    rt.block_on(peer.start_with_config(
-        Arguments {
-            submit_genesis: true,
-            genesis_path: GENESIS_PATH.into(),
-            ..Arguments::default()
-        },
-        configuration,
-    ));
+    rt.block_on(peer.start_with_config(genesis, configuration));
     thread::sleep(pipeline_time);
 
     let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)

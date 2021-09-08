@@ -25,7 +25,7 @@ use iroha::{
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
-    Arguments, Iroha,
+    Iroha,
 };
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
@@ -114,12 +114,20 @@ pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
 pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
 pub const GENESIS_PATH: &str = "tests/genesis.json";
 
-pub fn test_arguments(submit_genesis: bool) -> Arguments {
-    Arguments {
-        submit_genesis,
-        genesis_path: GENESIS_PATH.into(),
-        config_path: CONFIGURATION_PATH.into(),
-        ..Arguments::default()
+pub trait TestGenesis: Sized {
+    fn test(submit_genesis: bool) -> Option<Self>;
+}
+
+impl<G: GenesisNetworkTrait> TestGenesis for G {
+    fn test(submit_genesis: bool) -> Option<Self> {
+        let cfg = Configuration::test();
+        G::from_configuration(
+            submit_genesis,
+            GENESIS_PATH,
+            &cfg.genesis_configuration,
+            cfg.sumeragi_configuration.max_instruction_number,
+        )
+        .expect("Failed to init genesis")
     }
 }
 
@@ -215,7 +223,8 @@ where
         config.sumeragi_configuration.trusted_peers.peers =
             self.peers().map(|peer| &peer.id).cloned().collect();
         config.sumeragi_configuration.max_faulty_peers = (self.peers.len() / 3) as u32;
-        peer.start_with_config(test_arguments(false), config).await;
+        peer.start_with_config(GenesisNetwork::test(false), config)
+            .await;
         time::sleep(Configuration::pipeline_time() * 2).await;
         let add_peer = RegisterBox::new(IdentifiableBox::Peer(
             DataModelPeer::new(peer.id.clone()).into(),
@@ -252,10 +261,10 @@ where
 
         let mut futures = Vec::new();
 
-        futures.push(genesis.start_with_config(test_arguments(true), configuration.clone()));
+        futures.push(genesis.start_with_config(G::test(true), configuration.clone()));
 
         for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
-            futures.push(peer.start_with_config(test_arguments(false), configuration.clone()));
+            futures.push(peer.start_with_config(G::test(false), configuration.clone()));
         }
         futures::future::join_all(futures).await;
 
@@ -381,8 +390,8 @@ where
         let (sender, reciever) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
-                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker_and_config(
-                    &test_arguments(true),
+                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_genesis(
+                    G::test(true),
                     configuration,
                     permissions.into(),
                     AllowAll.into(),
@@ -404,8 +413,8 @@ where
     /// Starts peer with config and permissions
     pub async fn start_with_config_permissions(
         &mut self,
-        args: Arguments,
         configuration: Configuration,
+        genesis: Option<G>,
         instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
         query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
     ) {
@@ -426,8 +435,8 @@ where
         let join_handle = tokio::spawn(
             async move {
                 let _temp_dir = temp_dir;
-                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_broker_and_config(
-                    &args,
+                let mut iroha = <Iroha<W, G, Q, S, K, B>>::with_genesis(
+                    genesis,
                     configuration,
                     instruction_validator.into(),
                     query_validator.into(),
@@ -448,19 +457,19 @@ where
     }
 
     /// Starts peer with config
-    pub async fn start_with_config(&mut self, args: Arguments, configuration: Configuration) {
-        self.start_with_config_permissions(args, configuration, AllowAll, AllowAll)
+    pub async fn start_with_config(&mut self, genesis: Option<G>, configuration: Configuration) {
+        self.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll)
             .await;
     }
 
     /// Starts peer with config
-    pub async fn start_with_args(&mut self, args: Arguments) {
-        self.start_with_config(args, Configuration::test()).await;
+    pub async fn start_with_genesis(&mut self, genesis: Option<G>) {
+        self.start_with_config(genesis, Configuration::test()).await;
     }
 
     /// Starts peer
-    pub async fn start(&mut self) {
-        self.start_with_args(Arguments::default()).await;
+    pub async fn start(&mut self, submit_genesis: bool) {
+        self.start_with_genesis(G::test(submit_genesis)).await;
     }
 
     /// Creates peer
@@ -515,8 +524,8 @@ where
         configuration.sumeragi_configuration.trusted_peers.peers =
             std::iter::once(peer.id.clone()).collect();
         peer.start_with_config_permissions(
-            test_arguments(true),
             configuration.clone(),
+            G::test(true),
             instruction_validator,
             query_validator,
         )
