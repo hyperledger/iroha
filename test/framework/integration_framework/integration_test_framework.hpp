@@ -149,7 +149,7 @@ namespace integration_framework {
         const boost::optional<std::string> block_store_path = boost::none,
         milliseconds proposal_waiting = milliseconds(20000),
         milliseconds block_waiting = milliseconds(20000),
-        milliseconds tx_response_waiting = milliseconds(10000),
+        milliseconds tx_response_waiting_ms = milliseconds(10000),
         logger::LoggerManagerTreePtr log_manager = getDefaultItfLogManager(),
         std::string db_wsv_path = (boost::filesystem::temp_directory_path()
                                    / boost::filesystem::unique_path())

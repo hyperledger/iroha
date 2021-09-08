@@ -199,25 +199,31 @@ struct IntegrationTestFramework::ResponsesQueues {
     return findOrEmplace(txresp->transactionHash())->second->push(txresp);
   }
   auto try_peek(HashType const &txhash) -> std::optional<TxResponseType> {
-    std::unique_lock lk(mtx);
-    auto opt_it = find(txhash);
-    if (!opt_it)
-      return std::nullopt;
-    auto &it = *opt_it;
-    auto &unique_responses_queue = it->second;
-    auto opt_response = unique_responses_queue->try_peek();
+    CheckerQueue<TxResponseType> *p_responses_queue;
+    {
+      std::unique_lock lk(mtx);
+      auto opt_it = find(txhash);
+      if (!opt_it)
+        return std::nullopt;
+      auto &it = *opt_it;
+      p_responses_queue = it->second.get();
+    }
+    auto opt_response = p_responses_queue->try_peek();
     if (opt_response)
       return *opt_response;
     return std::nullopt;
   }
   auto try_pop(HashType const &txhash) -> std::optional<TxResponseType> {
-    std::unique_lock lk(mtx);
-    auto opt_it = find(txhash);
-    if (!opt_it)
-      return std::nullopt;
-    auto &it = *opt_it;
-    auto &unique_responses_queue = it->second;
-    auto opt_response = unique_responses_queue->try_pop();
+    CheckerQueue<TxResponseType> *p_responses_queue;
+    {
+      std::unique_lock lk(mtx);
+      auto opt_it = find(txhash);
+      if (!opt_it)
+        return std::nullopt;
+      auto &it = *opt_it;
+      p_responses_queue = it->second.get();
+    }
+    auto opt_response = p_responses_queue->try_pop();
     if (opt_response)
       return *opt_response;
     return std::nullopt;
@@ -234,7 +240,7 @@ IntegrationTestFramework::IntegrationTestFramework(
     const boost::optional<std::string> block_store_path,
     milliseconds proposal_waiting,
     milliseconds block_waiting,
-    milliseconds tx_response_waiting,
+    milliseconds tx_response_waiting_ms,
     logger::LoggerManagerTreePtr log_manager,
     std::string db_wsv_path,
     std::string db_store_path)
@@ -250,7 +256,7 @@ IntegrationTestFramework::IntegrationTestFramework(
       block_queue_(std::make_shared<CheckerQueue<BlockType>>(block_waiting)),
       responses_queues_(
           std::make_shared<decltype(responses_queues_)::element_type>(
-              tx_response_waiting)),
+              tx_response_waiting_ms)),
       port_guard_(std::make_unique<PortGuard>()),
       torii_port_(port_guard_->getPort(kDefaultToriiPort)),
       command_client_(std::make_unique<torii::CommandSyncClient>(
@@ -566,7 +572,7 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
       template create<iroha::EventTypes::kOnTransactionResponse>(
           static_cast<iroha::SubscriptionEngineHandlers>(
               iroha::getSubscription()->dispatcher()->kExecuteInPool),
-          [log(iroha::utils::make_weak(log_)),
+          [wlog(iroha::utils::make_weak(log_)),
            w_responses_queues(iroha::utils::make_weak(responses_queues_))](
               auto, auto response) {
             auto log = std::shared_ptr(wlog);
@@ -820,11 +826,12 @@ IntegrationTestFramework &IntegrationTestFramework::checkStatus(
     std::function<void(const shared_model::proto::TransactionResponse &)>
         validation) {
   // fetch first response associated with the tx from related queue
-  log_->debug("checkStatus()");
-  std::optional<TxResponseType> opt_response =
-      responses_queues_->try_pop(tx_hash);
+  log_->debug("checkStatus() for tx {}", tx_hash.hex());
+  auto opt_response = responses_queues_->try_pop(tx_hash);
   if (not opt_response) {
-    throw std::runtime_error("checkStatus(): missed status");
+    log_->error("checkStatus() NOT IN QUEUE tx {}", tx_hash.hex());
+    throw std::runtime_error("checkStatus(): missed status for hash "
+                             + tx_hash.hex());
   }
   validation(static_cast<const shared_model::proto::TransactionResponse &>(
       *opt_response.value()));
