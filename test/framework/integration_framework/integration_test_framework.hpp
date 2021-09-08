@@ -117,16 +117,13 @@ namespace integration_framework {
     using VerifiedProposalType =
         std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>;
     using BlockType = std::shared_ptr<const shared_model::interface::Block>;
+
+   public:
     using TxResponseType =
         std::shared_ptr<shared_model::interface::TransactionResponse>;
 
-   public:
     using TransactionBatchType = shared_model::interface::TransactionBatch;
     using TransactionBatchSPtr = std::shared_ptr<TransactionBatchType>;
-
-   private:
-    std::mutex queue_mu;
-    std::condition_variable queue_cond;
 
    public:
     /**
@@ -444,6 +441,10 @@ namespace integration_framework {
      */
     void done();
 
+    bool valid() {
+      return valid_;
+    }
+
     /// Get the controlled Iroha instance.
     IrohaInstance &getIrohaInstance();
 
@@ -462,6 +463,7 @@ namespace integration_framework {
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 
+   public:
     /**
      * A wrapper over a queue that provides thread safety and blocking pop
      * operation with timeout. Is intended to be used as an intermediate storage
@@ -471,6 +473,7 @@ namespace integration_framework {
     template <typename T>
     class CheckerQueue;
 
+   protected:
     /**
      * general way to fetch object from concurrent queue
      * @tparam Queue - Type of queue
@@ -506,8 +509,26 @@ namespace integration_framework {
         std::shared_ptr<shared_model::interface::Block const>>>
         block_subscription_;
     std::shared_ptr<CheckerQueue<BlockType>> block_queue_;
-    std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
-        responses_queues_;
+
+    struct ResponsesQueues {
+     public:
+      std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>> map;
+     private:
+      /// maximum time of waiting before appearing next transaction response
+      std::chrono::milliseconds tx_response_waiting_time_ms;
+      std::recursive_mutex mtx;
+     public:
+      ResponsesQueues(std::chrono::milliseconds ms);
+      auto findOrEmplace(std::string const &hash) -> decltype(map)::iterator;
+      auto find(std::string const &hash) -> std::optional<decltype(map)::iterator>;
+      auto lock() {
+        return std::unique_lock(mtx);
+      }
+      //push(std::string const &hash, TxResponseType txresp);
+      auto try_peek(std::string const &hash) ->std::optional<TxResponseType>;
+    };
+
+    std::shared_ptr<ResponsesQueues> responses_queues_;
     std::shared_ptr<iroha::BaseSubscriber<
         bool,
         std::shared_ptr<shared_model::interface::TransactionResponse>>>
@@ -523,9 +544,6 @@ namespace integration_framework {
     std::shared_ptr<AsyncCall> async_call_;
 
     // config area
-
-    /// maximum time of waiting before appearing next transaction response
-    milliseconds tx_response_waiting;
 
     size_t maximum_proposal_size_;
 
@@ -562,6 +580,7 @@ namespace integration_framework {
         fake_peers_servers_;
     std::string db_wsv_path_;
     std::string db_store_path_;
+    std::atomic_bool valid_ = true;
   };
 
 }  // namespace integration_framework
