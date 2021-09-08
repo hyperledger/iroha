@@ -50,6 +50,7 @@ jobs:
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-latest
+    container: ubuntu:latest ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
@@ -74,6 +75,7 @@ jobs:
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
     runs-on: ubuntu-latest
+    container: ubuntu:latest
     if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') }}
     steps:
       - name: Show context
@@ -105,6 +107,7 @@ jobs:
   ## - on schedule '/build all'
   generate_matrixes:
     runs-on: ubuntu-latest
+    container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
@@ -1308,8 +1311,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    #if: *if_ubuntu_release
-    if: ${{ matrix.CC = 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    # if: ${{ matrix.CC == 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1472,7 +1475,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+          push: ${{ steps.docker_login.outcome == 'success' && matrix.CC == 'gcc-9' }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
@@ -1492,6 +1495,7 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
   docker-D:
     runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    # if: ${{ matrix.CC == 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1654,7 +1658,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+          push: ${{ steps.docker_login.outcome == 'success' && matrix.CC == 'gcc-9' }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
@@ -1678,5 +1682,5 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    #if: *if_ubuntu_debug
-    if: ${{ matrix.CC = 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    # if: ${{ matrix.CC == 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}

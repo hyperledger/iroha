@@ -73,7 +73,6 @@ handle_user_line(){
    fi
    shift
    local oses compilers cmake_opts build_types
-   dockerpush=yes
 
    while [[ $# > 0 ]] ;do
       case "$1" in
@@ -91,8 +90,6 @@ handle_user_line(){
          clang|clang-10|clang10)    compilers+=" clang clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
-         dockerpush)                dockerpush=yes ;;
-         nodockerpush)              dockerpush=no ;;
          all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses=${oses:-"$ALL_oses"}
             build_types=${build_types:-"$ALL_build_types"}
@@ -167,8 +164,7 @@ to_json(){
          os:\"$1\",
          cc:\"$2\",
          BuildType:\"$3\",
-         CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\",
-         dockerpush: \"$dockerpush\"
+         CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\"
       }"
 }
 to_json_multiline(){
