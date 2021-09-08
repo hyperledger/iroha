@@ -40,26 +40,27 @@ namespace shared_model::proto {
 
     const ProtoResponseVariantType variant_{[this] {
       using namespace shared_model::proto;
+      using iroha::protocol::TxStatus;
       switch (proto_.tx_status()) {
-        case iroha::protocol::TxStatus::STATELESS_VALIDATION_FAILED:
+        case TxStatus::STATELESS_VALIDATION_FAILED:
           return ProtoResponseVariantType(StatelessFailedTxResponse(proto_));
-        case iroha::protocol::TxStatus::STATELESS_VALIDATION_SUCCESS:
+        case TxStatus::STATELESS_VALIDATION_SUCCESS:
           return ProtoResponseVariantType(StatelessValidTxResponse(proto_));
-        case iroha::protocol::TxStatus::STATEFUL_VALIDATION_FAILED:
+        case TxStatus::STATEFUL_VALIDATION_FAILED:
           return ProtoResponseVariantType(StatefulFailedTxResponse(proto_));
-        case iroha::protocol::TxStatus::STATEFUL_VALIDATION_SUCCESS:
+        case TxStatus::STATEFUL_VALIDATION_SUCCESS:
           return ProtoResponseVariantType(StatefulValidTxResponse(proto_));
-        case iroha::protocol::TxStatus::REJECTED:
+        case TxStatus::REJECTED:
           return ProtoResponseVariantType(RejectedTxResponse(proto_));
-        case iroha::protocol::TxStatus::COMMITTED:
+        case TxStatus::COMMITTED:
           return ProtoResponseVariantType(CommittedTxResponse(proto_));
-        case iroha::protocol::TxStatus::MST_EXPIRED:
+        case TxStatus::MST_EXPIRED:
           return ProtoResponseVariantType(MstExpiredResponse(proto_));
-        case iroha::protocol::TxStatus::NOT_RECEIVED:
+        case TxStatus::NOT_RECEIVED:
           return ProtoResponseVariantType(NotReceivedTxResponse(proto_));
-        case iroha::protocol::TxStatus::MST_PENDING:
+        case TxStatus::MST_PENDING:
           return ProtoResponseVariantType(MstPendingResponse(proto_));
-        case iroha::protocol::TxStatus::ENOUGH_SIGNATURES_COLLECTED:
+        case TxStatus::ENOUGH_SIGNATURES_COLLECTED:
           return ProtoResponseVariantType(
               EnoughSignaturesCollectedResponse(proto_));
         default:

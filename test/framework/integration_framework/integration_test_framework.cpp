@@ -266,7 +266,6 @@ IntegrationTestFramework::IntegrationTestFramework(
               kLocalHost, torii_port_, std::nullopt))),
       async_call_(std::make_shared<AsyncCall>(
           log_manager_->getChild("AsyncCall")->getLogger())),
-      //      tx_response_waiting_time_ms_(tx_response_waiting),
       maximum_proposal_size_(maximum_proposal_size),
       common_objects_factory_(
           std::make_shared<AlwaysValidProtoCommonObjectsFactory>(
@@ -355,7 +354,6 @@ IntegrationTestFramework::IntegrationTestFramework(
 }
 
 IntegrationTestFramework::~IntegrationTestFramework() {
-  valid_ = false;
   if (cleanup_on_exit_) {
     iroha_instance_->terminateAndCleanup();
   }
@@ -843,7 +841,6 @@ size_t IntegrationTestFramework::internalPort() const {
 }
 
 void IntegrationTestFramework::done() {
-  valid_ = false;
   log_->info("done");
   iroha_instance_->terminateAndCleanup();
 }

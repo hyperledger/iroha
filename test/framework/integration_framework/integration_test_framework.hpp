@@ -438,10 +438,6 @@ namespace integration_framework {
      */
     void done();
 
-    bool valid() {
-      return valid_;
-    }
-
     /// Get the controlled Iroha instance.
     IrohaInstance &getIrohaInstance();
 
@@ -582,7 +578,6 @@ namespace integration_framework {
         fake_peers_servers_;
     std::string db_wsv_path_;
     std::string db_store_path_;
-    std::atomic_bool valid_ = true;
   };
 
 }  // namespace integration_framework
