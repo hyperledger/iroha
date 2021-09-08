@@ -161,72 +161,63 @@ struct IntegrationTestFramework::ResponsesQueues {
 
  private:
   /// maximum time of waiting before appearing next transaction response
-  std::chrono::milliseconds tx_response_waiting_time_ms;
+  std::chrono::milliseconds timeout;
   std::mutex mtx;
-  std::unordered_map<HashType,
-                     std::unique_ptr<CheckerQueue<TxResponseType>>,
-                     HashType::Hasher>
+  std::condition_variable cv;
+  std::unordered_map<HashType, std::queue<TxResponseType>, HashType::Hasher>
       map;
+
+//  bool wait(std::unique_lock<std::mutex>&lk, auto &qu){
+//    if (qu.empty()) {
+//      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
+//        return false;
+//      }
+//    }
+//    return true;
+//  }
 
  public:
   ResponsesQueues(std::chrono::milliseconds ms)
-      : tx_response_waiting_time_ms(ms) {}
+      : timeout(ms) {}
 
- private:
-  auto findOrEmplace(HashType const &txhash) -> decltype(map)::iterator {
-    assert(not mtx.try_lock());  // expecting it is locked before
-    auto it = map.find(txhash);
-    if (it == map.end()) {
-      it = map.emplace(txhash,
-                       std::make_unique<CheckerQueue<TxResponseType>>(
-                           tx_response_waiting_time_ms))
-               .first;
-    }
-    return it;
-  }
-  auto find(HashType const &txhash) -> std::optional<decltype(map)::iterator> {
-    assert(not mtx.try_lock());  // expecting it is locked before
-    auto it = map.find(txhash);
-    if (it == map.end()) {
-      return std::nullopt;
-    }
-    return {it};
-  }
-
- public:
-  auto push(TxResponseType txresp) {
+  void push(TxResponseType p_txresp) {
     std::unique_lock lk(mtx);
-    return findOrEmplace(txresp->transactionHash())->second->push(txresp);
+    auto it = map.try_emplace(p_txresp->transactionHash()).first;
+    it->second.push(std::move(p_txresp));
+    cv.notify_one();
   }
   auto try_peek(HashType const &txhash) -> std::optional<TxResponseType> {
-    CheckerQueue<TxResponseType> *p_responses_queue;
-    {
-      std::unique_lock lk(mtx);
-      auto opt_it = find(txhash);
-      if (!opt_it)
+    std::unique_lock lk(mtx);
+    auto it = map.find(txhash);
+    if (it == map.end())
+      return std::nullopt;
+    auto &qu = it->second;
+    if (qu.empty()) {
+      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
         return std::nullopt;
-      auto &it = *opt_it;
-      p_responses_queue = it->second.get();
+      }
     }
-    auto opt_response = p_responses_queue->try_peek();
-    if (opt_response)
-      return *opt_response;
-    return std::nullopt;
+//    if(!wait(lk,qu))
+//      return std::nullopt;
+    auto ret(qu.front());
+    return ret;
   }
   auto try_pop(HashType const &txhash) -> std::optional<TxResponseType> {
-    CheckerQueue<TxResponseType> *p_responses_queue;
-    {
-      std::unique_lock lk(mtx);
-      auto opt_it = find(txhash);
-      if (!opt_it)
+    std::unique_lock lk(mtx);
+    auto it = map.find(txhash);
+    if (it == map.end())
+      return std::nullopt;
+    auto &qu = it->second;
+    if (qu.empty()) {
+      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
         return std::nullopt;
-      auto &it = *opt_it;
-      p_responses_queue = it->second.get();
+      }
     }
-    auto opt_response = p_responses_queue->try_pop();
-    if (opt_response)
-      return *opt_response;
-    return std::nullopt;
+//    if(!wait(lk,qu))
+//      return std::nullopt;
+    auto ret(std::move(qu.front()));
+    qu.pop();
+    return ret;
   }
 };
 
