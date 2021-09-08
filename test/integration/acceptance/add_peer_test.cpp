@@ -39,6 +39,9 @@ using interface::types::PublicKeyHexStringView;
 static constexpr std::chrono::seconds kMstStateWaitingTime(20);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
+struct AddPeerTest : FakePeerFixture {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(AddPeerTest);
+
 /**
  * @given a network of single peer
  * @when it receives a valid signed addPeer command
@@ -47,7 +50,7 @@ static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
  *    @and the WSV reports that there are two peers: the initial and the added
  * one
  */
-TEST_P(FakePeerFixture, FakePeerIsAdded) {
+TEST_P(AddPeerTest, FakePeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -113,7 +116,7 @@ TEST_P(FakePeerFixture, FakePeerIsAdded) {
  * @when it receives a not fully signed transaction and then a new peer is added
  * @then the first peer propagates MST state to the newly added peer
  */
-TEST_P(FakePeerFixture, MstStatePropagtesToNewPeer) {
+TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -160,7 +163,7 @@ TEST_P(FakePeerFixture, MstStatePropagtesToNewPeer) {
  * @when itf peer is brought up
  * @then itf peer gets synchronized, sees itself in the WSV and can commit txs
  */
-TEST_P(FakePeerFixture, RealPeerIsAdded) {
+TEST_P(AddPeerTest, RealPeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // create the initial fake peer
   auto initial_peer = itf_->addFakePeer(boost::none);

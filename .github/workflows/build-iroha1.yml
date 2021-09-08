@@ -632,9 +632,6 @@ jobs:
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          integration_add_peer_test
-          regression_regression_test
-          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -901,9 +898,6 @@ jobs:
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          integration_add_peer_test
-          regression_regression_test
-          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -1164,9 +1158,6 @@ jobs:
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          integration_add_peer_test
-          regression_regression_test
-          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort

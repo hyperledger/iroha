@@ -10,6 +10,7 @@
 #include <boost/thread/barrier.hpp>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/block.hpp"
@@ -117,12 +118,12 @@ class IntegrationTestFramework::CheckerQueue {
     cv_.notify_one();
   }
 
-  boost::optional<T> try_peek() {
+  std::optional<T> try_peek() {
     std::unique_lock<std::mutex> lock(queue_mutex_);
     if (queue_.empty()) {
       if (not cv_.wait_for(
               lock, timeout_, [this] { return not queue_.empty(); })) {
-        return boost::none;
+        return std::nullopt;
       }
     }
     T obj(queue_.front());
@@ -154,8 +155,6 @@ class IntegrationTestFramework::CheckerQueue {
   std::condition_variable cv_;
 };
 
-#include <unordered_map>
-
 struct IntegrationTestFramework::ResponsesQueues {
  public:
   using HashType = shared_model::interface::types::HashType;
@@ -163,7 +162,7 @@ struct IntegrationTestFramework::ResponsesQueues {
  private:
   /// maximum time of waiting before appearing next transaction response
   std::chrono::milliseconds tx_response_waiting_time_ms;
-  std::recursive_mutex mtx;
+  std::mutex mtx;
   std::unordered_map<HashType,
                      std::unique_ptr<CheckerQueue<TxResponseType>>,
                      HashType::Hasher>
@@ -172,12 +171,10 @@ struct IntegrationTestFramework::ResponsesQueues {
  public:
   ResponsesQueues(std::chrono::milliseconds ms)
       : tx_response_waiting_time_ms(ms) {}
-  auto lock() {
-    return std::unique_lock(mtx);
-  }
+
+ private:
   auto findOrEmplace(HashType const &txhash) -> decltype(map)::iterator {
-    // assert(not mtx.try_lock());  // expecting it is locked before
-    auto lk = lock();
+    assert(not mtx.try_lock());  // expecting it is locked before
     auto it = map.find(txhash);
     if (it == map.end()) {
       it = map.emplace(txhash,
@@ -188,20 +185,21 @@ struct IntegrationTestFramework::ResponsesQueues {
     return it;
   }
   auto find(HashType const &txhash) -> std::optional<decltype(map)::iterator> {
-    // assert(not mtx.try_lock());  // expecting it is locked before
-    auto lk = lock();
+    assert(not mtx.try_lock());  // expecting it is locked before
     auto it = map.find(txhash);
     if (it == map.end()) {
       return std::nullopt;
     }
     return {it};
   }
+
+ public:
   auto push(TxResponseType txresp) {
-    auto lk = lock();
+    std::unique_lock lk(mtx);
     return findOrEmplace(txresp->transactionHash())->second->push(txresp);
   }
   auto try_peek(HashType const &txhash) -> std::optional<TxResponseType> {
-    auto lk = lock();
+    std::unique_lock lk(mtx);
     auto opt_it = find(txhash);
     if (!opt_it)
       return std::nullopt;
@@ -213,7 +211,7 @@ struct IntegrationTestFramework::ResponsesQueues {
     return std::nullopt;
   }
   auto try_pop(HashType const &txhash) -> std::optional<TxResponseType> {
-    auto lk = lock();
+    std::unique_lock lk(mtx);
     auto opt_it = find(txhash);
     if (!opt_it)
       return std::nullopt;
