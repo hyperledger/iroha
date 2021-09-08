@@ -504,28 +504,6 @@ namespace integration_framework {
     std::shared_ptr<CheckerQueue<BlockType>> block_queue_;
 
     struct ResponsesQueues;
-    //    {
-    //     public:
-    //      //using HashType = shared_model::crypto::Hash;
-    //      std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
-    //      map;
-    //     private:
-    //      /// maximum time of waiting before appearing next transaction
-    //      response std::chrono::milliseconds tx_response_waiting_time_ms;
-    //      std::recursive_mutex mtx;
-    //     public:
-    //      ResponsesQueues(std::chrono::milliseconds ms);
-    //      auto findOrEmplace(std::string const &hash) ->
-    //      decltype(map)::iterator; auto find(std::string const &hash) ->
-    //      std::optional<decltype(map)::iterator>; auto lock() {
-    //        return std::unique_lock(mtx);
-    //      }
-    //      //push(std::string const &hash, TxResponseType txresp);
-    //      auto try_peek(std::string const &hash)
-    //      ->std::optional<TxResponseType>; auto try_pop(std::string const
-    //      &hash) ->std::optional<TxResponseType>;
-    //    };
-
     std::shared_ptr<ResponsesQueues> responses_queues_;
     std::shared_ptr<iroha::BaseSubscriber<
         bool,
