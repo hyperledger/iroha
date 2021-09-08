@@ -27,7 +27,7 @@ name: Iroha1
 on:
   push:
     branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
-    tags: [ 'v*' ]
+    tags:
   pull_request:
     branches: [ main, support/1.*, edge, develop ]  ## target branches
   workflow_dispatch:
@@ -111,8 +111,8 @@ jobs:
   ## At the moment there are several options:
   ## - default on pushes, pull requests
   ## - on comment to pull request according to comment message (chat-ops)
-  ## - TODO on workflow_dispatch according to its build_spec
-  ## - TODO all on schedule
+  ## - on workflow_dispatch according to its build_spec
+  ## - on schedule '/build all'
   generate_matrixes:
     runs-on: ubuntu-latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
@@ -280,14 +280,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
         ## Docker image will be pushed with tags:
         ##  - hash of file Dockerfile.builder
         ##  - branchname, when branch is pushed
@@ -492,6 +490,7 @@ jobs:
           -GNinja
           ${{ matrix.CMAKE_USE }}
           -DTESTING=ON
+          -DBENCHMARKING=ON
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON
       - &step_cmake_build
@@ -784,7 +783,8 @@ jobs:
       - generate_matrixes
     runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
     strategy: *strategy_ubuntu_release
-    if: *if_ubuntu_release
+    #if: *if_ubuntu_release
+    if: ${{ matrix.CC = 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
     env: &env_dockerhub_release
       <<: *env_dockerhub
       IMAGE_NAME: iroha
@@ -847,4 +847,5 @@ jobs:
       - build-UD
       - generate_matrixes
     strategy: *strategy_ubuntu_debug
-    if: *if_ubuntu_debug
+    #if: *if_ubuntu_debug
+    if: ${{ matrix.CC = 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}

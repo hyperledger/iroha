@@ -29,7 +29,7 @@ name: Iroha1
 on:
   push:
     branches: [main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha]
-    tags: ['v*']
+    tags:
   pull_request:
     branches: [main, support/1.*, edge, develop] ## target branches
   workflow_dispatch:
@@ -101,8 +101,8 @@ jobs:
   ## At the moment there are several options:
   ## - default on pushes, pull requests
   ## - on comment to pull request according to comment message (chat-ops)
-  ## - TODO on workflow_dispatch according to its build_spec
-  ## - TODO all on schedule
+  ## - on workflow_dispatch according to its build_spec
+  ## - on schedule '/build all'
   generate_matrixes:
     runs-on: ubuntu-latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
@@ -293,22 +293,20 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
+        ## Docker image will be pushed with tags:
+        ##  - hash of file Dockerfile.builder
+        ##  - branchname, when branch is pushed
+        ##  - pr-NUMBER, when pushed to PR
+        ##  - git tag when tag is pushed
+        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+        ##  - tag 'edge' when branch support/1.2.x is pushed
+        ##  - schedule, see the docs
       - uses: docker/metadata-action@v3
         name: Docker meta GHCR
         id: meta_ghcr
@@ -318,22 +316,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           images: ghcr.io/${{ github.repository }}-builder
       - name: Set up Docker Buildx
@@ -544,7 +532,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -813,7 +801,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -1080,7 +1068,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -1288,7 +1276,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -1320,7 +1308,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+    #if: *if_ubuntu_release
+    if: ${{ matrix.CC = 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1418,22 +1407,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
@@ -1449,22 +1428,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1620,22 +1589,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
@@ -1651,22 +1610,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1729,4 +1678,5 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+    #if: *if_ubuntu_debug
+    if: ${{ matrix.CC = 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
