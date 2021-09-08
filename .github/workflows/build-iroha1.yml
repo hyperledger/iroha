@@ -49,8 +49,8 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-latest
-    container: ubuntu:latest ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest  ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
@@ -74,8 +74,8 @@ jobs:
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
-    container: ubuntu:latest
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest
     if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') }}
     steps:
       - name: Show context
@@ -106,8 +106,8 @@ jobs:
   ## - on workflow_dispatch according to its build_spec
   ## - on schedule '/build all'
   generate_matrixes:
-    runs-on: ubuntu-latest
-    container: ubuntu:latest
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
@@ -209,7 +209,7 @@ jobs:
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
