@@ -566,8 +566,10 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
           [wlog(iroha::utils::make_weak(log_)),
            w_responses_queues(iroha::utils::make_weak(responses_queues_))](
               auto, auto response) {
-            auto log = std::shared_ptr(wlog);
-            auto responses_queues = std::shared_ptr(w_responses_queues);
+            auto log = wlog.lock();
+            auto responses_queues = w_responses_queues.lock();
+            if(!log or !responses_queues)
+              return;
             responses_queues->push(response);
             log->info("response added to status queue: {}",
                       response->toString());
