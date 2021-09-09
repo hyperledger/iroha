@@ -166,19 +166,23 @@ struct IntegrationTestFramework::ResponsesQueues {
   std::condition_variable cv;
   std::unordered_map<HashType, std::queue<TxResponseType>, HashType::Hasher>
       map;
-
-//  bool wait(std::unique_lock<std::mutex>&lk, auto &qu){
-//    if (qu.empty()) {
-//      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
-//        return false;
-//      }
-//    }
-//    return true;
-//  }
+#if 0
+  bool wait(HashType const &txhash, std::unique_lock<std::mutex> &lk) {
+    auto it = map.find(txhash);
+    if (it == map.end())
+      return false;
+    auto &qu = it->second;
+    if (qu.empty()) {
+      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
+        return false;
+      }
+    }
+    return true;
+  }
+#endif
 
  public:
-  ResponsesQueues(std::chrono::milliseconds ms)
-      : timeout(ms) {}
+  ResponsesQueues(std::chrono::milliseconds ms) : timeout(ms) {}
 
   void push(TxResponseType p_txresp) {
     std::unique_lock lk(mtx);
@@ -197,8 +201,6 @@ struct IntegrationTestFramework::ResponsesQueues {
         return std::nullopt;
       }
     }
-//    if(!wait(lk,qu))
-//      return std::nullopt;
     auto ret(qu.front());
     return ret;
   }
@@ -209,12 +211,12 @@ struct IntegrationTestFramework::ResponsesQueues {
       return std::nullopt;
     auto &qu = it->second;
     if (qu.empty()) {
-      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
+      if (not cv.wait_for(lk, timeout, [&qu] { return qu.size() > 0; })) {
         return std::nullopt;
       }
     }
-//    if(!wait(lk,qu))
-//      return std::nullopt;
+    //    if (!wait(txhash, lk))
+    //      return std::nullopt;
     auto ret(std::move(qu.front()));
     qu.pop();
     return ret;
@@ -247,7 +249,7 @@ IntegrationTestFramework::IntegrationTestFramework(
       block_queue_(std::make_shared<CheckerQueue<BlockType>>(block_waiting)),
       responses_queues_(
           std::make_shared<decltype(responses_queues_)::element_type>(
-              tx_response_waiting_ms)),
+              std::chrono::milliseconds(1) /*tx_response_waiting_ms*/)),
       port_guard_(std::make_unique<PortGuard>()),
       torii_port_(port_guard_->getPort(kDefaultToriiPort)),
       command_client_(std::make_unique<torii::CommandSyncClient>(
@@ -568,8 +570,12 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
               auto, auto response) {
             auto log = wlog.lock();
             auto responses_queues = w_responses_queues.lock();
-            if(!log or !responses_queues)
+            if (!log or !responses_queues) {
+              std::cout << "kOnTransactionResponse: !log or !responses_queues"
+                        << std::endl;
               return;
+            }
+            log->debug("kOnTransactionResponse");
             responses_queues->push(response);
             log->info("response added to status queue: {}",
                       response->toString());
@@ -646,11 +652,13 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
         validation) {
   log_->debug("sendTx()");
   sendTxWithoutValidation(tx);
-  std::optional<TxResponseType> opt_response =
-      responses_queues_->try_peek(tx.hash());
-  if (not opt_response)
+  auto opt_response = responses_queues_->try_peek(tx.hash());
+  if (not opt_response) {
+    log_->debug("sendTx(): missed status for hash {}", tx.hash().hex());
     throw std::runtime_error("sendTx(): missed status for hash "
                              + tx.hash().hex());
+  }
+  log_->debug("sendTx(): tx was sent {}", tx.hash().hex());
   validation(static_cast<const shared_model::proto::TransactionResponse &>(
       *opt_response.value()));
   return *this;
