@@ -179,6 +179,7 @@ impl<W: WorldTrait> Query<W> for QueryBox {
             FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindTransactionsByAccountId(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
+            FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
 
             #[cfg(feature = "roles")]
             FindAllRoles(query) => query.execute_into_value(wsv),

@@ -47,7 +47,8 @@
                       "name": "rose",
                       "domain_name": "wonderland"
                     },
-                    "value_type": "Quantity"
+                    "value_type": "Quantity",
+                    "metadata": {}
                   }
                 }
               }
@@ -64,7 +65,8 @@
                       "name": "tulip",
                       "domain_name": "wonderland"
                     },
-                    "value_type": "Fixed"
+                    "value_type": "Fixed",
+                    "metadata": {}
                   }
                 }
               }

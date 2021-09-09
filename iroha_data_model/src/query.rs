@@ -65,8 +65,10 @@ pub enum QueryBox {
     FindAssetsByDomainNameAndAssetDefinitionId(FindAssetsByDomainNameAndAssetDefinitionId),
     /// `FindAssetQuantityById` variant.
     FindAssetQuantityById(FindAssetQuantityById),
-    /// `FindAssetQuantityById` variant.
+    /// `FindAssetKeyValueByIdAndKey` variant.
     FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
+    /// `FindAssetKeyValueByIdAndKey` variant.
+    FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
     /// `FindAllDomains` variant.
     FindAllDomains(FindAllDomains),
     /// `FindDomainByName` variant.
@@ -732,7 +734,7 @@ pub mod asset {
         type Output = u32;
     }
 
-    /// `FindAssetQuantityById` Iroha Query will get `AssetId` and key as input and find [`Value`]
+    /// `FindAssetKeyValueByIdAndKey` Iroha Query will get `AssetId` and key as input and find [`Value`]
     /// of the key-value pair stored in this asset.
     #[derive(
         Clone,
@@ -756,6 +758,33 @@ pub mod asset {
     }
 
     impl QueryOutput for FindAssetKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
+    /// `FindAssetDefinitionKeyValueByIdAndKey` Iroha Query will get `AssetDefinitionId` and key as input and find [`Value`]
+    /// of the key-value pair stored in this asset definition.
+    #[derive(
+        Clone,
+        Debug,
+        Io,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        IntoSchema,
+    )]
+    pub struct FindAssetDefinitionKeyValueByIdAndKey {
+        /// `Id` of an `Asset` acting as `Store`.
+        pub id: EvaluatesTo<AssetDefinitionId>,
+        /// The key of the key-value pair stored in the asset.
+        pub key: EvaluatesTo<Name>,
+    }
+
+    impl QueryOutput for FindAssetDefinitionKeyValueByIdAndKey {
         type Output = Value;
     }
 
@@ -850,7 +879,8 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetKeyValueByIdAndKey,
+            FindAllAssets, FindAllAssetsDefinitions, FindAssetById,
+            FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
             FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
             FindAssetsByDomainName, FindAssetsByDomainNameAndAssetDefinitionId, FindAssetsByName,
         };
