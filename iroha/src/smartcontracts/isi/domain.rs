@@ -23,7 +23,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let account = self.object;
-            account.validate_len(wsv.config.length_limits)?;
+            account.validate_len(wsv.config.ident_length_limits)?;
             let name = account.id.domain_name.clone();
             match wsv.domain_mut(&name)?.accounts.entry(account.id.clone()) {
                 Entry::Occupied(_) => {
@@ -66,7 +66,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let asset_definition = self.object;
-            asset_definition.validate_len(wsv.config.length_limits)?;
+            asset_definition.validate_len(wsv.config.ident_length_limits)?;
             let name = asset_definition.id.domain_name.clone();
             let mut domain = wsv.domain_mut(&name)?;
             match domain.asset_definitions.entry(asset_definition.id.clone()) {
@@ -116,6 +116,46 @@ pub mod isi {
             Ok(())
         }
     }
+
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<AssetDefinition, String, Value> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Error> {
+            let metadata_limits = wsv.config.asset_definition_metadata_limits;
+            wsv.modify_asset_definition_entry(&self.object_id, |asset_definition_entry| {
+                asset_definition_entry
+                    .definition
+                    .metadata
+                    .insert_with_limits(self.key.clone(), self.value.clone(), metadata_limits)?;
+                Ok(())
+            })?;
+            Ok(())
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<AssetDefinition, String> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Error> {
+            wsv.modify_asset_definition_entry(&self.object_id, |asset_definition_entry| {
+                asset_definition_entry
+                    .definition
+                    .metadata
+                    .remove(&self.key)
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                Ok(())
+            })?;
+            Ok(())
+        }
+    }
 }
 
 /// Query module provides [`Query`] Domain related implementations.
@@ -143,6 +183,26 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain name")?;
             Ok(wsv.domain(&name)?.clone())
+        }
+    }
+
+    impl<W: WorldTrait> Query<W> for FindAssetDefinitionKeyValueByIdAndKey {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+            let id = self
+                .id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get asset definition id")?;
+            let key = self
+                .key
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get key")?;
+            Ok(wsv
+                .asset_definition_entry(&id)?
+                .definition
+                .metadata
+                .get(&key)
+                .ok_or_else(|| error!("Key {} not found in asset {}", key, id))?
+                .clone())
         }
     }
 }

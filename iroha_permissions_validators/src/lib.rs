@@ -306,6 +306,21 @@ pub mod private_blockchain {
                             ))
                         }
                     }
+                    QueryBox::FindAssetDefinitionKeyValueByIdAndKey(query) => {
+                        let asset_definition_id = query
+                            .id
+                            .evaluate(wsv, &context)
+                            .map_err(|err| err.to_string())?;
+                        if asset_definition_id.domain_name == authority.domain_name {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "Cannot access asset definition from a different domain. Asset definition domain: {}. Signers account domain {}.",
+                                asset_definition_id.domain_name,
+                                authority.domain_name
+                            ))
+                        }
+                    }
                     QueryBox::FindAssetQuantityById(query) => {
                         let asset_id = query
                             .id
@@ -421,6 +436,7 @@ pub mod private_blockchain {
                     | QueryBox::FindAllDomains(_)
                     | QueryBox::FindDomainByName(_)
                     | QueryBox::FindAssetsByDomainNameAndAssetDefinitionId(_)
+                    | QueryBox::FindAssetDefinitionKeyValueByIdAndKey(_)
                     | QueryBox::FindAllAssets(_) => {
                         Err("Only access to the assets of the same domain is permitted.".to_owned())
                     }
@@ -580,6 +596,8 @@ pub mod public_blockchain {
             .with_validator(key_value::GrantMyAssetAccessSet)
             .with_validator(key_value::GrantMyMetadataAccessSet)
             .with_validator(key_value::GrantMyMetadataAccessRemove)
+            .with_validator(key_value::GrantMyAssetDefinitionSet)
+            .with_validator(key_value::GrantMyAssetDefinitionRemove)
             .any_should_succeed("Grant instruction validator.");
         ValidatorBuilder::new()
             .with_recursive_validator(grant_instruction_validator)
@@ -606,6 +624,14 @@ pub mod public_blockchain {
             )
             .with_recursive_validator(
                 key_value::AssetRemoveOnlyForSignerAccount.or(key_value::RemoveGrantedByAssetOwner),
+            )
+            .with_recursive_validator(
+                key_value::AssetDefinitionSetOnlyForSignerAccount
+                    .or(key_value::SetGrantedByAssetDefinitionOwner),
+            )
+            .with_recursive_validator(
+                key_value::AssetDefinitionRemoveOnlyForSignerAccount
+                    .or(key_value::RemoveGrantedByAssetDefinitionOwner),
             )
             .all_should_succeed()
     }
@@ -699,8 +725,7 @@ pub mod public_blockchain {
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err(
-                "Can not grant access for unregistering assets, registered by another account."
-                    .to_owned(),
+                "Can not grant access for assets, registered by another account.".to_owned(),
             );
         }
         Ok(())
@@ -1248,6 +1273,12 @@ pub mod public_blockchain {
         /// Can burn user's assets permission token name.
         pub const CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: &str =
             "can_remove_key_value_in_user_metadata";
+        /// Can set key value in the corresponding asset definition.
+        pub const CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION: &str =
+            "can_set_key_value_in_asset_definition";
+        /// Can remove key value in the corresponding asset definition.
+        pub const CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: &str =
+            "can_remove_key_value_in_asset_definition";
         /// Target account id for setting and removing key value permission tokens.
         pub const ACCOUNT_ID_TOKEN_PARAM_NAME: &str = "account_id";
 
@@ -1631,6 +1662,224 @@ pub mod public_blockchain {
                 }
                 check_account_owner_for_token(&permission_token, authority)?;
                 Ok(())
+            }
+        }
+
+        /// Validator that checks Grant instruction so that the access is granted to the assets defintion
+        /// registered by signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyAssetDefinitionSet;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionSet);
+
+        impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionSet {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView<W>,
+            ) -> Result<(), DenialReason> {
+                let permission_token: PermissionToken = instruction
+                    .object
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+                if permission_token.name != CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION {
+                    return Err(
+                        "Grant instruction is not for set key value in asset definition permission."
+                            .to_owned(),
+                    );
+                }
+                check_asset_creator_for_token(&permission_token, authority, wsv)
+            }
+        }
+
+        // Validator that checks Grant instruction so that the access is granted to the assets defintion
+        /// registered by signer account.
+        #[derive(Debug, Clone, Copy)]
+        pub struct GrantMyAssetDefinitionRemove;
+
+        impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionRemove);
+
+        impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionRemove {
+            fn check_grant(
+                &self,
+                authority: &AccountId,
+                instruction: &GrantBox,
+                wsv: &WorldStateView<W>,
+            ) -> Result<(), DenialReason> {
+                let permission_token: PermissionToken = instruction
+                    .object
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION {
+                    return Err(
+                        "Grant instruction is not for remove key value in asset definition permission."
+                            .to_owned(),
+                    );
+                }
+                check_asset_creator_for_token(&permission_token, authority, wsv)
+            }
+        }
+
+        /// Checks that account can set keys for asset definitions only registered by the signer account.
+        #[derive(Debug, Copy, Clone)]
+        pub struct AssetDefinitionSetOnlyForSignerAccount;
+
+        impl_from_item_for_instruction_validator_box!(AssetDefinitionSetOnlyForSignerAccount);
+
+        impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionSetOnlyForSignerAccount {
+            fn check(
+                &self,
+                authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView<W>,
+            ) -> Result<(), DenialReason> {
+                let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
+                let object_id = instruction
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+
+                let object_id: AssetDefinitionId = try_into_or_exit!(object_id);
+                let registered_by_signer_account = wsv
+                    .asset_definition_entry(&object_id)
+                    .map(|asset_definition_entry| {
+                        &asset_definition_entry.registered_by == authority
+                    })
+                    .unwrap_or(false);
+                if !registered_by_signer_account {
+                    return Err(
+                        "Can't set key value to asset definition registered by other accounts."
+                            .to_owned(),
+                    );
+                }
+                Ok(())
+            }
+        }
+
+        /// Checks that account can set keys for asset definitions only registered by the signer account.
+        #[derive(Debug, Copy, Clone)]
+        pub struct AssetDefinitionRemoveOnlyForSignerAccount;
+
+        impl_from_item_for_instruction_validator_box!(AssetDefinitionRemoveOnlyForSignerAccount);
+
+        impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionRemoveOnlyForSignerAccount {
+            fn check(
+                &self,
+                authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView<W>,
+            ) -> Result<(), DenialReason> {
+                let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Ok(());
+                };
+                let object_id = instruction
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+
+                let object_id: AssetDefinitionId = try_into_or_exit!(object_id);
+                let registered_by_signer_account = wsv
+                    .asset_definition_entry(&object_id)
+                    .map(|asset_definition_entry| {
+                        &asset_definition_entry.registered_by == authority
+                    })
+                    .unwrap_or(false);
+                if !registered_by_signer_account {
+                    return Err(
+                        "Can't remove key value to asset definition registered by other accounts."
+                            .to_owned(),
+                    );
+                }
+                Ok(())
+            }
+        }
+
+        /// Allows setting asset definition's metadata key value pairs from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct SetGrantedByAssetDefinitionOwner;
+
+        impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetDefinitionOwner);
+
+        impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetDefinitionOwner {
+            fn token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView<W>,
+            ) -> Result<PermissionToken, String> {
+                let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not set.".to_owned());
+                };
+                let object_id = set_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AssetDefinitionId.".to_owned());
+                };
+                let mut params = BTreeMap::new();
+                params.insert(
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                    object_id.into(),
+                );
+                Ok(PermissionToken::new(
+                    CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION,
+                    params,
+                ))
+            }
+        }
+
+        /// Allows setting asset definition's metadata key value pairs from a different account if the corresponding user granted this permission token.
+        #[derive(Debug, Clone, Copy)]
+        pub struct RemoveGrantedByAssetDefinitionOwner;
+
+        impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetDefinitionOwner);
+
+        impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetDefinitionOwner {
+            fn token(
+                &self,
+                _authority: &AccountId,
+                instruction: &Instruction,
+                wsv: &WorldStateView<W>,
+            ) -> Result<PermissionToken, String> {
+                let set_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
+                    instruction
+                } else {
+                    return Err("Instruction is not remove key value.".to_owned());
+                };
+                let object_id = set_box
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
+                    object_id
+                } else {
+                    return Err("Source id is not an AssetDefinitionId.".to_owned());
+                };
+                let mut params = BTreeMap::new();
+                params.insert(
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                    object_id.into(),
+                );
+                Ok(PermissionToken::new(
+                    CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION,
+                    params,
+                ))
             }
         }
     }
@@ -2157,6 +2406,79 @@ pub mod public_blockchain {
                 .check(&alice_id, &set, &wsv)
                 .is_ok());
             assert!(key_value::AccountRemoveOnlyForSignerAccount
+                .check(&bob_id, &set, &wsv)
+                .is_err());
+        }
+
+        #[test]
+        fn set_to_only_owned_asset_definition() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let wsv = WorldStateView::<World>::new(World::with(
+                btreemap! {
+                    "test".to_string() => Domain {
+                    accounts: BTreeMap::new(),
+                    name: "test".to_string(),
+                    asset_definitions: btreemap! {
+                        xor_id.clone() =>
+                        AssetDefinitionEntry {
+                            definition: xor_definition,
+                            registered_by: alice_id.clone()
+                        }
+                    }
+                    .into_iter()
+                    .collect(),
+                    }
+                },
+                vec![],
+            ));
+            let set = Instruction::SetKeyValue(SetKeyValueBox::new(
+                IdBox::AssetDefinitionId(xor_id),
+                Value::from("key".to_owned()),
+                Value::from("value".to_owned()),
+            ));
+            assert!(key_value::AssetDefinitionSetOnlyForSignerAccount
+                .check(&alice_id, &set, &wsv)
+                .is_ok());
+            assert!(key_value::AssetDefinitionSetOnlyForSignerAccount
+                .check(&bob_id, &set, &wsv)
+                .is_err());
+        }
+
+        #[test]
+        fn remove_to_only_owned_asset_definition() {
+            let alice_id = <Account as Identifiable>::Id::new("alice", "test");
+            let bob_id = <Account as Identifiable>::Id::new("bob", "test");
+            let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
+            let xor_definition = AssetDefinition::new_quantity(xor_id.clone());
+            let wsv = WorldStateView::<World>::new(World::with(
+                btreemap! {
+                    "test".to_string() => Domain {
+                    accounts: BTreeMap::new(),
+                    name: "test".to_string(),
+                    asset_definitions: btreemap! {
+                        xor_id.clone() =>
+                        AssetDefinitionEntry {
+                            definition: xor_definition,
+                            registered_by: alice_id.clone()
+                        }
+                    }
+                    .into_iter()
+                    .collect(),
+                    }
+                },
+                vec![],
+            ));
+            let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
+                IdBox::AssetDefinitionId(xor_id),
+                Value::from("key".to_owned()),
+            ));
+            assert!(key_value::AssetDefinitionRemoveOnlyForSignerAccount
+                .check(&alice_id, &set, &wsv)
+                .is_ok());
+            assert!(key_value::AssetDefinitionRemoveOnlyForSignerAccount
                 .check(&bob_id, &set, &wsv)
                 .is_err());
         }

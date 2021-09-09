@@ -307,6 +307,10 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
                 SetKeyValue::<Asset, String, Value>::new(asset_id, key, value)
                     .execute(authority, wsv)
             }
+            IdBox::AssetDefinitionId(definition_id) => {
+                SetKeyValue::<AssetDefinition, String, Value>::new(definition_id, key, value)
+                    .execute(authority, wsv)
+            }
             IdBox::AccountId(account_id) => {
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
                     .execute(authority, wsv)
@@ -330,6 +334,10 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
                 RemoveKeyValue::<Asset, String>::new(asset_id, key).execute(authority, wsv)
+            }
+            IdBox::AssetDefinitionId(definition_id) => {
+                RemoveKeyValue::<AssetDefinition, String>::new(definition_id, key)
+                    .execute(authority, wsv)
             }
             IdBox::AccountId(account_id) => {
                 RemoveKeyValue::<Account, String>::new(account_id, key).execute(authority, wsv)
@@ -500,6 +508,34 @@ mod tests {
         let bytes = wsv.map_account(&account_id, |account| {
             account.metadata.get("Bytes").cloned()
         })?;
+        assert_eq!(
+            bytes,
+            Some(Value::Vec(vec![
+                Value::U32(1),
+                Value::U32(2),
+                Value::U32(3)
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn asset_definition_metadata() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let account_id = AccountId::new("alice", "wonderland");
+        SetKeyValueBox::new(
+            IdBox::from(definition_id.clone()),
+            "Bytes".to_owned(),
+            vec![1_u32, 2_u32, 3_u32],
+        )
+        .execute(account_id, &wsv)?;
+        let bytes = wsv
+            .asset_definition_entry(&definition_id)?
+            .definition
+            .metadata
+            .get("Bytes")
+            .cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![

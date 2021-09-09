@@ -35,7 +35,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let domain = self.object;
-            domain.validate_len(wsv.config.length_limits)?;
+            domain.validate_len(wsv.config.ident_length_limits)?;
             wsv.domains().insert(domain.name.clone(), domain);
             Ok(())
         }

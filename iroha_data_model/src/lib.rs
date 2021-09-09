@@ -355,12 +355,12 @@ pub trait Identifiable: Debug + Clone {
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
 }
 
-/// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::NewAccount`], [`asset::AssetDefinition`]) in bytes
+/// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::NewAccount`], [`asset::AssetDefinition`]) in number of chars
 #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
 pub struct LengthLimits {
-    /// Minimal length in bytes (inclusive).
+    /// Minimal length in number of chars (inclusive).
     min: u32,
-    /// Maximal length in bytes (inclusive).
+    /// Maximal length in number of chars (inclusive).
     max: u32,
 }
 
@@ -834,7 +834,7 @@ pub mod account {
         /// Fails if limit check fails
         pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
             let range = range.into();
-            if range.contains(&self.id.name.len()) {
+            if range.contains(&self.id.name.chars().count()) {
                 Ok(())
             } else {
                 Err(error!(
@@ -1261,6 +1261,8 @@ pub mod asset {
         pub value_type: AssetValueType,
         /// An Identification of the [`AssetDefinition`].
         pub id: DefinitionId,
+        /// Metadata of this asset definition as a key-value store.
+        pub metadata: Metadata,
     }
 
     /// Asset represents some sort of commodity or value.
@@ -1473,27 +1475,31 @@ pub mod asset {
 
     impl AssetDefinition {
         /// Default [`AssetDefinition`] constructor.
-        pub const fn new(id: DefinitionId, value_type: AssetValueType) -> Self {
-            AssetDefinition { value_type, id }
+        pub fn new(id: DefinitionId, value_type: AssetValueType) -> Self {
+            AssetDefinition {
+                value_type,
+                id,
+                metadata: Metadata::new(),
+            }
         }
 
         /// Asset definition with quantity asset value type.
-        pub const fn new_quantity(id: DefinitionId) -> Self {
+        pub fn new_quantity(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Quantity)
         }
 
         /// Asset definition with big quantity asset value type.
-        pub const fn new_big_quantity(id: DefinitionId) -> Self {
+        pub fn new_big_quantity(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::BigQuantity)
         }
 
         /// Asset definition with decimal quantity asset value type.
-        pub const fn with_precision(id: DefinitionId) -> Self {
+        pub fn with_precision(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Fixed)
         }
 
         /// Asset definition with store asset value type.
-        pub const fn new_store(id: DefinitionId) -> Self {
+        pub fn new_store(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Store)
         }
 

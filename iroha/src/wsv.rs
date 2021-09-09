@@ -362,6 +362,23 @@ impl<W: WorldTrait> WorldStateView<W> {
             .map(Clone::clone)
     }
 
+    /// Get `AssetDefinitionEntry` with an ability to modify it.
+    ///
+    /// # Errors
+    /// Fails if asset definition entry does not exist
+    pub fn modify_asset_definition_entry(
+        &self,
+        id: &<AssetDefinition as Identifiable>::Id,
+        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<()>,
+    ) -> Result<()> {
+        let mut domain = self.domain_mut(&id.domain_name)?;
+        let asset_definition_entry = domain
+            .asset_definitions
+            .get_mut(id)
+            .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
+        f(asset_definition_entry)
+    }
+
     /// Checks if this `transaction_hash` is already committed or rejected.
     pub fn has_transaction(&self, transaction_hash: &Hash) -> bool {
         self.transactions.get(transaction_hash).is_some()
@@ -406,10 +423,9 @@ pub mod config {
     use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_ASSET_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
-    const DEFAULT_ACCOUNT_LIMITS: MetadataLimits =
+    const DEFAULT_METADATA_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
-    const DEFAULT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
+    const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
     /// [`WorldStateView`](super::WorldStateView) configuration.
     #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable)]
@@ -418,18 +434,21 @@ pub mod config {
     pub struct Configuration {
         /// [`MetadataLimits`] for every asset with store.
         pub asset_metadata_limits: MetadataLimits,
+        /// [`MetadataLimits`] of any asset definition's metadata.
+        pub asset_definition_metadata_limits: MetadataLimits,
         /// [`MetadataLimits`] of any account's metadata.
         pub account_metadata_limits: MetadataLimits,
-        /// [`LengthLimits`] of identifiers in bytes that can be stored in the WSV.
-        pub length_limits: LengthLimits,
+        /// [`LengthLimits`]for the number of chars in identifiers that can be stored in the WSV.
+        pub ident_length_limits: LengthLimits,
     }
 
     impl Default for Configuration {
         fn default() -> Self {
             Configuration {
-                asset_metadata_limits: DEFAULT_ASSET_LIMITS,
-                account_metadata_limits: DEFAULT_ACCOUNT_LIMITS,
-                length_limits: DEFAULT_LENGTH_LIMITS,
+                asset_metadata_limits: DEFAULT_METADATA_LIMITS,
+                asset_definition_metadata_limits: DEFAULT_METADATA_LIMITS,
+                account_metadata_limits: DEFAULT_METADATA_LIMITS,
+                ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
             }
         }
     }
