@@ -377,7 +377,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]
+    runs-on: ubuntu-latest #[ self-hosted, Linux ]
     ## Container is taken from previous job
     container: #&container
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
@@ -784,7 +784,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
+    runs-on: ubuntu-latest #[ self-hosted, Linux ]
     strategy: *strategy_ubuntu_release
     if: *if_ubuntu_release
     # if: ${{ matrix.CC == 'gcc-9' && fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
