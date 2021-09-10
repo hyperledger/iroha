@@ -116,9 +116,6 @@ namespace integration_framework {
     using BlockType = std::shared_ptr<const shared_model::interface::Block>;
 
    public:
-    using TxResponseType =
-        std::shared_ptr<shared_model::interface::TransactionResponse>;
-
     using TransactionBatchType = shared_model::interface::TransactionBatch;
     using TransactionBatchSPtr = std::shared_ptr<TransactionBatchType>;
 
