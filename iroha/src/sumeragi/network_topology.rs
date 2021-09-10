@@ -2,9 +2,9 @@
 
 use std::{collections::HashSet, convert::TryInto, iter};
 
+use eyre::{eyre, Result};
 use iroha_crypto::{Hash, Signature};
 use iroha_data_model::prelude::PeerId;
-use iroha_error::{error, Result};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -49,7 +49,7 @@ pub fn shift_peers_by_n(mut peers: Vec<PeerId>, n: u64) -> Vec<PeerId> {
 
 macro_rules! field_is_some_or_err {
     ($s:ident.$f:ident) => {
-        $s.$f.ok_or(error!(
+        $s.$f.ok_or(eyre!(
             "Field with name {} should not be `None`.",
             stringify!($f)
         ))
@@ -114,12 +114,12 @@ impl GenesisBuilder {
             field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let max_faults_rem = (set_a.len() - 1) % 2;
         if max_faults_rem > 0 {
-            return Err(error!("Could not deduce max faults. As given: 2f+1=set_a.len() We get a non integer f. f should be an integer."));
+            return Err(eyre!("Could not deduce max faults. As given: 2f+1=set_a.len() We get a non integer f. f should be an integer."));
         }
         #[allow(clippy::integer_division)]
         let max_faults = (set_a.len() - 1_usize) / 2_usize;
         if set_b.len() < max_faults {
-            return Err(error!(
+            return Err(eyre!(
                     "Not enough peers to be Byzantine fault tolerant. Expected least {} peers in `set_b`, got {}",
                     max_faults,
                     set_b.len(),
@@ -226,7 +226,7 @@ impl Builder {
                 view_change_proofs: self.view_change_proofs,
             })
         } else {
-            Err(error!(
+            Err(eyre!(
                 "Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}",
                 min_peers,
                 peers.len(),
@@ -372,7 +372,7 @@ impl Topology {
         {
             Ok(())
         } else {
-            Err(error!("No {:?} with this public key exists.", role))
+            Err(eyre!("No {:?} with this public key exists.", role))
         }
         .and(signature.verify(message_payload))
     }

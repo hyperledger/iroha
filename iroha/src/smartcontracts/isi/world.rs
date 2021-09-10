@@ -5,8 +5,8 @@ use crate::prelude::*;
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
+    use eyre::{eyre, Result};
     use iroha_data_model::prelude::*;
-    use iroha_error::{error, Result};
 
     use super::*;
 
@@ -21,7 +21,7 @@ pub mod isi {
             if wsv.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
             } else {
-                Err(error!("Peer already presented in the list of trusted peers.",).into())
+                Err(eyre!("Peer already presented in the list of trusted peers.",).into())
             }
         }
     }
@@ -92,8 +92,8 @@ pub mod isi {
 
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
+    use eyre::Result;
     use iroha_data_model::prelude::*;
-    use iroha_error::Result;
     use iroha_logger::log;
 
     use super::*;

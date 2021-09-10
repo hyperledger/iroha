@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use iroha_error::{Result, WrapErr};
+use eyre::{Result, WrapErr};
 use iroha_logger::telemetry::Telemetry;
 use iroha_telemetry::futures;
 use tokio::{

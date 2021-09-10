@@ -11,7 +11,7 @@ use crate::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_error::error;
+    use eyre::eyre;
     use iroha_logger::log;
 
     use super::*;
@@ -238,7 +238,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             if self.destination_id.definition_id != self.source_id.definition_id {
-                return Err(error!("Can not transfer asset between different asset types.").into());
+                return Err(eyre!("Can not transfer asset between different asset types.").into());
             }
             assert_asset_type(&self.source_id.definition_id, wsv, AssetValueType::Quantity)?;
             assert_asset_type(
@@ -250,7 +250,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity
                     .checked_sub(self.object)
-                    .ok_or_else(|| error!("Source account does not have enough asset quantity."))?;
+                    .ok_or_else(|| eyre!("Source account does not have enough asset quantity."))?;
                 Ok(())
             })?;
             wsv.asset_or_insert(&self.destination_id, 0_u32)?;
@@ -268,7 +268,7 @@ pub mod isi {
 
 /// Query module provides [`Query`] Asset related implementations.
 pub mod query {
-    use iroha_error::{error, Result, WrapErr};
+    use eyre::{eyre, Result, WrapErr};
     use iroha_logger::log;
 
     use super::*;
@@ -437,7 +437,7 @@ pub mod query {
             let store: &Metadata = asset.value.try_as_ref()?;
             Ok(store
                 .get(&key)
-                .ok_or_else(|| error!("Key {} not found in asset {}", key, id))?
+                .ok_or_else(|| eyre!("Key {} not found in asset {}", key, id))?
                 .clone())
         }
     }

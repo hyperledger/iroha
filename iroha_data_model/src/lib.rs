@@ -5,9 +5,9 @@
 
 use std::{convert::TryFrom, error, fmt::Debug, ops::RangeInclusive};
 
+use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::PublicKey;
 use iroha_derive::FromVariant;
-use iroha_error::{error, Result, WrapErr};
 use iroha_macro::error::ErrorTryFromEnum;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -317,7 +317,7 @@ where
     V: TryFrom<Value>,
     <V as TryFrom<Value>>::Error: Send + Sync + error::Error + 'static,
 {
-    type Error = iroha_error::Error;
+    type Error = eyre::Error;
     fn try_from(value: Value) -> Result<Vec<V>> {
         if let Value::Vec(vec) = value {
             vec.into_iter()
@@ -325,7 +325,7 @@ where
                 .collect::<Result<Vec<_>, _>>()
                 .wrap_err("Failed to convert to vector")
         } else {
-            Err(error!("Expected vector, but found something else"))
+            Err(eyre!("Expected vector, but found something else"))
         }
     }
 }
@@ -474,7 +474,6 @@ pub mod role {
     };
 
     use dashmap::DashMap;
-    use iroha_error::Result;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -659,10 +658,10 @@ pub mod account {
         ops::RangeInclusive,
     };
 
+    use eyre::{eyre, Error, Result};
     //TODO: get rid of it?
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
-    use iroha_error::{error, Error, Result};
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -830,7 +829,7 @@ pub mod account {
             if range.contains(&self.id.name.chars().count()) {
                 Ok(())
             } else {
-                Err(error!(
+                Err(eyre!(
                     "Length of the account name must be in range {}-{}",
                     &range.start(),
                     &range.end()
@@ -1027,7 +1026,7 @@ pub mod account {
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('@').collect();
             if vector.len() != 2 {
-                return Err(error!("Id should have format `name@domain_name`"));
+                return Err(eyre!("Id should have format `name@domain_name`"));
             }
             Ok(Id {
                 name: String::from(vector[0]),
@@ -1181,8 +1180,8 @@ pub mod asset {
         str::FromStr,
     };
 
+    use eyre::{eyre, Error, Result, WrapErr};
     use iroha_derive::{FromVariant, Io};
-    use iroha_error::{error, Error, Result, WrapErr};
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1364,7 +1363,7 @@ pub mod asset {
                     if let AssetValue:: $variant (value) = self {
                         Ok(value)
                     } else {
-                        Err(error!(
+                        Err(eyre!(
                             concat!(
                                 "Expected source asset with value type:",
                                 stringify!($variant),
@@ -1383,7 +1382,7 @@ pub mod asset {
                     if let AssetValue:: $variant (value) = self {
                         Ok(value)
                     } else {
-                        Err(error!(
+                        Err(eyre!(
                             concat!(
                                 "Expected source asset with value type:",
                                 stringify!($variant),
@@ -1509,7 +1508,7 @@ pub mod asset {
             if range.contains(&self.id.name.len()) {
                 Ok(())
             } else {
-                Err(error!(
+                Err(eyre!(
                     "Length of the asset defenition name must be in range {}-{}",
                     &range.start(),
                     &range.end()
@@ -1661,7 +1660,7 @@ pub mod asset {
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('#').collect();
             if vector.len() != 2 {
-                return Err(error!(
+                return Err(eyre!(
                     "Asset definition ID should have format `name#domain_name`.",
                 ));
             }
@@ -1702,9 +1701,9 @@ pub mod domain {
     };
 
     use dashmap::DashMap;
+    use eyre::{eyre, Result};
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
-    use iroha_error::{error, Result};
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1800,7 +1799,7 @@ pub mod domain {
             if range.contains(&self.name.len()) {
                 Ok(())
             } else {
-                Err(error!(
+                Err(eyre!(
                     "Length of the domain name must be in range {}-{}",
                     &range.start(),
                     &range.end()
@@ -1948,9 +1947,9 @@ pub mod transaction {
         vec::IntoIter as VecIter,
     };
 
+    use eyre::{eyre, Result};
     use iroha_crypto::prelude::*;
     use iroha_derive::Io;
-    use iroha_error::{error, Result};
     use iroha_schema::prelude::*;
     use iroha_version::{
         declare_versioned, declare_versioned_with_scale, version, version_with_scale,
@@ -2159,7 +2158,7 @@ pub mod transaction {
                 .sum::<usize>() as u64
                 > max_instruction_number
             {
-                return Err(error!("Too many instructions in payload"));
+                return Err(eyre!("Too many instructions in payload"));
             }
             Ok(())
         }
@@ -2598,7 +2597,7 @@ pub mod metadata {
 
     use std::{borrow::Borrow, collections::BTreeMap};
 
-    use iroha_error::{error, Result};
+    use eyre::{eyre, Result};
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -2667,7 +2666,7 @@ pub mod metadata {
             limits: Limits,
         ) -> Result<Option<Value>> {
             if self.map.len() == limits.max_len as usize && !self.map.contains_key(&key) {
-                return Err(error!(
+                return Err(eyre!(
                     "Metadata length limit is reached: {}",
                     limits.max_len
                 ));
@@ -2675,7 +2674,7 @@ pub mod metadata {
             let entry_bytes: Vec<u8> = (key.clone(), value.clone()).encode();
             let byte_size = entry_bytes.len();
             if byte_size > limits.max_entry_byte_size as usize {
-                return Err(error!("Metadata entry is bigger than allowed. Expected less or equal to {} bytes. Got: {} bytes", limits.max_entry_byte_size, byte_size));
+                return Err(eyre!("Metadata entry is bigger than allowed. Expected less or equal to {} bytes. Got: {} bytes", limits.max_entry_byte_size, byte_size));
             }
             Ok(self.map.insert(key, value))
         }

@@ -7,8 +7,8 @@ use std::{
     sync::Arc,
 };
 
+use eyre::{Result, WrapErr};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_error::{Result, WrapErr};
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -255,8 +255,8 @@ impl BlockStore {
 pub mod config {
     use std::path::Path;
 
+    use eyre::{eyre, Result};
     use iroha_config::derive::Configurable;
-    use iroha_error::{error, Result};
     use serde::{Deserialize, Serialize};
 
     use super::Mode;
@@ -292,7 +292,7 @@ pub mod config {
         pub fn kura_block_store_path(&mut self, path: &Path) -> Result<()> {
             self.kura_block_store_path = path
                 .to_str()
-                .ok_or_else(|| error!("Failed to yield slice from path"))?
+                .ok_or_else(|| eyre!("Failed to yield slice from path"))?
                 .to_owned();
             Ok(())
         }

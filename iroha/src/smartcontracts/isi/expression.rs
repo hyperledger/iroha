@@ -2,11 +2,11 @@
 
 use std::convert::TryFrom;
 
+use eyre::{eyre, Error, Result};
 use iroha_data_model::{
     expression::{prelude::*, Expression},
     prelude::*,
 };
-use iroha_error::{error, Error, Result};
 
 use super::Evaluate;
 use crate::{prelude::*, wsv::WorldTrait};
@@ -58,7 +58,7 @@ impl<W: WorldTrait> Evaluate<W> for ContextValue {
     fn evaluate(&self, _wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         context
             .get(&self.value_name)
-            .ok_or_else(|| error!("Value with name {} not found in context", self.value_name))
+            .ok_or_else(|| eyre!("Value with name {} not found in context", self.value_name))
             .map(ToOwned::to_owned)
     }
 }
@@ -243,7 +243,7 @@ impl<W: WorldTrait> Evaluate<W> for Divide {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
         left.checked_div(right)
-            .ok_or_else(|| error!("Failed to divide by zero"))
+            .ok_or_else(|| eyre!("Failed to divide by zero"))
             .map(Into::into)
     }
 }
@@ -264,8 +264,8 @@ mod tests {
 
     use std::{error::Error as StdError, fmt::Debug};
 
+    use eyre::Result;
     use iroha_crypto::KeyPair;
-    use iroha_error::Result;
     use iroha_macro::error::ErrorTryFromEnum;
     use parity_scale_codec::{Decode, Encode};
 
@@ -412,7 +412,7 @@ mod tests {
         where
             I: Evaluate<World> + Debug,
             I::Value: Debug,
-            E: StdError + Eq + Default + 'static,
+            E: StdError + Eq + Default + Send + Sync + 'static,
         {
             let wsv = WorldStateView::new(World::default());
             let result: Result<_> = inst.evaluate(&wsv, &Context::new());

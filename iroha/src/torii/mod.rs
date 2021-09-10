@@ -6,8 +6,8 @@ use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 use config::ToriiConfiguration;
 use iroha_config::{derive::Error as ConfigError, Configurable};
 use iroha_data_model::prelude::*;
-use iroha_error::{derive::Error, error};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use utils::*;
 use warp::{
     http::StatusCode,
@@ -45,16 +45,16 @@ pub enum Error {
     VersionedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction")]
-    AcceptTransaction(iroha_error::Error),
+    AcceptTransaction(eyre::Error),
     /// Failed to execute query
     #[error("Failed to execute query")]
-    ExecuteQuery(iroha_error::Error),
+    ExecuteQuery(eyre::Error),
     /// Failed to validate query
     #[error("Failed to validate query")]
-    ValidateQuery(iroha_error::Error),
+    ValidateQuery(eyre::Error),
     /// Failed to get pending transaction
     #[error("Failed to get pending transactions")]
-    RequestPendingTransactions(iroha_error::Error),
+    RequestPendingTransactions(eyre::Error),
     /// Failed to decode pending transactions from leader
     #[error("Failed to decode pending transactions from leader")]
     DecodeRequestPendingTransactions(#[source] iroha_version::error::Error),
@@ -137,7 +137,7 @@ impl<W: WorldTrait> Torii<W> {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(self) -> iroha_error::Result<()> {
+    pub async fn start(self) -> eyre::Result<()> {
         let state = self.create_state();
 
         let get_router = warp::path(uri::HEALTH)
@@ -198,7 +198,7 @@ impl<W: WorldTrait> Torii<W> {
             }
             Err(e) => {
                 iroha_logger::error!("Failed to get socket addr");
-                Err(iroha_error::Error::new(e))
+                Err(eyre::Error::new(e))
             }
         }
     }
@@ -308,7 +308,7 @@ async fn handle_get_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_subscription(events: EventsSender, stream: WebSocket) -> iroha_error::Result<()> {
+async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
     let mut events = events.subscribe();
     let mut consumer = Consumer::new(stream).await?;
 

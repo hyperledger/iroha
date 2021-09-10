@@ -2,11 +2,12 @@
 
 use std::{convert::TryFrom, error::Error as StdError, fmt};
 
+use eyre::{eyre, Error, Result};
 use iroha_data_model::{prelude::*, query};
 use iroha_derive::Io;
-use iroha_error::{derive::Error, error, Error, Result};
 use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
+use thiserror::Error;
 use warp::{
     http::StatusCode,
     hyper::body::Bytes,
@@ -41,13 +42,13 @@ impl VerifiedQueryRequest {
             account.signatories.contains(&self.signature.public_key)
         })?;
         if !account_has_public_key {
-            return Err(error!(
+            return Err(eyre!(
                 "Public key used for the signature does not correspond to the account."
             ));
         }
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
-            .map_err(|denial_reason| error!(denial_reason))?;
+            .map_err(|denial_reason| eyre!(denial_reason))?;
         Ok(ValidQueryRequest {
             query: self.payload.query,
         })
@@ -116,10 +117,10 @@ pub enum AcceptQueryError {
     UnsupportedQueryVersion(#[source] UnsupportedVersionError),
     /// Failed to decode signed query
     #[error("Failed to decode signed query")]
-    DecodeVersionedSignedQuery(#[source] iroha_version::error::Error),
+    DecodeVersionedSignedQuery(#[source] Box<iroha_version::error::Error>),
     /// Failed to verify query request
     #[error("Failed to verify query request")]
-    VerifyQuery(iroha_error::Error),
+    VerifyQuery(eyre::Error),
 }
 
 impl Reply for AcceptQueryError {
@@ -141,7 +142,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
     type Error = AcceptQueryError;
     fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
         let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
-            .map_err(AcceptQueryError::DecodeVersionedSignedQuery)?;
+            .map_err(|e| AcceptQueryError::DecodeVersionedSignedQuery(Box::new(e)))?;
         let version = query.version();
         let query: SignedQueryRequest = query
             .into_v1()

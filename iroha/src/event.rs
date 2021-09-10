@@ -4,9 +4,9 @@
 
 use std::{convert::TryInto, fmt::Debug, time::Duration};
 
+use eyre::{eyre, Result, WrapErr};
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};
-use iroha_error::{error, Result, WrapErr};
 use iroha_version::prelude::*;
 use tokio::{sync::broadcast, time};
 use warp::ws::{self, WebSocket};
@@ -39,11 +39,11 @@ impl Consumer {
         let message = time::timeout(TIMEOUT, stream.next())
             .await
             .wrap_err("Read message timeout")?
-            .ok_or_else(|| error!("Failed to read message: no message"))?
+            .ok_or_else(|| eyre!("Failed to read message: no message"))?
             .wrap_err("Web Socket failure")?;
 
         if !message.is_binary() {
-            return Err(error!("Unexpected message type"));
+            return Err(eyre!("Unexpected message type"));
         }
         let SubscriptionRequest(filter): SubscriptionRequest =
             VersionedEventSocketMessage::decode_versioned(message.as_bytes())?
@@ -85,11 +85,11 @@ impl Consumer {
         let message = time::timeout(TIMEOUT, self.stream.next())
             .await
             .wrap_err("Failed to read receipt")?
-            .ok_or_else(|| error!("Failed to read receipt: no receipt"))?
+            .ok_or_else(|| eyre!("Failed to read receipt: no receipt"))?
             .wrap_err("Web Socket failure")?;
 
         if !message.is_binary() {
-            return Err(error!("Unexpected message type"));
+            return Err(eyre!("Unexpected message type"));
         }
 
         if let EventSocketMessage::EventReceived =
@@ -98,7 +98,7 @@ impl Consumer {
             self.stream.flush().await?;
             Ok(())
         } else {
-            Err(error!("Expected `EventReceived`."))
+            Err(eyre!("Expected `EventReceived`."))
         }
     }
 }

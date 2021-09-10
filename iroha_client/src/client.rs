@@ -6,11 +6,11 @@ use std::{
     time::Duration,
 };
 
+use eyre::{eyre, Error, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha::{smartcontracts::Query, wsv::World};
 use iroha_crypto::{Hash, KeyPair};
 use iroha_dsl::prelude::*;
-use iroha_error::{error, Error, Result, WrapErr};
 use iroha_logger::log;
 use iroha_version::prelude::*;
 
@@ -149,7 +149,7 @@ impl Client {
         if response.status() == StatusCode::OK {
             Ok(hash)
         } else {
-            Err(error!(
+            Err(eyre!(
                 "Failed to submit instructions with HTTP status: {}",
                 response.status()
             ))
@@ -206,7 +206,7 @@ impl Client {
         let (init_sender, init_receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions, metadata)?;
         let hash = transaction.hash();
-        let _handle = thread::spawn(move || -> iroha_error::Result<()> {
+        let _handle = thread::spawn(move || -> eyre::Result<()> {
             let event_iterator = client
                 .listen_for_events(PipelineEventFilter::by_hash(hash).into())
                 .wrap_err("Failed to establish event listener connection.")?;
@@ -252,7 +252,7 @@ impl Client {
     ) -> Result<R::Output>
     where
         R: Query<World> + Into<QueryBox> + Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let pagination: Vec<_> = pagination.into();
         let request = QueryRequest::new(request.into(), self.account_id.clone());
@@ -263,7 +263,7 @@ impl Client {
             pagination,
         )?;
         if response.status() != StatusCode::OK {
-            return Err(error!(
+            return Err(eyre!(
                 "Failed to make query request with HTTP status: {}, {}",
                 response.status(),
                 std::str::from_utf8(response.body()).unwrap_or(""),
@@ -283,7 +283,7 @@ impl Client {
     pub fn request<R>(&mut self, request: R) -> Result<R::Output>
     where
         R: Query<World> + Into<QueryBox> + Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
     }
@@ -323,7 +323,7 @@ impl Client {
                 let pending_transactions: PendingTransactions =
                     VersionedPendingTransactions::decode_versioned(response.body())?
                         .into_v1()
-                        .ok_or_else(|| error!("Expected pending transaction message version 1."))?
+                        .ok_or_else(|| eyre!("Expected pending transaction message version 1."))?
                         .into();
                 let transaction = pending_transactions
                     .into_iter()
@@ -337,7 +337,7 @@ impl Client {
                 }
                 thread::sleep(retry_in)
             } else {
-                return Err(error!(
+                return Err(eyre!(
                     "Failed to make query request with HTTP status: {}, {}",
                     response.status(),
                     std::str::from_utf8(response.body()).unwrap_or(""),
@@ -394,11 +394,11 @@ impl EventIterator {
                     {
                         break;
                     }
-                    return Err(error!("Expected `SubscriptionAccepted`."));
+                    return Err(eyre!("Expected `SubscriptionAccepted`."));
                 }
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
-                    return Err(error!("WebSocket connection closed."))
+                    return Err(eyre!("WebSocket connection closed."))
                 }
                 Err(err) => return Err(err.into()),
             }
@@ -421,9 +421,7 @@ impl Iterator for EventIterator {
                         };
                     let event = match event_socket_message {
                         EventSocketMessage::Event(event) => event,
-                        message => {
-                            return Some(Err(error!("Expected Event but got {:?}", message)))
-                        }
+                        message => return Some(Err(eyre!("Expected Event but got {:?}", message))),
                     };
                     let message =
                         match VersionedEventSocketMessage::from(EventSocketMessage::EventReceived)
@@ -435,7 +433,7 @@ impl Iterator for EventIterator {
                         };
                     return match self.stream.write_message(WebSocketMessage::Binary(message)) {
                         Ok(_) => Some(Ok(event)),
-                        Err(err) => Some(Err(error!("Failed to send receipt: {}", err))),
+                        Err(err) => Some(Err(eyre!("Failed to send receipt: {}", err))),
                     };
                 }
                 Ok(_) => continue,

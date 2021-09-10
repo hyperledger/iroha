@@ -29,7 +29,6 @@ maintenance = { status = "actively-developed" }
 iroha_data_model = { path = "../iroha_data_model", features = ["warp"] }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
-iroha_error = { version = "=0.1.0", path = "../iroha_error" }
 iroha_p2p = { version = "=0.1.0", path = "../iroha_p2p" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
@@ -43,6 +42,7 @@ iroha_schema = { path = "../iroha_schema"}
 async-trait = "0.1"
 chrono = "0.4"
 dashmap = { version = "4.0" }
+eyre = "0.6.5"
 futures = { version = "0.3.4" }
 parity-scale-codec = { version = "2", features = ["derive"] }
 rand = "0.7.3"
@@ -55,6 +55,7 @@ crossbeam-queue = "0.3"
 warp = "0.3"
 ursa = "=0.3.6"
 structopt = { version = "0.3", optional = true }
+thiserror = "1.0.28"
 
 [dev-dependencies]
 hex-literal = "0.2.1"

@@ -7,12 +7,13 @@ use std::{
     io::{stdout, BufWriter, Result, Write},
 };
 
+use color_eyre::eyre::WrapErr;
 use iroha::config::Configuration;
 use iroha_config::Configurable;
-use iroha_error::WrapErr;
 use serde_json::{Map, Value};
 
-fn main() -> iroha_error::Result<()> {
+fn main() -> color_eyre::Result<()> {
+    color_eyre::install().unwrap();
     Configuration::get_markdown(&mut BufWriter::new(stdout()))
         .wrap_err("Failed to generate documentation")
 }

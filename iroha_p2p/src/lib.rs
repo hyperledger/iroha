@@ -5,9 +5,9 @@
 use std::{io, net::AddrParseError};
 
 use iroha_derive::FromVariant;
-use iroha_error::{derive::Error, error};
 pub use network::{ConnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
+use thiserror::Error;
 use ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256};
 
 /// Network is a main p2p start point.

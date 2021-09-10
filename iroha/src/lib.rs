@@ -20,10 +20,10 @@ pub mod wsv;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use eyre::{eyre, Result, WrapErr};
 use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
-use iroha_error::{error, Result, WrapErr};
 use parity_scale_codec::{Decode, Encode};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
 use tokio::{sync::broadcast, task::JoinHandle};
@@ -273,7 +273,7 @@ where
         iroha_logger::info!("Starting Iroha.");
         self.torii
             .take()
-            .ok_or_else(|| error!("Seems like peer was already started"))?
+            .ok_or_else(|| eyre!("Seems like peer was already started"))?
             .start()
             .await
             .wrap_err("Failed to start Torii")
@@ -282,12 +282,12 @@ where
     /// Starts iroha in separate tokio task.
     /// # Errors
     /// Can fail if initing kura fails
-    pub fn start_as_task(&mut self) -> Result<JoinHandle<iroha_error::Result<()>>> {
+    pub fn start_as_task(&mut self) -> Result<JoinHandle<eyre::Result<()>>> {
         iroha_logger::info!("Starting Iroha as task.");
         let torii = self
             .torii
             .take()
-            .ok_or_else(|| error!("Seems like peer was already started"))?;
+            .ok_or_else(|| eyre!("Seems like peer was already started"))?;
         Ok(tokio::spawn(async move {
             torii.start().await.wrap_err("Failed to start Torii")
         }))

@@ -3,10 +3,10 @@
 
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
+use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
-use iroha_error::{error, Result, WrapErr};
 use iroha_schema::prelude::*;
 use serde::Deserialize;
 use tokio::{time, time::Duration};
@@ -99,7 +99,7 @@ async fn try_get_online_topology(
         check_peers_status(this_peer_id, network_topology, network).await;
     let set_a_len = network_topology.min_votes_for_commit() as usize;
     if online_peers.len() < set_a_len {
-        return Err(error!("Not enough online peers for consensus."));
+        return Err(eyre!("Not enough online peers for consensus."));
     }
     let genesis_topology = if network_topology.sorted_peers().len() == 1 {
         network_topology.clone()
@@ -166,11 +166,11 @@ impl GenesisNetworkTrait for GenesisNetwork {
             public_key: genesis_config
                 .genesis_account_public_key
                 .clone()
-                .ok_or_else(|| error!("Genesis account public key is empty."))?,
+                .ok_or_else(|| eyre!("Genesis account public key is empty."))?,
             private_key: genesis_config
                 .genesis_account_private_key
                 .clone()
-                .ok_or_else(|| error!("Genesis account private key is empty."))?,
+                .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         };
         Ok(Some(GenesisNetwork {
             transactions: raw_block
@@ -205,7 +205,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
             iroha_logger::info!("Retrying to connect in {} ms.", reconnect_in_ms);
             time::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
-        Err(error!("Waiting for peers failed."))
+        Err(eyre!("Waiting for peers failed."))
     }
 }
 

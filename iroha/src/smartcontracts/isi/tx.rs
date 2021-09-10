@@ -1,7 +1,7 @@
 //! Query module provides [`Query`] Transaction related implementations.
 
+use eyre::{Result, WrapErr};
 use iroha_data_model::prelude::*;
-use iroha_error::{Result, WrapErr};
 
 use super::*;
 

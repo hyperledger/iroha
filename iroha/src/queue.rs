@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
+use eyre::Result;
 use iroha_data_model::prelude::*;
-use iroha_error::Result;
 
 use self::config::QueueConfiguration;
 use crate::{prelude::*, wsv::WorldTrait};
@@ -374,7 +374,7 @@ mod tests {
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
-        queue.push(tx, &wsv).expect("Failed to push tx into queue");
+        assert!(queue.push(tx, &wsv).is_err());
         assert_eq!(queue.pop_avaliable(false, &wsv).len(), 0);
     }
 

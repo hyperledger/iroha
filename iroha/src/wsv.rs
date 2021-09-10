@@ -12,8 +12,8 @@ use dashmap::{
     mapref::one::{Ref as DashmapRef, RefMut as DashmapRefMut},
     DashSet,
 };
+use eyre::Result;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
-use iroha_error::Result;
 use tokio::task;
 
 use crate::{

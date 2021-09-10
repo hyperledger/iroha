@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
 };
 
-use iroha_error::{error, Error, Result};
+use eyre::{eyre, Error, Result};
 
 use super::varint::VarUint;
 
@@ -60,7 +60,7 @@ impl FromStr for DigestFunction {
             SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
             BLS12_381_G1_PUB => Ok(DigestFunction::Bls12381G1Pub),
             BLS12_381_G2_PUB => Ok(DigestFunction::Bls12381G2Pub),
-            _ => Err(error!("The specified digest function is not supported.",)),
+            _ => Err(eyre!("The specified digest function is not supported.",)),
         }
     }
 }
@@ -88,7 +88,7 @@ impl TryFrom<u64> for DigestFunction {
             variant if variant == DigestFunction::Bls12381G2Pub as u64 => {
                 Ok(DigestFunction::Bls12381G2Pub)
             }
-            _ => Err(error!("The specified digest function is not supported.",)),
+            _ => Err(eyre!("The specified digest function is not supported.",)),
         }
     }
 }
@@ -118,7 +118,7 @@ impl TryFrom<Vec<u8>> for Multihash {
             .iter()
             .enumerate()
             .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-            .ok_or_else(|| error!("Last byte should be less than 128"))?
+            .ok_or_else(|| eyre!("Last byte should be less than 128"))?
             .0;
         let (digest_function, bytes) = bytes.split_at(idx + 1);
         let mut bytes = bytes.iter().copied();
@@ -128,7 +128,7 @@ impl TryFrom<Vec<u8>> for Multihash {
 
         let digest_size = bytes
             .next()
-            .ok_or_else(|| error!("Failed to parse digest size."))?;
+            .ok_or_else(|| eyre!("Failed to parse digest size."))?;
         let payload: Vec<u8> = bytes.collect();
         if payload.len() == digest_size as usize {
             Ok(Multihash {
@@ -136,7 +136,7 @@ impl TryFrom<Vec<u8>> for Multihash {
                 payload,
             })
         } else {
-            Err(error!("The digest size is not equal to the actual length.",))
+            Err(eyre!("The digest size is not equal to the actual length.",))
         }
     }
 }

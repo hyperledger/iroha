@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
+use eyre::{eyre, Result};
 use iroha_data_model::prelude::*;
-use iroha_error::{error, Result};
 
 use crate::config::Configuration;
 
@@ -11,7 +11,7 @@ pub fn domains(configuration: &Configuration) -> Result<BTreeMap<String, Domain>
         .genesis_configuration
         .genesis_account_public_key
         .clone()
-        .ok_or_else(|| error!("Genesis account public key is not specified."))?;
+        .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
     Ok(std::iter::once((
         GENESIS_DOMAIN_NAME.to_owned(),
         Domain::from(GenesisDomain::new(key)),

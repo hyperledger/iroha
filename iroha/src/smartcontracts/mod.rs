@@ -33,11 +33,7 @@ pub trait Evaluate<W: WorldTrait> {
     type Value;
 
     /// Calculates result.
-    fn evaluate(
-        &self,
-        wsv: &WorldStateView<W>,
-        context: &Context,
-    ) -> iroha_error::Result<Self::Value>;
+    fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> eyre::Result<Self::Value>;
 }
 
 /// This trait should be implemented for all Iroha Queries.
@@ -47,10 +43,10 @@ pub trait Query<W: WorldTrait>: QueryOutput {
     /// Should not mutate [`WorldStateView`]!
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
-    fn execute(&self, wsv: &WorldStateView<W>) -> iroha_error::Result<Self::Output>;
+    fn execute(&self, wsv: &WorldStateView<W>) -> eyre::Result<Self::Output>;
 
     /// Executes query and maps it into value
-    fn execute_into_value(&self, wsv: &WorldStateView<W>) -> iroha_error::Result<Value> {
+    fn execute_into_value(&self, wsv: &WorldStateView<W>) -> eyre::Result<Value> {
         self.execute(wsv).map(Into::into)
     }
 }

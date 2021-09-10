@@ -8,9 +8,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use eyre::{Result, WrapErr};
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
-use iroha_error::{Result, WrapErr};
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
@@ -515,11 +515,11 @@ mod tests {
 
     use std::collections::BTreeSet;
 
+    use eyre::Result;
     use iroha_data_model::{
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
         transaction::MAX_INSTRUCTION_NUMBER,
     };
-    use iroha_error::{Error, MessageError, Result, WrappedError};
 
     use super::*;
     use crate::{config::Configuration, init, smartcontracts::permissions::AllowAll, wsv::World};
@@ -579,11 +579,14 @@ mod tests {
         assert!(result.is_err());
 
         let err = result.unwrap_err();
-        let err = err
-            .downcast_ref::<WrappedError<&'static str, Error>>()
-            .unwrap();
-        assert_eq!(err.msg, "Failed to accept transaction");
-        let err = err.downcast_ref::<MessageError<&'static str>>().unwrap();
-        assert_eq!(err.msg, "Too many instructions in payload");
+        let mut chain = err.chain();
+        assert_eq!(
+            chain.next().unwrap().to_string(),
+            "Failed to accept transaction"
+        );
+        assert_eq!(
+            chain.next().unwrap().to_string(),
+            "Too many instructions in payload"
+        );
     }
 }

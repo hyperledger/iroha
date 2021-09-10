@@ -25,8 +25,8 @@ pub use actor_derive::Message;
 use actor_id::*;
 use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
 use futures::{Stream, StreamExt};
-use iroha_error::{derive::Error, error};
 use iroha_logger::InstrumentFutures;
+use thiserror::Error;
 use tokio::{
     sync::{
         mpsc::{self, Receiver},

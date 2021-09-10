@@ -190,10 +190,10 @@ pub mod pipeline {
 
     use iroha_crypto::{Hash, Signature};
     use iroha_derive::FromVariant;
-    use iroha_error::derive::Error;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
+    use thiserror::Error;
 
     use crate::isi::Instruction;
 

@@ -10,7 +10,7 @@ use std::{
     str::FromStr,
 };
 
-use iroha_error::{error, Error, Result, WrapErr};
+use eyre::{eyre, Error, Result, WrapErr};
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
@@ -122,7 +122,7 @@ impl FromStr for Algorithm {
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
             BLS_SMALL => Ok(Algorithm::BlsSmall),
-            _ => Err(error!("The {} algorithm is not supported.")),
+            _ => Err(eyre!("The {} algorithm is not supported.")),
         }
     }
 }
@@ -157,7 +157,7 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
                 if key.digest_function == ED_25519 || key.digest_function == SECP_256_K1 {
                     Ok(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(key.payload)))
                 } else {
-                    Err(error!(
+                    Err(eyre!(
                         "Ursa does not support {} digest function.",
                         key.digest_function
                     ))
@@ -231,7 +231,7 @@ impl KeyPair {
         }
         // TODO: Create an issue for ursa to impl Error for ursa::CryptoError
         //.wrap_err("Failed to generate key pair")?;
-        .map_err(|e| error!("{}", e.to_string()))?;
+        .map_err(|e| eyre!("{}", e.to_string()))?;
         Ok(KeyPair {
             public_key: PublicKey {
                 digest_function: configuration.algorithm.to_string(),
@@ -317,7 +317,7 @@ impl TryFrom<&PublicKey> for Multihash {
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
             BLS_NORMAL => Ok(MultihashDigestFunction::Bls12381G1Pub),
             BLS_SMALL => Ok(MultihashDigestFunction::Bls12381G2Pub),
-            _ => Err(error!("Digest function not implemented.")),
+            _ => Err(eyre!("Digest function not implemented.")),
         }
         .map(|digest_function| Multihash {
             digest_function,
@@ -411,7 +411,7 @@ impl Signature {
             Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
             Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
         }
-        .map_err(|e| error!("Failed to sign payload: {}", e))?;
+        .map_err(|e| eyre!("Failed to sign payload: {}", e))?;
         Ok(Signature {
             public_key: key_pair.public_key,
             signature,
@@ -437,7 +437,7 @@ impl Signature {
         };
         match result {
             Ok(true) => Ok(()),
-            _ => Err(error!("Signature did not pass verification: {}")),
+            _ => Err(eyre!("Signature did not pass verification: {}")),
         }
     }
 }

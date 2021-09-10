@@ -1,8 +1,8 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 use std::collections::btree_map::Entry;
 
+use eyre::{eyre, Result};
 use iroha_data_model::prelude::*;
-use iroha_error::{error, Result};
 
 use super::super::isi::prelude::*;
 use crate::prelude::*;
@@ -27,7 +27,7 @@ pub mod isi {
             let name = account.id.domain_name.clone();
             match wsv.domain_mut(&name)?.accounts.entry(account.id.clone()) {
                 Entry::Occupied(_) => {
-                    return Err(error!(
+                    return Err(eyre!(
                         "Domain already contains an account with this Id: {:?}",
                         &account.id
                     )
@@ -77,7 +77,7 @@ pub mod isi {
                     });
                 }
                 Entry::Occupied(entry) => {
-                    return Err(error!(
+                    return Err(eyre!(
                         "Asset definition already exists and was registered by {}",
                         entry.get().registered_by
                     )
@@ -160,7 +160,7 @@ pub mod isi {
 
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
-    use iroha_error::{Result, WrapErr};
+    use eyre::{Result, WrapErr};
     use iroha_logger::log;
 
     use super::*;
@@ -201,7 +201,7 @@ pub mod query {
                 .definition
                 .metadata
                 .get(&key)
-                .ok_or_else(|| error!("Key {} not found in asset {}", key, id))?
+                .ok_or_else(|| eyre!("Key {} not found in asset {}", key, id))?
                 .clone())
         }
     }

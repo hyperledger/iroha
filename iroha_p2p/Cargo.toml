@@ -15,11 +15,11 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 iroha_logger = { path = "../iroha_logger" }
 iroha_crypto = { path = "../iroha_crypto" }
 iroha_actor = { path = "../iroha_actor" }
-iroha_error = { path = "../iroha_error" }
 iroha_macro = { version = "=0.1.0", path = "../iroha_macro" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_data_model = { path = "../iroha_data_model" }
 
+eyre = "0.6.5"
 rand = "0.7.3"
 tokio = { version = "1.6.0", features = ["net",  "sync", "time", "io-util"]}
 async-stream = "0.3"
@@ -29,6 +29,7 @@ serde = { version = "1", features = ["derive"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
 ursa = "=0.3.6"
 aead = "0.3.2"
+thiserror = "1.0.28"
 
 [dev-dependencies]
 unique_port = "0.1.1"

@@ -15,8 +15,8 @@ use std::{
     marker::PhantomData,
 };
 
+use eyre::{eyre, Result};
 use iroha_derive::FromVariant;
-use iroha_error::{error, Result};
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -617,7 +617,7 @@ impl IfBuilder {
         {
             Ok(If::new(self.condition, then_expression, else_expression))
         } else {
-            Err(error!("Not all fields are filled."))
+            Err(eyre!("Not all fields are filled."))
         }
     }
 }

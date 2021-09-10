@@ -1,11 +1,14 @@
 //! `iroha_crypto_cli` is a command line tool used to generate keys for Iroha peers and clients.
 
 use clap::{App, Arg, ArgGroup};
+use color_eyre::{
+    eyre::{self, eyre, WrapErr},
+    Report, Result,
+};
 use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
-use iroha_error::{error, Reporter, Result, WrapErr};
 
-fn main() -> Result<(), Reporter> {
-    iroha_error::install_panic_reporter();
+fn main() -> Result<(), Report> {
+    color_eyre::install()?;
     let default_algorithm = Algorithm::default().to_string();
     let matches = App::new("iroha_crypto_cli")
         .version("0.1")
@@ -57,13 +60,13 @@ fn main() -> Result<(), Reporter> {
     let private_key_option = matches.value_of("private_key");
     let algorithm = matches
         .value_of("algorithm")
-        .ok_or_else(|| error!("Failed to get algorithm name."))?
+        .ok_or_else(|| eyre!("Failed to get algorithm name."))?
         .parse::<Algorithm>()
         .wrap_err("Failed to parse algorithm.")?;
     let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
     let keypair: KeyPair = seed_option
         .map_or_else(
-            || -> iroha_error::Result<_> {
+            || -> eyre::Result<_> {
                 private_key_option.map_or_else(
                     || KeyPair::generate_with_configuration(key_gen_configuration.clone()),
                     |private_key| {
@@ -77,7 +80,7 @@ fn main() -> Result<(), Reporter> {
                     },
                 )
             },
-            |seed| -> iroha_error::Result<_> {
+            |seed| -> eyre::Result<_> {
                 KeyPair::generate_with_configuration(
                     key_gen_configuration
                         .clone()
