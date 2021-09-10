@@ -176,19 +176,28 @@ struct IntegrationTestFramework::ResponsesQueues {
     if (it == map.end())
       return std::nullopt;
     auto &qu = it->second;
+    auto const deadline = std::chrono::steady_clock::now() + timeout;
     if (qu.empty()) {
-      if (not cv.wait_for(lk, timeout, [&qu] { return not qu.empty(); })) {
+      auto wait_element_in_queue = [&] {
+        return cv.wait_until(lk, deadline, [&] { return not qu.empty(); });
+      };
+      auto deadline_not_exceeded = [&] {
+        return std::chrono::steady_clock::now() <= deadline;
+      };
+      while (deadline_not_exceeded() and not wait_element_in_queue())
+        ;
+      if (qu.empty())
         return std::nullopt;
-      }
+      //      if (not cv.wait_until(lk, deadline, [&qu] { return not qu.empty();
+      //      })) {
+      //        return std::nullopt;
     }
     if constexpr (do_pop) {
       auto ret(std::move(qu.front()));
       qu.pop();
-      //assert(ret);
       return ret;
     } else {
       auto ret = qu.front();
-      //assert(ret);
       return ret;
     }
   }
@@ -235,8 +244,8 @@ IntegrationTestFramework::IntegrationTestFramework(
           std::make_unique<CheckerQueue<VerifiedProposalType>>(
               proposal_waiting)),
       block_queue_(std::make_shared<CheckerQueue<BlockType>>(block_waiting)),
-      responses_queues_(std::make_shared<ResponsesQueues>(
-          std::chrono::milliseconds(tx_response_waiting_ms))),
+      responses_queues_(
+          std::make_shared<ResponsesQueues>(tx_response_waiting_ms)),
       port_guard_(std::make_unique<PortGuard>()),
       torii_port_(port_guard_->getPort(kDefaultToriiPort)),
       command_client_(std::make_unique<torii::CommandSyncClient>(
