@@ -218,7 +218,7 @@ std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
   auto internal_server = std::make_unique<iroha::network::ServerRunner>(
       getAddress(),
       log_manager_->getChild("InternalServer")->getLogger(),
-      false);
+      true); //false);
   internal_server->append(yac_transport_server_)
       .append(mst_transport_)
       .append(od_os_transport_)
