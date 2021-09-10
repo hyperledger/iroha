@@ -178,19 +178,12 @@ struct IntegrationTestFramework::ResponsesQueues {
     auto &qu = it->second;
     auto const deadline = std::chrono::steady_clock::now() + timeout;
     if (qu.empty()) {
-      auto wait_element_in_queue = [&] {
-        return cv.wait_until(lk, deadline, [&] { return not qu.empty(); });
-      };
-      auto deadline_not_exceeded = [&] {
-        return std::chrono::steady_clock::now() <= deadline;
-      };
-      while (deadline_not_exceeded() and not wait_element_in_queue())
+      while (
+          std::chrono::steady_clock::now() < deadline
+          and not cv.wait_until(lk, deadline, [&] { return not qu.empty(); }))
         ;
-      if (qu.empty())
+      if (qu.empty())  // timed out and still empty
         return std::nullopt;
-      //      if (not cv.wait_until(lk, deadline, [&qu] { return not qu.empty();
-      //      })) {
-      //        return std::nullopt;
     }
     if constexpr (do_pop) {
       auto ret(std::move(qu.front()));
@@ -204,7 +197,6 @@ struct IntegrationTestFramework::ResponsesQueues {
 
  public:
   ResponsesQueues(std::chrono::milliseconds ms) : timeout(ms) {}
-
   void push(TxResponsePtr p_txresp) {
     assert(p_txresp);
     std::unique_lock lk(mtx);
