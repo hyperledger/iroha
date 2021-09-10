@@ -4,8 +4,8 @@
 
 use std::iter;
 
+use eyre::Result;
 use iroha_data_model::prelude::*;
-use iroha_error::Result;
 
 use super::prelude::WorldTrait;
 #[cfg(feature = "roles")]

@@ -4,9 +4,9 @@
 
 use std::{convert::TryFrom, time::SystemTime};
 
+use eyre::Result;
 use iroha_crypto::prelude::*;
 use iroha_derive::{FromVariant, Io};
-use iroha_error::Result;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};

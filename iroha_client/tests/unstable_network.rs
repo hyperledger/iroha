@@ -33,7 +33,7 @@ fn unstable_network(
     n_transactions: usize,
     polling_max_attempts: u32,
 ) {
-    iroha_error::install_panic_reporter();
+    iroha_logger::install_panic_hook().unwrap();
     let rt = Runtime::test();
     // Given
     let (_network, mut iroha_client) =

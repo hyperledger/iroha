@@ -9,6 +9,7 @@
 
 use std::{convert::TryFrom, fmt::Debug, thread, time::Duration};
 
+use eyre::{Error, Result};
 use futures::future;
 use iroha::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
@@ -25,7 +26,6 @@ use iroha::{
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
-use iroha_error::{Error, Result};
 use iroha_logger::{
     config::{LevelEnv, LoggerConfiguration},
     InstrumentFutures,
@@ -566,7 +566,7 @@ pub trait TestClient: Sized {
     ) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Submits instructions with polling
@@ -578,14 +578,14 @@ pub trait TestClient: Sized {
     ) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
@@ -598,7 +598,7 @@ pub trait TestClient: Sized {
     ) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 }
 
@@ -684,7 +684,7 @@ impl TestClient for Client {
     ) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
         self.submit(instruction)
@@ -700,7 +700,7 @@ impl TestClient for Client {
     ) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
         self.submit_all(instructions)
@@ -717,7 +717,7 @@ impl TestClient for Client {
     ) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
         let mut query_result = None;
@@ -734,7 +734,7 @@ impl TestClient for Client {
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
         R: Query<World> + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<iroha_error::Error>,
+        <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
         self.poll_request_with_period(request, Configuration::pipeline_time(), 10, f)

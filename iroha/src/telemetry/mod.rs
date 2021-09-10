@@ -6,8 +6,8 @@ use std::path::PathBuf;
 #[cfg(feature = "dev-telemetry")]
 pub mod dev;
 
+use eyre::Result;
 use iroha_config::derive::Configurable;
-use iroha_error::Result;
 use iroha_logger::telemetry::Telemetry;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};

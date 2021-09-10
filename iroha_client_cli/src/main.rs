@@ -4,11 +4,14 @@
 
 use std::{fmt, fs::File, str::FromStr, time::Duration};
 
+use color_eyre::{
+    eyre::{Error, WrapErr},
+    Report, Result,
+};
 use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_crypto::prelude::*;
 use iroha_dsl::prelude::*;
-use iroha_error::{Error, Reporter, Result, WrapErr};
 use structopt::StructOpt;
 
 /// Metadata wrapper, which can be captured from cli arguments (from user suplied file).
@@ -104,8 +107,8 @@ impl RunArgs for Subcommand {
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
-fn main() -> Result<(), Reporter> {
-    iroha_error::install_panic_reporter();
+fn main() -> Result<(), Report> {
+    color_eyre::install()?;
     let Args {
         config: Configuration(config),
         subcommand,

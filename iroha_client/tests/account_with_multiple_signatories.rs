@@ -4,10 +4,10 @@
 mod tests {
     use std::thread;
 
+    use eyre::Result;
     use iroha::{config::Configuration, prelude::*};
     use iroha_client::client::{self, Client};
     use iroha_data_model::prelude::*;
-    use iroha_error::Result;
     use test_network::{Peer as TestPeer, *};
 
     #[test]

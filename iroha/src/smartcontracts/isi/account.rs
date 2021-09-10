@@ -155,7 +155,7 @@ pub mod isi {
 /// Query module provides [`Query`] Account related implementations.
 pub mod query {
 
-    use iroha_error::{error, Result, WrapErr};
+    use eyre::{eyre, Result, WrapErr};
     use iroha_logger::log;
 
     use super::{super::Evaluate, *};
@@ -259,7 +259,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")?;
             wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| error!("No metadata entry with this key."))
+                .ok_or_else(|| eyre!("No metadata entry with this key."))
         }
     }
 }

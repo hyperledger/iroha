@@ -1,10 +1,10 @@
 //! This module contains [`Configuration`] structure and related implementation.
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
+use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
-use iroha_error::{Result, WrapErr};
 use iroha_logger::config::LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 

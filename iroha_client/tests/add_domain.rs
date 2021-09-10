@@ -2,10 +2,10 @@
 
 use std::thread;
 
+use eyre::Result;
 use iroha::config::Configuration;
 use iroha_client::client;
 use iroha_data_model::prelude::*;
-use iroha_error::Result;
 use test_network::{Peer as TestPeer, *};
 
 #[test]

@@ -3,10 +3,10 @@
 
 use std::{collections::HashSet, fmt::Display};
 
+use eyre::Result;
 use iroha_crypto::{Hash, KeyPair, PublicKey, Signature, Signatures};
 use iroha_data_model::prelude::PeerId;
 use iroha_derive::*;
-use iroha_error::Result;
 use parity_scale_codec::{Decode, Encode};
 
 use super::message::TransactionReceipt;

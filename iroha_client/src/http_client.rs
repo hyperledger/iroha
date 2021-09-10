@@ -4,8 +4,8 @@ use std::{
 };
 
 use attohttpc::Response as AttohttpcResponse;
+use eyre::{eyre, Error, Result, WrapErr};
 pub use http::{Response, StatusCode};
-use iroha_error::{error, Error, Result, WrapErr};
 use tungstenite::{client::AutoStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
@@ -65,7 +65,7 @@ impl TryFrom<ClientResponse> for Response<Bytes> {
         let mut builder = Response::builder().status(response.status());
         let headers = builder
             .headers_mut()
-            .ok_or_else(|| error!("Failed to get headers map reference."))?;
+            .ok_or_else(|| eyre!("Failed to get headers map reference."))?;
         for (key, value) in response.headers() {
             headers.insert(key, value.clone());
         }

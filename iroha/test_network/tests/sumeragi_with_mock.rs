@@ -7,6 +7,7 @@
 
 use std::{fmt::Debug, ops::Deref, path::Path, sync::Arc, time::Duration};
 
+use eyre::Result;
 use iroha::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait, ContinueSync},
     event::EventsSender,
@@ -24,7 +25,6 @@ use iroha::{
 };
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_data_model::prelude::*;
-use iroha_error::Result;
 use iroha_p2p::network::StopSelf;
 use test_network::*;
 use tokio::{sync::mpsc, time};
@@ -593,7 +593,7 @@ where
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn all_peers_commit_block() {
-    iroha_error::install_panic_reporter();
+    iroha_logger::install_panic_hook().unwrap();
     let (network, _) = <Network<
         world::WithRoot,
         genesis::NoGenesis,
@@ -618,7 +618,7 @@ async fn all_peers_commit_block() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn change_view_on_commit_timeout() {
-    iroha_error::install_panic_reporter();
+    iroha_logger::install_panic_hook().unwrap();
     let (network, _) = <Network<
         world::WithRoot,
         genesis::NoGenesis,
@@ -657,7 +657,7 @@ async fn change_view_on_commit_timeout() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn change_view_on_tx_receipt_timeout() {
-    iroha_error::install_panic_reporter();
+    iroha_logger::install_panic_hook().unwrap();
     let (network, _) = <Network<
         world::WithRoot,
         genesis::NoGenesis,
@@ -698,7 +698,7 @@ async fn change_view_on_tx_receipt_timeout() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn change_view_on_block_creation_timeout() {
-    iroha_error::install_panic_reporter();
+    iroha_logger::install_panic_hook().unwrap();
     let (network, _) = <Network<
         world::WithRoot,
         genesis::NoGenesis,
@@ -731,7 +731,7 @@ async fn change_view_on_block_creation_timeout() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn not_enough_votes() {
-    iroha_error::install_panic_reporter();
+    iroha_logger::install_panic_hook().unwrap();
     let (network, _) = <Network<
         world::WithRoot,
         genesis::NoGenesis,

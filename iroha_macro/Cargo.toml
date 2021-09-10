@@ -17,5 +17,5 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+eyre = "0.6.5"
 parity-scale-codec = "2"
-iroha_error = { path = "../iroha_error" }

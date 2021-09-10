@@ -6,7 +6,7 @@
 pub mod error {
     use std::{any::type_name, error, fmt, marker::PhantomData};
 
-    pub use iroha_error::*;
+    pub use eyre::*;
 
     /// Error which happens if `TryFrom` from enum variant fails
     #[derive(Clone, Copy, Eq, PartialEq)]

@@ -14,9 +14,10 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
+use eyre::{eyre, Result};
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::FromVariant;
-use iroha_error::{derive::Error, error, Result};
+use thiserror::Error;
 
 use super::{Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldTrait};
@@ -35,7 +36,7 @@ pub enum Error {
     Math(#[source] MathError),
     /// Some other error happened
     #[error("Some other error happened")]
-    Other(#[skip_try_from] iroha_error::Error),
+    Other(#[skip_try_from] eyre::Error),
 }
 
 /// Type assertion error
@@ -169,7 +170,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
             IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            _ => Err(error!("Unsupported register instruction.").into()),
+            _ => Err(eyre!("Unsupported register instruction.").into()),
         }
     }
 }
@@ -194,7 +195,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
             IdBox::DomainName(domain_name) => {
                 Unregister::<Domain>::new(domain_name).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported unregister instruction.").into()),
+            _ => Err(eyre!("Unsupported unregister instruction.").into()),
         }
     }
 }
@@ -226,7 +227,7 @@ impl<W: WorldTrait> Execute<W> for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported mint instruction.").into()),
+            _ => Err(eyre!("Unsupported mint instruction.").into()),
         }
     }
 }
@@ -254,7 +255,7 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Burn::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported burn instruction.").into()),
+            _ => Err(eyre!("Unsupported burn instruction.").into()),
         }
     }
 }
@@ -271,12 +272,12 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
         let context = Context::new();
         let source_asset_id = match self.source_id.evaluate(wsv, &context)? {
             IdBox::AssetId(source_asset_id) => source_asset_id,
-            _ => return Err(error!("Unsupported transfer instruction.").into()),
+            _ => return Err(eyre!("Unsupported transfer instruction.").into()),
         };
 
         let quantity = match self.object.evaluate(wsv, &context)? {
             Value::U32(quantity) => quantity,
-            _ => return Err(error!("Unsupported transfer instruction.").into()),
+            _ => return Err(eyre!("Unsupported transfer instruction.").into()),
         };
 
         match self.destination_id.evaluate(wsv, &context)? {
@@ -284,7 +285,7 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
                 Transfer::<Asset, u32, Asset>::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported transfer instruction.").into()),
+            _ => Err(eyre!("Unsupported transfer instruction.").into()),
         }
     }
 }
@@ -314,7 +315,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
                     .execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported set key-value instruction.").into()),
+            _ => Err(eyre!("Unsupported set key-value instruction.").into()),
         }
     }
 }
@@ -341,7 +342,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
             IdBox::AccountId(account_id) => {
                 RemoveKeyValue::<Account, String>::new(account_id, key).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported remove key-value instruction.").into()),
+            _ => Err(eyre!("Unsupported remove key-value instruction.").into()),
         }
     }
 }
@@ -405,7 +406,7 @@ impl<W: WorldTrait> Execute<W> for FailBox {
         _authority: <Account as Identifiable>::Id,
         _wsv: &WorldStateView<W>,
     ) -> Result<(), Error> {
-        Err(error!("Execution failed: {}.", self.message).into())
+        Err(eyre!("Execution failed: {}.", self.message).into())
     }
 }
 
@@ -431,7 +432,7 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
-            _ => Err(error!("Unsupported grant instruction.").into()),
+            _ => Err(eyre!("Unsupported grant instruction.").into()),
         }
     }
 }

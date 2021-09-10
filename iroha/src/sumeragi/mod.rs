@@ -10,11 +10,11 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
+use eyre::{eyre, Result};
 use futures::future;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::{events::Event, peer::Id as PeerId};
-use iroha_error::{error, Result};
 use iroha_logger::Instrument;
 use network_topology::{Role, Topology};
 use tokio::{sync::RwLock, task, time};
@@ -428,15 +428,15 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
         genesis_topology: Topology,
     ) -> Result<()> {
         if transactions.is_empty() {
-            Err(error!("Genesis transactions set is empty."))
+            Err(eyre!("Genesis transactions set is empty."))
         } else if genesis_topology.leader() != &self.peer_id {
-            Err(error!(
+            Err(eyre!(
                 "Incorrect network topology this peer should be {:?} but is {:?}",
                 Role::Leader,
                 genesis_topology.role(&self.peer_id)
             ))
         } else if self.block_height > 0 {
-            Err(error!(
+            Err(eyre!(
                 "Block height should be 0 for genesis round. But it is: {}",
                 self.block_height
             ))
@@ -825,11 +825,11 @@ pub mod message {
         time::{Duration, Instant, SystemTime},
     };
 
+    use eyre::{eyre, Result, WrapErr};
     use iroha_actor::broker::Broker;
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
     use iroha_derive::*;
-    use iroha_error::{Result, WrapErr};
     use iroha_logger::Instrument;
     use iroha_p2p::Post;
     use iroha_version::prelude::*;
@@ -1366,7 +1366,7 @@ pub mod message {
                 .queue
                 .push(self.transaction, &*sumeragi.wsv)
                 .map_err(|tx| {
-                    iroha_error::error!(
+                    eyre!(
                         "Failed to push tx into queue. Queue is full. Hash = {:?}",
                         tx.hash()
                     )
@@ -1493,10 +1493,10 @@ pub mod message {
 pub mod config {
     use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
+    use eyre::{Result, WrapErr};
     use iroha_config::derive::Configurable;
     use iroha_crypto::prelude::*;
     use iroha_data_model::prelude::*;
-    use iroha_error::{Result, WrapErr};
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
