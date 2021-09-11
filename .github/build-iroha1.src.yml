@@ -606,10 +606,10 @@ jobs:
               comma=', '
             done
           }
-          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 \
             | tee ctest_module.out \
             || true
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 \
             | tee ctest_integration.out \
             || true
           tests_passed=true
