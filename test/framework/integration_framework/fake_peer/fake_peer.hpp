@@ -40,6 +40,13 @@ namespace integration_framework::fake_peer {
             shared_model::interface::Transaction,
             iroha::protocol::Transaction>;
 
+    /** Instead of constructor because shared_from_this
+     */
+    template<class...Args>
+    static std::shared_ptr<FakePeer> create_shared(Args&&...args){
+      return std::make_shared<FakePeer>(std::forward<Args>(args)...);
+    }
+
     /**
      * Constructor.
      *

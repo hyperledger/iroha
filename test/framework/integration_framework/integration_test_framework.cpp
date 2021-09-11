@@ -184,6 +184,8 @@ struct IntegrationTestFramework::ResponsesQueues {
         ;
       if (qu.empty())  // timed out and still empty
         return std::nullopt;
+//      if(not cv.wait_for(lk, timeout, [&] { return not qu.empty(); }))
+//        return std::nullopt;
     }
     if constexpr (do_pop) {
       auto ret(std::move(qu.front()));
@@ -644,11 +646,11 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
   sendTxWithoutValidation(tx);
   auto opt_response = responses_queues_->try_peek(tx.hash());
   if (not opt_response) {
-    log_->debug("sendTx(): missed status for hash {}", tx.hash().hex());
+    log_->error("sendTx(): missed status for hash {}", tx.hash().hex());
     throw std::runtime_error("sendTx(): missed status for hash "
                              + tx.hash().hex());
   }
-  log_->debug("sendTx(): tx was sent {}", tx.hash().hex());
+  log_->debug("sendTx(): tx delivered {}", tx.hash().hex());
   validation(static_cast<const shared_model::proto::TransactionResponse &>(
       *opt_response.value()));
   return *this;

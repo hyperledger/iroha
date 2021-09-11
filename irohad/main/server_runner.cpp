@@ -16,8 +16,6 @@ using namespace iroha::network;
 
 namespace {
 
-  const auto kPortBindError = "Cannot bind server to address %s";
-
   std::shared_ptr<grpc::ServerCredentials> createCredentials(
       const boost::optional<std::shared_ptr<const TlsCredentials>>
           &my_tls_creds) {
@@ -77,7 +75,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
 
   if (selected_port == 0) {
     return iroha::expected::makeError(
-        (boost::format(kPortBindError) % server_address_).str());
+        (boost::format("Cannot bind server to address %s") % server_address_).str());
   }
 
   return iroha::expected::makeValue(selected_port);

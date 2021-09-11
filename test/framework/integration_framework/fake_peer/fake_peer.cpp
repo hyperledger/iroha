@@ -6,8 +6,8 @@
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 
 #include <atomic>
-
 #include <boost/assert.hpp>
+
 #include "backend/protobuf/transaction.hpp"
 #include "common/common.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
@@ -234,7 +234,10 @@ std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
                  + "!")
                     .c_str());
           },
-          [this](const auto &err) { log_->error("could not start server!"); });
+          [this](const auto &err) {
+            log_->error("could not start server!");
+            throw std::runtime_error("could not start server!");
+          });
   return internal_server;
 }
 
