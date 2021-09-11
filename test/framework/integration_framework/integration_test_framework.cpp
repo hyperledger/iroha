@@ -157,24 +157,40 @@ class IntegrationTestFramework::CheckerQueue {
 
 using TxResponsePtr =
     std::shared_ptr<shared_model::interface::TransactionResponse>;
+using namespace std::chrono_literals;
 
 struct IntegrationTestFramework::ResponsesQueues {
  public:
   using HashType = shared_model::interface::types::HashType;
 
+  struct WaitGetResult {
+    TxResponsePtr txresp;
+    std::chrono::milliseconds elapsed;
+    operator bool() const {
+      return (bool)txresp;
+    }
+    auto &operator*() const {
+      return *txresp;
+    }
+  };
+
  private:
   /// maximum time of waiting before appearing next transaction response
-  std::chrono::milliseconds timeout;
+  // std::chrono::milliseconds timeout;
   std::mutex mtx;
   std::condition_variable cv;
   std::unordered_map<HashType, std::queue<TxResponsePtr>, HashType::Hasher> map;
 
   template <bool do_pop = false>
-  auto wait_get(HashType const &txhash) -> std::optional<TxResponsePtr> {
+  auto wait_get(HashType const &txhash, std::chrono::milliseconds timeout)
+      -> WaitGetResult {  // std::tuple<TxResponsePtr,
+                          // std::chrono::milliseconds> {  //
+                          // std::optional<TxResponsePtr>
+                          //  {
     std::unique_lock lk(mtx);
     auto it = map.find(txhash);
     if (it == map.end())
-      return std::nullopt;
+      return {nullptr, 0ms};
     auto &qu = it->second;
     auto const deadline = std::chrono::steady_clock::now() + timeout;
     if (qu.empty()) {
@@ -182,23 +198,24 @@ struct IntegrationTestFramework::ResponsesQueues {
           std::chrono::steady_clock::now() < deadline
           and not cv.wait_until(lk, deadline, [&] { return not qu.empty(); }))
         ;
-      if (qu.empty())  // timed out and still empty
-        return std::nullopt;
-//      if(not cv.wait_for(lk, timeout, [&] { return not qu.empty(); }))
-//        return std::nullopt;
     }
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        deadline - std::chrono::steady_clock::now());
+    if (qu.empty())  // timed out and still empty
+      return {nullptr, elapsed};
     if constexpr (do_pop) {
-      auto ret(std::move(qu.front()));
+      auto txrespptr(std::move(qu.front()));
       qu.pop();
-      return ret;
+      return {txrespptr, elapsed};
     } else {
-      auto ret = qu.front();
-      return ret;
+      auto txrespptr = qu.front();
+      return {txrespptr, elapsed};
+      ;
     }
   }
 
  public:
-  ResponsesQueues(std::chrono::milliseconds ms) : timeout(ms) {}
+  // ResponsesQueues(std::chrono::milliseconds ms) : timeout(ms) {}
   void push(TxResponsePtr p_txresp) {
     assert(p_txresp);
     std::unique_lock lk(mtx);
@@ -206,11 +223,15 @@ struct IntegrationTestFramework::ResponsesQueues {
     it->second.push(std::move(p_txresp));
     cv.notify_all();
   }
-  auto try_peek(HashType const &txhash) -> std::optional<TxResponsePtr> {
-    return wait_get<false>(txhash);
+  auto try_peek(
+      HashType const &txhash,
+      std::chrono::milliseconds timeout) {  //-> std::optional<TxResponsePtr> {
+    return wait_get<false>(txhash, timeout);
   }
-  auto try_pop(HashType const &txhash) -> std::optional<TxResponsePtr> {
-    return wait_get<true>(txhash);
+  auto try_pop(
+      HashType const &txhash,
+      std::chrono::milliseconds timeout) {  //-> std::optional<TxResponsePtr> {
+    return wait_get<true>(txhash, timeout);
   }
 };
 
@@ -238,8 +259,8 @@ IntegrationTestFramework::IntegrationTestFramework(
           std::make_unique<CheckerQueue<VerifiedProposalType>>(
               proposal_waiting)),
       block_queue_(std::make_shared<CheckerQueue<BlockType>>(block_waiting)),
-      responses_queues_(
-          std::make_shared<ResponsesQueues>(tx_response_waiting_ms)),
+      responses_queues_(std::make_shared<ResponsesQueues>()),
+      tx_response_waiting_ms_(tx_response_waiting_ms),
       port_guard_(std::make_unique<PortGuard>()),
       torii_port_(port_guard_->getPort(kDefaultToriiPort)),
       command_client_(std::make_unique<torii::CommandSyncClient>(
@@ -642,17 +663,19 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
     const shared_model::proto::Transaction &tx,
     std::function<void(const shared_model::proto::TransactionResponse &)>
         validation) {
-  log_->debug("sendTx()");
+  log_->debug("sendTx() {}", tx.hash().hex());
   sendTxWithoutValidation(tx);
-  auto opt_response = responses_queues_->try_peek(tx.hash());
-  if (not opt_response) {
-    log_->error("sendTx(): missed status for hash {}", tx.hash().hex());
-    throw std::runtime_error("sendTx(): missed status for hash "
+  auto result = responses_queues_->try_peek(tx.hash(), tx_response_waiting_ms_);
+  if (not result) {
+    log_->error("sendTx(): missed status during {}ms for tx {}",
+                result.elapsed.count(),
+                tx.hash().hex());
+    throw std::runtime_error("sendTx(): missed status for tx "
                              + tx.hash().hex());
   }
   log_->debug("sendTx(): tx delivered {}", tx.hash().hex());
-  validation(static_cast<const shared_model::proto::TransactionResponse &>(
-      *opt_response.value()));
+  validation(
+      static_cast<const shared_model::proto::TransactionResponse &>(*result));
   return *this;
 }
 
@@ -700,12 +723,17 @@ IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
   std::vector<shared_model::proto::TransactionResponse> observed_statuses;
   for (const auto &tx : transactions) {
     // fetch first response associated with the tx from related queue
-    auto opt_response = responses_queues_->try_peek(tx->hash());
-    if (not opt_response)
-      throw std::runtime_error("sendTxSequence: missed status");
+    auto txresp_result =
+        responses_queues_->try_peek(tx->hash(), tx_response_waiting_ms_);
+    if (not txresp_result) {
+      log_->error("sendTxSequence(): missed status during {}ms for tx {}",
+                  txresp_result.elapsed.count(),
+                  tx->hash().hex());
+      throw std::runtime_error("sendTxSequence(): missed status");
+    }
     observed_statuses.push_back(
         static_cast<const shared_model::proto::TransactionResponse &>(
-            *opt_response.value()));
+            *txresp_result));
   }
 
   validation(observed_statuses);
@@ -821,15 +849,15 @@ IntegrationTestFramework &IntegrationTestFramework::checkStatus(
         validation) {
   // fetch first response associated with the tx from related queue
   log_->debug("checkStatus() for tx {}", tx_hash.hex());
-  auto opt_response = responses_queues_->try_pop(tx_hash);
-  if (not opt_response) {
+  auto txresp_result =
+      responses_queues_->try_pop(tx_hash, tx_response_waiting_ms_);
+  if (not txresp_result) {
     log_->error("checkStatus() NOT IN QUEUE tx {}", tx_hash.hex());
     throw std::runtime_error("checkStatus(): missed status for hash "
                              + tx_hash.hex());
   }
-  assert(*opt_response);
   validation(
-      dynamic_cast<shared_model::proto::TransactionResponse &>(**opt_response));
+      dynamic_cast<shared_model::proto::TransactionResponse &>(*txresp_result));
   return *this;
 }
 

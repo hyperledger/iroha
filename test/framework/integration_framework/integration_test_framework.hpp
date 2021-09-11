@@ -506,6 +506,7 @@ namespace integration_framework {
         bool,
         std::shared_ptr<shared_model::interface::TransactionResponse>>>
         responses_subscription_;
+    std::chrono::milliseconds tx_response_waiting_ms_;
 
     std::unique_ptr<PortGuard> port_guard_;
     size_t torii_port_;
