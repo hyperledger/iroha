@@ -33,10 +33,11 @@ using namespace shared_model;
 using namespace integration_framework;
 using namespace iroha;
 using namespace shared_model::interface::permissions;
+using namespace std::chrono_literals;
 
 using interface::types::PublicKeyHexStringView;
 
-static constexpr std::chrono::seconds kMstStateWaitingTime(20);
+//static constexpr std::chrono::seconds kMstStateWaitingTime(20);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
 struct AddPeerTest : FakePeerFixture {};
@@ -143,7 +144,7 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
 
   // ------------------------ THEN -------------------------
   mst_states_observable
-      .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
+      .timeout(3s, rxcpp::observe_on_new_thread())
       .take(1)
       .as_blocking()
       .subscribe([](const auto &) {},
