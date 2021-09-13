@@ -32,8 +32,7 @@ use tokio::{
         mpsc::{self, Receiver},
         oneshot::{self, error::RecvError},
     },
-    task::{self},
-    time,
+    task, time,
 };
 
 mod actor_id;
@@ -87,13 +86,8 @@ impl<A: Actor> Addr<A> {
         }
     }
 
-    /// Send a message and wait for an answer.
-    /// # Errors
-    /// Fails if no one will send message
-    /// # Panics
-    /// If queue is full
-    #[allow(unused_variables, clippy::expect_used)]
-    pub async fn send<M>(&self, message: M) -> Result<M::Result, Error>
+    #[cfg(feature = "deadlock_detection")]
+    async fn send_deadlock_detection<M>(&self, message: M) -> Result<M::Result, Error>
     where
         M: Message + Send + 'static,
         M::Result: Send,
@@ -101,9 +95,7 @@ impl<A: Actor> Addr<A> {
     {
         let (sender, receiver) = oneshot::channel();
         let envelope = SyncEnvelopeProxy::pack(message, Some(sender));
-        #[cfg(feature = "deadlock_detection")]
         let from_actor_id_option = deadlock::task_local_actor_id();
-        #[cfg(feature = "deadlock_detection")]
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::r#in(self.actor_id, from_actor_id).await;
         }
@@ -112,11 +104,47 @@ impl<A: Actor> Addr<A> {
             .await
             .map_err(|_err| Error::SendError)?;
         let result = receiver.await.map_err(Error::RecvError);
-        #[cfg(feature = "deadlock_detection")]
         if let Some(from_actor_id) = from_actor_id_option {
             deadlock::out(self.actor_id, from_actor_id).await;
         }
         result
+    }
+
+    #[cfg(not(feature = "deadlock_detection"))]
+    async fn send_no_deadlock_detection<M>(&self, message: M) -> Result<M::Result, Error>
+    where
+        M: Message + Send + 'static,
+        M::Result: Send,
+        A: ContextHandler<M>,
+    {
+        let (sender, receiver) = oneshot::channel();
+        let envelope = SyncEnvelopeProxy::pack(message, Some(sender));
+        self.sender
+            .send(envelope)
+            .await
+            .map_err(|_err| Error::SendError)?;
+        receiver.await.map_err(Error::RecvError)
+    }
+
+    /// Send a message and wait for an answer.
+    /// # Errors
+    /// Fails if no one will send message
+    /// # Panics
+    /// If queue is full
+    pub async fn send<M>(&self, message: M) -> Result<M::Result, Error>
+    where
+        M: Message + Send + 'static,
+        M::Result: Send,
+        A: ContextHandler<M>,
+    {
+        #[cfg(not(feature = "deadlock_detection"))]
+        {
+            self.send_no_deadlock_detection(message).await
+        }
+        #[cfg(feature = "deadlock_detection")]
+        {
+            self.send_deadlock_detection(message).await
+        }
     }
 
     //FIXME: In fact this method still waits for an answer and just drops it, this should be corrected.
@@ -124,7 +152,6 @@ impl<A: Actor> Addr<A> {
     /// Send a message without waiting for an answer.
     /// # Errors
     /// Fails if queue is full or actor is disconnected
-    #[allow(clippy::result_unit_err)]
     pub async fn do_send<M>(&self, message: M)
     where
         M: Message + Send + 'static,

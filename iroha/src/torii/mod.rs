@@ -99,7 +99,6 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl<Q: QueueTrait, W: WorldTrait> Torii<Q, W> {
     /// Construct `Torii` from `ToriiConfiguration`.
-    #[allow(clippy::too_many_arguments, clippy::missing_const_for_fn)]
     pub fn from_configuration(
         config: ToriiConfiguration,
         wsv: Arc<WorldStateView<W>>,
@@ -399,7 +398,7 @@ pub mod config {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::default_trait_access, clippy::restriction)]
+    #![allow(clippy::pedantic, clippy::restriction)]
 
     use std::{convert::TryInto, iter, time::Duration};
 

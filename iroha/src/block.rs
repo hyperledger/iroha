@@ -1,10 +1,7 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::missing_inline_in_public_items
-)]
+#![allow(clippy::module_name_repetitions)]
 
 use std::{iter, time::SystemTime};
 
@@ -128,7 +125,6 @@ impl PendingBlock {
     }
 
     /// Create a new blockchain with current block as a first block.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn chain_first_with_genesis_topology(self, genesis_topology: Topology) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -146,7 +142,6 @@ impl PendingBlock {
     }
 
     /// Create a new blockchain with current block as a first block.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn chain_first(self) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -261,7 +256,6 @@ impl ChainedBlock {
 
 declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
 
-#[allow(clippy::missing_errors_doc)]
 impl VersionedValidBlock {
     /// Same as [`as_v1`](`VersionedValidBlock::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &ValidBlock {
@@ -278,7 +272,6 @@ impl VersionedValidBlock {
     }
 
     /// Same as [`into_v1`](`VersionedValidBlock::into_v1()`) but also does conversion
-    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> ValidBlock {
         match self {
             Self::V1(v1) => v1.0,
@@ -313,6 +306,8 @@ impl VersionedValidBlock {
     }
 
     /// Sign this block and get [`VersionedValidBlock`](`Self`).
+    /// # Errors
+    /// Look at [`ValidBlock`](`ValidBlock`) for more info
     pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedValidBlock> {
         self.into_inner_v1().sign(key_pair).map(Into::into)
     }
@@ -390,7 +385,6 @@ impl ValidBlock {
 
     /// Commit block to the store.
     //TODO: pass block store and block sender as parameters?
-    #[allow(clippy::missing_const_for_fn)]
     pub fn commit(self) -> CommittedBlock {
         CommittedBlock {
             header: self.header,

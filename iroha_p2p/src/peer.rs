@@ -6,7 +6,6 @@ use std::{
 use async_stream::stream;
 use futures::Stream;
 use iroha_actor::{broker::Broker, Actor, Context, ContextHandler, Handler};
-#[allow(unused_imports)]
 use iroha_logger::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
@@ -325,16 +324,15 @@ where
             }
         };
         debug!("Derived shared key: {:?}", &shared.0);
-        match self.new_encryptor(shared.0.as_slice()) {
-            Ok(encryptor) => {
-                self.cipher = Some(encryptor);
-                Ok(())
-            }
+        let encryptor = match Self::new_encryptor(shared.0.as_slice()) {
+            Ok(encryptor) => encryptor,
             Err(e) => {
                 warn!(%e, "Unexpected error creating encryptor!");
-                Err(Error::Keys)
+                return Err(Error::Keys);
             }
-        }
+        };
+        self.cipher = Some(encryptor);
+        Ok(())
     }
 
     /// Creates a connection to other peer
@@ -359,8 +357,7 @@ where
         }
     }
 
-    #[allow(clippy::unused_self)]
-    fn new_encryptor(&self, key: &[u8]) -> Result<SymmetricEncryptor<E>, aead::Error> {
+    fn new_encryptor(key: &[u8]) -> Result<SymmetricEncryptor<E>, aead::Error> {
         SymmetricEncryptor::<E>::new_with_key(key)
     }
 }

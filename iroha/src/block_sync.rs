@@ -231,7 +231,6 @@ pub mod message {
         }
 
         /// Same as [`into_v1`](`VersionedMessage::into_v1()`) but also does conversion
-        #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> Message {
             match self {
                 Self::V1(v1) => v1.0,

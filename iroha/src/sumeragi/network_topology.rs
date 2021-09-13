@@ -69,7 +69,6 @@ pub struct GenesisBuilder {
     reshuffle_after_n_view_changes: Option<u64>,
 }
 
-#[allow(clippy::missing_const_for_fn)]
 impl GenesisBuilder {
     /// Constructor.
     pub fn new() -> Self {
@@ -157,7 +156,6 @@ pub struct Builder {
     view_change_proofs: ViewChangeProofs,
 }
 
-#[allow(clippy::missing_const_for_fn)]
 impl Builder {
     /// Constructor.
     pub fn new() -> Self {

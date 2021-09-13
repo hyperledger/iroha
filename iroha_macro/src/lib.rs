@@ -1,6 +1,6 @@
 //! Crate containing iroha macroses
 
-#![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
+#![allow(clippy::module_name_repetitions)]
 
 /// Crate with errors
 pub mod error {
@@ -8,7 +8,7 @@ pub mod error {
 
     pub use iroha_error::*;
 
-    /// Error which happens if TryFrom from enum variant fails
+    /// Error which happens if `TryFrom` from enum variant fails
     #[derive(Clone, Copy, Eq, PartialEq)]
     pub struct ErrorTryFromEnum<F, T> {
         from: PhantomData<F>,
@@ -49,7 +49,3 @@ pub mod error {
 
 /// Trait alias for encode + decode
 pub trait Io: parity_scale_codec::Encode + parity_scale_codec::Decode {}
-/// Derive macro trait
-pub trait IntoContract {}
-/// Derive macro trait
-pub trait IntoQuery {}

@@ -188,27 +188,26 @@ pub mod private_blockchain {
                 query: &QueryBox,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
+                use QueryBox::*;
                 let context = Context::new();
                 match query {
-                    QueryBox::FindAssetsByAssetDefinitionId(_)
-                    | QueryBox::FindAssetsByName(_)
-                    | QueryBox::FindAllAssets(_) => {
+                    FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
                         Err("Only access to the assets of the same domain is permitted.".to_owned())
                     }
-                    QueryBox::FindAllAccounts(_) | QueryBox::FindAccountsByName(_) => Err(
+                    FindAllAccounts(_) | FindAccountsByName(_) => Err(
                         "Only access to the accounts of the same domain is permitted.".to_owned(),
                     ),
-                    QueryBox::FindAllAssetsDefinitions(_) => Err(
+                    FindAllAssetsDefinitions(_) => Err(
                         "Only access to the asset definitions of the same domain is permitted."
                             .to_owned(),
                     ),
-                    QueryBox::FindAllDomains(_) => {
+                    FindAllDomains(_) => {
                         Err("Only access to the domain of the account is permitted.".to_owned())
                     }
                     #[cfg(feature = "roles")]
-                    QueryBox::FindAllRoles(_) => Ok(()),
-                    QueryBox::FindAllPeers(_) => Ok(()),
-                    QueryBox::FindAccountById(query) => {
+                    FindAllRoles(_) => Ok(()),
+                    FindAllPeers(_) => Ok(()),
+                    FindAccountById(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -222,7 +221,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAccountKeyValueByIdAndKey(query) => {
+                    FindAccountKeyValueByIdAndKey(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -236,7 +235,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAccountsByDomainName(query) => {
+                    FindAccountsByDomainName(query) => {
                         let domain_name = query
                             .domain_name
                             .evaluate(wsv, &context)
@@ -250,7 +249,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetById(query) => {
+                    FindAssetById(query) => {
                         let asset_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -264,7 +263,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetsByAccountId(query) => {
+                    FindAssetsByAccountId(query) => {
                         let account_id = query
                             .account_id
                             .evaluate(wsv, &context)
@@ -278,7 +277,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetsByDomainName(query) => {
+                    FindAssetsByDomainName(query) => {
                         let domain_name = query
                             .domain_name
                             .evaluate(wsv, &context)
@@ -292,7 +291,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetsByDomainNameAndAssetDefinitionId(query) => {
+                    FindAssetsByDomainNameAndAssetDefinitionId(query) => {
                         let domain_name = query
                             .domain_name
                             .evaluate(wsv, &context)
@@ -306,7 +305,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetDefinitionKeyValueByIdAndKey(query) => {
+                    FindAssetDefinitionKeyValueByIdAndKey(query) => {
                         let asset_definition_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -321,7 +320,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetQuantityById(query) => {
+                    FindAssetQuantityById(query) => {
                         let asset_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -335,7 +334,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetKeyValueByIdAndKey(query) => {
+                    FindAssetKeyValueByIdAndKey(query) => {
                         let asset_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -349,7 +348,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindDomainByName(query) => {
+                    FindDomainByName(query) => {
                         let domain_name = query
                             .name
                             .evaluate(wsv, &context)
@@ -363,7 +362,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindTransactionsByAccountId(query) => {
+                    FindTransactionsByAccountId(query) => {
                         let account_id = query
                             .account_id
                             .evaluate(wsv, &context)
@@ -378,7 +377,7 @@ pub mod private_blockchain {
                         }
                     }
                     #[cfg(feature = "roles")]
-                    QueryBox::FindRolesByAccountId(query) => {
+                    FindRolesByAccountId(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -392,7 +391,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindPermissionTokensByAccountId(query) => {
+                    FindPermissionTokensByAccountId(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -424,27 +423,29 @@ pub mod private_blockchain {
                 query: &QueryBox,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
+                use QueryBox::*;
+
                 let context = Context::new();
                 match query {
-                    QueryBox::FindAccountsByName(_)
-                    | QueryBox::FindAccountsByDomainName(_)
-                    | QueryBox::FindAllAccounts(_)
-                    | QueryBox::FindAllAssetsDefinitions(_)
-                    | QueryBox::FindAssetsByAssetDefinitionId(_)
-                    | QueryBox::FindAssetsByDomainName(_)
-                    | QueryBox::FindAssetsByName(_)
-                    | QueryBox::FindAllDomains(_)
-                    | QueryBox::FindDomainByName(_)
-                    | QueryBox::FindAssetsByDomainNameAndAssetDefinitionId(_)
-                    | QueryBox::FindAssetDefinitionKeyValueByIdAndKey(_)
-                    | QueryBox::FindAllAssets(_) => {
+                    FindAccountsByName(_)
+                    | FindAccountsByDomainName(_)
+                    | FindAllAccounts(_)
+                    | FindAllAssetsDefinitions(_)
+                    | FindAssetsByAssetDefinitionId(_)
+                    | FindAssetsByDomainName(_)
+                    | FindAssetsByName(_)
+                    | FindAllDomains(_)
+                    | FindDomainByName(_)
+                    | FindAssetsByDomainNameAndAssetDefinitionId(_)
+                    | FindAssetDefinitionKeyValueByIdAndKey(_)
+                    | FindAllAssets(_) => {
                         Err("Only access to the assets of the same domain is permitted.".to_owned())
                     }
                     #[cfg(feature = "roles")]
                     #[allow(clippy::match_same_arms)]
-                    QueryBox::FindAllRoles(_) => Ok(()),
-                    QueryBox::FindAllPeers(_) => Ok(()),
-                    QueryBox::FindAccountById(query) => {
+                    FindAllRoles(_) => Ok(()),
+                    FindAllPeers(_) => Ok(()),
+                    FindAccountById(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -458,7 +459,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAccountKeyValueByIdAndKey(query) => {
+                    FindAccountKeyValueByIdAndKey(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -472,7 +473,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetById(query) => {
+                    FindAssetById(query) => {
                         let asset_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -486,7 +487,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetsByAccountId(query) => {
+                    FindAssetsByAccountId(query) => {
                         let account_id = query
                             .account_id
                             .evaluate(wsv, &context)
@@ -501,7 +502,7 @@ pub mod private_blockchain {
                         }
                     }
 
-                    QueryBox::FindAssetQuantityById(query) => {
+                    FindAssetQuantityById(query) => {
                         let asset_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -515,7 +516,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    QueryBox::FindAssetKeyValueByIdAndKey(query) => {
+                    FindAssetKeyValueByIdAndKey(query) => {
                         let asset_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -530,7 +531,7 @@ pub mod private_blockchain {
                         }
                     }
 
-                    QueryBox::FindTransactionsByAccountId(query) => {
+                    FindTransactionsByAccountId(query) => {
                         let account_id = query
                             .account_id
                             .evaluate(wsv, &context)
@@ -542,7 +543,7 @@ pub mod private_blockchain {
                         }
                     }
                     #[cfg(feature = "roles")]
-                    QueryBox::FindRolesByAccountId(query) => {
+                    FindRolesByAccountId(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)
@@ -553,7 +554,7 @@ pub mod private_blockchain {
                             Err(format!("Cannot access another account: {}.", account_id))
                         }
                     }
-                    QueryBox::FindPermissionTokensByAccountId(query) => {
+                    FindPermissionTokensByAccountId(query) => {
                         let account_id = query
                             .id
                             .evaluate(wsv, &context)

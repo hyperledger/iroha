@@ -107,7 +107,6 @@ impl Broker {
     }
 
     /// Send message via broker
-    #[allow(clippy::missing_panics_doc)]
     pub async fn issue_send<M: BrokerMessage + Send + Sync>(&self, m: M) {
         let mut entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {
             entry

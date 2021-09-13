@@ -143,8 +143,9 @@ pub mod scale {
 
     /// [`Encode`] versioned analog.
     pub trait EncodeVersioned: Encode + Version {
-        #[allow(clippy::missing_errors_doc)]
         /// Use this function for versioned objects instead of `encode`.
+        /// # Errors
+        /// Fails if serialization with parity scale codec fails
         fn encode_versioned(&self) -> Result<Vec<u8>>;
     }
 }

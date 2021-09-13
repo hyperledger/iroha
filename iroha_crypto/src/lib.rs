@@ -1,10 +1,5 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::missing_inline_in_public_items
-)]
 
-/// Module with multihash implementation
 pub mod multihash;
 mod varint;
 
@@ -122,7 +117,6 @@ impl Default for Algorithm {
 impl FromStr for Algorithm {
     type Err = Error;
     fn from_str(algorithm: &str) -> Result<Self> {
-        #[allow(clippy::pattern_type_mismatch)]
         match algorithm {
             ED_25519 => Ok(Algorithm::Ed25519),
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
@@ -135,7 +129,6 @@ impl FromStr for Algorithm {
 
 impl Display for Algorithm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[allow(clippy::pattern_type_mismatch)]
         match self {
             Algorithm::Ed25519 => write!(f, "{}", ED_25519),
             Algorithm::Secp256k1 => write!(f, "{}", SECP_256_K1),
@@ -183,7 +176,6 @@ pub struct KeyGenConfiguration {
     pub algorithm: Algorithm,
 }
 
-#[allow(clippy::missing_const_for_fn)]
 impl KeyGenConfiguration {
     /// Use seed
     pub fn use_seed(mut self, seed: Vec<u8>) -> KeyGenConfiguration {
@@ -320,7 +312,6 @@ impl TryFrom<&PublicKey> for Multihash {
     type Error = Error;
 
     fn try_from(public_key: &PublicKey) -> Result<Self> {
-        #[allow(clippy::pattern_type_mismatch)]
         match public_key.digest_function.as_ref() {
             ED_25519 => Ok(MultihashDigestFunction::Ed25519Pub),
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
@@ -519,13 +510,11 @@ impl Signatures {
     }
 
     /// Number of signatures.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn len(&self) -> usize {
         self.signatures.len()
     }
 
     /// Checks if there is no signatures.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn is_empty(&self) -> bool {
         self.signatures.is_empty()
     }

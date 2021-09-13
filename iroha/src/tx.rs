@@ -2,8 +2,6 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-#![allow(clippy::missing_inline_in_public_items)]
-
 use std::{
     cmp::min,
     time::{Duration, SystemTime},
@@ -30,7 +28,6 @@ impl Message for VersionedAcceptedTransaction {
     type Result = ();
 }
 
-#[allow(clippy::missing_errors_doc)]
 impl VersionedAcceptedTransaction {
     /// Same as [`as_v1`](`VersionedAcceptedTransaction::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &AcceptedTransaction {
@@ -47,7 +44,6 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Same as [`into_v1`](`VersionedAcceptedTransaction::into_v1()`) but also does conversion
-    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1.0,
@@ -55,6 +51,8 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Accepts transaction
+    /// # Errors
+    /// Can fail if verification of some signature fails
     pub fn from_transaction(
         transaction: Transaction,
         max_instruction_number: u64,
@@ -75,8 +73,8 @@ impl VersionedAcceptedTransaction {
 
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
     /// `WorldStateView<W>`.
-    ///
-    /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
+    /// # Errors
+    /// Fails if validation of instruction fails due to permissions or other kinds of errors.
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
@@ -91,6 +89,8 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
+    /// # Errors
+    /// Can fail if signature conditionon account fails or if account is not found
     pub fn check_signature_condition<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
@@ -321,7 +321,6 @@ impl AcceptedTransaction {
     }
 
     /// Rejects transaction with the `rejection_reason`.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn reject(self, rejection_reason: TransactionRejectionReason) -> RejectedTransaction {
         RejectedTransaction {
             payload: self.payload,
@@ -382,7 +381,6 @@ impl IsInBlockchain for RejectedTransaction {
 
 declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
 
-#[allow(clippy::missing_errors_doc)]
 impl VersionedValidTransaction {
     /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &ValidTransaction {
@@ -399,7 +397,6 @@ impl VersionedValidTransaction {
     }
 
     /// Same as [`into_v1`](`VersionedValidTransaction::into_v1()`) but also does conversion
-    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> ValidTransaction {
         match self {
             Self::V1(v1) => v1.0,
@@ -407,6 +404,9 @@ impl VersionedValidTransaction {
     }
 
     /// Apply instructions to the `WorldStateView<W>`.
+    /// # Errors
+    /// Fails if recieves error during execution (should be fine after validation)
+    // XXX: Should it just return `()`?
     pub fn proceed<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<()> {
         self.as_inner_v1().proceed(wsv)
     }
@@ -514,7 +514,7 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::default_trait_access, clippy::restriction)]
+    #![allow(clippy::pedantic, clippy::restriction)]
 
     use std::collections::BTreeSet;
 

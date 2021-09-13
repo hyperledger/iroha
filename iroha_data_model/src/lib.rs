@@ -330,17 +330,11 @@ where
     }
 }
 
-#[allow(clippy::fallible_impl_from, clippy::todo)]
 impl From<u128> for Value {
-    fn from(_: u128) -> Value {
-        todo!()
-    }
-}
-
-#[allow(clippy::fallible_impl_from, clippy::todo)]
-impl From<(String, Vec<u8>)> for Value {
-    fn from(_: (String, Vec<u8>)) -> Value {
-        todo!()
+    fn from(n: u128) -> Value {
+        // TODO: ???
+        #[allow(clippy::cast_possible_truncation)]
+        Value::U32(n as u32)
     }
 }
 
@@ -657,7 +651,6 @@ pub mod permissions {
 
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
-    #![allow(clippy::default_trait_access, clippy::missing_inline_in_public_items)]
 
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -814,7 +807,7 @@ pub mod account {
             Self {
                 id,
                 signatories: Signatories::new(),
-                metadata: Default::default(),
+                metadata: Metadata::default(),
             }
         }
 
@@ -969,21 +962,22 @@ pub mod account {
         }
 
         /// Returns a set of permission tokens granted to this account as part of roles and separately.
-        #[allow(unused_variables)]
-        #[allow(unused_mut)]
-        #[allow(clippy::let_and_return)]
+        #[cfg(feature = "roles")]
         pub fn permission_tokens(&self, world: &World) -> Permissions {
             let mut tokens = self.permission_tokens.clone();
-            #[cfg(feature = "roles")]
-            {
-                for role_id in &self.roles {
-                    if let Some(role) = world.roles.get(role_id) {
-                        let mut role_tokens = role.permissions.clone();
-                        tokens.append(&mut role_tokens);
-                    }
+            for role_id in &self.roles {
+                if let Some(role) = world.roles.get(role_id) {
+                    let mut role_tokens = role.permissions.clone();
+                    tokens.append(&mut role_tokens);
                 }
             }
             tokens
+        }
+
+        /// Returns a set of permission tokens granted to this account as part of roles and separately.
+        #[cfg(not(feature = "roles"))]
+        pub fn permission_tokens(&self, _: &World) -> Permissions {
+            self.permission_tokens.clone()
         }
     }
 
@@ -1847,8 +1841,6 @@ pub mod domain {
 pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
-    #![allow(clippy::missing_inline_in_public_items)]
-
     use std::{
         hash::{Hash, Hasher},
         iter::FromIterator,
@@ -1947,8 +1939,6 @@ pub mod peer {
 pub mod transaction {
     //! This module contains [`Transaction`] structures and related implementations
     //! and traits implementations.
-    // TODO remove `allow` when the task https://jira.hyperledger.org/browse/IR-1048 will be closed
-    #![allow(unused_results, clippy::missing_inline_in_public_items)]
 
     use std::{cmp::Ordering, iter::FromIterator, time::SystemTime, vec::IntoIter as VecIter};
 
@@ -2033,7 +2023,6 @@ pub mod transaction {
         }
 
         /// Same as [`into_v1`](`VersionedTransaction::into_v1()`) but also does conversion
-        #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> Transaction {
             match self {
                 Self::V1(v1) => v1.0,
@@ -2200,7 +2189,6 @@ pub mod transaction {
         }
 
         /// Same as [`into_v1`](`VersionedPendingTransactions::into_v1()`) but also does conversion
-        #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> PendingTransactions {
             match self {
                 Self::V1(v1) => v1.0,
@@ -2273,7 +2261,6 @@ pub mod transaction {
 
     declare_versioned!(VersionedRejectedTransaction 1..2, iroha_derive::FromVariant, Clone, Debug, IntoSchema);
 
-    #[allow(clippy::missing_errors_doc)]
     impl VersionedRejectedTransaction {
         /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
         pub const fn as_inner_v1(&self) -> &RejectedTransaction {
@@ -2290,7 +2277,6 @@ pub mod transaction {
         }
 
         /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-        #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> RejectedTransaction {
             match self {
                 Self::V1(v1) => v1.into(),
@@ -2321,12 +2307,10 @@ pub mod transaction {
 
     impl PartialEq for VersionedRejectedTransaction {
         fn eq(&self, other: &Self) -> bool {
-            #[allow(clippy::pattern_type_mismatch)]
+            use VersionedRejectedTransaction::*;
+
             match (self, other) {
-                (
-                    VersionedRejectedTransaction::V1(first),
-                    VersionedRejectedTransaction::V1(second),
-                ) => first.0.eq(&second.0),
+                (V1(first), V1(second)) => first.0.eq(&second.0),
             }
         }
     }
@@ -2335,11 +2319,10 @@ pub mod transaction {
 
     impl PartialEq for VersionedTransaction {
         fn eq(&self, other: &Self) -> bool {
-            #[allow(clippy::pattern_type_mismatch)]
+            use VersionedTransaction::*;
+
             match (self, other) {
-                (VersionedTransaction::V1(first), VersionedTransaction::V1(second)) => {
-                    first.0.eq(&second.0)
-                }
+                (V1(first), V1(second)) => first.0.eq(&second.0),
             }
         }
     }
@@ -2601,8 +2584,6 @@ pub mod pagination {
 pub mod metadata {
     //! Module with metadata for accounts
 
-    #![allow(clippy::missing_inline_in_public_items)]
-
     use std::{borrow::Borrow, collections::BTreeMap};
 
     use iroha_error::{error, Result};
@@ -2656,7 +2637,6 @@ pub mod metadata {
 
     impl Metadata {
         /// Constructor.
-        #[allow(clippy::missing_const_for_fn)]
         pub fn new() -> Self {
             Self {
                 map: BTreeMap::new(),

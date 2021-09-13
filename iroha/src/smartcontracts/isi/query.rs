@@ -83,7 +83,6 @@ impl ValidQueryRequest {
 
 /// Unsupported version error
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
-#[allow(clippy::exhaustive_structs)]
 pub struct UnsupportedVersionError {
     /// Version that we got
     pub version: u8,
