@@ -242,12 +242,9 @@ impl<W: WorldTrait> Evaluate<W> for Divide {
     fn evaluate(&self, wsv: &WorldStateView<W>, context: &Context) -> Result<Self::Value> {
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        #[allow(clippy::integer_division)]
-        if right == 0 {
-            Err(error!("Failed to divide by zero"))
-        } else {
-            Ok((left / right).into())
-        }
+        left.checked_div(right)
+            .ok_or_else(|| error!("Failed to divide by zero"))
+            .map(Into::into)
     }
 }
 

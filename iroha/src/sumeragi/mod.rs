@@ -2,8 +2,6 @@
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 
-#![allow(clippy::missing_inline_in_public_items)]
-
 use std::{
     collections::{BTreeMap, HashSet},
     fmt::{self, Debug, Formatter},
@@ -898,7 +896,6 @@ pub mod message {
         }
 
         /// Same as [`into_v1`](`VersionedMessage::into_v1()`) but also does conversion
-        #[allow(clippy::missing_const_for_fn)]
         pub fn into_inner_v1(self) -> Message {
             match self {
                 Self::V1(v1) => v1.0,
@@ -1003,7 +1000,7 @@ pub mod message {
             let (should_vote, invalidated_block_hash) = match self.proof.reason() {
                 CommitTimeout(reason) => (
                     Self::is_commit_timeout(reason, sumeragi).await,
-                    Some(reason.voting_block_hash),
+                    Some(*reason.voting_block_hash),
                 ),
                 NoTransactionReceiptReceived(reason) => (
                     Self::is_no_transaction_receipt_received(reason, sumeragi).await,
@@ -1041,7 +1038,6 @@ pub mod message {
                 sumeragi
                     .change_view(view_change_suggested.proof, invalidated_block_hash)
                     .await;
-            } else {
             }
             Ok(())
         }
@@ -1056,7 +1052,7 @@ pub mod message {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Failed to get System Time.");
             voting_block.map_or(false, |voting_block| {
-                voting_block.block.hash() == reason.voting_block_hash
+                voting_block.block.hash() == *reason.voting_block_hash
                     && (current_time - voting_block.voted_at) >= sumeragi.commit_time
             })
         }
@@ -1598,7 +1594,6 @@ pub mod config {
         }
 
         /// Time estimation from receiving a transaction to storing it in a block on all peers.
-        #[allow(clippy::integer_arithmetic)]
         pub const fn pipeline_time_ms(&self) -> u64 {
             self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
         }
@@ -1609,7 +1604,6 @@ pub mod config {
     #[derive(Default, Clone, Debug, Deserialize, Serialize)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(transparent)]
-    #[allow(clippy::exhaustive_structs)]
     pub struct TrustedPeers {
         /// Optional list of predefined trusted peers.
         pub peers: HashSet<PeerId>,
@@ -1640,7 +1634,6 @@ pub mod config {
     }
 
     // Allowed because `HashSet::new()` is not const yet.
-    #[allow(clippy::missing_const_for_fn)]
     fn default_empty_trusted_peers() -> TrustedPeers {
         TrustedPeers {
             peers: HashSet::new(),

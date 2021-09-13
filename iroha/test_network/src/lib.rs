@@ -1,12 +1,8 @@
 //! Module for starting peers and networks. Used only for tests
 
 #![allow(
-    clippy::missing_errors_doc,
-    clippy::module_name_repetitions,
-    unused_results,
     missing_docs,
-    clippy::cast_possible_truncation,
-    clippy::missing_panics_doc,
+    clippy::pedantic,
     clippy::restriction,
     clippy::future_not_send
 )]
@@ -237,7 +233,6 @@ where
     /// Creates new network with some offline peers
     /// # Panics
     /// Panics if fails to find or decode default configuration
-    #[allow(clippy::vec_init_then_push)]
     pub async fn new_with_offline_peers(
         default_configuration: Option<Configuration>,
         n_peers: u32,
@@ -259,9 +254,7 @@ where
         let rng = &mut rand::thread_rng();
         let online_peers = n_peers - offline_peers;
 
-        let mut futures = Vec::new();
-
-        futures.push(genesis.start_with_config(G::test(true), configuration.clone()));
+        let mut futures = vec![genesis.start_with_config(G::test(true), configuration.clone())];
 
         for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
             futures.push(peer.start_with_config(G::test(false), configuration.clone()));

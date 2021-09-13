@@ -1,3 +1,5 @@
+//! Module with multihash implementation
+
 use std::{
     convert::{TryFrom, TryInto},
     fmt::Display,
@@ -53,7 +55,6 @@ impl FromStr for DigestFunction {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        #[allow(clippy::pattern_type_mismatch)]
         match s {
             ED_25519_PUB_STR => Ok(DigestFunction::Ed25519Pub),
             SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),

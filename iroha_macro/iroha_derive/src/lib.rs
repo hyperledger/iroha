@@ -1,12 +1,6 @@
 //! Crate with various derive macroses
 
-#![allow(
-    clippy::doc_markdown,
-    clippy::module_name_repetitions,
-    clippy::expect_used,
-    clippy::panic,
-    missing_docs
-)]
+#![allow(clippy::restriction)]
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -20,18 +14,6 @@ const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 pub fn io_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
     impl_io(&ast)
-}
-
-#[proc_macro_derive(IntoContract)]
-pub fn into_contract_derive(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
-    impl_into_contract(&ast)
-}
-
-#[proc_macro_derive(IntoQuery)]
-pub fn into_query_derive(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
-    impl_into_query(&ast)
 }
 
 /// [`FromVariant`] is used for implementing `From<Variant> for Enum` and `TryFrom<Enum> for Variant`.
@@ -253,32 +235,6 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
 
     let gen = quote! {
         #(#froms)*
-    };
-    gen.into()
-}
-
-fn impl_into_contract(ast: &syn::DeriveInput) -> TokenStream {
-    let name = &ast.ident;
-    let gen = quote! {
-
-        impl std::convert::From<#name> for Contract {
-            fn from(origin: #name) -> Self {
-                Contract::#name(origin)
-            }
-        }
-    };
-    gen.into()
-}
-
-fn impl_into_query(ast: &syn::DeriveInput) -> TokenStream {
-    let name = &ast.ident;
-    let gen = quote! {
-
-        impl std::convert::From<#name> for IrohaQuery {
-            fn from(origin: #name) -> Self {
-                IrohaQuery::#name(origin)
-            }
-        }
     };
     gen.into()
 }

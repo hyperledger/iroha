@@ -1,10 +1,6 @@
 //! This library contains basic Iroha Special Instructions.
 
-#![allow(
-    clippy::len_without_is_empty,
-    clippy::unused_self,
-    clippy::missing_inline_in_public_items
-)]
+#![allow(clippy::len_without_is_empty, clippy::unused_self)]
 
 use std::fmt::Debug;
 

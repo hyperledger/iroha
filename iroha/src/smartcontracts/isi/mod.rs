@@ -22,18 +22,17 @@ use super::{Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldTrait};
 
 /// Instruction execution error type
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug, FromVariant, Error)]
 pub enum Error {
     /// Failed to find some entity
     #[error("Failed to find")]
-    FindError(#[source] Box<FindError>),
+    Find(#[source] Box<FindError>),
     /// Failed to assert type
     #[error("Failed to assert type")]
-    TypeError(#[source] TypeError),
+    Type(#[source] TypeError),
     /// Failed due to math exception
     #[error("Math error occured")]
-    MathError(#[source] MathError),
+    Math(#[source] MathError),
     /// Some other error happened
     #[error("Some other error happened")]
     Other(#[skip_try_from] iroha_error::Error),

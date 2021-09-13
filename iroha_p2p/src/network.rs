@@ -11,7 +11,6 @@ use iroha_actor::{
     Actor, Addr, Context, ContextHandler, Handler,
 };
 use iroha_crypto::PublicKey;
-#[allow(unused_imports)]
 use iroha_logger::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::prelude::SliceRandom;

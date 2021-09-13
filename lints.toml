@@ -24,7 +24,6 @@ deny = [
 allow = [
     'unused_results',
     'clippy::as_conversions',
-    'clippy::cognitive_complexity',
     'clippy::default_numeric_fallback',
     'clippy::else_if_without_else',
     'clippy::enum_glob_use',
@@ -50,5 +49,9 @@ allow = [
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
     'missing_debug_implementations',
+
+    # Remove when is stabilized
+    ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn
+    'clippy::missing_const_for_fn'
 ]
 warn = []

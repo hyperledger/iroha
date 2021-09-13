@@ -1,8 +1,8 @@
-#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+#![allow(clippy::restriction)]
+#![allow(clippy::pedantic)]
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::shadow_unrelated)]
 
     use std::thread;
 

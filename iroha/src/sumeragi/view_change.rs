@@ -26,6 +26,7 @@ impl Proof {
         previous_proof: Hash,
         latest_block: Hash,
     ) -> Self {
+        let voting_block_hash = Box::new(voting_block_hash);
         Self {
             signatures: Signatures::default(),
             payload: ProofPayload {
@@ -45,7 +46,7 @@ impl Proof {
         Self {
             signatures: Signatures::default(),
             payload: ProofPayload {
-                reason: Reason::BlockCreationTimeout(BlockCreationTimeout {
+                reason: Reason::from(BlockCreationTimeout {
                     transaction_receipt,
                 }),
                 previous_proof,
@@ -60,6 +61,7 @@ impl Proof {
         previous_proof: Hash,
         latest_block: Hash,
     ) -> Self {
+        let transaction_hash = Box::new(transaction_hash);
         Self {
             signatures: Signatures::default(),
             payload: ProofPayload {
@@ -136,15 +138,14 @@ pub struct ProofPayload {
 }
 
 /// Reason for a view change.
-#[allow(variant_size_differences)]
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, FromVariant)]
 pub enum Reason {
     /// Proxy tail have not committed a block in time.
     CommitTimeout(CommitTimeout),
     /// Transaction was sent to leader, but no corresponding receipt was received from the leader for it.
     NoTransactionReceiptReceived(NoTransactionReceiptReceived),
     /// Transaction reached leader but no block was created.
-    BlockCreationTimeout(BlockCreationTimeout),
+    BlockCreationTimeout(Box<BlockCreationTimeout>),
 }
 
 impl Display for Reason {
@@ -158,17 +159,17 @@ impl Display for Reason {
 }
 
 /// Block `CommitTimeout` reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode, Copy)]
+#[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct CommitTimeout {
     /// The hash of the block in discussion in this round.
-    pub voting_block_hash: Hash,
+    pub voting_block_hash: Box<Hash>,
 }
 
 /// `NoTransactionReceiptReceived` (from leader) reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode, Copy)]
+#[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct NoTransactionReceiptReceived {
     /// The hash of the transaction for which there was no `TransactionReceipt`.
-    pub transaction_hash: Hash,
+    pub transaction_hash: Box<Hash>,
 }
 
 /// `BlockCreationTimeout` reason for a view change.
@@ -234,7 +235,7 @@ impl ProofChain {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::panic_in_result_fn)]
+    #![allow(clippy::restriction)]
 
     use super::*;
 

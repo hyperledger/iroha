@@ -129,7 +129,6 @@ impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
     }
 }
 
-#[allow(dead_code)]
 impl<W: WorldTrait> Kura<W> {
     /// After constructing [`Kura`] it should be initialized to be ready to work with it.
     #[iroha_futures::telemetry_future]

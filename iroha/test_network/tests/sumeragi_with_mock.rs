@@ -2,7 +2,7 @@
     clippy::restriction,
     missing_debug_implementations,
     clippy::future_not_send,
-    clippy::missing_panics_doc
+    clippy::pedantic
 )]
 
 use std::{fmt::Debug, ops::Deref, path::Path, sync::Arc, time::Duration};

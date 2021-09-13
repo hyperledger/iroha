@@ -1,9 +1,5 @@
 //! Events for streaming API.
-#![allow(
-    unused_results,
-    clippy::unused_self,
-    clippy::missing_inline_in_public_items
-)]
+#![allow(clippy::unused_self)]
 
 use iroha_derive::FromVariant;
 use iroha_schema::prelude::*;
@@ -29,7 +25,6 @@ impl VersionedEventSocketMessage {
     }
 
     /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
-    #[allow(clippy::missing_const_for_fn)]
     pub fn into_inner_v1(self) -> EventSocketMessage {
         match self {
             Self::V1(v1) => v1.into(),

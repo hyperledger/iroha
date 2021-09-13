@@ -1,9 +1,11 @@
 //! Expressions to use inside of ISIs.
 
 #![allow(
+    // Because of `serde(skip)`
     clippy::default_trait_access,
+    // Because of length on instructions and expressions (can't be 0)
     clippy::len_without_is_empty,
-    clippy::missing_inline_in_public_items,
+    // Because of length on instructions and expressions (XXX: Should it be trait?)
     clippy::unused_self
 )]
 

@@ -1,4 +1,4 @@
-#![allow(clippy::module_inception, unused_results, clippy::restriction)]
+#![allow(clippy::restriction)]
 
 use std::{str::FromStr, thread, time::Duration};
 
