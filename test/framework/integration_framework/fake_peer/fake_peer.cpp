@@ -66,6 +66,7 @@ static std::shared_ptr<shared_model::interface::Peer> createPeer(
 using integration_framework::fake_peer::FakePeer;
 
 FakePeer::FakePeer(
+    HideCtor,
     const std::string &listen_ip,
     size_t internal_port,
     const boost::optional<Keypair> &key,
@@ -212,8 +213,6 @@ FakePeer::getProposalStorage() {
 std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
   ensureInitialized();
   // start instance
-  using namespace std::chrono_literals;
-  std::this_thread::sleep_for(500ms);
   log_->info("starting listening server");
   auto internal_server = std::make_unique<iroha::network::ServerRunner>(
       getAddress(),

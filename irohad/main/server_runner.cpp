@@ -75,7 +75,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
 
   if (selected_port == 0) {
     return iroha::expected::makeError(
-        (boost::format("Cannot bind server to address %s") % server_address_).str());
+        fmt::format("Cannot bind server to address {}", server_address_));
   }
 
   return iroha::expected::makeValue(selected_port);

@@ -6,11 +6,11 @@
 #ifndef INTEGRATION_FRAMEWORK_FAKE_PEER_HPP_
 #define INTEGRATION_FRAMEWORK_FAKE_PEER_HPP_
 
+#include <boost/core/noncopyable.hpp>
 #include <memory>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include <string>
 
-#include <boost/core/noncopyable.hpp>
-#include <rxcpp/rx-observable-fwd.hpp>
 #include "common/result_fwd.hpp"
 #include "consensus/yac/transport/impl/consensus_service_impl.hpp"
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
@@ -40,11 +40,15 @@ namespace integration_framework::fake_peer {
             shared_model::interface::Transaction,
             iroha::protocol::Transaction>;
 
+   private:
+    struct HideCtor {};
+
+   public:
     /** Instead of constructor because shared_from_this
      */
-    template<class...Args>
-    static std::shared_ptr<FakePeer> create_shared(Args&&...args){
-      return std::make_shared<FakePeer>(std::forward<Args>(args)...);
+    template <class... Args>
+    static std::shared_ptr<FakePeer> create_shared(Args &&...args) {
+      return std::make_shared<FakePeer>(HideCtor{}, std::forward<Args>(args)...);
     }
 
     /**
@@ -63,6 +67,7 @@ namespace integration_framework::fake_peer {
      * @param log_manager - log manager
      */
     FakePeer(
+        HideCtor,
         const std::string &listen_ip,
         size_t internal_port,
         const boost::optional<shared_model::crypto::Keypair> &key,
@@ -81,6 +86,7 @@ namespace integration_framework::fake_peer {
 
     ~FakePeer();
 
+   public:
     /// Initialization method.
     /// \attention Must be called prior to any other instance method (except
     /// for constructor).
@@ -109,6 +115,10 @@ namespace integration_framework::fake_peer {
 
     /// Get the address:port string of this peer.
     std::string getAddress() const;
+
+    size_t getPort() const {
+      return internal_port_;
+    }
 
     /// Get the keypair of this peer.
     const shared_model::crypto::Keypair &getKeypair() const;
