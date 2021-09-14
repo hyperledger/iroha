@@ -379,7 +379,7 @@ std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
     const boost::optional<Keypair> &key) {
   BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
   const auto port = port_guard_->getPort(kDefaultInternalPort);
-  auto fake_peer = FakePeer::create_shared(
+  auto fake_peer = FakePeer::createShared(
       kLocalHost,
       port,
       key,

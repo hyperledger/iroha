@@ -47,7 +47,7 @@ namespace integration_framework::fake_peer {
     /** Instead of constructor because shared_from_this
      */
     template <class... Args>
-    static std::shared_ptr<FakePeer> create_shared(Args &&...args) {
+    static std::shared_ptr<FakePeer> createShared(Args &&...args) {
       return std::make_shared<FakePeer>(HideCtor{}, std::forward<Args>(args)...);
     }
 
