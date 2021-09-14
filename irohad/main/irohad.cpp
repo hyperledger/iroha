@@ -203,6 +203,8 @@ std::optional<IrohadConfig::DbConfig> getPostgresCredsFromEnv(
   auto pg_w_dbname = getEnvVar("IROHA_POSTGRES_DATABASE");
   auto pg_m_dbname = getEnvVar("IROHA_POSTGRES_MAINTENANCE_DATABASE");
 
+  auto const config_present = config_file.has_value();
+
   std::uint16_t pg_port;
   if (pg_port_str.has_value()) {
     auto pg_port_int = std::stoi(pg_port_str.value());
@@ -217,38 +219,34 @@ std::optional<IrohadConfig::DbConfig> getPostgresCredsFromEnv(
     }
   }
 
-  if (config_file.has_value()) {
-    IrohadConfig::DbConfig db_config = {
-        kDbTypePostgres,
-        "",
-        pg_host.has_value() ? pg_host.value() : config_file->host,
-        pg_port_str.has_value() ? pg_port : config_file->port,
-        pg_user.has_value() ? pg_user.value() : config_file->user,
-        pg_pass.has_value() ? pg_pass.value() : config_file->password,
-        pg_w_dbname.has_value() ? pg_w_dbname.value()
-                                : config_file->working_dbname,
-        pg_m_dbname.has_value() ? pg_m_dbname.value()
-                                : config_file->maintenance_dbname,
-    };
+  auto const db_config = IrohadConfig::DbConfig{
+      kDbTypePostgres,
+      "",
 
-    return std::optional<IrohadConfig::DbConfig>(db_config);
-  } else if (pg_host.has_value() and pg_port_str.has_value()
-             and pg_user.has_value() and pg_pass.has_value()
-             and pg_w_dbname.has_value() and pg_m_dbname.has_value()) {
-    IrohadConfig::DbConfig db_config = {
-        kDbTypePostgres,
-        "",
-        pg_host.value(),
-        pg_port,
-        pg_user.value(),
-        pg_pass.value(),
-        pg_w_dbname.value(),
-        pg_m_dbname.value(),
-    };
+      pg_host.has_value()
+          ? pg_host.value()
+          : config_present ? config_file->host : pg_host.value(),
 
-    return std::optional<IrohadConfig::DbConfig>(db_config);
-  }
-  return std::nullopt;
+      pg_port_str.has_value() ? pg_port
+                              : config_present ? config_file->port : pg_port,
+      pg_user.has_value()
+          ? pg_user.value()
+          : config_present ? config_file->user : pg_user.value(),
+
+      pg_pass.has_value()
+          ? pg_pass.value()
+          : config_present ? config_file->password : pg_pass.value(),
+
+      pg_w_dbname.has_value()
+          ? pg_w_dbname.value()
+          : config_present ? config_file->working_dbname : pg_w_dbname.value(),
+
+      pg_m_dbname.has_value() ? pg_m_dbname.value()
+                              : config_present ? config_file->maintenance_dbname
+                                               : pg_m_dbname.value(),
+  };
+
+  return std::optional<IrohadConfig::DbConfig>(db_config);
 }
 
 void initUtilityService(
