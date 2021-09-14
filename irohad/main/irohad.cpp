@@ -360,7 +360,7 @@ int main(int argc, char *argv[]) {
     if (auto db_config_env = getPostgresCredsFromEnv(config.database_config);
         !FLAGS_legacy_config_precedence and db_config_env.has_value()) {
       log->info("Parsing env vars for PG creds");
-      auto db_config = std::move(db_config_env).value();
+      auto const &db_config = db_config_env.value();
       log->debug("Parsing env vars for PG creds unwrapped OK");
       pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
           db_config.host,
