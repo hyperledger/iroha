@@ -213,6 +213,8 @@ FakePeer::getProposalStorage() {
 std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
   ensureInitialized();
   // start instance
+  using namespace std::chrono_literals;
+  std::this_thread::sleep_for(200ms); // FIXME: Let's allow some time to free port
   log_->info("starting listening server");
   auto internal_server = std::make_unique<iroha::network::ServerRunner>(
       getAddress(),
