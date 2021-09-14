@@ -58,6 +58,8 @@ target_link_libraries(integration_framework
     pg_connection_init
     rdb_connection_init
     )
+find_path(BOOST_ASIO_INCLUDE_DIRS "boost/asio.hpp")
+target_include_directories(integration_framework PRIVATE ${BOOST_ASIO_INCLUDE_DIRS})
 
 add_library(common_test_constants common_constants.cpp)
 target_link_libraries(common_test_constants

@@ -7,13 +7,22 @@
 #define IROHA_INTEGRATION_FRAMEWORK_PORT_GUARD_HPP
 
 #include <bitset>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/noncopyable.hpp>
+#include <boost/optional/optional.hpp>
 #include <cstdint>
 #include <mutex>
 
-#include <boost/noncopyable.hpp>
-#include <boost/optional/optional.hpp>
-
 namespace integration_framework {
+
+  /// return socket to keep it bound, then may destroy or better reuse
+  struct NextAvailablePort {
+    uint16_t port = 0;
+    std::unique_ptr<boost::asio::ip::tcp::acceptor> psock;
+  };
+  NextAvailablePort getNextAvailablePort(uint16_t port,
+                                         uint16_t portmax = 0,
+                                         std::string_view addr = "127.0.0.1");
 
   /**
    * A trivial port manager that guarantees no instances will get two equal port
@@ -41,6 +50,10 @@ namespace integration_framework {
     /// Request a port in given boundaries, including them.
     boost::optional<PortType> tryGetPort(PortType min_value,
                                          PortType max_value = kMaxPort);
+
+    size_t count_busy() const {
+      return all_used_ports_.count();
+    }
 
    private:
     using UsedPorts = std::bitset<kMaxPort + 1>;

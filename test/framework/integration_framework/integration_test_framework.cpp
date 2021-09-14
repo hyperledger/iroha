@@ -214,14 +214,10 @@ struct IntegrationTestFramework::ResponsesQueues {
     map[p_txresp->transactionHash()].push(std::move(p_txresp));
     cv.notify_all();
   }
-  auto try_peek(
-      HashType const &txhash,
-      std::chrono::nanoseconds timeout) {
+  auto try_peek(HashType const &txhash, std::chrono::nanoseconds timeout) {
     return wait_get<false>(txhash, timeout);
   }
-  auto try_pop(
-      HashType const &txhash,
-      std::chrono::nanoseconds timeout) {
+  auto try_pop(HashType const &txhash, std::chrono::nanoseconds timeout) {
     return wait_get<true>(txhash, timeout);
   }
 };
@@ -340,7 +336,6 @@ IntegrationTestFramework::IntegrationTestFramework(
       assert(!"Unexpected database type.");
       break;
   }
-
   config_.torii_port = torii_port_;
   config_.internal_port = port_guard_->getPort(kDefaultInternalPort);
   iroha_instance_ =
@@ -370,19 +365,19 @@ std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
     const boost::optional<Keypair> &key) {
   BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
   const auto port = port_guard_->getPort(kDefaultInternalPort);
-  auto fake_peer = FakePeer::createShared(
-      kLocalHost,
-      port,
-      key,
-      this_peer_,
-      common_objects_factory_,
-      transaction_factory_,
-      batch_parser_,
-      transaction_batch_factory_,
-      proposal_factory_,
-      tx_presence_cache_,
-      log_manager_->getChild("FakePeer")
-          ->getChild("at" + format_address(kLocalHost, port)));
+  auto fake_peer =
+      FakePeer::createShared(kLocalHost,
+                             port,
+                             key,
+                             this_peer_,
+                             common_objects_factory_,
+                             transaction_factory_,
+                             batch_parser_,
+                             transaction_batch_factory_,
+                             proposal_factory_,
+                             tx_presence_cache_,
+                             log_manager_->getChild("FakePeer")
+                                 ->getChild(format_address(kLocalHost, port)));
   fake_peer->initialize();
   fake_peers_.emplace_back(fake_peer);
   log_->debug("Added a fake peer at {} with {}.",
