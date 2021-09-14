@@ -175,24 +175,20 @@ struct IntegrationTestFramework::ResponsesQueues {
   };
 
  private:
-  /// maximum time of waiting before appearing next transaction response
-  // std::chrono::milliseconds timeout;
   std::mutex mtx;
   std::condition_variable cv;
   std::unordered_map<HashType, std::queue<TxResponsePtr>, HashType::Hasher> map;
 
   template <bool do_pop = false>
   auto wait_get(HashType const &txhash, std::chrono::milliseconds timeout)
-      -> WaitGetResult {  // std::tuple<TxResponsePtr,
-                          // std::chrono::milliseconds> {  //
-                          // std::optional<TxResponsePtr>
-                          //  {
+      -> WaitGetResult {
     std::unique_lock lk(mtx);
     auto it = map.find(txhash);
     if (it == map.end())
       return {nullptr, 0ms};
     auto &qu = it->second;
-    auto const deadline = std::chrono::steady_clock::now() + timeout;
+    auto const measure_start = std::chrono::steady_clock::now();
+    auto const deadline = measure_start + timeout;
     if (qu.empty()) {
       while (
           std::chrono::steady_clock::now() < deadline
@@ -200,27 +196,23 @@ struct IntegrationTestFramework::ResponsesQueues {
         ;
     }
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        deadline - std::chrono::steady_clock::now());
+        std::chrono::steady_clock::now() - measure_start);
     if (qu.empty())  // timed out and still empty
       return {nullptr, elapsed};
     if constexpr (do_pop) {
       auto txrespptr(std::move(qu.front()));
       qu.pop();
-      return {txrespptr, elapsed};
+      return {std::move(txrespptr), elapsed};
     } else {
-      auto txrespptr = qu.front();
-      return {txrespptr, elapsed};
-      ;
+      return {qu.front(), elapsed};
     }
   }
 
  public:
-  // ResponsesQueues(std::chrono::milliseconds ms) : timeout(ms) {}
   void push(TxResponsePtr p_txresp) {
     assert(p_txresp);
     std::unique_lock lk(mtx);
-    auto it = map.try_emplace(p_txresp->transactionHash()).first;
-    it->second.push(std::move(p_txresp));
+    map[p_txresp->transactionHash()].push(std::move(p_txresp));
     cv.notify_all();
   }
   auto try_peek(
