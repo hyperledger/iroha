@@ -97,9 +97,7 @@ namespace {
 
   std::string format_address(std::string ip,
                              integration_framework::PortGuard::PortType port) {
-    ip.append(":");
-    ip.append(std::to_string(port));
-    return ip;
+    return ip.append(":").append(std::to_string(port));
   }
 
 }  // namespace
@@ -165,7 +163,7 @@ struct IntegrationTestFramework::ResponsesQueues {
 
   struct WaitGetResult {
     TxResponsePtr txresp;
-    std::chrono::milliseconds elapsed;
+    std::chrono::nanoseconds elapsed;
     operator bool() const {
       return (bool)txresp;
     }
@@ -180,7 +178,7 @@ struct IntegrationTestFramework::ResponsesQueues {
   std::unordered_map<HashType, std::queue<TxResponsePtr>, HashType::Hasher> map;
 
   template <bool do_pop = false>
-  auto wait_get(HashType const &txhash, std::chrono::milliseconds timeout)
+  auto wait_get(HashType const &txhash, std::chrono::nanoseconds timeout)
       -> WaitGetResult {
     std::unique_lock lk(mtx);
     auto it = map.find(txhash);
@@ -199,6 +197,7 @@ struct IntegrationTestFramework::ResponsesQueues {
         std::chrono::steady_clock::now() - measure_start);
     if (qu.empty())  // timed out and still empty
       return {nullptr, elapsed};
+    assert(qu.front() != nullptr);
     if constexpr (do_pop) {
       auto txrespptr(std::move(qu.front()));
       qu.pop();
@@ -217,12 +216,12 @@ struct IntegrationTestFramework::ResponsesQueues {
   }
   auto try_peek(
       HashType const &txhash,
-      std::chrono::milliseconds timeout) {  //-> std::optional<TxResponsePtr> {
+      std::chrono::nanoseconds timeout) {
     return wait_get<false>(txhash, timeout);
   }
   auto try_pop(
       HashType const &txhash,
-      std::chrono::milliseconds timeout) {  //-> std::optional<TxResponsePtr> {
+      std::chrono::nanoseconds timeout) {
     return wait_get<true>(txhash, timeout);
   }
 };
@@ -383,7 +382,7 @@ std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
       proposal_factory_,
       tx_presence_cache_,
       log_manager_->getChild("FakePeer")
-          ->getChild("at " + format_address(kLocalHost, port)));
+          ->getChild("at" + format_address(kLocalHost, port)));
   fake_peer->initialize();
   fake_peers_.emplace_back(fake_peer);
   log_->debug("Added a fake peer at {} with {}.",
@@ -655,7 +654,7 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
     const shared_model::proto::Transaction &tx,
     std::function<void(const shared_model::proto::TransactionResponse &)>
         validation) {
-  log_->debug("sendTx() {}", tx.hash().hex());
+  log_->trace("sendTx() {}", tx.hash().hex());
   sendTxWithoutValidation(tx);
   auto result = responses_queues_->try_peek(tx.hash(), tx_response_waiting_ms_);
   if (not result) {
@@ -665,7 +664,7 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
     throw std::runtime_error("sendTx(): missed status for tx "
                              + tx.hash().hex());
   }
-  log_->debug("sendTx(): tx delivered {}", tx.hash().hex());
+  log_->trace("sendTx(): tx delivered {}", tx.hash().hex());
   validation(
       static_cast<const shared_model::proto::TransactionResponse &>(*result));
   return *this;
