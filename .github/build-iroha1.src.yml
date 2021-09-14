@@ -606,6 +606,11 @@ jobs:
               comma=', '
             done
           }
+
+          ctest -R '^integration_add_peer' --output-on-failure --no-tests=error --timeout 80
+          ctest -R '^integration_remove_peer' --output-on-failure --no-tests=error --timeout 80
+          ctest -R '^integration_invalid_fields' --output-on-failure --no-tests=error --timeout 80
+
           ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 \
             | tee ctest_module.out \
             || true
