@@ -256,9 +256,6 @@ TEST_P(AddPeerTest, RealPeerIsAdded) {
               "proposal_hash",
               block_with_add_peer.hash().hex()}));
 
-  // launch the initial_peer
-  auto new_peer_server = initial_peer->run();
-
   // init the itf peer with our genesis block
   itf_->setGenesisBlock(genesis_block);
 
@@ -313,6 +310,4 @@ TEST_P(AddPeerTest, RealPeerIsAdded) {
                                  .quorum(1),
                              kAdminKeypair),
                     checkBlockHasNTxs<1>);
-
-  new_peer_server->shutdown();
 }
