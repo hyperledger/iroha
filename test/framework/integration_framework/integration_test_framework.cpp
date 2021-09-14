@@ -195,7 +195,7 @@ struct IntegrationTestFramework::ResponsesQueues {
           and not cv.wait_until(lk, deadline, [&] { return not qu.empty(); }))
         ;
     }
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now() - measure_start);
     if (qu.empty())  // timed out and still empty
       return {nullptr, elapsed};
@@ -659,7 +659,7 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
   sendTxWithoutValidation(tx);
   auto result = responses_queues_->try_peek(tx.hash(), tx_response_waiting_ms_);
   if (not result) {
-    log_->error("sendTx(): missed status during {}ms for tx {}",
+    log_->error("sendTx(): missed status during {}ns for tx {}",
                 result.elapsed.count(),
                 tx.hash().hex());
     throw std::runtime_error("sendTx(): missed status for tx "
@@ -718,7 +718,7 @@ IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
     auto txresp_result =
         responses_queues_->try_peek(tx->hash(), tx_response_waiting_ms_);
     if (not txresp_result) {
-      log_->error("sendTxSequence(): missed status during {}ms for tx {}",
+      log_->error("sendTxSequence(): missed status during {}ns for tx {}",
                   txresp_result.elapsed.count(),
                   tx->hash().hex());
       throw std::runtime_error("sendTxSequence(): missed status");
