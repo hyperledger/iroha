@@ -579,7 +579,8 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
                         << std::endl;
               return;
             }
-            log->debug("kOnTransactionResponse");
+            log->trace("kOnTransactionResponse");
+            assert(response);
             responses_queues->push(response);
             log->info("response added to status queue: {}",
                       response->toString());
