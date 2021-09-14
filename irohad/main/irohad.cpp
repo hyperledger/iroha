@@ -183,8 +183,8 @@ static shared_model::crypto::Keypair getKeypairFromFile(
              });
 }
 
-std::optional<std::string> getEnvVar(std::string const &key) {
-  char const *val = getenv(key.c_str());
+std::optional<std::string> getEnvVar(char const *key) {
+  char const *val = getenv(key);
   return val == nullptr ? std::nullopt : std::optional(std::string(val));
 }
 
