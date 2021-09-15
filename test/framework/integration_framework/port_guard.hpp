@@ -49,7 +49,7 @@ namespace integration_framework {
 
     /// Request a port in given boundaries, including them.
     boost::optional<PortType> tryGetPort(PortType min_value,
-                                         PortType max_value = kMaxPort);
+                                         PortType port_max = kMaxPort);
 
     size_t count_busy() const {
       return all_used_ports_.count();

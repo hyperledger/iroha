@@ -39,7 +39,7 @@ namespace integration_framework {
   }
 
   NextAvailablePort tryOccupyPort(uint16_t port,
-                                  std::string_view addr = "127.0.0.1") {
+                                  std::string const &addr = "127.0.0.1") {
     using namespace boost::asio;
     using namespace boost::asio::ip;
     io_context ioctx;
@@ -48,8 +48,8 @@ namespace integration_framework {
     auto acp = std::unique_ptr<tcp::acceptor>(new tcp::acceptor(ioctx));
     if (!err)
       return {port, std::move(acp)};
-    std::cout << "tryOccupyPort: port=" << port << " error=" << err
-              << " " << err.message() << std::endl;
+    std::cout << "tryOccupyPort: port=" << port << " error=" << err << " "
+              << err.message() << std::endl;
     return {};
   }
 
@@ -74,35 +74,34 @@ namespace integration_framework {
   }
 
   boost::optional<PortGuard::PortType> PortGuard::tryGetPort(
-      const PortType min_value, const PortType max_value) {
+      PortType port, const PortType port_max) {
+    auto const min_value = port;
     std::lock_guard<std::mutex> lock(all_used_ports_mutex_);
     NextAvailablePort nap;
-    auto tested_port = min_value;
-    while (all_used_ports_.test(tested_port)
-    or (nap = tryOccupyPort(tested_port)).port == 0) {
-      if (tested_port == max_value) {
+    while (all_used_ports_.test(port)
+           or (nap = tryOccupyPort(port)).port == 0) {
+      if (port == port_max) {
         return boost::none;
       }
-      ++tested_port;
+      ++port;
     }
-    BOOST_ASSERT_MSG(!all_used_ports_.test(tested_port),
+    BOOST_ASSERT_MSG(!all_used_ports_.test(port),
                      "PortGuard chose an occupied port!");
-    BOOST_ASSERT_MSG(tested_port >= min_value && tested_port <= max_value,
+    BOOST_ASSERT_MSG(port >= min_value && port <= port_max,
                      "PortGuard chose a port outside boundaries!");
-    instance_used_ports_.set(tested_port);
-    all_used_ports_.set(tested_port);
-    //todo keep sockets, then reuse them when run server:
-    //todo occupied_sockets_.emplace_back(std::move(nap.psock));
-    return tested_port;
+    instance_used_ports_.set(port);
+    all_used_ports_.set(port);
+    // todo keep sockets, then reuse them when run server:
+    // todo occupied_sockets_.emplace_back(std::move(nap.psock));
+    return port;
   }
 
-  PortGuard::PortType PortGuard::getPort(const PortType min_value,
-                                         const PortType max_value) {
-    const auto opt_port = tryGetPort(min_value, max_value);
+  PortGuard::PortType PortGuard::getPort(PortType min, PortType max) {
+    const auto opt_port = tryGetPort(min, max);
     BOOST_VERIFY_MSG(
         opt_port,
-        (boost::format("Could not get a port in interval [%d, %d]!") % min_value
-         % max_value)
+        (boost::format("Could not get a port in interval [%d, %d]!") % min
+         % max)
             .str()
             .c_str());
     return *opt_port;
