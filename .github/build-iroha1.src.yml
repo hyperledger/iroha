@@ -618,8 +618,8 @@ jobs:
             || true
           echo ::endgroup::
 
-          echo ::group::'Integration tests | TODO parallell'
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 \
+          echo ::group::'Integration tests'
+          ctest -E '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 \
             | tee ctest_integration.out \
             || true
           echo ::endgroup::
