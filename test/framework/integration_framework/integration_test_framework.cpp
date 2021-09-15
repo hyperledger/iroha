@@ -181,12 +181,9 @@ struct IntegrationTestFramework::ResponsesQueues {
   auto wait_get(HashType const &txhash, std::chrono::nanoseconds timeout)
       -> WaitGetResult {
     std::unique_lock lk(mtx);
-    auto it = map.find(txhash);
-    if (it == map.end())
-      return {nullptr, 0ms};
-    auto &qu = it->second;
     auto const measure_start = std::chrono::steady_clock::now();
     auto const deadline = measure_start + timeout;
+    auto &qu = map[txhash];
     if (qu.empty()) {
       while (
           std::chrono::steady_clock::now() < deadline
