@@ -157,7 +157,6 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
                  });
 
   new_peer_server->shutdown();
-  std::this_thread::sleep_for(1s);
 }
 
 /**
