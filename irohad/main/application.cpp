@@ -1033,13 +1033,13 @@ Irohad::RunResult Irohad::run() {
   torii_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(config_.torii_port),
       log_manager_->getChild("ToriiServerRunner")->getLogger(),
-      false);
+      true);
 
   // Initializing internal server
   internal_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(config_.internal_port),
       log_manager_->getChild("InternalServerRunner")->getLogger(),
-      false);
+      true);
 
   // Run torii server
   IROHA_EXPECTED_TRY_GET_VALUE(torii_port,
