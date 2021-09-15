@@ -572,7 +572,7 @@ jobs:
             ## initdb is not allowed to be run as root, but we need to run as root
             ## because GitHub actions runners have much issues with permissions.
             mkdir postgres_database && chown iroha-ci postgres_database
-            echo /usr/lib/postgresql/12/bin/initdb --slocale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
+            echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
             echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database --log=$PWD/postgres_database/log       | su iroha-ci
             #   ## Need to go debian-specific way because
             #   ## initdb is not allowed to be run as root, but we need to run as root
