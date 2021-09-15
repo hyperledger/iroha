@@ -11,6 +11,7 @@ use thiserror::Error;
 use utils::*;
 use warp::{
     http::StatusCode,
+    reject::Rejection,
     reply::{self, Json, Response},
     ws::{WebSocket, Ws},
     Filter, Reply,
@@ -23,7 +24,9 @@ use crate::{
     event::{Consumer, EventsSender},
     prelude::*,
     queue::Queue,
-    smartcontracts::{isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed},
+    smartcontracts::{
+        isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed, query::AcceptQueryError,
+    },
     wsv::WorldTrait,
     Configuration,
 };
@@ -71,8 +74,6 @@ pub enum Error {
     #[error("Queue is full")]
     FullQueue,
 }
-
-impl warp::reject::Reject for Error {}
 
 impl Reply for Error {
     fn into_response(self) -> Response {
@@ -138,6 +139,18 @@ impl<W: WorldTrait> Torii<W> {
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
     pub async fn start(self) -> eyre::Result<()> {
+        /// Fixing status code for custom rejection, because of argument parsing
+        #[allow(clippy::unused_async)]
+        async fn recover_arg_parse(err: Rejection) -> Result<impl Reply, Rejection> {
+            if let Some(err) = err.find::<AcceptQueryError>() {
+                return Ok(reply::with_status(err.to_string(), err.status_code()));
+            }
+            if let Some(err) = err.find::<iroha_version::error::Error>() {
+                return Ok(reply::with_status(err.to_string(), err.status_code()));
+            }
+            Err(err)
+        }
+
         let state = self.create_state();
 
         let get_router = warp::path(uri::HEALTH)
@@ -187,7 +200,8 @@ impl<W: WorldTrait> Torii<W> {
             .and(post_router)
             .or(warp::get().and(get_router))
             .or(ws_router)
-            .with(warp::trace::request());
+            .with(warp::trace::request())
+            .recover(recover_arg_parse);
 
         match self.config.torii_api_url.to_socket_addrs() {
             Ok(mut i) => {

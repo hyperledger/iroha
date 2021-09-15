@@ -1,8 +1,8 @@
-use std::convert::TryInto;
+use std::convert::{Infallible, TryInto};
 
 use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::Encode;
-use warp::{hyper::body::Bytes, reject::Reject, reply::Response, Filter, Rejection, Reply};
+use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
 
 use super::VerifiedQueryRequest;
 
@@ -52,20 +52,32 @@ pub mod body {
     }
 }
 
+/// Warp result response type
+pub struct WarpResult<O, E>(Result<O, E>);
+
+impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
+    fn into_response(self) -> warp::reply::Response {
+        match self {
+            Self(Ok(ok)) => ok.into_response(),
+            Self(Err(err)) => err.into_response(),
+        }
+    }
+}
+
 macro_rules! impl_custom_and_then {
     ( $name:ident ( $($arg_name:ident : $arg_gen:ident),* $(,)? ) ) => {
         /// Maps filter to handler with `n` arguments (`n` is suffix of function)
-        pub fn $name<O, E, F, Fut, Fil, $($arg_gen,)*>(f: F, router: Fil) -> impl Filter<Extract = (O,), Error = Rejection> + Clone
+        pub fn $name<O, E, F, Fut, Fil, $($arg_gen,)*>(f: F, router: Fil)
+            -> impl Filter<Extract = (WarpResult<O, E>,), Error = Rejection> + Clone
         where
             Fil: Filter<Extract = ($($arg_gen,)*), Error = Rejection> + Clone,
             F: Fn($($arg_gen,)*) -> Fut + Copy + Send + Sync + 'static,
             Fut: std::future::Future<Output = Result<O, E>> + Send,
-            E: Reject,
             $($arg_gen: Send,)*
         {
             router.and_then(move |$($arg_name,)*|
                 async move {
-                    f($($arg_name,)*).await.map_err(warp::reject::custom)
+                    Ok::<_, Infallible>(WarpResult(f($($arg_name,)*).await))
                 }
             )
         }

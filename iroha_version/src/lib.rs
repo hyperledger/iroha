@@ -61,9 +61,17 @@ pub mod error {
     }
 
     #[cfg(feature = "warp")]
+    impl Error {
+        /// Returns status code for this error
+        #[allow(clippy::unused_self)]
+        pub const fn status_code(&self) -> StatusCode {
+            StatusCode::BAD_REQUEST
+        }
+    }
+    #[cfg(feature = "warp")]
     impl Reply for Error {
         fn into_response(self) -> Response {
-            reply::with_status(self.to_string(), StatusCode::BAD_REQUEST).into_response()
+            reply::with_status(self.to_string(), self.status_code()).into_response()
         }
     }
     #[cfg(feature = "warp")]
