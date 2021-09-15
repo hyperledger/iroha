@@ -123,17 +123,20 @@ pub enum AcceptQueryError {
     VerifyQuery(eyre::Error),
 }
 
+impl AcceptQueryError {
+    /// Status code of our error
+    pub const fn status_code(&self) -> StatusCode {
+        use AcceptQueryError::*;
+        match *self {
+            UnsupportedQueryVersion(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            DecodeVersionedSignedQuery(_) | VerifyQuery(_) => StatusCode::BAD_REQUEST,
+        }
+    }
+}
+
 impl Reply for AcceptQueryError {
     fn into_response(self) -> Response {
-        const fn status_code(err: &AcceptQueryError) -> StatusCode {
-            use AcceptQueryError::*;
-            match *err {
-                UnsupportedQueryVersion(_) | VerifyQuery(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                DecodeVersionedSignedQuery(_) => StatusCode::BAD_REQUEST,
-            }
-        }
-
-        reply::with_status(self.to_string(), status_code(&self)).into_response()
+        reply::with_status(self.to_string(), self.status_code()).into_response()
     }
 }
 impl warp::reject::Reject for AcceptQueryError {}
