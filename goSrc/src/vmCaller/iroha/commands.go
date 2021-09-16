@@ -77,6 +77,8 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 }
 
 func GetAccountTransactions(accountID string) ([]*pb.Transaction, error) {
+	fmt.Println("Executing GetAccountTransactions")
+	fmt.Println(accountID)
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
@@ -85,6 +87,7 @@ func GetAccountTransactions(accountID string) ([]*pb.Transaction, error) {
 		Query: &pb.Query_Payload_GetAccountTransactions{
 			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	fmt.Println(queryResponse)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}

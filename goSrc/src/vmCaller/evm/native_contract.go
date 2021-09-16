@@ -3,7 +3,7 @@ package evm
 import (
 	"encoding/json"
 	"strings"
-
+	"fmt"
 	"vmCaller/iroha"
 
 	"github.com/hyperledger/burrow/execution/native"
@@ -90,7 +90,7 @@ func getAccountTxn(ctx native.Context, args getAccountTxnArgs) (getAccountTxnRet
 	if err != nil {
 		return getAccountTxnRets{}, err
 	}
-
+	fmt.Println("Hello, World!")
 	ctx.Logger.Trace.Log("function", "GetAccountTransactions",
 		"account", args.Account)
 	result, err := json.Marshal(transactions)
