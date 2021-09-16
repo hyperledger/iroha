@@ -212,17 +212,17 @@ where
 
     async fn handle(&mut self, msg: Post<T>) {
         match self.peers.get(&msg.id.public_key) {
-            Some(peers) => {
-                let connection = {
+            Some(peers) if !peers.is_empty() => {
+                let Connection(peer, _) = {
                     let mut rng = rand::thread_rng();
-                    peers.choose(&mut rng)
+                    #[allow(clippy::unwrap_used)]
+                    peers.choose(&mut rng).unwrap()
                 };
-                if let Some(connection) = connection {
-                    connection.0.do_send(msg).await;
-                }
+                peer.do_send(msg).await;
             }
             None if msg.id.public_key == self.public_key => debug!("Not sending message to myself"),
-            None => info!(
+            None | Some(_) => info!(
+                id = ?msg.id,
                 "Didn't find peer to send message, have only {} connections!",
                 self.peers.len()
             ),
@@ -279,10 +279,7 @@ where
                     &self.listen_addr, &id.address, count
                 );
             }
-            Message(_id, msg) => {
-                //info!("PeerMessage::Message {:?}", &msg);
-                self.broker.issue_send(*msg).await;
-            }
+            Message(_id, msg) => self.broker.issue_send(msg).await,
         };
     }
 }
@@ -406,7 +403,7 @@ pub enum PeerMessage<T: Encode + Decode + Debug> {
     /// Peer disconnected
     Disconnected(PeerId, ConnectionId),
     /// Peer sent some message
-    Message(PeerId, Box<T>),
+    Message(PeerId, T),
 }
 
 /// The message to be sent to some other peer.

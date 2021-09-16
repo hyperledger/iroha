@@ -5,7 +5,6 @@
 #[cfg(feature = "deadlock_detection")]
 use std::any::type_name;
 use std::{
-    fmt::Debug,
     ops::{Deref, DerefMut},
     time::Duration,
 };
@@ -147,8 +146,6 @@ impl<A: Actor> Addr<A> {
         }
     }
 
-    //FIXME: In fact this method still waits for an answer and just drops it, this should be corrected.
-    // Waiting for the answer introduces deadlock possibilities!
     /// Send a message without waiting for an answer.
     /// # Errors
     /// Fails if queue is full or actor is disconnected
@@ -160,12 +157,9 @@ impl<A: Actor> Addr<A> {
     {
         let envelope = SyncEnvelopeProxy::pack(message, None);
         let sender = self.sender.clone();
-        tokio::task::spawn(async move {
-            // TODO: propagate the error.
-            if let Err(error) = sender.send(envelope).await {
-                iroha_logger::error!("Error sending actor message: {}", &error);
-            }
-        });
+        if let Err(error) = sender.send(envelope).await {
+            iroha_logger::error!(%error, "Error sending actor message");
+        }
     }
 
     /// Constructs recipient for sending only specific messages (without answers)
@@ -226,7 +220,7 @@ impl<A: Actor> AlwaysAddr<A> {
 
 impl<M> From<mpsc::Sender<M>> for Recipient<M>
 where
-    M: Message<Result = ()> + Send + 'static + Debug,
+    M: Message<Result = ()> + Send + 'static,
     M::Result: Send,
 {
     fn from(sender: mpsc::Sender<M>) -> Self {
@@ -269,7 +263,7 @@ where
 #[async_trait::async_trait]
 impl<M> Sender<M> for mpsc::Sender<M>
 where
-    M: Message<Result = ()> + Send + 'static + Debug,
+    M: Message<Result = ()> + Send + 'static,
 {
     async fn send(&self, m: M) {
         let _result = self.send(m).await;

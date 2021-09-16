@@ -18,7 +18,7 @@ use iroha::{
     kura::{Kura, KuraTrait},
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
-    sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
+    sumeragi::{config::SumeragiConfiguration, IsLeader, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
     Iroha,
@@ -131,6 +131,18 @@ where
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
+    pub async fn get_by_role(&self, is_leader: bool) -> &Peer<W, G, S, K, B> {
+        for p in self.peers() {
+            if p.iroha.as_ref().unwrap().sumeragi.send(IsLeader).await == is_leader {
+                return p;
+            }
+        }
+        panic!(
+            "Haven't found peer with specified role is_leader = {}",
+            is_leader
+        )
+    }
+
     pub async fn send<M, A>(
         &self,
         lense: impl Fn(&Iroha<W, G, S, K, B>) -> &Addr<A>,
@@ -643,6 +655,7 @@ impl TestClientConfiguration for ClientConfiguration {
         let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
         configuration.torii_api_url = api_url.to_owned();
+        configuration.transaction_time_to_live_ms = 10_000;
         configuration
     }
 }

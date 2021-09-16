@@ -15,7 +15,7 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     #[test]
     fn multisignature_transactions_should_wait_for_all_signatures() {
-        let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
+        let (rt, network, _) = <Network>::start_test_with_runtime(4, 1);
         let pipeline_time = Configuration::pipeline_time();
 
         thread::sleep(pipeline_time * 3);
@@ -64,6 +64,8 @@ mod tests {
         client_configuration.account_id = account_id.clone();
         client_configuration.public_key = key_pair_1.public_key;
         client_configuration.private_key = key_pair_1.private_key;
+        client_configuration.torii_api_url =
+            rt.block_on(network.get_by_role(false)).api_address.clone();
         let mut iroha_client = Client::new(&client_configuration);
         let transaction = iroha_client
             .build_transaction(vec![mint_asset.clone().into()], UnlimitedMetadata::new())
@@ -79,6 +81,7 @@ mod tests {
 
         //Then
         client_configuration.torii_api_url = network.peers.last().unwrap().api_address.clone();
+
         let mut iroha_client_1 = Client::new(&client_configuration);
         let request = client::asset::by_account_id(account_id);
         assert!(iroha_client_1
@@ -91,6 +94,7 @@ mod tests {
         let transaction = iroha_client_2
             .build_transaction(vec![mint_asset.into()], UnlimitedMetadata::new())
             .expect("Failed to create transaction.");
+        thread::sleep(pipeline_time);
         let transaction = iroha_client_2
             .get_original_transaction(&transaction, 3, Duration::from_millis(100))
             .expect("Failed to query pending transactions.")

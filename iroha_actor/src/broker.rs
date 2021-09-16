@@ -153,7 +153,7 @@ impl Broker {
     }
 
     /// Subscribe with channel to specific message type
-    pub fn subscribe_with_channel<M: BrokerMessage + Debug>(&self) -> mpsc::Receiver<M> {
+    pub fn subscribe_with_channel<M: BrokerMessage>(&self) -> mpsc::Receiver<M> {
         let (sender, receiver) = mpsc::channel(100);
         self.subscribe_recipient(sender.into(), ActorId::new(None));
         receiver
