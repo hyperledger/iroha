@@ -588,7 +588,7 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
     log_->info("starting fake iroha peers");
     for (auto &fake_peer : fake_peers_) {
       port_guard_->unbind(fake_peer->getPort());
-      std::this_thread::sleep_for(700ms); // FIXME: Let's allow some time to free port
+      //std::this_thread::sleep_for(700ms); // FIXME: Let's allow some time to free port
       fake_peers_servers_.push_back(fake_peer->run(true));
     }
   }
