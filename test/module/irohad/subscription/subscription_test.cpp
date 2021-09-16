@@ -715,7 +715,7 @@ TEST_F(SubscriptionTest, InThreadDispatcherTest) {
   ASSERT_EQ(counter[0], 1ul);
   ASSERT_EQ(counter[1], 0ul);
 
-  manager->dispatcher()->unbind(*tid);
+  manager->dispatcher()->unbind_guarded_port(*tid);
   manager->dispose();
 }
 

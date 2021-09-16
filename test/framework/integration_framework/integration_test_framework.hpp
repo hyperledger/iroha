@@ -22,7 +22,6 @@
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
 #include "synchronizer/synchronizer_common.hpp"
-//#include "framework/integration_framework/port_guard.hpp"
 
 namespace google::protobuf {
   class Empty;
@@ -102,8 +101,6 @@ namespace integration_framework {
   }
 
   class PortGuard;
-//  struct NextAvailablePort;
-
   class IrohaInstance;
 
   using std::chrono::milliseconds;
@@ -452,12 +449,11 @@ namespace integration_framework {
     /// Get this node address.
     std::string getAddress() const;
 
-    void unbind(uint16_t port);
+    void unbind_guarded_port(uint16_t port);
 
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 
-   public:
     /**
      * A wrapper over a queue that provides thread safety and blocking pop
      * operation with timeout. Is intended to be used as an intermediate storage
@@ -467,7 +463,6 @@ namespace integration_framework {
     template <typename T>
     class CheckerQueue;
 
-   protected:
     /**
      * general way to fetch object from concurrent queue
      * @tparam Queue - Type of queue

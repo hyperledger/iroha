@@ -44,8 +44,7 @@ namespace integration_framework::fake_peer {
     struct HideCtor {};
 
    public:
-    /** Instead of constructor because shared_from_this
-     */
+    /// Instead of constructor because shared_from_this
     template <class... Args>
     static std::shared_ptr<FakePeer> createShared(Args &&...args) {
       return std::make_shared<FakePeer>(HideCtor{}, std::forward<Args>(args)...);
@@ -86,7 +85,6 @@ namespace integration_framework::fake_peer {
 
     ~FakePeer();
 
-   public:
     /// Initialization method.
     /// \attention Must be called prior to any other instance method (except
     /// for constructor).

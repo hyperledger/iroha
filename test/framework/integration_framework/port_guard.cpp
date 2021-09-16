@@ -12,6 +12,8 @@
 #include <memory>
 
 namespace integration_framework {
+
+#if 0
   /// return socket to keep it bound, then may destroy or better reuse
   NextAvailablePort getNextAvailablePort(uint16_t port,
                                          uint16_t portmax,
@@ -40,25 +42,7 @@ namespace integration_framework {
     }
     return {};
   }
-
-  using namespace boost::asio;
-  using namespace boost::asio::ip;
-
-  std::unique_ptr<tcp::acceptor> tryOccupyPort(
-      uint16_t port, io_context &ioctx, std::string const &addr = "127.0.0.1") {
-    std::cout << "tryOccupyPort " << port << std::endl;
-    // static io_context ioctx;
-    auto endpoint = tcp::endpoint(make_address_v4(addr), port);
-    try {
-      auto acp =
-          std::unique_ptr<tcp::acceptor>(new tcp::acceptor(ioctx, endpoint));
-      return acp;
-    } catch (std::exception const &ex) {
-      std::cout << "tryOccupyPort: port=" << port << " error=" << ex.what()
-                << std::endl;
-      return {};
-    }
-  }
+#endif
 
   constexpr PortGuard::PortType PortGuard::kMaxPort;
   PortGuard::UsedPorts PortGuard::all_used_ports_ = {};
@@ -79,42 +63,20 @@ namespace integration_framework {
         "used by all instances!");
     all_used_ports_ &= ~instance_used_ports_;
   }
-#if 0
-  NextAvailablePort PortGuard::getNextAvailablePort(PortType port,
-                                                    const PortType port_max) {
-    auto const min_value = port;
-    std::lock_guard<std::mutex> lock(all_used_ports_mutex_);
-    NextAvailablePort nap;
-    while (all_used_ports_.test(port)
-           or (nap = tryOccupyPort(port)).port == 0) {
-      if (port == port_max) {
-        return {};
-      }
-      ++port;
-    }
-    BOOST_ASSERT_MSG(!all_used_ports_.test(port),
-                     "PortGuard chose an occupied port!");
-    BOOST_ASSERT_MSG(port >= min_value && port <= port_max,
-                     "PortGuard chose a port outside boundaries!");
-    instance_used_ports_.set(port);
-    all_used_ports_.set(port);
-    // todo keep sockets, then reuse them when run server:
-    // todo occupied_sockets_.emplace_back(std::move(nap.psock));
-    return nap;
-  }
-#endif
 
   void PortGuard::unbind(PortType port) {
-    size_t k = sockets_.erase(port);
+    size_t k = occupied_sockets_.erase(port);
     assert(k == 1);
   }
   bool PortGuard::is_bound(PortType port) {
-    return sockets_.find(port) != sockets_.end();
+    return occupied_sockets_.find(port) != occupied_sockets_.end();
   }
 
   std::optional<PortGuard::PortType> PortGuard::tryGetPort(
       PortType port, const PortType port_max) {
-    auto const min_value = port;
+    using namespace boost::asio;
+    using namespace boost::asio::ip;
+    auto const port_min = port;
     std::lock_guard<std::mutex> lock(all_used_ports_mutex_);
     std::unique_ptr<tcp::acceptor> sock;
     auto endpoint = tcp::endpoint(make_address_v4("127.0.0.1"), port);
@@ -135,24 +97,13 @@ namespace integration_framework {
     if (port >= port_max) {
       return std::nullopt;
     }
-#if 0
-    while (all_used_ports_.test(port)
-           or (sock = tryOccupyPort(port,ioctx_)) == nullptr) {
-      if (port == port_max) {
-        return boost::none;
-      }
-      ++port;
-    }
-#endif
     BOOST_ASSERT_MSG(!all_used_ports_.test(port),
                      "PortGuard chose an occupied port!");
-    BOOST_ASSERT_MSG(port >= min_value && port <= port_max,
+    BOOST_ASSERT_MSG(port >= port_min && port <= port_max,
                      "PortGuard chose a port outside boundaries!");
     instance_used_ports_.set(port);
     all_used_ports_.set(port);
-    sockets_.emplace(port, std::move(sock));
-    // todo keep sockets, then reuse them when run server:
-    // todo occupied_sockets_.emplace_back(std::move(nap.psock));
+    occupied_sockets_.emplace(port, std::move(sock));
     return port;
   }
 

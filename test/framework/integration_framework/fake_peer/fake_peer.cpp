@@ -212,7 +212,6 @@ FakePeer::getProposalStorage() {
 
 std::unique_ptr<iroha::network::ServerRunner> FakePeer::run(bool reuse_port) {
   ensureInitialized();
-  using namespace std::chrono_literals;
   log_->info("starting listening server");
   auto internal_server = std::make_unique<iroha::network::ServerRunner>(
       getAddress(),
@@ -234,7 +233,7 @@ std::unique_ptr<iroha::network::ServerRunner> FakePeer::run(bool reuse_port) {
                     .c_str());
           },
           [this](const auto &err) {
-            log_->error("could not start server!");
+            log_->error("could not start server on port {}!", getPort());
             throw std::runtime_error("could not start server!");
           });
   return internal_server;

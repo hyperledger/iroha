@@ -498,7 +498,7 @@ void IntegrationTestFramework::initPipeline(
   log_->info("created pipeline");
 }
 
-void IntegrationTestFramework::unbind(uint16_t port){
+void IntegrationTestFramework::unbind_guarded_port(uint16_t port){
   port_guard_->unbind(port);
 }
 

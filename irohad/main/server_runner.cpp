@@ -57,7 +57,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
   grpc::ServerBuilder builder;
   int selected_port = 0;
 
-  builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_);
+  builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_?1:0);
   builder.AddListeningPort(server_address_, credentials_, &selected_port);
 
   for (auto &service : services_) {

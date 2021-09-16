@@ -7,14 +7,13 @@
 #define IROHA_INTEGRATION_FRAMEWORK_PORT_GUARD_HPP
 
 #include <bitset>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/udp.hpp>
-#include <boost/asio/io_context.hpp>
 #include <boost/noncopyable.hpp>
-//#include <boost/optional/optional.hpp>
-#include <optional>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 namespace integration_framework {
@@ -22,7 +21,6 @@ namespace integration_framework {
   /// return socket to keep it bound, then may destroy or better reuse
   struct NextAvailablePort {
     uint16_t port = 0;
-    //    std::unique_ptr<boost::asio::ip::tcp::socket> psock;
     std::unique_ptr<boost::asio::ip::tcp::acceptor> psock;
   };
   NextAvailablePort getNextAvailablePort(uint16_t port,
@@ -59,7 +57,7 @@ namespace integration_framework {
 
     /// Request a port in given boundaries, including them.
     std::optional<PortType> tryGetPort(PortType min_value,
-                                         PortType port_max = kMaxPort);
+                                       PortType port_max = kMaxPort);
 
     size_t count_busy() const {
       return all_used_ports_.count();
@@ -77,8 +75,9 @@ namespace integration_framework {
     UsedPorts instance_used_ports_;
 
     boost::asio::io_context ioctx_;
-    std::unordered_map<PortType,std::unique_ptr<boost::asio::ip::tcp::acceptor>> sockets_;
-
+    std::unordered_map<PortType,
+                       std::unique_ptr<boost::asio::ip::tcp::acceptor>>
+        occupied_sockets_;
   };
 
 }  // namespace integration_framework

@@ -37,7 +37,7 @@ using namespace std::chrono_literals;
 
 using interface::types::PublicKeyHexStringView;
 
-//static constexpr std::chrono::seconds kMstStateWaitingTime(20);
+static constexpr std::chrono::seconds kMstStateWaitingTime(3);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
 struct AddPeerTest : FakePeerFixture {};
@@ -125,10 +125,11 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
   // then create a fake peer
   auto new_peer = itf.addFakePeer(boost::none);
   ASSERT_TRUE(new_peer);
+
   auto mst_states_observable = new_peer->getMstStatesObservable().replay();
   mst_states_observable.connect();
 
-  itf.unbind(new_peer->getPort());
+  itf.unbind_guarded_port(new_peer->getPort());
   auto new_peer_server = new_peer->run(true);
 
   // ------------------------ WHEN -------------------------
@@ -146,7 +147,7 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
 
   // ------------------------ THEN -------------------------
   mst_states_observable
-      .timeout(3s, rxcpp::observe_on_new_thread())
+      .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
       .take(1)
       .as_blocking()
       .subscribe([](const auto &) {},
@@ -158,7 +159,6 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
                    }
                  });
 
-  //itf.subscribeQueuesAndRun();
   new_peer_server->shutdown();
 }
 
