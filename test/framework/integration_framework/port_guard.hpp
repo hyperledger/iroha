@@ -8,16 +8,21 @@
 
 #include <bitset>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ip/udp.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/noncopyable.hpp>
-#include <boost/optional/optional.hpp>
+//#include <boost/optional/optional.hpp>
+#include <optional>
 #include <cstdint>
 #include <mutex>
+#include <unordered_map>
 
 namespace integration_framework {
 
   /// return socket to keep it bound, then may destroy or better reuse
   struct NextAvailablePort {
     uint16_t port = 0;
+    //    std::unique_ptr<boost::asio::ip::tcp::socket> psock;
     std::unique_ptr<boost::asio::ip::tcp::acceptor> psock;
   };
   NextAvailablePort getNextAvailablePort(uint16_t port,
@@ -45,15 +50,23 @@ namespace integration_framework {
 
     /// Request a port in given boundaries, including them. Aborts if
     /// all ports within the range are in use.
-    PortType getPort(PortType min_value, PortType max_value = kMaxPort);
+    PortType getPort(PortType port, const PortType port_max = kMaxPort);
+
+    /// Same as getPort() but keeps socket bound.
+    /// Reset socket pointer or reuse when binding in application.
+    NextAvailablePort getNextAvailablePort(PortType port,
+                                           const PortType port_max = kMaxPort);
 
     /// Request a port in given boundaries, including them.
-    boost::optional<PortType> tryGetPort(PortType min_value,
+    std::optional<PortType> tryGetPort(PortType min_value,
                                          PortType port_max = kMaxPort);
 
     size_t count_busy() const {
       return all_used_ports_.count();
     }
+
+    void unbind(PortType port);
+    bool is_bound(PortType port);
 
    private:
     using UsedPorts = std::bitset<kMaxPort + 1>;
@@ -62,6 +75,10 @@ namespace integration_framework {
     static std::mutex all_used_ports_mutex_;
 
     UsedPorts instance_used_ports_;
+
+    boost::asio::io_context ioctx_;
+    std::unordered_map<PortType,std::unique_ptr<boost::asio::ip::tcp::acceptor>> sockets_;
+
   };
 
 }  // namespace integration_framework

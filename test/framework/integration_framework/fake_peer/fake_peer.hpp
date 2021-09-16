@@ -111,12 +111,12 @@ namespace integration_framework::fake_peer {
     ProposalStorage &getProposalStorage();
 
     /// Start the fake peer.
-    std::unique_ptr<iroha::network::ServerRunner> run();
+    std::unique_ptr<iroha::network::ServerRunner> run(bool reuse_port = false);
 
     /// Get the address:port string of this peer.
     std::string getAddress() const;
 
-    size_t getPort() const {
+    uint16_t getPort() const {
       return internal_port_;
     }
 
@@ -236,7 +236,7 @@ namespace integration_framework::fake_peer {
         batch_parser_;
 
     const std::string listen_ip_;
-    size_t internal_port_;
+    uint16_t internal_port_;
     std::unique_ptr<shared_model::crypto::Keypair> keypair_;
 
     std::shared_ptr<shared_model::interface::Peer>

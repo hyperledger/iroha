@@ -210,16 +210,14 @@ FakePeer::getProposalStorage() {
   return proposal_storage_;
 }
 
-std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
+std::unique_ptr<iroha::network::ServerRunner> FakePeer::run(bool reuse_port) {
   ensureInitialized();
-  // start instance
   using namespace std::chrono_literals;
-  std::this_thread::sleep_for(200ms); // FIXME: Let's allow some time to free port
   log_->info("starting listening server");
   auto internal_server = std::make_unique<iroha::network::ServerRunner>(
       getAddress(),
       log_manager_->getChild("InternalServer")->getLogger(),
-      true);
+      reuse_port);
   internal_server->append(yac_transport_server_)
       .append(mst_transport_)
       .append(od_os_transport_)

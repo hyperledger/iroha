@@ -127,7 +127,9 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
   ASSERT_TRUE(new_peer);
   auto mst_states_observable = new_peer->getMstStatesObservable().replay();
   mst_states_observable.connect();
-  auto new_peer_server = new_peer->run();
+
+  itf.unbind(new_peer->getPort());
+  auto new_peer_server = new_peer->run(true);
 
   // ------------------------ WHEN -------------------------
   // and add it with addPeer
@@ -156,6 +158,7 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
                    }
                  });
 
+  //itf.subscribeQueuesAndRun();
   new_peer_server->shutdown();
 }
 

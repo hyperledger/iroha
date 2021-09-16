@@ -22,6 +22,7 @@
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
 #include "synchronizer/synchronizer_common.hpp"
+//#include "framework/integration_framework/port_guard.hpp"
 
 namespace google::protobuf {
   class Empty;
@@ -101,6 +102,7 @@ namespace integration_framework {
   }
 
   class PortGuard;
+//  struct NextAvailablePort;
 
   class IrohaInstance;
 
@@ -449,6 +451,8 @@ namespace integration_framework {
 
     /// Get this node address.
     std::string getAddress() const;
+
+    void unbind(uint16_t port);
 
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
