@@ -14,6 +14,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
+	"github.com/golang/protobuf/ptypes"
 )
 
 var (
@@ -433,7 +434,6 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 		Query: &pb.Query_Payload_GetTransactions{
 			GetTransactions: &pb.GetTransactions{TxHashes: tx_hash}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	fmt.Println(err)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}
@@ -452,20 +452,43 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 	}
 }
 
-func GetAccountTransactions(accountID string, pageSize uint32, firstTxHash string, ordering string, firstTxTime uint64, lastTxTime uint64, firstTxHeight uint64, lastTxHeight uint64) ([]*pb.Transaction, error) {
+func GetAccountTransactions(accountID string, pageSize uint32, firstTxHash string, ordering string, firstTxTime int64, lastTxTime int64, firstTxHeight uint64, lastTxHeight uint64) ([]*pb.Transaction, error) {
 	fmt.Println("Passed parameters")
 	fmt.Println(firstTxTime)
 	fmt.Println(lastTxTime)
 	fmt.Println(firstTxHeight)
 	fmt.Println(lastTxHeight)
+	firstTxTimeTms, err :=ptypes.TimestampProto(time.Unix(firstTxTime/1000,firstTxTime/1000000))
+	if err != nil {
+		fmt.Println("error here")
+		fmt.Println(err)
+		return []*pb.Transaction{}, err
+	}
+	lastTxTimeTms, err :=ptypes.TimestampProto(time.Unix(lastTxTime/1000,lastTxTime/1000000))
+	if err != nil {
+		fmt.Println("error here")
+		fmt.Println(err)
+		return []*pb.Transaction{}, err
+	}
+	fmt.Println("succesfully converted to timestamp")
+	fmt.Println(firstTxTimeTms)
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
 			CreatorAccountId: Caller,
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountTransactions{
-			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID, PaginationMeta: &pb.TxPaginationMeta {PageSize: pageSize}}}}}
+			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID,
+															   PaginationMeta: &pb.TxPaginationMeta {
+																   PageSize: pageSize,
+																   OptFirstTxTime: &pb.TxPaginationMeta_FirstTxTime{firstTxTimeTms},
+																   OptLastTxTime: &pb.TxPaginationMeta_LastTxTime{lastTxTimeTms},
+																   OptFirstTxHeight: &pb.TxPaginationMeta_FirstTxHeight{firstTxHeight},
+																   OptLastTxHeight: &pb.TxPaginationMeta_LastTxHeight{lastTxHeight}}}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	fmt.Println("Error")
+	fmt.Println(err)
+	fmt.Println(queryResponse)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}

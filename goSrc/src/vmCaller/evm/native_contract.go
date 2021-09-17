@@ -827,16 +827,14 @@ type getAccountTxnArgs struct {
 type getAccountTxnRets struct {
 	Result string
 }
+func isValue(value string) (bool) {
+	return len(value)==0;
+}
 
 func getAccountTxn(ctx native.Context, args getAccountTxnArgs) (getAccountTxnRets, error) {
-	// var pageSize uint32
-	// var firstTxTime uint64
-	// var lastTxTime uint64
-	// var firstTxHeight uint64
-	// var lastTxHeight uint64
 	pageSize, err := strconv.ParseUint(args.PageSize, 10, 32)
-	firstTxTime, err := strconv.ParseUint(args.FirstTxTime, 10, 64)
-	lastTxTime, err := strconv.ParseUint(args.LastTxTime, 10, 64)
+	firstTxTime, err := strconv.ParseInt(args.FirstTxTime, 10, 64)
+	lastTxTime, err := strconv.ParseInt(args.LastTxTime, 10, 64)
 	firstTxHeight, err := strconv.ParseUint(args.FirstTxHeight, 10, 64)
 	lastTxHeight, err := strconv.ParseUint(args.LastTxHeight, 10, 64)
 	
