@@ -107,7 +107,8 @@ namespace integration_framework {
   void IrohaInstance::run() {
     test_irohad_->run().match(
         [](const auto &) {},
-        [](const auto &error) {
+        [this](const auto &error) {
+          log_->error("{}",error.error);
           BOOST_THROW_EXCEPTION(std::runtime_error(error.error));
         });
   }

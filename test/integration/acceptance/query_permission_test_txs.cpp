@@ -61,17 +61,12 @@ QueryPermissionTxs::getGeneralResponseChecker() {
       const auto &resp =
           boost::get<const interface::TransactionsPageResponse &>(
               response.get());
-
       const auto &transactions = resp.transactions();
       ASSERT_EQ(boost::size(transactions), tx_hashes_.size());
       std::vector<shared_model::interface::types::HashType> resp_tx_hashes;
       resp_tx_hashes.reserve(tx_hashes_.size());
-      std::transform(resp.transactions().begin(),
-                     resp.transactions().end(),
-                     std::back_inserter(resp_tx_hashes),
-                     [](const shared_model::interface::Transaction &tx) {
-                       return tx.hash();
-                     });
+      for(auto const& tx : resp.transactions())
+        resp_tx_hashes.emplace_back(tx.hash());
       for (const auto &tx_hash : tx_hashes_) {
         ASSERT_NE(
             std::find(resp_tx_hashes.cbegin(), resp_tx_hashes.cend(), tx_hash),
