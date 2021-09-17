@@ -48,7 +48,7 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     name: Check if github workflows were properly made from sources
     steps:
       - &step_detect_commented_pr
@@ -78,7 +78,7 @@ jobs:
 
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') }}
@@ -114,7 +114,7 @@ jobs:
   ## - TODO on workflow_dispatch according to its build_spec
   ## - TODO all on schedule
   generate_matrixes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') ) }}
@@ -209,7 +209,7 @@ jobs:
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    runs-on: ubuntu-20.04 #[ self-hosted, Linux ]
     env: &env_dockerhub
       DOCKERHUB_ORG:      hyperledger   ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -561,37 +561,38 @@ jobs:
         timeout-minutes: 40
         name: CTest
         run: |
-          set -xeuo pipefail
+          echo ::group::'boilerplate'
+          set -euo pipefail
           if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
             postgres -D $PWD/postgres_database -p5432 2>&1 >/tmp/postgres.log & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
-          else
+          else  ## Debian or Ubuntu
+            ## Need to go debian-specific way because
+            ## initdb is not allowed to be run as root, but we need to run as root
+            ## because GitHub actions runners have much issues with permissions.
             mkdir postgres_database && chown iroha-ci postgres_database
             echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
             echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database --log=$PWD/postgres_database/log       | su iroha-ci
-          #   ## Need to go debian-specific way because
-          #   ## initdb is not allowed to be run as root, but we need to run as root
-          #   ## because GitHub actions runners have much issues with permissions.
-          #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
-          #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
-          #     local   all             all                                     trust
-          #     host    all             all             127.0.0.1/32            trust
-          #     host    all             all             ::1/128                 trust
-          #     local   replication     all                                     trust
-          #     host    replication     all             127.0.0.1/32            trust
-          #     host    replication     all             ::1/128                 trust
-          # END
-          #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
-          #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
+            #   ## Need to go debian-specific way because
+            #   ## initdb is not allowed to be run as root, but we need to run as root
+            #   ## because GitHub actions runners have much issues with permissions.
+            #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
+            #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
+            #     local   all             all                                     trust
+            #     host    all             all             127.0.0.1/32            trust
+            #     host    all             all             ::1/128                 trust
+            #     local   replication     all                                     trust
+            #     host    replication     all             127.0.0.1/32            trust
+            #     host    replication     all             ::1/128                 trust
+            # END
+            #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+            #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
           ## Run module_* tests in parallel and others subsequently
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          integration_add_peer_test
-          regression_regression_test
-          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -609,22 +610,29 @@ jobs:
               comma=', '
             done
           }
-          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          echo ::endgroup::
+
+          echo ::group::'Module tests'
+          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 \
             | tee ctest_module.out \
             || true
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          echo ::endgroup::
+
+          ## TODO --repeat until-fail:5 instead of until-pass !!
+          echo ::group::'Integration tests'
+          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
             | tee ctest_integration.out \
             || true
+          echo ::endgroup::
+
           tests_passed=true
           for t in module integration ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              #${t^^}  ## FixMe install bash 5.0 on macos
               echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              #${t^^}  ## FixMe install bash 5.0 on macos
               echo "::warning::The following $t tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done

@@ -5,18 +5,17 @@
 
 #include "main/server_runner.hpp"
 
+#include <grpc/impl/codegen/grpc_types.h>
+
+#include <boost/format.hpp>
 #include <chrono>
 
-#include <grpc/impl/codegen/grpc_types.h>
-#include <boost/format.hpp>
 #include "logger/logger.hpp"
 #include "network/impl/tls_credentials.hpp"
 
 using namespace iroha::network;
 
 namespace {
-
-  const auto kPortBindError = "Cannot bind server to address %s";
 
   std::shared_ptr<grpc::ServerCredentials> createCredentials(
       const boost::optional<std::shared_ptr<const TlsCredentials>>
@@ -59,10 +58,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
   grpc::ServerBuilder builder;
   int selected_port = 0;
 
-  if (not reuse_) {
-    builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
-  }
-
+  builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_ ? 1 : 0);
   builder.AddListeningPort(server_address_, credentials_, &selected_port);
 
   for (auto &service : services_) {
@@ -77,7 +73,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
 
   if (selected_port == 0) {
     return iroha::expected::makeError(
-        (boost::format(kPortBindError) % server_address_).str());
+        fmt::format("Cannot bind server to address {}", server_address_));
   }
 
   return iroha::expected::makeValue(selected_port);
