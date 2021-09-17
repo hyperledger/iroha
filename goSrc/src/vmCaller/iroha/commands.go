@@ -79,13 +79,15 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 func GetAccountTransactions(accountID string) ([]*pb.Transaction, error) {
 	fmt.Println("Executing GetAccountTransactions")
 	fmt.Println(accountID)
+	// page_size := uint32(3)
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
 			CreatorAccountId: Caller,
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountTransactions{
-			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID}}}}
+			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID, PaginationMeta: &pb.TxPaginationMeta {PageSize: 3}}}}}
+	fmt.Printf("%+v", query)
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
 	fmt.Println(queryResponse)
 	if err != nil {
