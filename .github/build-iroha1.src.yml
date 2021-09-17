@@ -618,8 +618,9 @@ jobs:
             || true
           echo ::endgroup::
 
+          ## TODO --repeat until-fail:5 instead of until-pass !!
           echo ::group::'Integration tests'
-          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 \
+          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
             | tee ctest_integration.out \
             || true
           echo ::endgroup::
