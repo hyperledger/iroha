@@ -246,8 +246,6 @@ IntegrationTestFramework::IntegrationTestFramework(
       responses_queues_(std::make_shared<ResponsesQueues>()),
       tx_response_waiting_ms_(tx_response_waiting_ms),
       port_guard_(std::make_unique<PortGuard>()),
-      //avail_torii_port_(port_guard_->getNextAvailablePort(kDefaultToriiPort)),
-      //torii_port_(avail_torii_port_.port),
       torii_port_(port_guard_->getPort(kDefaultToriiPort)),
       command_client_(std::make_unique<torii::CommandSyncClient>(
           iroha::network::createInsecureClient<
@@ -498,7 +496,7 @@ void IntegrationTestFramework::initPipeline(
   log_->info("created pipeline");
 }
 
-void IntegrationTestFramework::unbind_guarded_port(uint16_t port){
+void IntegrationTestFramework::unbind_guarded_port(uint16_t port) {
   port_guard_->unbind(port);
 }
 
@@ -588,13 +586,12 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
     log_->info("starting fake iroha peers");
     for (auto &fake_peer : fake_peers_) {
       port_guard_->unbind(fake_peer->getPort());
-      //std::this_thread::sleep_for(700ms); // FIXME: Let's allow some time to free port
+      // free port
       fake_peers_servers_.push_back(fake_peer->run(true));
     }
   }
   // start instance
   log_->info("starting main iroha instance");
-  //avail_torii_port_.psock.reset();
   port_guard_->unbind(config_.torii_port);
   port_guard_->unbind(config_.internal_port);
   iroha_instance_->run();
