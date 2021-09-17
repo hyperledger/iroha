@@ -13,37 +13,6 @@
 
 namespace integration_framework {
 
-#if 0
-  /// return socket to keep it bound, then may destroy or better reuse
-  NextAvailablePort getNextAvailablePort(uint16_t port,
-                                         uint16_t portmax,
-                                         std::string_view addr) {
-    portmax = portmax ? portmax : port + 1000;
-    using namespace boost::asio;
-    using namespace boost::asio::ip;
-    using namespace std;
-    static io_context ioctx;
-    auto endpoint = tcp::endpoint(make_address_v4(addr), port);
-    for (; port <= portmax; ++port) {
-      endpoint.port(port);
-      //      auto sock = std::unique_ptr<tcp::socket>(new tcp::socket(ioctx));
-      //      sock->set_option(socket_base::reuse_address(false));
-      //      boost::system::error_code err;
-      //      sock->bind(endpoint, err);
-      //      if (!err)
-      //        return {port, std::move(acp)};
-      try {
-        auto acp =
-            std::unique_ptr<tcp::acceptor>(new tcp::acceptor(ioctx, endpoint));
-      } catch (std::exception const &ex) {
-        cout << "getNextAvailablePort: port=" << port << " error=" << ex.what()
-             << endl;
-      }
-    }
-    return {};
-  }
-#endif
-
   constexpr PortGuard::PortType PortGuard::kMaxPort;
   PortGuard::UsedPorts PortGuard::all_used_ports_ = {};
   std::mutex PortGuard::all_used_ports_mutex_ = {};
