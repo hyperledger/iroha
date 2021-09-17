@@ -730,6 +730,7 @@ namespace iroha {
       auto first_hash = pagination_info.firstTxHash();
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
+      
       auto first_tx_time = pagination_info.firstTxTime();
       auto last_tx_time = pagination_info.lastTxTime();
       auto first_tx_height = pagination_info.firstTxHeight();
