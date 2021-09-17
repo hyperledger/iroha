@@ -728,7 +728,7 @@ namespace iroha {
 
       const auto &pagination_info = q.paginationMeta();
       auto first_hash = pagination_info.firstTxHash();
-      // retrieve one extra transaction to populate next_hash
+      // retrieve one extra transaction to populate next_hash 
       auto query_size = pagination_info.pageSize() + 1u;
 
       auto first_tx_time = pagination_info.firstTxTime();

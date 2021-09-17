@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"vmCaller/iroha"
-
+	"strconv"
 	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 )
@@ -245,6 +245,13 @@ var (
 			Comment: `
 				* @notice Get transactions of the account
 				* @param Account account to be used
+				* @param PageSize page size
+				* @param FirstTxHash first transaction size
+				* @param Ordering ordering 
+				* @param FirstTxTime string
+				* @param LastTxTime string
+				* @param FirstTxHeight string
+				* @param LastTxHeight string
 				* @return transactions of the account
 				`,
 			PermFlag: permission.Call,
@@ -797,7 +804,7 @@ func getTransaction(ctx native.Context, args getTransactionArgs) (getTransaction
 		return getTransactionRets{}, err
 	}
 
-	ctx.Logger.Trace.Log("function", "GetAccountTransactions",
+	ctx.Logger.Trace.Log("function", "GetTransactions",
 		"hash", args.Hash)
 	result, err := json.Marshal(transaction)
 	return getTransactionRets{Result: string(result)}, nil
@@ -805,6 +812,16 @@ func getTransaction(ctx native.Context, args getTransactionArgs) (getTransaction
 
 type getAccountTxnArgs struct {
 	Account string
+	PageSize string
+	FirstTxHash string
+	// It is hard if not impossible to pass 2d array in solidity 
+	// so i suggest to use string with tokens like
+	// param1#param2#param3 etc. and then parse it to proper proto field
+	Ordering string 
+	FirstTxTime string
+	LastTxTime string
+	FirstTxHeight string
+	LastTxHeight string
 }
 
 type getAccountTxnRets struct {
@@ -812,7 +829,21 @@ type getAccountTxnRets struct {
 }
 
 func getAccountTxn(ctx native.Context, args getAccountTxnArgs) (getAccountTxnRets, error) {
-	transactions, err := iroha.GetAccountTransactions(args.Account)
+	// var pageSize uint32
+	// var firstTxTime uint64
+	// var lastTxTime uint64
+	// var firstTxHeight uint64
+	// var lastTxHeight uint64
+	pageSize, err := strconv.ParseUint(args.PageSize, 10, 32)
+	firstTxTime, err := strconv.ParseUint(args.FirstTxTime, 10, 64)
+	lastTxTime, err := strconv.ParseUint(args.LastTxTime, 10, 64)
+	firstTxHeight, err := strconv.ParseUint(args.FirstTxHeight, 10, 64)
+	lastTxHeight, err := strconv.ParseUint(args.LastTxHeight, 10, 64)
+	
+	if err != nil {
+		return getAccountTxnRets{}, err
+	}
+	transactions, err := iroha.GetAccountTransactions(args.Account, uint32(pageSize), args.FirstTxHash, args.Ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
 	if err != nil {
 		return getAccountTxnRets{}, err
 	}

@@ -433,6 +433,7 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 		Query: &pb.Query_Payload_GetTransactions{
 			GetTransactions: &pb.GetTransactions{TxHashes: tx_hash}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	fmt.Println(err)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}
@@ -451,14 +452,19 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 	}
 }
 
-func GetAccountTransactions(accountID string) ([]*pb.Transaction, error) {
+func GetAccountTransactions(accountID string, pageSize uint32, firstTxHash string, ordering string, firstTxTime uint64, lastTxTime uint64, firstTxHeight uint64, lastTxHeight uint64) ([]*pb.Transaction, error) {
+	fmt.Println("Passed parameters")
+	fmt.Println(firstTxTime)
+	fmt.Println(lastTxTime)
+	fmt.Println(firstTxHeight)
+	fmt.Println(lastTxHeight)
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
 			CreatorAccountId: Caller,
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountTransactions{
-			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID, PaginationMeta: &pb.TxPaginationMeta {PageSize: 3}}}}}
+			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID, PaginationMeta: &pb.TxPaginationMeta {PageSize: pageSize}}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
 	if err != nil {
 		return []*pb.Transaction{}, err
