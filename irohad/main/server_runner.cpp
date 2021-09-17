@@ -5,10 +5,11 @@
 
 #include "main/server_runner.hpp"
 
+#include <grpc/impl/codegen/grpc_types.h>
+
+#include <boost/format.hpp>
 #include <chrono>
 
-#include <grpc/impl/codegen/grpc_types.h>
-#include <boost/format.hpp>
 #include "logger/logger.hpp"
 #include "network/impl/tls_credentials.hpp"
 
@@ -57,7 +58,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
   grpc::ServerBuilder builder;
   int selected_port = 0;
 
-  builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_?1:0);
+  builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_ ? 1 : 0);
   builder.AddListeningPort(server_address_, credentials_, &selected_port);
 
   for (auto &service : services_) {

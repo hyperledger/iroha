@@ -109,6 +109,7 @@ namespace integration_framework::fake_peer {
     ProposalStorage &getProposalStorage();
 
     /// Start the fake peer.
+    /// @param reuse_port see SO_REUSEPORT, should be set to let grpc reuse port
     std::unique_ptr<iroha::network::ServerRunner> run(bool reuse_port = false);
 
     /// Get the address:port string of this peer.
