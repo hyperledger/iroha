@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"time"
 	"unsafe"
-
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
 	"github.com/golang/protobuf/ptypes"
@@ -451,27 +450,67 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetTransactions")
 	}
 }
-
-func GetAccountTransactions(accountID string, pageSize uint32, firstTxHash string, ordering string, firstTxTime int64, lastTxTime int64, firstTxHeight uint64, lastTxHeight uint64) ([]*pb.Transaction, error) {
-	fmt.Println("Passed parameters")
-	fmt.Println(firstTxTime)
-	fmt.Println(lastTxTime)
-	fmt.Println(firstTxHeight)
-	fmt.Println(lastTxHeight)
-	firstTxTimeTms, err :=ptypes.TimestampProto(time.Unix(firstTxTime/1000,firstTxTime/1000000))
+func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) (pb.TxPaginationMeta, error) {
+	var TxPaginationMeta = pb.TxPaginationMeta{}
+	// check page size
+	fmt.Println(pageSize)
+	size, err := strconv.ParseUint(pageSize, 10, 32)
+	fmt.Println(err)
 	if err != nil {
-		fmt.Println("error here")
+		return TxPaginationMeta, fmt.Errorf("Invalid value, page_size > 0")
+	}else{
+		TxPaginationMeta.PageSize = uint32(size)
+	}
+	// check firstTxTime
+	if len(firstTxTime) != 0 { //check if value is passed
+		firstTimeMs, err := strconv.ParseInt(firstTxTime, 10, 64) //parse it
+		firstTime, err1 := ptypes.TimestampProto(time.Unix(0, firstTimeMs*int64(time.Millisecond)))
+		if err!=nil || err1!=nil { //set or not proper proto field
+			return TxPaginationMeta, fmt.Errorf("Invalid firstTxTime value")
+		}else{
+			fmt.Println(firstTime)
+			TxPaginationMeta.OptFirstTxTime = &pb.TxPaginationMeta_FirstTxTime{firstTime}
+		}
+	}
+	// check lastTxTime
+	if len(lastTxTime) != 0 {
+		lastTimeMs, err := strconv.ParseInt(lastTxTime, 10, 64)
+		lastTime, err1 := ptypes.TimestampProto(time.Unix(0, lastTimeMs*int64(time.Millisecond)))
+		if err!=nil || err1!=nil {
+			return TxPaginationMeta, fmt.Errorf("Invalid lastTxTime value")
+		}else{
+			fmt.Println(lastTime)
+			TxPaginationMeta.OptLastTxTime = &pb.TxPaginationMeta_LastTxTime{lastTime}
+		}
+	}
+	// check firstTxHeight
+	if len(firstTxHeight) != 0 {
+		firstHeightInt, err := strconv.ParseUint(firstTxHeight, 10, 64)
+		if err!=nil {
+			return TxPaginationMeta, fmt.Errorf("Invalid firstTxHeight value")
+		}else{
+			TxPaginationMeta.OptFirstTxHeight = &pb.TxPaginationMeta_FirstTxHeight{firstHeightInt}
+		}
+	}
+	// check lastTxHeight
+	if len(lastTxHeight) != 0 {
+		lastHeightInt, err := strconv.ParseUint(lastTxHeight, 10, 64)
+		if err!=nil {
+			return TxPaginationMeta, fmt.Errorf("Invalid lastTxHeight value")
+		}else{
+			TxPaginationMeta.OptLastTxHeight = &pb.TxPaginationMeta_LastTxHeight{lastHeightInt}
+		}
+	}
+	return TxPaginationMeta, nil
+}
+func GetAccountTransactions(accountID string, pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
+	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
+	if err != nil {
+		fmt.Println("unable to parse pagination meta")
 		fmt.Println(err)
 		return []*pb.Transaction{}, err
 	}
-	lastTxTimeTms, err :=ptypes.TimestampProto(time.Unix(lastTxTime/1000,lastTxTime/1000000))
-	if err != nil {
-		fmt.Println("error here")
-		fmt.Println(err)
-		return []*pb.Transaction{}, err
-	}
-	fmt.Println("succesfully converted to timestamp")
-	fmt.Println(firstTxTimeTms)
+	fmt.Println("DUPA")
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
@@ -479,14 +518,9 @@ func GetAccountTransactions(accountID string, pageSize uint32, firstTxHash strin
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountTransactions{
 			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID,
-															   PaginationMeta: &pb.TxPaginationMeta {
-																   PageSize: pageSize,
-																   OptFirstTxTime: &pb.TxPaginationMeta_FirstTxTime{firstTxTimeTms},
-																   OptLastTxTime: &pb.TxPaginationMeta_LastTxTime{lastTxTimeTms},
-																   OptFirstTxHeight: &pb.TxPaginationMeta_FirstTxHeight{firstTxHeight},
-																   OptLastTxHeight: &pb.TxPaginationMeta_LastTxHeight{lastTxHeight}}}}}}
+															   PaginationMeta: &txPagination}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	fmt.Println("Error")
+	fmt.Println("Output from query executor")
 	fmt.Println(err)
 	fmt.Println(queryResponse)
 	if err != nil {

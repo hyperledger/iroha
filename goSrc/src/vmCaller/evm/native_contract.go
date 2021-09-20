@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"vmCaller/iroha"
-	"strconv"
 	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 )
@@ -255,7 +254,7 @@ var (
 				* @return transactions of the account
 				`,
 			PermFlag: permission.Call,
-			F:        getAccountTxn,
+			F:        getAccountTransactions,
 		},
 		native.Function{
 			Comment: `
@@ -810,13 +809,10 @@ func getTransaction(ctx native.Context, args getTransactionArgs) (getTransaction
 	return getTransactionRets{Result: string(result)}, nil
 }
 
-type getAccountTxnArgs struct {
+type GetAccountTransactionsArgs struct {
 	Account string
 	PageSize string
 	FirstTxHash string
-	// It is hard if not impossible to pass 2d array in solidity 
-	// so i suggest to use string with tokens like
-	// param1#param2#param3 etc. and then parse it to proper proto field
 	Ordering string 
 	FirstTxTime string
 	LastTxTime string
@@ -824,32 +820,20 @@ type getAccountTxnArgs struct {
 	LastTxHeight string
 }
 
-type getAccountTxnRets struct {
+type getAccountTransactionsRets struct {
 	Result string
 }
-func isValue(value string) (bool) {
-	return len(value)==0;
-}
 
-func getAccountTxn(ctx native.Context, args getAccountTxnArgs) (getAccountTxnRets, error) {
-	pageSize, err := strconv.ParseUint(args.PageSize, 10, 32)
-	firstTxTime, err := strconv.ParseInt(args.FirstTxTime, 10, 64)
-	lastTxTime, err := strconv.ParseInt(args.LastTxTime, 10, 64)
-	firstTxHeight, err := strconv.ParseUint(args.FirstTxHeight, 10, 64)
-	lastTxHeight, err := strconv.ParseUint(args.LastTxHeight, 10, 64)
-	
+func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs) (getAccountTransactionsRets, error) {
+	fmt.Println("getting account transactions")
+	transactions, err := iroha.GetAccountTransactions(args.Account, args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
 	if err != nil {
-		return getAccountTxnRets{}, err
+		return getAccountTransactionsRets{}, err
 	}
-	transactions, err := iroha.GetAccountTransactions(args.Account, uint32(pageSize), args.FirstTxHash, args.Ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
-	if err != nil {
-		return getAccountTxnRets{}, err
-	}
-
 	ctx.Logger.Trace.Log("function", "GetAccountTransactions",
 		"account", args.Account)
 	result, err := json.Marshal(transactions)
-	return getAccountTxnRets{Result: string(result)}, nil
+	return getAccountTransactionsRets{Result: string(result)}, nil
 }
 
 type getAccountAssetTxnArgs struct {
