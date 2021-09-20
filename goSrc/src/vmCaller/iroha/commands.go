@@ -424,7 +424,7 @@ func GetRolePermissions(role string) ([]pb.RolePermission, error) {
 }
 
 func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) (pb.TxPaginationMeta, error) {
-	var TxPaginationMeta = pb.TxPaginationMeta{}
+	TxPaginationMeta := pb.TxPaginationMeta{}
 	// check page size
 	size, err := strconv.ParseUint(pageSize, 10, 32)
 	if err != nil {

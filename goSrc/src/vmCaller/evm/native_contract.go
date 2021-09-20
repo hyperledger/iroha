@@ -255,7 +255,7 @@ var (
 				`,
 			PermFlag: permission.Call,
 			F:        getAccountTransactions,
-		}
+		},
 	)
 )
 
