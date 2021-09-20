@@ -453,9 +453,7 @@ func GetTransactions(hash string) ([]*pb.Transaction, error) {
 func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) (pb.TxPaginationMeta, error) {
 	var TxPaginationMeta = pb.TxPaginationMeta{}
 	// check page size
-	fmt.Println(pageSize)
 	size, err := strconv.ParseUint(pageSize, 10, 32)
-	fmt.Println(err)
 	if err != nil {
 		return TxPaginationMeta, fmt.Errorf("Invalid value, page_size > 0")
 	}else{
@@ -468,7 +466,6 @@ func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, 
 		if err!=nil || err1!=nil { //set or not proper proto field
 			return TxPaginationMeta, fmt.Errorf("Invalid firstTxTime value")
 		}else{
-			fmt.Println(firstTime)
 			TxPaginationMeta.OptFirstTxTime = &pb.TxPaginationMeta_FirstTxTime{firstTime}
 		}
 	}
@@ -479,7 +476,6 @@ func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, 
 		if err!=nil || err1!=nil {
 			return TxPaginationMeta, fmt.Errorf("Invalid lastTxTime value")
 		}else{
-			fmt.Println(lastTime)
 			TxPaginationMeta.OptLastTxTime = &pb.TxPaginationMeta_LastTxTime{lastTime}
 		}
 	}
@@ -506,11 +502,8 @@ func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, 
 func GetAccountTransactions(accountID string, pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
 	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
 	if err != nil {
-		fmt.Println("unable to parse pagination meta")
-		fmt.Println(err)
 		return []*pb.Transaction{}, err
 	}
-	fmt.Println("DUPA")
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
@@ -520,9 +513,6 @@ func GetAccountTransactions(accountID string, pageSize string, firstTxHash strin
 			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID,
 															   PaginationMeta: &txPagination}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	fmt.Println("Output from query executor")
-	fmt.Println(err)
-	fmt.Println(queryResponse)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}

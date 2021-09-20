@@ -825,7 +825,6 @@ type getAccountTransactionsRets struct {
 }
 
 func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs) (getAccountTransactionsRets, error) {
-	fmt.Println("getting account transactions")
 	transactions, err := iroha.GetAccountTransactions(args.Account, args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
 	if err != nil {
 		return getAccountTransactionsRets{}, err
