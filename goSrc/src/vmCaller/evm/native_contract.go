@@ -255,36 +255,7 @@ var (
 				`,
 			PermFlag: permission.Call,
 			F:        getAccountTransactions,
-		},
-		native.Function{
-			Comment: `
-				* @notice Get transactions of the account
-				* @param Account account to be used
-				* @param Asset asset id to be used
-				* @return transactions of the account
-				`,
-			PermFlag: permission.Call,
-			F:        getAccountAssetTxn,
-		},
-		native.Function{
-			Comment: `
-				* @notice Get transactions of the account
-				* @param Hash hash of the transaction 
-				* @return transactions of the account
-				`,
-			PermFlag: permission.Call,
-			F:        getTransaction,
-		},
-		/*native.Function{
-			Comment: `
-				* @notice Grants permission to an account
-				* @param Account account to which rights are granted
-				* @param Permission permission which is granted to the account
-				* @return 'true' if successful, 'false' otherwise
-				`,
-			PermFlag: permission.Call,
-			F:        grantPermission,
-		},*/
+		}
 	)
 )
 
@@ -789,26 +760,6 @@ func getRolePermissions(ctx native.Context, args getRolePermissionsArgs) (getRol
 	return getRolePermissionsRets{Result: string(result)}, nil
 }
 
-type getTransactionArgs struct {
-	Hash string
-}
-
-type getTransactionRets struct {
-	Result string
-}
-
-func getTransaction(ctx native.Context, args getTransactionArgs) (getTransactionRets, error) {
-	transaction, err := iroha.GetTransactions(args.Hash)
-	if err != nil {
-		return getTransactionRets{}, err
-	}
-
-	ctx.Logger.Trace.Log("function", "GetTransactions",
-		"hash", args.Hash)
-	result, err := json.Marshal(transaction)
-	return getTransactionRets{Result: string(result)}, nil
-}
-
 type GetAccountTransactionsArgs struct {
 	Account string
 	PageSize string
@@ -833,29 +784,6 @@ func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs)
 		"account", args.Account)
 	result, err := json.Marshal(transactions)
 	return getAccountTransactionsRets{Result: string(result)}, nil
-}
-
-type getAccountAssetTxnArgs struct {
-	Account string
-	Asset   string
-}
-
-type getAccountAssetTxnRets struct {
-	Result string
-}
-
-func getAccountAssetTxn(ctx native.Context, args getAccountAssetTxnArgs) (getAccountAssetTxnRets, error) {
-	transactions, err := iroha.GetAccountAssetTransactions(args.Account, args.Asset)
-	if err != nil {
-		return getAccountAssetTxnRets{}, err
-	}
-
-	ctx.Logger.Trace.Log("function", "GetAccountAssetTransactions",
-		"account", args.Account,
-		"asset", args.Asset)
-
-	result, err := json.Marshal(transactions)
-	return getAccountAssetTxnRets{Result: string(result)}, nil
 }
 
 func MustCreateNatives() *native.Natives {

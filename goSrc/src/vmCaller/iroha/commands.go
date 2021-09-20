@@ -423,33 +423,6 @@ func GetRolePermissions(role string) ([]pb.RolePermission, error) {
 	}
 }
 
-func GetTransactions(hash string) ([]*pb.Transaction, error) {
-	tx_hash := []string{hash}
-	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
-		Query: &pb.Query_Payload_GetTransactions{
-			GetTransactions: &pb.GetTransactions{TxHashes: tx_hash}}}}
-	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	if err != nil {
-		return []*pb.Transaction{}, err
-	}
-	switch response := queryResponse.Response.(type) {
-	case *pb.QueryResponse_ErrorResponse:
-		return []*pb.Transaction{}, fmt.Errorf(
-			"ErrorResponse in GetTransactions: %d, %v",
-			response.ErrorResponse.ErrorCode,
-			response.ErrorResponse.Message,
-		)
-	case *pb.QueryResponse_TransactionsResponse:
-		transactionsResponse := queryResponse.GetTransactionsResponse()
-		return transactionsResponse.Transactions, nil
-	default:
-		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetTransactions")
-	}
-}
 func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) (pb.TxPaginationMeta, error) {
 	var TxPaginationMeta = pb.TxPaginationMeta{}
 	// check page size
@@ -528,33 +501,6 @@ func GetAccountTransactions(accountID string, pageSize string, firstTxHash strin
 		return transactionsPageResponse.Transactions, nil
 	default:
 		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetAccountTransactions")
-	}
-}
-
-func GetAccountAssetTransactions(accountID string, assetID string) ([]*pb.Transaction, error) {
-	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
-		Query: &pb.Query_Payload_GetAccountAssetTransactions{
-			GetAccountAssetTransactions: &pb.GetAccountAssetTransactions{AccountId: accountID, AssetId: assetID}}}}
-	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	if err != nil {
-		return []*pb.Transaction{}, err
-	}
-	switch response := queryResponse.Response.(type) {
-	case *pb.QueryResponse_ErrorResponse:
-		return []*pb.Transaction{}, fmt.Errorf(
-			"ErrorResponse in GetAccountTransactions: %d, %v",
-			response.ErrorResponse.ErrorCode,
-			response.ErrorResponse.Message,
-		)
-	case *pb.QueryResponse_TransactionsPageResponse:
-		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
-		return transactionsPageResponse.Transactions, nil
-	default:
-		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetAccountAssetTransactions")
 	}
 }
 
