@@ -504,6 +504,95 @@ func GetAccountTransactions(accountID string, pageSize string, firstTxHash strin
 	}
 }
 
+func GetPendingTransactions(pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
+	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &pb.QueryPayloadMeta{
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: Caller,
+			QueryCounter:     1},
+		Query: &pb.Query_Payload_GetPendingTransactions{
+			GetPendingTransactions: &pb.GetPendingTransactions{PaginationMeta: &txPagination}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetPendingTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_TransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
+		return transactionsPageResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetPendingTransactions")
+	}
+}
+
+func GetAccountAssetTransactions(accountId string, domainId string, pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
+	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &pb.QueryPayloadMeta{
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: Caller,
+			QueryCounter:     1},
+		Query: &pb.Query_Payload_GetAccountAssetTransactions{
+			GetAccountAssetTransactions: &pb.GetAccountAssetTransactions{PaginationMeta: &txPagination}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetAccountAssetTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_TransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
+		return transactionsPageResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetAccountAssetTransactions")
+	}
+}
+
+func GetTransactions(hashes []byte) ([]*pb.Transaction, error) {
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &pb.QueryPayloadMeta{
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: Caller,
+			QueryCounter:     1},
+		Query: &pb.Query_Payload_GetTransactions{
+			GetTransactions: &pb.GetTransactions{}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_TransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
+		return transactionsPageResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetTransactions")
+	}
+}
+
 // -----------------------Helper functions---------------------------------------
 
 // Execute Iroha command

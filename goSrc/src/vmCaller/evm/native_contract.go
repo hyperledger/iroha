@@ -244,17 +244,25 @@ var (
 			Comment: `
 				* @notice Get transactions of the account
 				* @param Account account to be used
-				* @param PageSize page size
-				* @param FirstTxHash first transaction size
-				* @param Ordering ordering 
-				* @param FirstTxTime string
-				* @param LastTxTime string
-				* @param FirstTxHeight string
-				* @param LastTxHeight string
-				* @return transactions of the account
-				`,
+				* @param TxPaginationMeta`,
 			PermFlag: permission.Call,
 			F:        getAccountTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get pending transactions of the account
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getPendingTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get account asset transactions of the account
+				* @param account Id 
+				* @param asset Id
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getAccountAssetTransactions,
 		},
 	)
 )
@@ -784,6 +792,74 @@ func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs)
 		"account", args.Account)
 	result, err := json.Marshal(transactions)
 	return getAccountTransactionsRets{Result: string(result)}, nil
+}
+
+type GetPendingTransactionsArgs struct {
+	PageSize string
+	FirstTxHash string
+	Ordering string 
+	FirstTxTime string
+	LastTxTime string
+	FirstTxHeight string
+	LastTxHeight string
+}
+
+type getPendingTransactionsRets struct {
+	Result string
+}
+
+func getPendingTransactions(ctx native.Context, args GetPendingTransactionsArgs) (getPendingTransactionsRets, error) {
+	transactions, err := iroha.GetPendingTransactions(args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
+	if err != nil {
+		return getPendingTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetPendingTransactions")
+	result, err := json.Marshal(transactions)
+	return getPendingTransactionsRets{Result: string(result)}, nil
+}
+
+type GetAccountAssetTransactionsArgs struct {
+	AccountId string
+	AssetId string
+	PageSize string
+	FirstTxHash string
+	Ordering string 
+	FirstTxTime string
+	LastTxTime string
+	FirstTxHeight string
+	LastTxHeight string
+}
+
+type getAccountAssetTransactionsRets struct {
+	Result string
+}
+
+func getAccountAssetTransactions(ctx native.Context, args GetAccountAssetTransactionsArgs) (getAccountAssetTransactionsRets, error) {
+	transactions, err := iroha.GetAccountAssetTransactions(args.AccountId, args.AssetId, args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
+	if err != nil {
+		return getAccountAssetTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetAccountAssetTransactions", "account", args.AccountId, "asset", args.AssetId)
+	result, err := json.Marshal(transactions)
+	return getAccountAssetTransactionsRets{Result: string(result)}, nil
+}
+
+type GetTransactionsArgs struct {
+	Hashes []byte
+}
+
+type getTransactionsRets struct {
+	Result string
+}
+
+func getTransactions(ctx native.Context, args GetTransactionsArgs) (getTransactionsRets, error) {
+	transactions, err := iroha.GetTransactions(args.Hashes)
+	if err != nil {
+		return getTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetTransactions","hashes",args.Hashes)
+	result, err := json.Marshal(transactions)
+	return getTransactionsRets{Result: string(result)}, nil
 }
 
 func MustCreateNatives() *native.Natives {
