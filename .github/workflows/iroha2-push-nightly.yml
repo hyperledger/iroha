@@ -18,25 +18,22 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
-          tags: iroha2-nightly
-          tag_with_sha: true
+          repository: hyperledger/iroha2
+          tags: iroha2-nightly-${{ github.sha }}
           build_args: TARGET_DIR=release,PROFILE=--release
       - name: Build and push Iroha Client CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
-          tags: iroha2-client-cli-nightly
-          tag_with_sha: true
+          repository: hyperledger/iroha2
+          tags: iroha2-client-cli-nightly-${{ github.sha }}
           build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
       - name: Build and push Iroha Crypto CLI Docker image
         uses: docker/build-push-action@v1.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
-          tags: iroha2-crypto-cli-nightly
-          tag_with_sha: true
+          repository: hyperledger/iroha2
+          tags: iroha2-crypto-cli-nightly-${{ github.sha }}
           build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release
