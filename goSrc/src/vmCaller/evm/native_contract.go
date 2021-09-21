@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"vmCaller/iroha"
+	"vmCaller/iroha_model"
 	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 )
@@ -784,7 +785,9 @@ type getAccountTransactionsRets struct {
 }
 
 func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs) (getAccountTransactionsRets, error) {
-	transactions, err := iroha.GetAccountTransactions(args.Account, args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
+	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
+		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime, FirstTxHeight: &args.FirstTxHeight, LastTxHeight: &args.LastTxHeight}
+	transactions, err := iroha.GetAccountTransactions(args.Account, &paginationMetaArg)
 	if err != nil {
 		return getAccountTransactionsRets{}, err
 	}
@@ -800,8 +803,6 @@ type GetPendingTransactionsArgs struct {
 	Ordering string 
 	FirstTxTime string
 	LastTxTime string
-	FirstTxHeight string
-	LastTxHeight string
 }
 
 type getPendingTransactionsRets struct {
@@ -809,7 +810,9 @@ type getPendingTransactionsRets struct {
 }
 
 func getPendingTransactions(ctx native.Context, args GetPendingTransactionsArgs) (getPendingTransactionsRets, error) {
-	transactions, err := iroha.GetPendingTransactions(args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
+	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
+		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime}
+	transactions, err := iroha.GetPendingTransactions(&paginationMetaArg)
 	if err != nil {
 		return getPendingTransactionsRets{}, err
 	}
@@ -835,7 +838,9 @@ type getAccountAssetTransactionsRets struct {
 }
 
 func getAccountAssetTransactions(ctx native.Context, args GetAccountAssetTransactionsArgs) (getAccountAssetTransactionsRets, error) {
-	transactions, err := iroha.GetAccountAssetTransactions(args.AccountId, args.AssetId, args.PageSize, args.FirstTxHash, args.Ordering, args.FirstTxTime, args.LastTxTime, args.FirstTxHeight, args.LastTxHeight)
+	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
+		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime, FirstTxHeight: &args.FirstTxHeight, LastTxHeight: &args.LastTxHeight}
+	transactions, err := iroha.GetAccountAssetTransactions(args.AccountId, args.AssetId, &paginationMetaArg)
 	if err != nil {
 		return getAccountAssetTransactionsRets{}, err
 	}
@@ -857,7 +862,7 @@ func getTransactions(ctx native.Context, args GetTransactionsArgs) (getTransacti
 	if err != nil {
 		return getTransactionsRets{}, err
 	}
-	ctx.Logger.Trace.Log("function", "GetTransactions","hashes",args.Hashes)
+	ctx.Logger.Trace.Log("function", "GetTransactions", "hashes", args.Hashes)
 	result, err := json.Marshal(transactions)
 	return getTransactionsRets{Result: string(result)}, nil
 }

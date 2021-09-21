@@ -13,7 +13,7 @@ import (
 	"unsafe"
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
-	"github.com/golang/protobuf/ptypes"
+	"vmCaller/iroha_model"
 )
 
 var (
@@ -176,15 +176,15 @@ func DetachRole(account string, role string) error {
 	return handleErrors(commandResult, err, "DetachRole")
 }
 
+
+
 // -----------------------Iroha queries---------------------------------------
 
 // Queries asset balance of an account
 func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountAssets{
 			GetAccountAssets: &pb.GetAccountAssets{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -207,11 +207,9 @@ func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 }
 
 func GetAccountDetail() (string, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountDetail{
 			GetAccountDetail: &pb.GetAccountDetail{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -234,11 +232,9 @@ func GetAccountDetail() (string, error) {
 }
 
 func GetAccount(accountID string) (*pb.Account, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccount{
 			GetAccount: &pb.GetAccount{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -261,11 +257,9 @@ func GetAccount(accountID string) (*pb.Account, error) {
 }
 
 func GetSignatories(accountID string) ([]string, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetSignatories{
 			GetSignatories: &pb.GetSignatories{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -288,11 +282,9 @@ func GetSignatories(accountID string) ([]string, error) {
 }
 
 func GetAssetInfo(assetID string) (*pb.Asset, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAssetInfo{
 			GetAssetInfo: &pb.GetAssetInfo{AssetId: assetID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -315,11 +307,9 @@ func GetAssetInfo(assetID string) (*pb.Asset, error) {
 }
 
 func GetPeers() ([]*pb.Peer, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetPeers{
 			GetPeers: &pb.GetPeers{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -343,11 +333,9 @@ func GetPeers() ([]*pb.Peer, error) {
 
 func GetBlock(height string) (*pb.Block, error) {
 	height_uint, err := strconv.ParseUint(height, 10, 64)
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetBlock{
 			GetBlock: &pb.GetBlock{Height: height_uint}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -370,11 +358,9 @@ func GetBlock(height string) (*pb.Block, error) {
 }
 
 func GetRoles() ([]string, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetRoles{
 			GetRoles: &pb.GetRoles{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -397,11 +383,9 @@ func GetRoles() ([]string, error) {
 }
 
 func GetRolePermissions(role string) ([]pb.RolePermission, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetRolePermissions{
 			GetRolePermissions: &pb.GetRolePermissions{RoleId: role}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -423,65 +407,18 @@ func GetRolePermissions(role string) ([]pb.RolePermission, error) {
 	}
 }
 
-func makeTxPaginationMeta(pageSize string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) (pb.TxPaginationMeta, error) {
-	TxPaginationMeta := pb.TxPaginationMeta{}
-	// check page size
-	size, err := strconv.ParseUint(pageSize, 10, 32)
-	if err != nil {
-		return TxPaginationMeta, fmt.Errorf("Invalid value, page_size > 0")
-	}else{
-		TxPaginationMeta.PageSize = uint32(size)
-	}
-	// check firstTxTime
-	if len(firstTxTime) != 0 { //check if value is passed
-		firstTimeMs, err := strconv.ParseInt(firstTxTime, 10, 64) //parse it
-		firstTime, err1 := ptypes.TimestampProto(time.Unix(0, firstTimeMs*int64(time.Millisecond)))
-		if err!=nil || err1!=nil { //set or not proper proto field
-			return TxPaginationMeta, fmt.Errorf("Invalid firstTxTime value")
-		}else{
-			TxPaginationMeta.OptFirstTxTime = &pb.TxPaginationMeta_FirstTxTime{firstTime}
-		}
-	}
-	// check lastTxTime
-	if len(lastTxTime) != 0 {
-		lastTimeMs, err := strconv.ParseInt(lastTxTime, 10, 64)
-		lastTime, err1 := ptypes.TimestampProto(time.Unix(0, lastTimeMs*int64(time.Millisecond)))
-		if err!=nil || err1!=nil {
-			return TxPaginationMeta, fmt.Errorf("Invalid lastTxTime value")
-		}else{
-			TxPaginationMeta.OptLastTxTime = &pb.TxPaginationMeta_LastTxTime{lastTime}
-		}
-	}
-	// check firstTxHeight
-	if len(firstTxHeight) != 0 {
-		firstHeightInt, err := strconv.ParseUint(firstTxHeight, 10, 64)
-		if err!=nil {
-			return TxPaginationMeta, fmt.Errorf("Invalid firstTxHeight value")
-		}else{
-			TxPaginationMeta.OptFirstTxHeight = &pb.TxPaginationMeta_FirstTxHeight{firstHeightInt}
-		}
-	}
-	// check lastTxHeight
-	if len(lastTxHeight) != 0 {
-		lastHeightInt, err := strconv.ParseUint(lastTxHeight, 10, 64)
-		if err!=nil {
-			return TxPaginationMeta, fmt.Errorf("Invalid lastTxHeight value")
-		}else{
-			TxPaginationMeta.OptLastTxHeight = &pb.TxPaginationMeta_LastTxHeight{lastHeightInt}
-		}
-	}
-	return TxPaginationMeta, nil
-}
-func GetAccountTransactions(accountID string, pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
-	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
+
+func GetAccountTransactions(accountID string, txPaginationMeta *iroha_model.TxPaginationMeta) ([]*pb.Transaction, error) {
+	txPagination, err := iroha_model.MakeTxPaginationMeta(txPaginationMeta)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountTransactions{
 			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID,
 															   PaginationMeta: &txPagination}}}}
@@ -504,16 +441,14 @@ func GetAccountTransactions(accountID string, pageSize string, firstTxHash strin
 	}
 }
 
-func GetPendingTransactions(pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
-	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
+func GetPendingTransactions(txPaginationMeta *iroha_model.TxPaginationMeta) ([]*pb.Transaction, error) {
+	txPagination, err := iroha_model.MakeTxPaginationMeta(txPaginationMeta)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetPendingTransactions{
 			GetPendingTransactions: &pb.GetPendingTransactions{PaginationMeta: &txPagination}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -527,26 +462,24 @@ func GetPendingTransactions(pageSize string, firstTxHash string, ordering string
 			response.ErrorResponse.ErrorCode,
 			response.ErrorResponse.Message,
 		)
-	case *pb.QueryResponse_TransactionsPageResponse:
-		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
+	case *pb.QueryResponse_PendingTransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetPendingTransactionsPageResponse()
 		return transactionsPageResponse.Transactions, nil
 	default:
 		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetPendingTransactions")
 	}
 }
 
-func GetAccountAssetTransactions(accountId string, domainId string, pageSize string, firstTxHash string, ordering string, firstTxTime string, lastTxTime string, firstTxHeight string, lastTxHeight string) ([]*pb.Transaction, error) {
-	txPagination, err := makeTxPaginationMeta(pageSize, ordering, firstTxTime, lastTxTime, firstTxHeight, lastTxHeight)
+func GetAccountAssetTransactions(accountId string, domainId string, txPaginationMeta *iroha_model.TxPaginationMeta) ([]*pb.Transaction, error) {
+	txPagination, err := iroha_model.MakeTxPaginationMeta(txPaginationMeta)
 	if err != nil {
 		return []*pb.Transaction{}, err
 	}
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountAssetTransactions{
-			GetAccountAssetTransactions: &pb.GetAccountAssetTransactions{PaginationMeta: &txPagination}}}}
+			GetAccountAssetTransactions: &pb.GetAccountAssetTransactions{AccountId: accountId, AssetId: domainId, PaginationMeta: &txPagination}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
 	if err != nil {
 		return []*pb.Transaction{}, err
@@ -567,11 +500,9 @@ func GetAccountAssetTransactions(accountId string, domainId string, pageSize str
 }
 
 func GetTransactions(hashes []byte) ([]*pb.Transaction, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetTransactions{
 			GetTransactions: &pb.GetTransactions{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -594,6 +525,13 @@ func GetTransactions(hashes []byte) ([]*pb.Transaction, error) {
 }
 
 // -----------------------Helper functions---------------------------------------
+
+func MakeQueryPayloadMeta() pb.QueryPayloadMeta {
+	return pb.QueryPayloadMeta{
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: Caller,
+			QueryCounter:     1}
+} 
 
 // Execute Iroha command
 func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.Iroha_CommandError, err error) {
