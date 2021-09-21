@@ -33,11 +33,15 @@ using namespace shared_model;
 using namespace integration_framework;
 using namespace iroha;
 using namespace shared_model::interface::permissions;
+using namespace std::chrono_literals;
 
 using interface::types::PublicKeyHexStringView;
 
-static constexpr std::chrono::seconds kMstStateWaitingTime(20);
+static constexpr std::chrono::seconds kMstStateWaitingTime(3);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
+
+struct AddPeerTest : FakePeerFixture {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(AddPeerTest);
 
 /**
  * @given a network of single peer
@@ -47,7 +51,7 @@ static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
  *    @and the WSV reports that there are two peers: the initial and the added
  * one
  */
-TEST_P(FakePeerFixture, FakePeerIsAdded) {
+TEST_P(AddPeerTest, FakePeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -113,16 +117,20 @@ TEST_P(FakePeerFixture, FakePeerIsAdded) {
  * @when it receives a not fully signed transaction and then a new peer is added
  * @then the first peer propagates MST state to the newly added peer
  */
-TEST_P(FakePeerFixture, MstStatePropagtesToNewPeer) {
+TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
 
   // then create a fake peer
   auto new_peer = itf.addFakePeer(boost::none);
+  ASSERT_TRUE(new_peer);
+
   auto mst_states_observable = new_peer->getMstStatesObservable().replay();
   mst_states_observable.connect();
-  auto new_peer_server = new_peer->run();
+
+  itf.unbind_guarded_port(new_peer->getPort());
+  auto new_peer_server = new_peer->run(true);
 
   // ------------------------ WHEN -------------------------
   // and add it with addPeer
@@ -160,7 +168,7 @@ TEST_P(FakePeerFixture, MstStatePropagtesToNewPeer) {
  * @when itf peer is brought up
  * @then itf peer gets synchronized, sees itself in the WSV and can commit txs
  */
-TEST_P(FakePeerFixture, RealPeerIsAdded) {
+TEST_P(AddPeerTest, RealPeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // create the initial fake peer
   auto initial_peer = itf_->addFakePeer(boost::none);
@@ -250,9 +258,6 @@ TEST_P(FakePeerFixture, RealPeerIsAdded) {
               "proposal_hash",
               block_with_add_peer.hash().hex()}));
 
-  // launch the initial_peer
-  auto new_peer_server = initial_peer->run();
-
   // init the itf peer with our genesis block
   itf_->setGenesisBlock(genesis_block);
 
@@ -307,6 +312,4 @@ TEST_P(FakePeerFixture, RealPeerIsAdded) {
                                  .quorum(1),
                              kAdminKeypair),
                     checkBlockHasNTxs<1>);
-
-  new_peer_server->shutdown();
 }
