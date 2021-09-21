@@ -29,7 +29,7 @@ name: Iroha1
 on:
   push:
     branches: [main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha]
-    tags: ['v*']
+    tags:
   pull_request:
     branches: [main, support/1.*, edge, develop] ## target branches
   workflow_dispatch:
@@ -39,8 +39,8 @@ on:
         description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
         required: false
         default: '/build'
-  issue_comment:
-    types: [created, edited]
+  # issue_comment:
+  #   types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 jobs:
@@ -49,7 +49,8 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest  ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
@@ -73,7 +74,8 @@ jobs:
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest
     if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') }}
     steps:
       - name: Show context
@@ -101,10 +103,11 @@ jobs:
   ## At the moment there are several options:
   ## - default on pushes, pull requests
   ## - on comment to pull request according to comment message (chat-ops)
-  ## - TODO on workflow_dispatch according to its build_spec
-  ## - TODO all on schedule
+  ## - on workflow_dispatch according to its build_spec
+  ## - on schedule '/build all'
   generate_matrixes:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
@@ -175,7 +178,9 @@ jobs:
           echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
           echo "::set-output name=matrix_macos::$(cat matrix_macos)"
           echo "::set-output name=matrix_windows::$(cat matrix_windows)"
-      ##TODO report errors and warnings as answer as issue comment (chat-ops)
+          echo "::set-output name=matrix_dockerimage_release::$(cat matrix_dockerimage_release)"
+          echo "::set-output name=matrix_dockerimage_debug::$(cat matrix_dockerimage_debug)"
+      ##TODO report errors and warnings as answer to issue comment (chat-ops)
       - name: Reaction confused
         if: failure() && github.event.comment
         run: |
@@ -200,13 +205,15 @@ jobs:
       matrix_ubuntu_debug: ${{steps.matrixes.outputs.matrix_ubuntu_debug}}
       matrix_macos: ${{steps.matrixes.outputs.matrix_macos}}
       matrix_windows: ${{steps.matrixes.outputs.matrix_windows}}
+      matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
+      matrix_dockerimage_debug: ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
   ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge (for development branches) and :latest (for git-tags)
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: ubuntu-20.04 #[ self-hosted, Linux ]
+    runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -293,22 +300,20 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
+        ## Docker image will be pushed with tags:
+        ##  - hash of file Dockerfile.builder
+        ##  - branchname, when branch is pushed
+        ##  - pr-NUMBER, when pushed to PR
+        ##  - git tag when tag is pushed
+        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
+        ##  - tag 'edge' when branch support/1.2.x is pushed
+        ##  - schedule, see the docs
       - uses: docker/metadata-action@v3
         name: Docker meta GHCR
         id: meta_ghcr
@@ -318,22 +323,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           images: ghcr.io/${{ github.repository }}-builder
       - name: Set up Docker Buildx
@@ -404,7 +399,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     ## Container is taken from previous job
     container: #&container
       image: ${{needs.Docker-iroha-builder.outputs.container}}
@@ -544,7 +539,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -685,7 +680,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     ## Container is taken from previous job
     container: #&container
       image: ${{needs.Docker-iroha-builder.outputs.container}}
@@ -821,7 +816,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -1096,7 +1091,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -1312,7 +1307,7 @@ jobs:
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DPACKAGE_DEB=ON
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }} -GNinja ${{ matrix.CMAKE_USE }} -DTESTING=ON -DBENCHMARKING=ON -DPACKAGE_DEB=ON
         #-DCMAKE_VERBOSE_MAKEFILE=ON
       - name: CMake build
         run: |
@@ -1340,11 +1335,13 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    # strategy: *strategy_ubuntu_release
+    # if: *if_ubuntu_release
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ).include[0] }}
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1442,22 +1439,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
@@ -1473,22 +1460,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1527,7 +1504,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+          push: ${{ steps.docker_login.outcome == 'success' && matrix.CC == 'gcc-9' }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
@@ -1546,7 +1523,7 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
   docker-D:
-    runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1644,22 +1621,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
@@ -1675,22 +1642,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
-          ## Docker image will be pushed with tags:
-          ##  - hash of file Dockerfile.builder
-          ##  - branchname, when branch is pushed
-          ##  - pr-NUMBER, when pushed to PR
-          ##  - git tag when tag is pushed
-          ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-          ##  - tag 'edge' when branch support/1.2.x is pushed
-          ##  - schedule, see the docs
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
 
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1729,7 +1686,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+          push: ${{ steps.docker_login.outcome == 'success' && matrix.CC == 'gcc-9' }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
@@ -1750,7 +1707,9 @@ jobs:
     needs:
       - build-UD
       - generate_matrixes
+    # strategy: *strategy_ubuntu_debug
+    # if: *if_ubuntu_debug
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ) }}
-    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_debug ).include[0] }}
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ).include[0] }}
