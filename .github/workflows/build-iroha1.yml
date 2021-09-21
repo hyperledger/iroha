@@ -49,7 +49,7 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
@@ -73,7 +73,7 @@ jobs:
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') }}
     steps:
       - name: Show context
@@ -104,7 +104,7 @@ jobs:
   ## - TODO on workflow_dispatch according to its build_spec
   ## - TODO all on schedule
   generate_matrixes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
@@ -206,7 +206,7 @@ jobs:
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    runs-on: ubuntu-20.04 #[ self-hosted, Linux ]
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1316,7 +1316,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    runs-on: [self-hosted, Linux] ## or ubuntu-20.04
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
@@ -1522,7 +1522,7 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
   docker-D:
-    runs-on: [self-hosted, Linux] ## or ubuntu-latest
+    runs-on: [self-hosted, Linux] ## or ubuntu-20.04
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
