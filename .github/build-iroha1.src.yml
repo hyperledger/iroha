@@ -132,7 +132,7 @@ jobs:
         if: ${{ steps.comment_body.outcome == 'skipped' }}  ## i.e. not github.event.issue.pull_request
         run: |
           set -x
-          git fetch origin ${{github.event.after}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
+          git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
           git log -1 FETCH_HEAD
           commit_message_body_build_spec(){
             git log -n1 $1 --format=%B | grep '^/build '
@@ -452,7 +452,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key:          ${{runner.os}}-ccache-${{ github.event.after }}
+          key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - &step_store_ccache_stats
         run: ccache --show-stats | tee /tmp/ccache-stats
