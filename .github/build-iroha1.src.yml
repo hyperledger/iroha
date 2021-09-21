@@ -76,8 +76,8 @@ jobs:
           set -x
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
 
+  ## Just to react to valid comment with rocket
   pr_comment_reaction_rocket:
-    ## Just to react to valid comment with rocket
     runs-on: ubuntu-20.04
     if: ${{ github.event.comment &&
           github.event.issue.pull_request &&
@@ -118,7 +118,6 @@ jobs:
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') ) }}
-    # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
       - *step_show_context
       - *step_checkout
@@ -371,7 +370,7 @@ jobs:
   ## Build iroha in a container made of the image earlier prepared
   ## Result artifacts are
   ## - stand-alone irohad (linked statically)
-  ## - iroha.deb (with irohad inside)
+  ## - iroha.deb (with irohad, migration-tool, wsv_checker inside)
   build-UD: &job_ubuntu
     needs:
       - Docker-iroha-builder
@@ -612,7 +611,7 @@ jobs:
           ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
             | tee ctest_module.out \
             || true
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:10 \
             | tee ctest_integration.out \
             || true
           tests_passed=true
