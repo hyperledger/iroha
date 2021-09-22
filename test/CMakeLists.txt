@@ -13,6 +13,7 @@ add_subdirectory(framework)
 add_subdirectory(integration)
 add_subdirectory(regression)
 add_subdirectory(system)
+add_subdirectory(tool)
 
 if(BENCHMARKING)
   add_subdirectory(benchmark)

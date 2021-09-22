@@ -61,11 +61,11 @@ DEFINE_string(block_store_path,
               "/tmp/block_store",
               "Specify path to block store");
 // NOLINTNEXTLINE
-DEFINE_string(rocksdb_path, "rocks.db", "Specify path to RocksDB");
+DEFINE_string(rocksdb_path, "", "Specify path to RocksDB");
 // NOLINTNEXTLINE
 DEFINE_bool(force, false, "override blocks in RocksDB blockstore if exist");
 // NOLINTNEXTLINE
-DEFINE_string(export,
+DEFINE_string(export_to,
               "NOEXPORT",
               "Export block store to specified directory, default CWD");
 
@@ -150,14 +150,14 @@ int export_blocks(RocksDbCommon &rdbc) {
 #endif
   CHECK_TRY_GET_VALUE(cnt, forBlocksTotalCount(rdbc));
   assert(cnt);
-  fs::create_directories(fs::absolute(FLAGS_export));
+  fs::create_directories(fs::absolute(FLAGS_export_to));
   uint64_t count = *cnt;
   uint64_t const total = count;
   while (count > 0) {
     CHECK_TRY_GET_VALUE(blkstr, forBlock(rdbc, count));
     assert(blkstr);
     auto outfilepath =
-        fs::absolute(FLAGS_export) / fmt::format("{:016}", count);
+        fs::absolute(FLAGS_export_to) / fmt::format("{:016}", count);
     auto ofs = ofstream(outfilepath);
     CHECK_RETURN_FMT(ofs.is_open(), "Failed to open file '{}'", outfilepath);
     ofs << blkstr;
@@ -278,11 +278,21 @@ expected::Result<void, std::string> restoreWsv() {
 int main(int argc, char *argv[]) try {
   gflags::SetVersionString("1.2");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  gflags::SetUsageMessage(
+      "Migration tool builds WSV from block store to rocksdb.");
 
-  if (FLAGS_export != "NOEXPORT") {  // flag_was_set("export")){
+  CHECK_RETURN_FMT(std::string(FLAGS_rocksdb_path).size() > 0,
+                   "-rocksdb_path should be set.",
+                   "");
+
+  if (FLAGS_export_to != "NOEXPORT") {  // flag_was_set("export")){
+    CHECK_RETURN_FMT(FLAGS_block_store_path == "/tmp/block_store",
+                     "-export_to cannot be used with -block_store_path",
+                     "");
     auto abs = fs::absolute(FLAGS_rocksdb_path);
     CHECK_RETURN_FMT(
         fs::exists(abs), "Path to RocksDB does not exist '{}'", abs);
+    // ToDo do not mkdir for rocksdb - readonly!
     auto rdb_port = RdbConnectionInit::init(StartupWsvDataPolicy::kReuse,
                                             RocksDbOptions{FLAGS_rocksdb_path},
                                             log_manager)
@@ -290,14 +300,23 @@ int main(int argc, char *argv[]) try {
     auto db_context_ =
         std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
     RocksDbCommon rdbc{db_context_};
+    fs::create_directories(FLAGS_block_store_path);
     return export_blocks(rdbc);
+  } else {
+    auto abs = fs::absolute(FLAGS_block_store_path);
+    CHECK_RETURN_FMT(
+        fs::exists(abs), "Path to block store does not exist '{}'", abs);
+    auto first_block_path = abs / fmt::format("{:016}", 1u);
+    CHECK_RETURN_FMT(fs::exists(first_block_path),
+                     "No first block exists under path '{}'",
+                     first_block_path);
+    auto wsv = restoreWsv();
+    CHECK_RETURN_FMT(iroha::expected::hasValue(wsv), "{}", wsv.assumeError());
+    fmt::print(
+        "Success! WSV in RocksDB was build.\nNext step check consintancy with "
+        "Postgres WSV using wsv_checker.\n");
+    return 0;
   }
-
-  auto wsv = restoreWsv();
-  if (iroha::expected::hasError(wsv))
-    throw std::runtime_error(wsv.assumeError());
-
-  return 0;
 } catch (std::exception const &ex) {
   cout << "ERROR: " << ex.what() << endl;
 }
