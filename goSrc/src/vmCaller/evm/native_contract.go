@@ -265,6 +265,16 @@ var (
 			PermFlag: permission.Call,
 			F:        getAccountAssetTransactions,
 		},
+		native.Function{
+			Comment: `
+				* @notice Subtracts asset from iroha account
+				* @param account
+				* @param permission
+				* @return 'true' if successful, 'false' otherwise
+				`,
+			PermFlag: permission.Call,
+			F:        grantPermission,
+		},
 	)
 )
 
