@@ -24,10 +24,14 @@ use crate::{
 pub struct Client {
     /// Url for accessing iroha node
     pub torii_url: String,
-    max_instruction_number: u64,
-    key_pair: KeyPair,
-    proposed_transaction_ttl_ms: u64,
-    transaction_status_timout: Duration,
+    /// Maximum number of instructions in blockchain
+    pub max_instruction_number: u64,
+    /// Accounts keypair
+    pub key_pair: KeyPair,
+    /// Transaction time to live in miliseconds
+    pub proposed_transaction_ttl_ms: u64,
+    /// Transaction status timeout
+    pub transaction_status_timeout: Duration,
     /// Current account
     pub account_id: AccountId,
 }
@@ -36,7 +40,7 @@ pub struct Client {
 impl Client {
     /// Constructor for client
     pub fn new(configuration: &Configuration) -> Self {
-        Client {
+        Self {
             torii_url: configuration.torii_api_url.clone(),
             max_instruction_number: configuration.max_instruction_number,
             key_pair: KeyPair {
@@ -44,7 +48,7 @@ impl Client {
                 private_key: configuration.private_key.clone(),
             },
             proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
-            transaction_status_timout: Duration::from_millis(
+            transaction_status_timeout: Duration::from_millis(
                 configuration.transaction_status_timeout_ms,
             ),
             account_id: configuration.account_id.clone(),
@@ -233,7 +237,7 @@ impl Client {
             .wrap_err("Failed to receive init message.")?;
         let _ = self.submit_transaction(transaction)?;
         event_receiver
-            .recv_timeout(self.transaction_status_timout)
+            .recv_timeout(self.transaction_status_timeout)
             .map_or_else(
                 |err| Err(err).wrap_err("Timeout waiting for transaction status"),
                 |result| Ok(result?),
